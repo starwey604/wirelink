@@ -1,0 +1,38 @@
+#include "wirelink/types.h"
+
+const char *wl_err_str(int err) {
+  switch (err) {
+  case WL_OK:
+    return "Success (WL_OK)";
+  case WL_ERR_INVALID_ARG:
+    return "Invalid argument (WL_ERR_INVALID_ARG)";
+  case WL_ERR_NOT_INITIALIZED:
+    return "Not initialized (WL_ERR_NOT_INITIALIZED)";
+  case WL_ERR_NOT_SUPPORTED:
+    return "Not supported (WL_ERR_NOT_SUPPORTED)";
+  case WL_ERR_NO_MEM:
+    return "Out of memory/Buffer full (WL_ERR_NO_MEM)";
+  case WL_ERR_BUF_TOO_SMALL:
+    return "Buffer too small (WL_ERR_BUF_TOO_SMALL)";
+  case WL_ERR_BAD_FRAME:
+    return "Bad frame format (WL_ERR_BAD_FRAME)";
+  case WL_ERR_COBS_DECODE:
+    return "COBS decode failed (WL_ERR_COBS_DECODE)";
+  case WL_ERR_CRC:
+    return "CRC mismatch (WL_ERR_CRC)";
+  case WL_ERR_FRAME_TOO_LONG:
+    return "Frame too long (WL_ERR_FRAME_TOO_LONG)";
+  case WL_ERR_BUSY:
+    return "Resource busy (WL_ERR_BUSY)";
+  case WL_ERR_TIMEOUT:
+    return "Transaction timeout (WL_ERR_TIMEOUT)";
+  case WL_ERR_TX_FAILED:
+    return "Transmission failed (WL_ERR_TX_FAILED)";
+  case WL_ERR_INVALID_STATE:
+    return "Invalid state (WL_ERR_INVALID_STATE)";
+  case WL_ERR_CORRUPT_PAYLOAD:
+    return "Corrupt payload (WL_ERR_CORRUPT_PAYLOAD)";
+  default:
+    return "Unknown error";
+  }
+}
