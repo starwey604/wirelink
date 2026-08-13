@@ -11,9 +11,13 @@ const char *wl_err_str(int err) {
   case WL_ERR_NOT_SUPPORTED:
     return "Not supported (WL_ERR_NOT_SUPPORTED)";
   case WL_ERR_NO_MEM:
-    return "Out of memory/Buffer full (WL_ERR_NO_MEM)";
+    return "Out of memory (WL_ERR_NO_MEM)";
   case WL_ERR_BUF_TOO_SMALL:
     return "Buffer too small (WL_ERR_BUF_TOO_SMALL)";
+  case WL_ERR_NO_SPACE:
+    return "Insufficient contiguous buffer space (WL_ERR_NO_SPACE)";
+  case WL_ERR_NO_DATA:
+    return "Insufficient readable buffer data (WL_ERR_NO_DATA)";
   case WL_ERR_BAD_FRAME:
     return "Bad frame format (WL_ERR_BAD_FRAME)";
   case WL_ERR_COBS_DECODE:

@@ -14,9 +14,12 @@ typedef enum {
   WL_ERR_NOT_SUPPORTED = -3,   /**< 不支持的功能/未知的指令 ID */
 
   /* --- 缓冲区与内存错误 (-10 ~ -19) --- */
-  WL_ERR_NO_MEM = -10, /**< 内存不足 */
+  /* WL_ERR_NO_MEM is reserved for allocation failures, not a full buffer. */
+  WL_ERR_NO_MEM = -10, /**< 内存分配失败 */
   WL_ERR_BUF_TOO_SMALL =
       -11, /**< 目标缓冲区太小，无法容纳序列化/反序列化后的数据 */
+  WL_ERR_NO_SPACE = -12, /**< 缓冲区没有足够的连续可写空间 */
+  WL_ERR_NO_DATA = -13,  /**< 缓冲区的可读数据不足 */
 
   /* --- 协议与分帧错误 (COBS/Framing) --- */
   WL_ERR_BAD_FRAME = -20,   /**< 帧格式错误 (无法找到包头包尾，或包结构非法) */
