@@ -1,0 +1,5 @@
+name: wirelink
+
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig

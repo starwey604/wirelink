@@ -1,0 +1,21 @@
+# West manifest for a standalone Wirelink development workspace.
+#
+# Usage:
+#   west init -m https://github.com/starwey604/wirelink <workspace>
+#   cd <workspace>
+#   west update
+manifest:
+  version: "1.2"
+
+  remotes:
+    - name: zephyrproject-rtos
+      url-base: https://github.com/zephyrproject-rtos
+
+  projects:
+    - name: zephyr
+      remote: zephyrproject-rtos
+      revision: v4.4.0
+      import: true
+
+  self:
+    path: wirelink

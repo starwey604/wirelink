@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Wirelink"
+
+config WIRELINK
+	bool "Enable Wirelink protocol library"
+	default y
+	help
+	  Build the platform-independent Wirelink protocol core. Transport adapters
+	  are supplied separately so the core can be shared by Zephyr, bare-metal,
+	  and other RTOS projects.
+
+endmenu
