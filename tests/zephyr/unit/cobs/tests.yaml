@@ -1,0 +1,6 @@
+tests:
+  wirelink.cobs.unit:
+    type: unit
+    tags:
+      - wirelink
+      - cobs
