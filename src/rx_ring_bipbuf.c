@@ -2,15 +2,38 @@
 
 #include "rx_ring.h"
 
+#include <stdatomic.h>
+#include <stdint.h>
 #include <string.h>
 
-#include "wirelink/bipbuf.h"
 #include "wirelink/types.h"
 
+/*
+ * RX-only SPSC BipBuffer.
+ *
+ * The producer exclusively advances write_cursor and the consumer exclusively
+ * advances read_cursor.  The opposite side only observes a cursor through an
+ * acquire load.  Consequently the byte stores preceding a producer commit are
+ * visible to the consumer, and a producer cannot reuse bytes until the
+ * consumer publishes a consume.
+ *
+ * Each cursor ranges over two buffer lengths.  The extra epoch distinguishes
+ * a full buffer from an empty one, while bounding cursor arithmetic so it
+ * remains correct after rollover for capacities that are not powers of two.
+ * All memory_size bytes are therefore usable.  A reservation or peek never
+ * crosses the physical end of the backing memory; a caller that needs more
+ * data obtains the second contiguous region with its next operation.
+ */
 typedef struct {
-  wl_bipbuf_t buffer;
+  uint8_t *memory;
+  size_t capacity;
+  _Atomic size_t read_cursor;
+  _Atomic size_t write_cursor;
+
+  /* Producer-private reservation state. */
+  size_t reservation_cursor;
+  size_t reservation_length;
   uint8_t reservation_active;
-  uint8_t reservation_wrapped;
 } wl_rx_bipbuf_state_t;
 
 _Static_assert(sizeof(wl_rx_bipbuf_state_t) <= WL_RX_RING_STATE_SIZE,
@@ -25,6 +48,40 @@ static const wl_rx_bipbuf_state_t *rx_state_const(
   return (const wl_rx_bipbuf_state_t *)(const void *)state->bytes;
 }
 
+static size_t cursor_physical(size_t capacity, size_t cursor) {
+  return cursor < capacity ? cursor : cursor - capacity;
+}
+
+static size_t cursor_distance(size_t period, size_t from, size_t to) {
+  return to >= from ? to - from : period - from + to;
+}
+
+static size_t cursor_advance(size_t period, size_t cursor, size_t length) {
+  return length >= period - cursor ? length - (period - cursor)
+                                   : cursor + length;
+}
+
+static size_t contiguous_length(size_t capacity, size_t cursor,
+                                size_t available) {
+  const size_t to_end = capacity - cursor_physical(capacity, cursor);
+  return available < to_end ? available : to_end;
+}
+
+static size_t readable_snapshot(const wl_rx_bipbuf_state_t *backend,
+                                size_t *out_read_cursor) {
+  const size_t read_cursor =
+      atomic_load_explicit(&backend->read_cursor, memory_order_relaxed);
+  const size_t write_cursor =
+      atomic_load_explicit(&backend->write_cursor, memory_order_acquire);
+  const size_t readable =
+      cursor_distance(backend->capacity * 2U, read_cursor, write_cursor);
+
+  if (out_read_cursor != NULL) {
+    *out_read_cursor = read_cursor;
+  }
+  return readable <= backend->capacity ? readable : 0U;
+}
+
 size_t wl_rx_ring_storage_size(size_t usable_capacity) {
   return usable_capacity;
 }
@@ -33,95 +90,161 @@ int wl_rx_ring_init(wl_rx_ring_state_t *state, uint8_t *memory,
                     size_t memory_size) {
   wl_rx_bipbuf_state_t *backend;
 
-  if (state == NULL || memory == NULL || memory_size == 0U) {
+  if (state == NULL || memory == NULL || memory_size == 0U ||
+      memory_size > SIZE_MAX / 2U) {
     return WL_ERR_INVALID_ARG;
   }
 
   memset(state, 0, sizeof(*state));
   backend = rx_state(state);
-  return wl_bb_init(&backend->buffer, memory, memory_size);
+  backend->memory = memory;
+  backend->capacity = memory_size;
+  atomic_init(&backend->read_cursor, 0U);
+  atomic_init(&backend->write_cursor, 0U);
+
+  if (!atomic_is_lock_free(&backend->read_cursor) ||
+      !atomic_is_lock_free(&backend->write_cursor)) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return WL_OK;
 }
 
 int wl_rx_ring_producer_reserve(wl_rx_ring_state_t *state,
                                 wl_span_t *out_span) {
   wl_rx_bipbuf_state_t *backend;
-  wl_span_t tail;
-  wl_span_t wrapped;
+  size_t read_cursor;
+  size_t write_cursor;
+  size_t readable;
+  size_t free_space;
 
   if (state == NULL || out_span == NULL) {
     return WL_ERR_INVALID_ARG;
   }
   backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (backend->reservation_active != 0U) {
     return WL_ERR_INVALID_STATE;
   }
 
-  tail = wl_bb_get_write_buf(&backend->buffer);
-  wrapped = wl_bb_get_write_buf_force_wrap(&backend->buffer);
-  if (wrapped.length > tail.length) {
-    *out_span = wrapped;
-    backend->reservation_wrapped = 1U;
-  } else {
-    *out_span = tail;
-    backend->reservation_wrapped = 0U;
+  write_cursor =
+      atomic_load_explicit(&backend->write_cursor, memory_order_relaxed);
+  read_cursor =
+      atomic_load_explicit(&backend->read_cursor, memory_order_acquire);
+  readable = cursor_distance(backend->capacity * 2U, read_cursor,
+                             write_cursor);
+  if (readable > backend->capacity) {
+    return WL_ERR_INVALID_STATE;
   }
+
+  free_space = backend->capacity - readable;
+  backend->reservation_cursor = write_cursor;
+  backend->reservation_length =
+      contiguous_length(backend->capacity, write_cursor, free_space);
   backend->reservation_active = 1U;
+  out_span->data =
+      backend->memory + cursor_physical(backend->capacity, write_cursor);
+  out_span->length = backend->reservation_length;
   return WL_OK;
 }
 
 int wl_rx_ring_producer_commit(wl_rx_ring_state_t *state, size_t length) {
   wl_rx_bipbuf_state_t *backend;
-  bool advanced;
 
   if (state == NULL) {
     return WL_ERR_INVALID_ARG;
   }
   backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (backend->reservation_active == 0U) {
     return WL_ERR_INVALID_STATE;
   }
-
-  if (backend->reservation_wrapped != 0U) {
-    advanced = wl_bb_advance_write_index_wrapped(&backend->buffer, length);
-  } else {
-    advanced = wl_bb_advance_write_index(&backend->buffer, length);
+  if (length > backend->reservation_length) {
+    return WL_ERR_INVALID_ARG;
   }
+
+  atomic_store_explicit(&backend->write_cursor,
+                        cursor_advance(backend->capacity * 2U,
+                                       backend->reservation_cursor, length),
+                        memory_order_release);
+  backend->reservation_cursor = 0U;
+  backend->reservation_length = 0U;
   backend->reservation_active = 0U;
-  backend->reservation_wrapped = 0U;
-  return advanced ? WL_OK : WL_ERR_INVALID_ARG;
+  return WL_OK;
 }
 
 size_t wl_rx_ring_readable(const wl_rx_ring_state_t *state) {
+  const wl_rx_bipbuf_state_t *backend;
+
   if (state == NULL) {
     return 0U;
   }
-  return wl_bb_readable_bytes(&rx_state_const(state)->buffer);
+  backend = rx_state_const(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return 0U;
+  }
+  return readable_snapshot(backend, NULL);
 }
 
 wl_span_t wl_rx_ring_consumer_peek(wl_rx_ring_state_t *state) {
+  wl_rx_bipbuf_state_t *backend;
+  size_t read_cursor;
+  size_t readable;
+
   if (state == NULL) {
     return (wl_span_t){NULL, 0U};
   }
-  return wl_bb_get_contiguous_read_buf(&rx_state(state)->buffer);
+  backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return (wl_span_t){NULL, 0U};
+  }
+
+  readable = readable_snapshot(backend, &read_cursor);
+  if (readable == 0U) {
+    return (wl_span_t){NULL, 0U};
+  }
+  return (wl_span_t){
+      backend->memory + cursor_physical(backend->capacity, read_cursor),
+      contiguous_length(backend->capacity, read_cursor, readable)};
 }
 
 int wl_rx_ring_consumer_find(const wl_rx_ring_state_t *state, uint8_t value,
                              size_t *out_offset) {
   const wl_rx_bipbuf_state_t *backend;
+  size_t read_cursor;
   size_t readable;
-  uint8_t byte;
+  size_t first_length;
+  const uint8_t *match;
 
   if (state == NULL || out_offset == NULL) {
     return WL_ERR_INVALID_ARG;
   }
   backend = rx_state_const(state);
-  readable = wl_bb_readable_bytes(&backend->buffer);
-  for (size_t i = 0U; i < readable; ++i) {
-    if (wl_bb_peek((wl_bipbuf_t *)&backend->buffer, &byte, i, 1U) != WL_OK) {
-      return WL_ERR_INVALID_STATE;
-    }
-    if (byte == value) {
-      *out_offset = i;
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+
+  readable = readable_snapshot(backend, &read_cursor);
+  first_length = contiguous_length(backend->capacity, read_cursor, readable);
+  match = memchr(backend->memory +
+                     cursor_physical(backend->capacity, read_cursor),
+                 value, first_length);
+  if (match != NULL) {
+    *out_offset =
+        (size_t)(match -
+                 (backend->memory +
+                  cursor_physical(backend->capacity, read_cursor)));
+    return WL_OK;
+  }
+
+  if (first_length < readable) {
+    const size_t second_length = readable - first_length;
+    match = memchr(backend->memory, value, second_length);
+    if (match != NULL) {
+      *out_offset = first_length + (size_t)(match - backend->memory);
       return WL_OK;
     }
   }
@@ -131,17 +254,58 @@ int wl_rx_ring_consumer_find(const wl_rx_ring_state_t *state, uint8_t value,
 int wl_rx_ring_consumer_copy(const wl_rx_ring_state_t *state, size_t offset,
                              uint8_t *output, size_t length) {
   const wl_rx_bipbuf_state_t *backend;
+  size_t read_cursor;
+  size_t readable;
+  size_t cursor;
+  size_t first_length;
 
   if (state == NULL || (output == NULL && length != 0U)) {
     return WL_ERR_INVALID_ARG;
   }
   backend = rx_state_const(state);
-  return wl_bb_peek((wl_bipbuf_t *)&backend->buffer, output, offset, length);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+
+  readable = readable_snapshot(backend, &read_cursor);
+  if (offset > readable || length > readable - offset) {
+    return WL_ERR_NO_DATA;
+  }
+  if (length == 0U) {
+    return WL_OK;
+  }
+
+  cursor = cursor_advance(backend->capacity * 2U, read_cursor, offset);
+  first_length = contiguous_length(backend->capacity, cursor, length);
+  memcpy(output,
+         backend->memory + cursor_physical(backend->capacity, cursor),
+         first_length);
+  if (first_length < length) {
+    memcpy(output + first_length, backend->memory, length - first_length);
+  }
+  return WL_OK;
 }
 
 int wl_rx_ring_consumer_consume(wl_rx_ring_state_t *state, size_t length) {
+  wl_rx_bipbuf_state_t *backend;
+  size_t read_cursor;
+  size_t readable;
+
   if (state == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  return wl_bb_discard(&rx_state(state)->buffer, length);
+  backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+
+  readable = readable_snapshot(backend, &read_cursor);
+  if (length > readable) {
+    return WL_ERR_NO_DATA;
+  }
+  atomic_store_explicit(&backend->read_cursor,
+                        cursor_advance(backend->capacity * 2U, read_cursor,
+                                       length),
+                        memory_order_release);
+  return WL_OK;
 }

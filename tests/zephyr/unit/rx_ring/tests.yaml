@@ -1,0 +1,6 @@
+tests:
+  wirelink.rx_ring.unit:
+    type: unit
+    tags:
+      - wirelink
+      - rx_ring
