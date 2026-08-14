@@ -36,6 +36,18 @@ static void init_ctx_and_sink(struct test_sink_capture *cap, wl_ctx_t *ctx,
                              uint8_t *rx_mem, size_t rx_len,
                              uint8_t *tx_mem, size_t tx_len,
                              wl_sink_result_t *script, size_t script_len) {
+  static uint8_t control_mem[WL_FRAME_MAX_COBS_LEN];
+  static uint8_t stream_mem[WL_FRAME_MAX_COBS_LEN];
+  wl_storage_t storage = {
+    .tx_unit = tx_mem,
+    .tx_unit_size = tx_len,
+    .control_unit = control_mem,
+    .control_unit_size = sizeof(control_mem),
+    .rx_event_payload = rx_mem,
+    .rx_event_payload_size = rx_len,
+    .rx_stream = stream_mem,
+    .rx_stream_size = sizeof(stream_mem),
+  };
   (void)default_token;
 
   memset(cap, 0, sizeof(*cap));
@@ -53,8 +65,7 @@ static void init_ctx_and_sink(struct test_sink_capture *cap, wl_ctx_t *ctx,
   }
   cap->script_len = (script_len > 8U) ? 8U : script_len;
 
-  zassert_ok(wl_init(ctx, cfg, (uint8_t *)rx_mem, rx_len,
-                     (uint8_t *)tx_mem, tx_len));
+  zassert_ok(wl_init(ctx, cfg, &storage));
   zassert_ok(wl_set_sink(ctx, test_sink_fn, cap));
 }
 

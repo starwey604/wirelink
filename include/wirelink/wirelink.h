@@ -59,6 +59,7 @@ typedef wl_sink_result_t (*wl_sink_fn)(void *user_data, wl_io_token_t token,
                                        const uint8_t *data, size_t len);
 
 typedef struct {
+  /* Deprecated compatibility hints; storage capacities are authoritative. */
   size_t rx_buf_size;
   size_t tx_buf_size;
   uint16_t max_payload_len;
@@ -67,13 +68,42 @@ typedef struct {
   uint64_t session_id;
   uint16_t max_retries;
   uint32_t ack_timeout_ms;
+  size_t max_transmission_unit;
 } wl_config_t;
+
+/* All long-lived protocol bytes are supplied by the application. */
+typedef struct {
+  uint8_t *tx_unit;
+  size_t tx_unit_size;
+  uint8_t *control_unit;
+  size_t control_unit_size;
+  uint8_t *rx_event_payload;
+  size_t rx_event_payload_size;
+  uint8_t *rx_stream;
+  size_t rx_stream_size;
+} wl_storage_t;
+
+typedef struct {
+  size_t tx_unit_size;
+  size_t control_unit_size;
+  size_t rx_event_payload_size;
+  size_t rx_stream_size;
+} wl_storage_requirements_t;
+
+typedef struct {
+  uint32_t malformed;
+  uint32_t bad_integrity;
+  uint32_t overflow;
+  uint32_t duplicate;
+  uint32_t unsupported;
+} wl_rx_counters_t;
 
 typedef struct wl_ctx {
   wl_bipbuf_t rx_fifo;
   wl_bipbuf_t tx_fifo;
 
   const wl_config_t *config;
+  wl_storage_t storage;
 
   wl_sink_fn sink;
   void *sink_user_data;
@@ -101,23 +131,27 @@ typedef struct wl_ctx {
   uint8_t has_event;
   uint8_t in_callback;
   uint8_t in_flight_reliable;
+  uint8_t control_pending;
+  size_t control_len;
+  uint8_t rx_event_leased;
+  uint32_t rx_event_generation;
+  wl_rx_counters_t rx_counters;
 
   wl_time_ms_t now_ms;
 
-  uint8_t cobs_accum[WL_FRAME_MAX_COBS_LEN];
   size_t cobs_accum_len;
   uint8_t cobs_overflow;
 
   wl_span_t rx_payload;
-  uint8_t rx_payload_storage[WL_FRAME_MAX_PAYLOAD];
-
   wl_span_t tx_payload;
-  uint8_t tx_payload_storage[WL_FRAME_MAX_PAYLOAD];
 } wl_ctx_t;
 
-int wl_init(wl_ctx_t *ctx, const wl_config_t *config, uint8_t *rx_mem,
-            size_t rx_mem_size, uint8_t *tx_mem, size_t tx_mem_size);
+int wl_config_requirements(const wl_config_t *config,
+                           wl_storage_requirements_t *out_requirements);
+int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
+            const wl_storage_t *storage);
 int wl_set_sink(wl_ctx_t *ctx, wl_sink_fn sink, void *user_data);
+int wl_rx_get_counters(const wl_ctx_t *ctx, wl_rx_counters_t *out_counters);
 
 int wl_send_unreliable(wl_ctx_t *ctx, uint16_t cmd_id, const uint8_t *payload,
                        size_t payload_len);

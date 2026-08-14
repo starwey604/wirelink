@@ -58,6 +58,15 @@ drivers. The repository is a Zephyr module through `zephyr/module.yml`:
 This keeps the same protocol implementation usable in bare-metal, other RTOS,
 and desktop applications.
 
+## Core storage contract
+
+The v1 core has one application TX slot, one control/ACK TX slot, and one RX
+event slot. `wl_init()` receives a `wl_storage_t`; its buffers remain owned by
+the caller and must outlive the context. Use `wl_config_requirements()` before
+allocation to obtain the exact worst-case buffer sizes for the configured
+profile. A profile's `max_transmission_unit`, when nonzero, must accommodate
+the complete envelope including COBS delimiters or a length prefix.
+
 ## Test layers
 
 - `tests/zephyr/unit/`: Twister `type: unit` tests using the host-native

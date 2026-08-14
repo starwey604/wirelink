@@ -53,7 +53,15 @@ int wl_feed_recover_reset(wl_ctx_t *ctx) {
   }
   ctx->cobs_accum_len = 0;
   ctx->cobs_overflow = 0;
-  return wl_bb_reset(&ctx->rx_fifo);
+  return WL_OK;
+}
+
+int wl_rx_get_counters(const wl_ctx_t *ctx, wl_rx_counters_t *out_counters) {
+  if (ctx == NULL || out_counters == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  *out_counters = ctx->rx_counters;
+  return WL_OK;
 }
 
 void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event) {

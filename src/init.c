@@ -2,11 +2,30 @@
 
 #include <string.h>
 
+#include "wirelink/cobs.h"
 #include "wirelink/wirelink.h"
 
-int wl_init(wl_ctx_t *ctx, const wl_config_t *config, uint8_t *rx_mem,
-            size_t rx_mem_size, uint8_t *tx_mem, size_t tx_mem_size) {
-  if (ctx == NULL || config == NULL || rx_mem == NULL || tx_mem == NULL) {
+static size_t wl_max_unit_size(const wl_config_t *config) {
+  const size_t raw = wl_frame_raw_size(config->max_payload_len, config->integrity);
+  if (raw == 0U) {
+    return 0U;
+  }
+  switch (config->envelope) {
+  case WL_ENVELOPE_COBS_STREAM:
+    return wl_cobs_encoded_max_size(raw) + 1U;
+  case WL_ENVELOPE_BUS_LENGTH16:
+    return raw + 2U;
+  case WL_ENVELOPE_NATIVE_PACKET:
+  default:
+    return raw;
+  }
+}
+
+int wl_config_requirements(const wl_config_t *config,
+                           wl_storage_requirements_t *out_requirements) {
+  size_t unit;
+  size_t control;
+  if (config == NULL || out_requirements == NULL) {
     return WL_ERR_INVALID_ARG;
   }
   if (config->max_payload_len == 0U ||
@@ -22,16 +41,42 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config, uint8_t *rx_mem,
   if (config->session_id == 0ULL) {
     return WL_ERR_INVALID_ARG;
   }
-
-  if (wl_bb_init(&ctx->rx_fifo, rx_mem, rx_mem_size) != WL_OK) {
-    return WL_ERR_INVALID_STATE;
+  unit = wl_max_unit_size(config);
+  control = wl_frame_encode_overhead(config->envelope, config->integrity);
+  if (unit == 0U || control == 0U ||
+      (config->max_transmission_unit != 0U &&
+       config->max_transmission_unit < unit)) {
+    return WL_ERR_INVALID_ARG;
   }
-  if (wl_bb_init(&ctx->tx_fifo, tx_mem, tx_mem_size) != WL_OK) {
-    return WL_ERR_INVALID_STATE;
+  out_requirements->tx_unit_size = unit;
+  out_requirements->control_unit_size = control;
+  out_requirements->rx_event_payload_size = config->max_payload_len;
+  out_requirements->rx_stream_size =
+      (config->envelope == WL_ENVELOPE_COBS_STREAM) ? unit - 1U : 0U;
+  return WL_OK;
+}
+
+int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
+            const wl_storage_t *storage) {
+  wl_storage_requirements_t requirements;
+  if (ctx == NULL || storage == NULL ||
+      wl_config_requirements(config, &requirements) != WL_OK) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (storage->tx_unit == NULL || storage->control_unit == NULL ||
+      storage->rx_event_payload == NULL ||
+      storage->tx_unit_size < requirements.tx_unit_size ||
+      storage->control_unit_size < requirements.control_unit_size ||
+      storage->rx_event_payload_size < requirements.rx_event_payload_size ||
+      (requirements.rx_stream_size != 0U &&
+       (storage->rx_stream == NULL ||
+        storage->rx_stream_size < requirements.rx_stream_size))) {
+    return WL_ERR_BUF_TOO_SMALL;
   }
 
   memset(ctx, 0, sizeof(*ctx));
   ctx->config = config;
+  ctx->storage = *storage;
   ctx->tx_retries_max =
       (config->max_retries != 0U) ? config->max_retries : 0U;
   ctx->tx_retries_left = ctx->tx_retries_max;
@@ -46,11 +91,8 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config, uint8_t *rx_mem,
   ctx->tx_retry_sequence = 0U;
   ctx->tx_waiting_seq = 0U;
   ctx->tx_wait_state = WL_TX_WAIT_NONE;
-  ctx->cobs_accum_len = 0;
-  ctx->cobs_overflow = 0;
-  ctx->tx_payload = (wl_span_t){ctx->tx_payload_storage, 0U};
-  memset(ctx->rx_payload_storage, 0, sizeof(ctx->rx_payload_storage));
-  memset(ctx->tx_payload_storage, 0, sizeof(ctx->tx_payload_storage));
+  ctx->tx_payload = (wl_span_t){storage->tx_unit, 0U};
+  ctx->rx_payload = (wl_span_t){storage->rx_event_payload, 0U};
 
   return WL_OK;
 }

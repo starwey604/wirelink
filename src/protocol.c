@@ -87,7 +87,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
       ctx->tx_wait_state = WL_TX_WAIT_NONE;
       ctx->tx_waiting_seq = 0U;
       ctx->tx_retries_left = 0U;
-      memset(ctx->tx_payload_storage, 0, sizeof(ctx->tx_payload_storage));
+      memset(ctx->storage.tx_unit, 0, ctx->storage.tx_unit_size);
       ctx->tx_payload.length = 0U;
       ctx->tx_current_reliable = 0U;
       ctx->tx_last_cmd_id = 0U;
@@ -121,7 +121,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
     ctx->tx_current_reliable = 0U;
     ctx->tx_last_cmd_id = 0U;
     ctx->tx_last_flags = 0U;
-    memset(ctx->tx_payload_storage, 0, sizeof(ctx->tx_payload_storage));
+    memset(ctx->storage.tx_unit, 0, ctx->storage.tx_unit_size);
     ctx->tx_payload.length = 0U;
     return wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, ctx->tx_handle);
   }
@@ -139,11 +139,11 @@ static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   ctx->tx_last_flags = pkt->flags;
   ctx->tx_retry_sequence = pkt->sequence;
   ctx->tx_current_reliable = reliable;
-  ctx->tx_payload.data = ctx->tx_payload_storage;
+  ctx->tx_payload.data = ctx->storage.tx_unit;
   ctx->tx_payload.length = pkt->payload_len;
 
   if (pkt->payload_len != 0U) {
-    memcpy(ctx->tx_payload_storage, pkt->payload, pkt->payload_len);
+    memcpy(ctx->storage.tx_unit, pkt->payload, pkt->payload_len);
   }
 }
 
@@ -301,7 +301,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     return WL_ERR_REENTRANT;
   }
 
-  if (pkt->payload_len > sizeof(ctx->tx_payload_storage)) {
+  if (pkt->payload_len > ctx->config->max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
 
@@ -326,7 +326,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     ctx->tx_waiting_seq = 0U;
     ctx->tx_wait_state = WL_TX_WAIT_NONE;
     ctx->tx_retries_left = 0U;
-    memset(ctx->tx_payload_storage, 0, sizeof(ctx->tx_payload_storage));
+    memset(ctx->storage.tx_unit, 0, ctx->storage.tx_unit_size);
     ctx->tx_payload.length = 0U;
     ctx->tx_last_cmd_id = 0U;
     ctx->tx_last_flags = 0U;
@@ -482,7 +482,7 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
 
       uint8_t decoded[WL_FRAME_MAX_COBS_LEN];
       size_t decoded_len = 0;
-      int ret = wl_cobs_decode(ctx->cobs_accum, ctx->cobs_accum_len, decoded,
+      int ret = wl_cobs_decode(ctx->storage.rx_stream, ctx->cobs_accum_len, decoded,
                                sizeof(decoded), &decoded_len);
       if (ret == WL_OK) {
         (void)wl_feed_parse_wire(ctx, decoded, decoded_len);
@@ -492,8 +492,8 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
     }
 
     if (!ctx->cobs_overflow) {
-      if (ctx->cobs_accum_len < sizeof(ctx->cobs_accum)) {
-        ctx->cobs_accum[ctx->cobs_accum_len++] = byte;
+      if (ctx->cobs_accum_len < ctx->storage.rx_stream_size) {
+        ctx->storage.rx_stream[ctx->cobs_accum_len++] = byte;
       } else {
         ctx->cobs_overflow = 1;
       }
