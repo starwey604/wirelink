@@ -112,9 +112,9 @@ wl_err_t wl_frame_validate_header(const wl_frame_header_t *hdr) {
     }
     break;
   case WL_PACKET_NACK:
-    return WL_ERR_BAD_FRAME;
+    return WL_ERR_NOT_SUPPORTED;
   default:
-    return WL_ERR_BAD_FRAME;
+    return WL_ERR_NOT_SUPPORTED;
   }
 
   return WL_OK;

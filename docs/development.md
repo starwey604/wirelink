@@ -79,6 +79,13 @@ backpressure and reliable DATA is not ACKed. Malformed, integrity-failing,
 overflowed, duplicate, and unsupported packets are observable through the RX
 counter query rather than as application events.
 
+Reliable TX handles contain a slot-generation value. A terminal reliable
+transaction remains queryable until `wl_tx_take()` returns its result, after
+which the old handle is invalid. The ACK timer starts only once the local sink
+reports completion; retries are counted separately from the initial send.
+Reliable RX deduplicates the most recent `(session_id, sequence)` and re-ACKs
+duplicates without emitting another event.
+
 ## Test layers
 
 - `tests/zephyr/unit/`: Twister `type: unit` tests using the host-native

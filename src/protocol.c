@@ -127,7 +127,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
     ctx->tx_last_flags = 0U;
     memset(ctx->storage.tx_payload, 0, ctx->storage.tx_payload_size);
     ctx->tx_payload.length = 0U;
-    return wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, ctx->tx_handle);
+    return wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, 0U);
   }
 
   if (sink_result == WL_SINK_FAILED) {
@@ -163,6 +163,12 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
   if (ctx->tx_token != token) {
     return WL_ERR_NOT_FOUND;
   }
+  if (ctx->tx_cancel_requested != 0U) {
+    ctx->tx_inflight = 0U;
+    ctx->in_flight_reliable = 0U;
+    ctx->tx_cancel_requested = 0U;
+    return WL_OK;
+  }
   if (ctx->tx_state != WL_TX_STATE_SENDING) {
     return WL_OK;
   }
@@ -171,11 +177,12 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
     if (ctx->in_flight_reliable) {
       ctx->tx_state = WL_TX_STATE_WAITING_ACK;
       ctx->tx_wait_state = WL_TX_WAIT_ACK;
+      ctx->tx_start_ts = ctx->now_ms;
     } else {
       ctx->tx_state = WL_TX_STATE_SUCCESS;
       ctx->tx_wait_state = WL_TX_WAIT_NONE;
       ctx->tx_waiting_seq = 0U;
-      (void)wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, ctx->tx_handle);
+      (void)wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, 0U);
     }
     ctx->tx_inflight = 0;
     ctx->in_flight_reliable = 0U;
@@ -185,28 +192,25 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
 
   if (ctx->in_flight_reliable) {
     if (ctx->tx_retries_left != 0U) {
+      ctx->tx_inflight = 0U;
       int retry = wl_send_tx_payload(ctx, 1U);
-      if (retry == WL_ERR_WOULD_BLOCK) {
-        ctx->tx_state = WL_TX_STATE_WAITING_ACK;
-        ctx->tx_wait_state = WL_TX_WAIT_ACK;
-        ctx->tx_start_ts = ctx->now_ms;
-        return WL_OK;
-      }
       if (retry == WL_OK) {
-        ctx->tx_wait_state = WL_TX_WAIT_ACK;
         ctx->tx_retries_left--;
+        ctx->tx_retries_used++;
         return WL_OK;
       }
       ctx->tx_state = WL_TX_STATE_FAILED;
       ctx->tx_wait_state = WL_TX_WAIT_NONE;
       ctx->tx_waiting_seq = 0U;
-      (void)wl_push_event(ctx, WL_EVT_TX_TIMEOUT, 0U, NULL, 0U, ctx->tx_handle);
+      ctx->tx_result_code = WL_ERR_IO;
+      (void)wl_push_event(ctx, WL_EVT_TX_FAILED, 0U, NULL, 0U, ctx->tx_handle);
       return WL_OK;
     }
     ctx->tx_state = WL_TX_STATE_FAILED;
     ctx->tx_wait_state = WL_TX_WAIT_NONE;
     ctx->tx_waiting_seq = 0U;
-    (void)wl_push_event(ctx, WL_EVT_TX_TIMEOUT, 0U, NULL, 0U, ctx->tx_handle);
+    ctx->tx_result_code = WL_ERR_IO;
+    (void)wl_push_event(ctx, WL_EVT_TX_FAILED, 0U, NULL, 0U, ctx->tx_handle);
   } else {
     ctx->tx_state = WL_TX_STATE_IDLE;
   }
@@ -309,6 +313,7 @@ static int wl_handle_ack(wl_ctx_t *ctx, const wl_frame_view_t *view) {
   ctx->tx_wait_state = WL_TX_WAIT_NONE;
   ctx->tx_waiting_seq = 0U;
   ctx->tx_retries_left = 0U;
+  ctx->tx_result_code = WL_OK;
   return wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, ctx->tx_handle);
 }
 
@@ -330,10 +335,9 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   if (pkt->payload_len > ctx->config->max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
-  if (ctx->tx_wait_state == WL_TX_WAIT_ACK) {
-    return WL_ERR_BUSY;
-  }
-  if (ctx->tx_inflight || ctx->tx_queued) {
+  if (ctx->tx_wait_state == WL_TX_WAIT_ACK || ctx->tx_handle != 0U ||
+      ctx->tx_inflight != 0U ||
+      ctx->tx_queued != 0U) {
     return WL_ERR_BUSY;
   }
   if (ctx->in_callback) {
@@ -346,19 +350,25 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
 
   wl_prepare_tx_payload(ctx, pkt, reliable);
 
-  generated_handle = ctx->tx_next_handle;
-  ctx->tx_next_handle++;
-  if (ctx->tx_next_handle == 0U) {
-    ctx->tx_next_handle = 1U;
+  generated_handle = 0U;
+  if (reliable != 0U) {
+    ctx->tx_generation++;
+    if (ctx->tx_generation == 0U) {
+      ctx->tx_generation = 1U;
+    }
+    generated_handle = ((uint32_t)ctx->tx_generation << 16U) | 1U;
+    ctx->tx_handle = generated_handle;
   }
-  ctx->tx_handle = generated_handle;
   ctx->tx_waiting_seq = reliable ? pkt->sequence : 0U;
   ctx->tx_wait_state = WL_TX_WAIT_NONE;
   ctx->tx_retries_left = reliable ? ctx->tx_retries_max : 0U;
+  ctx->tx_retries_used = 0U;
 
   int ret = wl_send_tx_payload(ctx, 0U);
   if (ret != WL_OK) {
-    ctx->tx_handle = 0U;
+    if (reliable != 0U) {
+      ctx->tx_handle = 0U;
+    }
     if (out_handle != NULL) {
       *out_handle = 0U;
     }
@@ -375,8 +385,8 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   }
 
   if (reliable) {
-    ctx->tx_start_ts = ctx->now_ms;
     ctx->tx_waiting_seq = pkt->sequence;
+    ctx->tx_result_code = WL_ERR_BUSY;
   }
 
   if (out_handle != NULL) {
@@ -393,6 +403,9 @@ int wl_send_unreliable(wl_ctx_t *ctx, uint16_t cmd_id, const uint8_t *payload,
 
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->tx_sequence == UINT32_MAX) {
+    return WL_ERR_INVALID_STATE;
   }
 
   memset(&pkt, 0, sizeof(pkt));
@@ -412,6 +425,9 @@ int wl_send_reliable(wl_ctx_t *ctx, uint16_t cmd_id, const uint8_t *payload,
 
   if (ctx == NULL || out_handle == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->tx_sequence == UINT32_MAX) {
+    return WL_ERR_INVALID_STATE;
   }
 
   memset(&pkt, 0, sizeof(pkt));
@@ -440,6 +456,8 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
   if (ret != WL_OK) {
     if (ret == WL_ERR_CRC) {
       ctx->rx_counters.bad_integrity++;
+    } else if (ret == WL_ERR_NOT_SUPPORTED) {
+      ctx->rx_counters.unsupported++;
     } else {
       ctx->rx_counters.malformed++;
     }
@@ -453,11 +471,20 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
   switch (view.type) {
   case WL_PACKET_DATA:
     if ((view.flags & WL_PACKET_FLAG_RELIABLE) != 0U) {
+      if (ctx->rx_have_reliable != 0U &&
+          ctx->rx_session_id == view.session_id &&
+          ctx->seq_recv == view.sequence) {
+        ctx->rx_counters.duplicate++;
+        return wl_send_ack(ctx, &view);
+      }
       ret = wl_push_event(ctx, WL_EVT_RELIABLE_RX, view.cmd_id, view.payload.data,
                           view.payload.length, 0U);
       if (ret != WL_OK) {
         return ret;
       }
+      ctx->rx_session_id = view.session_id;
+      ctx->seq_recv = view.sequence;
+      ctx->rx_have_reliable = 1U;
       return wl_send_ack(ctx, &view);
     }
     return wl_push_event(ctx, WL_EVT_UNRELIABLE_RX, view.cmd_id, view.payload.data,
@@ -465,7 +492,8 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
   case WL_PACKET_ACK:
     return wl_handle_ack(ctx, &view);
   case WL_PACKET_NACK:
-    return WL_ERR_BAD_FRAME;
+    ctx->rx_counters.unsupported++;
+    return WL_ERR_NOT_SUPPORTED;
   default:
     return WL_OK;
   }
@@ -583,7 +611,7 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
     (void)wl_send_tx_payload(ctx, 0U);
   }
 
-  if (ctx->tx_state == WL_TX_STATE_WAITING_ACK &&
+  if (ctx->control_pending == 0U && ctx->tx_state == WL_TX_STATE_WAITING_ACK &&
       ctx->config != NULL && ctx->config->ack_timeout_ms != 0U) {
     wl_time_ms_t timeout_ms = now_ms - ctx->tx_start_ts;
     if (timeout_ms >= ctx->config->ack_timeout_ms) {
@@ -591,23 +619,22 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
         ctx->tx_state = WL_TX_STATE_FAILED;
         ctx->tx_wait_state = WL_TX_WAIT_NONE;
         ctx->tx_waiting_seq = 0U;
+        ctx->tx_result_code = WL_ERR_TIMEOUT;
         (void)wl_push_event(ctx, WL_EVT_TX_TIMEOUT, 0U, NULL, 0U, ctx->tx_handle);
       } else {
         int retry = wl_send_tx_payload(ctx, 1U);
-        if (retry == WL_ERR_WOULD_BLOCK) {
-          ctx->tx_state = WL_TX_STATE_WAITING_ACK;
-          ctx->tx_wait_state = WL_TX_WAIT_ACK;
-          ctx->tx_start_ts = now_ms;
-        } else if (retry == WL_OK) {
+        if (retry == WL_OK) {
           ctx->tx_retries_left--;
-          ctx->tx_state = WL_TX_STATE_WAITING_ACK;
-          ctx->tx_wait_state = WL_TX_WAIT_ACK;
-          ctx->tx_start_ts = now_ms;
+          ctx->tx_retries_used++;
+          if (ctx->tx_state == WL_TX_STATE_WAITING_ACK) {
+            ctx->tx_start_ts = now_ms;
+          }
         } else {
           ctx->tx_state = WL_TX_STATE_FAILED;
           ctx->tx_wait_state = WL_TX_WAIT_NONE;
           ctx->tx_waiting_seq = 0U;
-          (void)wl_push_event(ctx, WL_EVT_TX_TIMEOUT, 0U, NULL, 0U,
+          ctx->tx_result_code = WL_ERR_IO;
+          (void)wl_push_event(ctx, WL_EVT_TX_FAILED, 0U, NULL, 0U,
                              ctx->tx_handle);
         }
       }
@@ -620,9 +647,9 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
 
   *out_event = ctx->event;
   ctx->has_event = 0;
-
-  if (out_event->type == WL_EVT_TX_SUCCESS || out_event->type == WL_EVT_TX_TIMEOUT) {
-    ctx->tx_state = WL_TX_STATE_IDLE;
+  if (out_event->type == WL_EVT_UNRELIABLE_RX ||
+      out_event->type == WL_EVT_RELIABLE_RX) {
+    ctx->rx_event_leased = 1U;
   }
 
   return WL_OK;

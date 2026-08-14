@@ -106,7 +106,7 @@ ZTEST(wirelink_frame_unit, test_nack_packet_is_rejected)
 
   encoded[4] = WL_PACKET_NACK;
   zassert_equal(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_NONE, &view),
-                WL_ERR_BAD_FRAME);
+                WL_ERR_NOT_SUPPORTED);
 }
 
 ZTEST(wirelink_frame_unit, test_crc16_tamper_detection)

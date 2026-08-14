@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 typedef uint32_t wl_time_ms_t;
-typedef uint16_t wl_tx_handle_t;
+typedef uint32_t wl_tx_handle_t;
 typedef uint32_t wl_io_token_t;
 typedef struct wl_ctx wl_ctx_t;
 
@@ -37,6 +37,7 @@ typedef enum {
   WL_EVT_RELIABLE_RX,
   WL_EVT_TX_SUCCESS,
   WL_EVT_TX_TIMEOUT,
+  WL_EVT_TX_FAILED,
 } wl_event_type_t;
 
 typedef struct {
@@ -48,6 +49,12 @@ typedef struct {
   int io_result;
   uint32_t lease;
 } wl_event_t;
+
+typedef struct {
+  wl_tx_state_t state;
+  int result;
+  uint16_t retries_used;
+} wl_tx_result_t;
 
 typedef enum {
   WL_SINK_SENT = 0,
@@ -119,17 +126,23 @@ typedef struct wl_ctx {
   wl_time_ms_t tx_start_ts;
   uint16_t tx_retries_left;
   uint16_t tx_retries_max;
+  uint16_t tx_retries_used;
   uint32_t tx_sequence;
   uint32_t tx_retry_sequence;
   uint32_t tx_waiting_seq;
   uint8_t tx_inflight;
   wl_tx_wait_reason_t tx_wait_state;
   uint8_t tx_current_reliable;
+  uint8_t tx_cancel_requested;
+  uint16_t tx_generation;
+  int tx_result_code;
   uint16_t tx_last_cmd_id;
   uint8_t tx_last_flags;
 
   uint64_t session_id;
   uint32_t seq_recv;
+  uint64_t rx_session_id;
+  uint8_t rx_have_reliable;
 
   wl_event_t event;
   uint8_t has_event;
@@ -166,6 +179,8 @@ int wl_send_reliable(wl_ctx_t *ctx, uint16_t cmd_id, const uint8_t *payload,
 
 int wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle,
                  wl_tx_state_t *out_state);
+int wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
+               wl_tx_result_t *out_result);
 int wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle);
 
 int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len);
