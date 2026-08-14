@@ -340,26 +340,29 @@ multiple storage slots so a future version can queue or pipeline transactions.
 
 ### 8.1 Sender states
 
-An outgoing reliable transaction progresses through:
+An outgoing reliable transaction is implemented as follows in this revision:
 
 ```text
-QUEUED -> SENDING -> WAITING_ACK -> SUCCEEDED
-   |         |             |
-   +---------+-------------+----------> FAILED
-   +----------------------------------> CANCELLED
+IDLE -> SENDING -> WAITING_ACK -> SUCCESS
+             |             |
+             +-------------+----------> FAILED
+             +----------------------------------> CANCELLED
 ```
 
-- `QUEUED`: Wirelink owns a stable encoded copy but the sink is busy.
 - `SENDING`: the sink accepted an asynchronous submission.
 - `WAITING_ACK`: local transmission completed; the peer ACK is pending.
-- `SUCCEEDED`: a valid matching ACK was received.
+- `SUCCESS`: a valid matching ACK was received.
 - `FAILED`: local I/O policy or retry exhaustion ended the transaction.
 - `CANCELLED`: the application cancelled it.
 
 A sink submission that reports temporary busy does not consume a transmission
-attempt. An asynchronous attempt starts its ACK/retry timing only after the
-adapter reports successful local completion. A synchronous sink starts timing
-when its submit callback returns `SENT`.
+attempt. `wl_send_reliable()` returns `WL_ERR_WOULD_BLOCK` in that case and
+keeps the context in `WL_TX_STATE_IDLE` until the next caller-controlled
+attempt.
+
+An asynchronous attempt starts its ACK/retry timing only after the adapter
+reports successful local completion. A synchronous sink starts timing when its
+submit callback returns `SENT`.
 
 Timeout and retry values are local policy and are not sent on the wire. Time
 comparisons MUST remain correct across unsigned 32-bit millisecond wrap:
