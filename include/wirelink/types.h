@@ -34,10 +34,18 @@ typedef enum {
   WL_ERR_TIMEOUT = -31,       /**< 可靠传输超时 (未在规定时间内收到 ACK) */
   WL_ERR_TX_FAILED = -32,     /**< 传输失败 (重试次数已达最大上限) */
   WL_ERR_INVALID_STATE = -33, /**< 状态机处于非法状态，无法执行此操作 */
+  WL_ERR_WOULD_BLOCK = -34, /**< 操作暂时无法完成，稍后重试 */
+  WL_ERR_QUEUE_FULL = -35,  /**< 队列/槽位已满 */
+  WL_ERR_NOT_FOUND = -36,   /**< 找不到对象（句柄/令牌） */
+  WL_ERR_PAYLOAD_TOO_LONG = -37, /**< 载荷长度超过协议上限 */
+  WL_ERR_IO = -38,               /**< 发送路径发生确定性 I/O 失败 */
+  WL_ERR_CANCELLED = -39,         /**< 事务已取消 */
+  WL_ERR_PROTOCOL_VERSION = -40,  /**< 帧版本不兼容 */
+  WL_ERR_REENTRANT = -41,        /**< 回调重入或并发访问 */
 
   /* --- 序列化与反序列化错误 (-40 ~ -49) --- */
   WL_ERR_CORRUPT_PAYLOAD =
-      -40, /**< Payload 解析失败 (比如反序列化时发现字段越界或类型不匹配) */
+      -50, /**< Payload 解析失败 (比如反序列化时发现字段越界或类型不匹配) */
 
 } wl_err_t;
 

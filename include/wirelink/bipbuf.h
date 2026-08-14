@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "span.h"
+#include "wirelink/span.h"
 
 #ifdef __cplusplus
 extern "C" {

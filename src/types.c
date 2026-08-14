@@ -34,6 +34,22 @@ const char *wl_err_str(int err) {
     return "Transmission failed (WL_ERR_TX_FAILED)";
   case WL_ERR_INVALID_STATE:
     return "Invalid state (WL_ERR_INVALID_STATE)";
+  case WL_ERR_WOULD_BLOCK:
+    return "Operation would block (WL_ERR_WOULD_BLOCK)";
+  case WL_ERR_QUEUE_FULL:
+    return "Queue or slot is full (WL_ERR_QUEUE_FULL)";
+  case WL_ERR_NOT_FOUND:
+    return "Object not found (WL_ERR_NOT_FOUND)";
+  case WL_ERR_PAYLOAD_TOO_LONG:
+    return "Payload exceeds configured limit (WL_ERR_PAYLOAD_TOO_LONG)";
+  case WL_ERR_IO:
+    return "I/O path error (WL_ERR_IO)";
+  case WL_ERR_CANCELLED:
+    return "Operation cancelled (WL_ERR_CANCELLED)";
+  case WL_ERR_PROTOCOL_VERSION:
+    return "Unsupported frame version (WL_ERR_PROTOCOL_VERSION)";
+  case WL_ERR_REENTRANT:
+    return "Callback re-entry or concurrent access (WL_ERR_REENTRANT)";
   case WL_ERR_CORRUPT_PAYLOAD:
     return "Corrupt payload (WL_ERR_CORRUPT_PAYLOAD)";
   default:
