@@ -38,7 +38,10 @@ static void init_ctx_and_sink(struct test_sink_capture *cap, wl_ctx_t *ctx,
                              wl_sink_result_t *script, size_t script_len) {
   static uint8_t control_mem[WL_FRAME_MAX_COBS_LEN];
   static uint8_t stream_mem[WL_FRAME_MAX_COBS_LEN];
+  static uint8_t payload_mem[WL_FRAME_MAX_PAYLOAD];
   wl_storage_t storage = {
+    .tx_payload = payload_mem,
+    .tx_payload_size = sizeof(payload_mem),
     .tx_unit = tx_mem,
     .tx_unit_size = tx_len,
     .control_unit = control_mem,
@@ -91,9 +94,9 @@ ZTEST(wirelink_protocol_unit, test_busy_on_send_is_would_block)
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                    sizeof(tx_mem), script, 1);
 
-  zassert_equal(wl_send_unreliable(&ctx, 1U, (const uint8_t *)"", 0U),
-               WL_ERR_WOULD_BLOCK);
-  zassert_equal(ctx.tx_state, WL_TX_STATE_IDLE);
+  zassert_ok(wl_send_unreliable(&ctx, 1U, (const uint8_t *)"", 0U));
+  zassert_equal(ctx.tx_state, WL_TX_STATE_SENDING);
+  zassert_equal(ctx.tx_queued, 1U);
 }
 
 ZTEST(wirelink_protocol_unit, test_reliable_send_busy_does_not_occupy_tx_slot)
@@ -119,10 +122,10 @@ ZTEST(wirelink_protocol_unit, test_reliable_send_busy_does_not_occupy_tx_slot)
                    sizeof(tx_mem), script, 1);
 
   wl_tx_handle_t handle = 0U;
-  zassert_equal(wl_send_reliable(&ctx, 3U, (const uint8_t *)"B", 1U, &handle),
-               WL_ERR_WOULD_BLOCK);
-  zassert_equal(handle, 0U);
-  zassert_equal(ctx.tx_state, WL_TX_STATE_IDLE);
+  zassert_ok(wl_send_reliable(&ctx, 3U, (const uint8_t *)"B", 1U, &handle));
+  zassert_not_equal(handle, 0U);
+  zassert_equal(ctx.tx_state, WL_TX_STATE_SENDING);
+  zassert_equal(ctx.tx_queued, 1U);
 }
 
 ZTEST(wirelink_protocol_unit, test_send_reliable_blocked_while_waiting_ack)

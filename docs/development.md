@@ -67,6 +67,11 @@ allocation to obtain the exact worst-case buffer sizes for the configured
 profile. A profile's `max_transmission_unit`, when nonzero, must accommodate
 the complete envelope including COBS delimiters or a length prefix.
 
+Application bytes are copied before a send is accepted and are encoded into
+the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
+callback remains valid until its matching `wl_tx_complete()`. ACK/control
+units use their own buffer and are submitted before a queued application unit.
+
 ## Test layers
 
 - `tests/zephyr/unit/`: Twister `type: unit` tests using the host-native

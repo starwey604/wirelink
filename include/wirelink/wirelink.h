@@ -73,6 +73,8 @@ typedef struct {
 
 /* All long-lived protocol bytes are supplied by the application. */
 typedef struct {
+  uint8_t *tx_payload;
+  size_t tx_payload_size;
   uint8_t *tx_unit;
   size_t tx_unit_size;
   uint8_t *control_unit;
@@ -84,6 +86,7 @@ typedef struct {
 } wl_storage_t;
 
 typedef struct {
+  size_t tx_payload_size;
   size_t tx_unit_size;
   size_t control_unit_size;
   size_t rx_event_payload_size;
@@ -132,6 +135,8 @@ typedef struct wl_ctx {
   uint8_t in_callback;
   uint8_t in_flight_reliable;
   uint8_t control_pending;
+  uint8_t control_inflight;
+  uint8_t tx_queued;
   size_t control_len;
   uint8_t rx_event_leased;
   uint32_t rx_event_generation;

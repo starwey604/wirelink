@@ -48,6 +48,7 @@ int wl_config_requirements(const wl_config_t *config,
        config->max_transmission_unit < unit)) {
     return WL_ERR_INVALID_ARG;
   }
+  out_requirements->tx_payload_size = config->max_payload_len;
   out_requirements->tx_unit_size = unit;
   out_requirements->control_unit_size = control;
   out_requirements->rx_event_payload_size = config->max_payload_len;
@@ -63,8 +64,9 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
       wl_config_requirements(config, &requirements) != WL_OK) {
     return WL_ERR_INVALID_ARG;
   }
-  if (storage->tx_unit == NULL || storage->control_unit == NULL ||
+  if (storage->tx_payload == NULL || storage->tx_unit == NULL || storage->control_unit == NULL ||
       storage->rx_event_payload == NULL ||
+      storage->tx_payload_size < requirements.tx_payload_size ||
       storage->tx_unit_size < requirements.tx_unit_size ||
       storage->control_unit_size < requirements.control_unit_size ||
       storage->rx_event_payload_size < requirements.rx_event_payload_size ||
@@ -91,7 +93,7 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
   ctx->tx_retry_sequence = 0U;
   ctx->tx_waiting_seq = 0U;
   ctx->tx_wait_state = WL_TX_WAIT_NONE;
-  ctx->tx_payload = (wl_span_t){storage->tx_unit, 0U};
+  ctx->tx_payload = (wl_span_t){storage->tx_payload, 0U};
   ctx->rx_payload = (wl_span_t){storage->rx_event_payload, 0U};
 
   return WL_OK;

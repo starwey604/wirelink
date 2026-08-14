@@ -10,6 +10,7 @@ static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_handle_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying);
+static int wl_submit_control(wl_ctx_t *ctx);
 static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
                                  uint8_t reliable);
 
@@ -41,10 +42,11 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
       .payload = ctx->tx_payload.data,
       .payload_len = ctx->tx_payload.length,
   };
-  uint8_t encoded[WL_FRAME_MAX_COBS_LEN];
   size_t encoded_len = 0U;
   wl_sink_result_t sink_result;
   int ret;
+
+  (void)retrying;
 
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -56,8 +58,8 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
     return WL_ERR_REENTRANT;
   }
 
-  ret = wl_frame_encode(&wire, ctx->config->envelope, encoded,
-                       sizeof(encoded), &encoded_len);
+  ret = wl_frame_encode(&wire, ctx->config->envelope, ctx->storage.tx_unit,
+                       ctx->storage.tx_unit_size, &encoded_len);
   if (ret != WL_OK) {
     return ret;
   }
@@ -69,7 +71,8 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
   }
 
   ctx->in_callback = 1;
-  sink_result = ctx->sink(ctx->sink_user_data, ctx->tx_token, encoded, encoded_len);
+  sink_result = ctx->sink(ctx->sink_user_data, ctx->tx_token,
+                          ctx->storage.tx_unit, encoded_len);
   ctx->in_callback = 0;
 
   if (sink_result == WL_SINK_STARTED) {
@@ -82,31 +85,14 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
 
   if (sink_result == WL_SINK_BUSY) {
     ctx->tx_inflight = 0;
-    if (!ctx->tx_current_reliable || retrying == 0U) {
-      ctx->tx_state = WL_TX_STATE_IDLE;
-      ctx->tx_wait_state = WL_TX_WAIT_NONE;
-      ctx->tx_waiting_seq = 0U;
-      ctx->tx_retries_left = 0U;
-      memset(ctx->storage.tx_unit, 0, ctx->storage.tx_unit_size);
-      ctx->tx_payload.length = 0U;
-      ctx->tx_current_reliable = 0U;
-      ctx->tx_last_cmd_id = 0U;
-      ctx->tx_last_flags = 0U;
-      ctx->tx_retry_sequence = 0U;
-      return WL_ERR_WOULD_BLOCK;
-    }
-
-    if (retrying != 0U && ctx->tx_current_reliable != 0U) {
-      ctx->tx_state = WL_TX_STATE_WAITING_ACK;
-      ctx->tx_wait_state = WL_TX_WAIT_ACK;
-      ctx->tx_start_ts = ctx->now_ms;
-      return WL_ERR_WOULD_BLOCK;
-    }
-    return WL_ERR_WOULD_BLOCK;
+    ctx->tx_queued = 1U;
+    ctx->tx_state = WL_TX_STATE_SENDING;
+    return WL_OK;
   }
 
   if (sink_result == WL_SINK_SENT) {
     ctx->tx_inflight = 0;
+    ctx->tx_queued = 0U;
     if (ctx->tx_current_reliable) {
       ctx->tx_state = WL_TX_STATE_WAITING_ACK;
       ctx->tx_wait_state = WL_TX_WAIT_ACK;
@@ -121,7 +107,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
     ctx->tx_current_reliable = 0U;
     ctx->tx_last_cmd_id = 0U;
     ctx->tx_last_flags = 0U;
-    memset(ctx->storage.tx_unit, 0, ctx->storage.tx_unit_size);
+    memset(ctx->storage.tx_payload, 0, ctx->storage.tx_payload_size);
     ctx->tx_payload.length = 0U;
     return wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, ctx->tx_handle);
   }
@@ -139,17 +125,22 @@ static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   ctx->tx_last_flags = pkt->flags;
   ctx->tx_retry_sequence = pkt->sequence;
   ctx->tx_current_reliable = reliable;
-  ctx->tx_payload.data = ctx->storage.tx_unit;
+  ctx->tx_payload.data = ctx->storage.tx_payload;
   ctx->tx_payload.length = pkt->payload_len;
 
   if (pkt->payload_len != 0U) {
-    memcpy(ctx->storage.tx_unit, pkt->payload, pkt->payload_len);
+    memcpy(ctx->storage.tx_payload, pkt->payload, pkt->payload_len);
   }
 }
 
 int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->control_inflight != 0U && ctx->tx_token == token) {
+    ctx->control_inflight = 0U;
+    ctx->control_pending = 0U;
+    return (io_result == WL_OK) ? WL_OK : WL_ERR_IO;
   }
   if (ctx->tx_token != token) {
     return WL_ERR_NOT_FOUND;
@@ -170,6 +161,7 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
     }
     ctx->tx_inflight = 0;
     ctx->in_flight_reliable = 0U;
+    (void)wl_submit_control(ctx);
     return WL_OK;
   }
 
@@ -205,14 +197,13 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
   ctx->tx_waiting_seq = 0U;
   ctx->tx_inflight = 0;
   ctx->in_flight_reliable = 0U;
+  (void)wl_submit_control(ctx);
   return WL_OK;
 }
 
 static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view) {
-  uint8_t encoded[WL_FRAME_MAX_COBS_LEN];
   size_t encoded_len = 0;
   wl_wire_packet_t ack = {0};
-  wl_sink_result_t sink_result;
 
   if (ctx == NULL || view == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -233,22 +224,52 @@ static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view) {
   ack.payload_len = 0U;
   ack.integrity = ctx->config->integrity;
 
-  int ret = wl_frame_encode(&ack, ctx->config->envelope, encoded,
-                           sizeof(encoded), &encoded_len);
+  if (ctx->control_pending != 0U) {
+    return WL_ERR_QUEUE_FULL;
+  }
+  int ret = wl_frame_encode(&ack, ctx->config->envelope, ctx->storage.control_unit,
+                            ctx->storage.control_unit_size, &encoded_len);
   if (ret != WL_OK) {
     return ret;
   }
+  ctx->control_len = encoded_len;
+  ctx->control_pending = 1U;
+  return wl_submit_control(ctx);
+}
 
-  ctx->in_callback = 1;
-  sink_result = ctx->sink(ctx->sink_user_data, ctx->tx_token, encoded, encoded_len);
-  ctx->in_callback = 0;
-
-  if (sink_result == WL_SINK_SENT) {
+static int wl_submit_control(wl_ctx_t *ctx) {
+  wl_sink_result_t sink_result;
+  if (ctx == NULL || ctx->control_pending == 0U ||
+      ctx->control_inflight != 0U || ctx->tx_inflight != 0U) {
     return WL_OK;
   }
-  if (sink_result == WL_SINK_BUSY || sink_result == WL_SINK_STARTED) {
-    return WL_ERR_WOULD_BLOCK;
+  if (ctx->sink == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
   }
+  if (ctx->in_callback) {
+    return WL_ERR_REENTRANT;
+  }
+  if (ctx->tx_token == UINT32_MAX) {
+    ctx->tx_token = 1U;
+  } else {
+    ctx->tx_token++;
+  }
+  ctx->in_callback = 1;
+  sink_result = ctx->sink(ctx->sink_user_data, ctx->tx_token,
+                          ctx->storage.control_unit, ctx->control_len);
+  ctx->in_callback = 0;
+  if (sink_result == WL_SINK_SENT) {
+    ctx->control_pending = 0U;
+    return WL_OK;
+  }
+  if (sink_result == WL_SINK_STARTED) {
+    ctx->control_inflight = 1U;
+    return WL_OK;
+  }
+  if (sink_result == WL_SINK_BUSY) {
+    return WL_OK;
+  }
+  ctx->control_pending = 0U;
   return WL_ERR_IO;
 }
 
@@ -294,7 +315,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   if (ctx->tx_wait_state == WL_TX_WAIT_ACK) {
     return WL_ERR_BUSY;
   }
-  if (ctx->tx_inflight) {
+  if (ctx->tx_inflight || ctx->tx_queued) {
     return WL_ERR_BUSY;
   }
   if (ctx->in_callback) {
@@ -326,7 +347,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     ctx->tx_waiting_seq = 0U;
     ctx->tx_wait_state = WL_TX_WAIT_NONE;
     ctx->tx_retries_left = 0U;
-    memset(ctx->storage.tx_unit, 0, ctx->storage.tx_unit_size);
+    memset(ctx->storage.tx_payload, 0, ctx->storage.tx_payload_size);
     ctx->tx_payload.length = 0U;
     ctx->tx_last_cmd_id = 0U;
     ctx->tx_last_flags = 0U;
@@ -508,6 +529,12 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
     return WL_ERR_INVALID_ARG;
   }
   ctx->now_ms = now_ms;
+
+  (void)wl_submit_control(ctx);
+  if (ctx->control_pending == 0U && ctx->tx_state == WL_TX_STATE_SENDING &&
+      ctx->tx_queued != 0U && ctx->tx_inflight == 0U) {
+    (void)wl_send_tx_payload(ctx, 0U);
+  }
 
   if (ctx->tx_state == WL_TX_STATE_WAITING_ACK &&
       ctx->config != NULL && ctx->config->ack_timeout_ms != 0U) {
