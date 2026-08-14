@@ -1,0 +1,36 @@
+sample:
+  name: Wirelink ESP32-S3 RX backend benchmark
+  description: Build-only UART IRQ, UART DMA, and USB CDC RX benchmark matrix
+common:
+  build_only: true
+  platform_allow:
+    - esp32s3_devkitc/esp32s3/procpu
+  extra_args:
+    - DTC_OVERLAY_FILE=esp32s3_devkitc.overlay
+tests:
+  benchmark.wirelink.rx.bipbuf_irq:
+    extra_args:
+      - WIRELINK_BENCH_BACKEND=BIPBUF
+      - WIRELINK_BENCH_INGRESS=IRQ
+  benchmark.wirelink.rx.lwrb_irq:
+    extra_args:
+      - WIRELINK_BENCH_BACKEND=LWRB
+      - WIRELINK_BENCH_INGRESS=IRQ
+  benchmark.wirelink.rx.bipbuf_dma:
+    extra_args:
+      - WIRELINK_BENCH_BACKEND=BIPBUF
+      - WIRELINK_BENCH_INGRESS=DMA
+  benchmark.wirelink.rx.lwrb_dma:
+    extra_args:
+      - WIRELINK_BENCH_BACKEND=LWRB
+      - WIRELINK_BENCH_INGRESS=DMA
+  benchmark.wirelink.rx.bipbuf_usb:
+    extra_args:
+      - WIRELINK_BENCH_BACKEND=BIPBUF
+      - WIRELINK_BENCH_INGRESS=USB
+      - EXTRA_CONF_FILE=usb.conf
+  benchmark.wirelink.rx.lwrb_usb:
+    extra_args:
+      - WIRELINK_BENCH_BACKEND=LWRB
+      - WIRELINK_BENCH_INGRESS=USB
+      - EXTRA_CONF_FILE=usb.conf

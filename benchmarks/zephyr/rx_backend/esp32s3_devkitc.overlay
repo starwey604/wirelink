@@ -1,0 +1,21 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+&dma {
+	status = "okay";
+};
+
+&uart1 {
+	status = "okay";
+	current-speed = <3000000>;
+	pinctrl-0 = <&uart1_default>;
+	pinctrl-names = "default";
+	dmas = <&dma 0>, <&dma 1>;
+	dma-names = "rx", "tx";
+};
+
+&zephyr_udc0 {
+	cdc_acm_uart0: cdc_acm_uart0 {
+		compatible = "zephyr,cdc-acm-uart";
+		label = "Wirelink benchmark CDC ACM";
+	};
+};

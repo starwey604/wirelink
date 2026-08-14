@@ -118,6 +118,9 @@ duplicates without emitting another event.
   or hardware. Use for protocol-stack and adapter integration.
 - Multi-device transport tests use Twister's pytest harness and a hardware map
   when real DUTs are required.
+- `benchmarks/zephyr/rx_backend/` is the build-only ESP32-S3 matrix for the
+  BipBuffer/LwRB and UART IRQ/UART DMA/USB CDC combinations. Its physical test
+  procedure and backend selection rules are defined in `docs/rx-performance.md`.
 
 `tests/zephyr/integration/protocol` is the core in-memory two-peer fixture. It
 exercises reliable acknowledgement, a dropped first DATA retry, COBS
