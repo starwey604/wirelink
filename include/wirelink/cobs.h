@@ -15,6 +15,9 @@ int wl_cobs_encode(const uint8_t *input, size_t input_len, uint8_t *output,
                    size_t output_capacity, size_t *output_len);
 int wl_cobs_decode(const uint8_t *input, size_t input_len, uint8_t *output,
                    size_t output_capacity, size_t *output_len);
+/* Decoding is safe in place because COBS output never exceeds its input. */
+int wl_cobs_decode_in_place(uint8_t *buffer, size_t input_len,
+                            size_t *output_len);
 
 #ifdef __cplusplus
 }

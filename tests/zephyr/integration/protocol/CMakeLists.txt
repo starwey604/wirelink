@@ -15,6 +15,7 @@ target_sources(app PRIVATE
   ${WIRELINK_ROOT}/src/frame.c
   ${WIRELINK_ROOT}/src/init.c
   ${WIRELINK_ROOT}/src/protocol.c
+  ${WIRELINK_ROOT}/src/rx_ring_bipbuf.c
   ${WIRELINK_ROOT}/src/transport.c
   ${WIRELINK_ROOT}/src/types.c
 )

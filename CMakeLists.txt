@@ -15,6 +15,7 @@ add_library(wirelink
   src/frame.c
   src/init.c
   src/protocol.c
+  src/rx_ring_bipbuf.c
   src/transport.c
   src/types.c
 )

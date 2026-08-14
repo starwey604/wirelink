@@ -4,6 +4,8 @@
 
 #include "wirelink/wirelink.h"
 
+#include "rx_ring.h"
+
 int wl_set_sink(wl_ctx_t *ctx, wl_sink_fn sink, void *user_data) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -83,8 +85,11 @@ int wl_feed_recover_reset(wl_ctx_t *ctx) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  ctx->cobs_accum_len = 0;
-  ctx->cobs_overflow = 0;
+  if (ctx->rx_event_leased != 0U) {
+    return WL_ERR_WOULD_BLOCK;
+  }
+  (void)wl_rx_ring_consumer_consume(&ctx->rx_ring,
+                                    wl_rx_ring_readable(&ctx->rx_ring));
   return WL_OK;
 }
 
@@ -105,6 +110,13 @@ void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event) {
       ctx->rx_event_leased != 0U &&
       event->lease == ctx->rx_event_generation) {
     ctx->rx_event_leased = 0U;
+    if (ctx->rx_pending_consume != 0U) {
+      (void)wl_rx_ring_consumer_consume(&ctx->rx_ring,
+                                        ctx->rx_pending_consume);
+      ctx->rx_pending_consume = 0U;
+    }
+    ctx->rx_candidate_source = 0U;
+    ctx->rx_lease_source = 0U;
     ctx->rx_payload.length = 0U;
   }
 }

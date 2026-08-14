@@ -6,11 +6,20 @@
 #include "wirelink/cobs.h"
 #include "wirelink/wirelink.h"
 
+#include "rx_ring.h"
+
+enum {
+  WL_RX_SOURCE_NONE = 0,
+  WL_RX_SOURCE_RING,
+  WL_RX_SOURCE_FALLBACK,
+};
+
 static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_handle_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying);
 static int wl_submit_control(wl_ctx_t *ctx);
+static void wl_process_rx_stream(wl_ctx_t *ctx);
 static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
                                  uint8_t reliable);
 
@@ -23,15 +32,14 @@ static int wl_push_event(wl_ctx_t *ctx, wl_event_type_t type, uint16_t cmd_id,
     return WL_ERR_QUEUE_FULL;
   }
   if (is_rx != 0U) {
-    if (payload_len > ctx->storage.rx_event_payload_size ||
-        (payload_len != 0U && payload == NULL)) {
+    if (payload_len > ctx->config->max_payload_len ||
+        (payload_len != 0U && payload == NULL) ||
+        ctx->rx_candidate_source == WL_RX_SOURCE_NONE) {
       return WL_ERR_PAYLOAD_TOO_LONG;
     }
-    if (payload_len != 0U) {
-      memcpy(ctx->storage.rx_event_payload, payload, payload_len);
-    }
-    ctx->rx_payload.data = ctx->storage.rx_event_payload;
+    ctx->rx_payload.data = (uint8_t *)(uintptr_t)payload;
     ctx->rx_payload.length = payload_len;
+    ctx->rx_lease_source = ctx->rx_candidate_source;
     ctx->rx_event_generation++;
     if (ctx->rx_event_generation == 0U) {
       ctx->rx_event_generation = 1U;
@@ -500,6 +508,7 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
 }
 
 int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
+  size_t accepted = 0U;
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -511,10 +520,20 @@ int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
   }
 
   if (ctx->config->envelope == WL_ENVELOPE_COBS_STREAM) {
-    return wl_feed_bytes(ctx, unit, len);
+    return wl_feed_bytes(ctx, unit, len, &accepted);
   }
 
-  return wl_feed_unit_raw(ctx, unit, len);
+  if (ctx->has_event != 0U || ctx->rx_event_leased != 0U) {
+    return WL_ERR_WOULD_BLOCK;
+  }
+  if (len > ctx->storage.rx_fallback_size) {
+    return WL_ERR_PAYLOAD_TOO_LONG;
+  }
+  if (len != 0U) {
+    memcpy(ctx->storage.rx_fallback, unit, len);
+  }
+  ctx->rx_candidate_source = WL_RX_SOURCE_FALLBACK;
+  return wl_feed_unit_raw(ctx, ctx->storage.rx_fallback, len);
 }
 
 static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
@@ -545,58 +564,144 @@ static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
   return wl_feed_parse_wire(ctx, unit, len);
 }
 
-int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
-  size_t idx = 0;
-  if (ctx == NULL) {
-    return WL_ERR_INVALID_ARG;
-  }
-  if (data == NULL && len != 0U) {
+int wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span) {
+  if (ctx == NULL || out_span == NULL) {
     return WL_ERR_INVALID_ARG;
   }
   if (ctx->config == NULL) {
     return WL_ERR_NOT_INITIALIZED;
   }
   if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
-    return wl_feed_unit_raw(ctx, data, len);
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_rx_ring_producer_reserve(&ctx->rx_ring, out_span);
+}
+
+int wl_rx_commit(wl_ctx_t *ctx, size_t len) {
+  if (ctx == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->config == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_rx_ring_producer_commit(&ctx->rx_ring, len);
+}
+
+int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
+                  size_t *out_accepted) {
+  size_t accepted = 0U;
+
+  if (ctx == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if ((data == NULL && len != 0U) || out_accepted == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  *out_accepted = 0U;
+  if (ctx->config == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
   }
 
-  while (idx < len) {
-    uint8_t byte = data[idx++];
+  while (accepted < len) {
+    wl_span_t span = {0};
+    size_t chunk;
+    int ret = wl_rx_reserve(ctx, &span);
+    if (ret != WL_OK) {
+      *out_accepted = accepted;
+      return ret;
+    }
+    if (span.length == 0U) {
+      (void)wl_rx_commit(ctx, 0U);
+      break;
+    }
+    chunk = len - accepted;
+    if (chunk > span.length) {
+      chunk = span.length;
+    }
+    memcpy(span.data, data + accepted, chunk);
+    ret = wl_rx_commit(ctx, chunk);
+    if (ret != WL_OK) {
+      *out_accepted = accepted;
+      return ret;
+    }
+    accepted += chunk;
+  }
 
-    if (byte == 0x00) {
-      if (ctx->cobs_accum_len == 0U) {
-        continue;
-      }
-      if (ctx->cobs_overflow) {
-        ctx->rx_counters.overflow++;
-        ctx->cobs_accum_len = 0;
-        ctx->cobs_overflow = 0;
-        continue;
-      }
+  *out_accepted = accepted;
+  if (accepted != len) {
+    return WL_ERR_WOULD_BLOCK;
+  }
+  return WL_OK;
+}
 
-      uint8_t decoded[WL_FRAME_MAX_COBS_LEN];
-      size_t decoded_len = 0;
-      int ret = wl_cobs_decode(ctx->storage.rx_stream, ctx->cobs_accum_len, decoded,
-                               sizeof(decoded), &decoded_len);
-      if (ret == WL_OK) {
-        (void)wl_feed_parse_wire(ctx, decoded, decoded_len);
-      } else {
-        ctx->rx_counters.malformed++;
-      }
-      ctx->cobs_accum_len = 0;
+static void wl_process_rx_stream(wl_ctx_t *ctx) {
+  while (ctx->has_event == 0U && ctx->rx_event_leased == 0U) {
+    wl_span_t contiguous;
+    uint8_t *encoded;
+    size_t delimiter_offset;
+    size_t decoded_len = 0U;
+    size_t physical_len;
+    int ret;
+
+    ret = wl_rx_ring_consumer_find(&ctx->rx_ring, 0U, &delimiter_offset);
+    if (ret != WL_OK) {
+      return;
+    }
+    physical_len = delimiter_offset + 1U;
+    if (delimiter_offset == 0U) {
+      (void)wl_rx_ring_consumer_consume(&ctx->rx_ring, physical_len);
       continue;
     }
 
-    if (!ctx->cobs_overflow) {
-      if (ctx->cobs_accum_len < ctx->storage.rx_stream_size) {
-        ctx->storage.rx_stream[ctx->cobs_accum_len++] = byte;
-      } else {
-        ctx->cobs_overflow = 1;
+    contiguous = wl_rx_ring_consumer_peek(&ctx->rx_ring);
+    if (delimiter_offset <= contiguous.length) {
+      encoded = contiguous.data;
+      ctx->rx_candidate_source = WL_RX_SOURCE_RING;
+    } else {
+      if (delimiter_offset > ctx->storage.rx_fallback_size ||
+          wl_rx_ring_consumer_copy(&ctx->rx_ring, 0U,
+                                   ctx->storage.rx_fallback,
+                                   delimiter_offset) != WL_OK) {
+        ctx->rx_counters.overflow++;
+        (void)wl_rx_ring_consumer_consume(&ctx->rx_ring, physical_len);
+        continue;
       }
+      encoded = ctx->storage.rx_fallback;
+      ctx->rx_candidate_source = WL_RX_SOURCE_FALLBACK;
     }
-  }
 
-  return WL_OK;
+    ret = wl_cobs_decode_in_place(encoded, delimiter_offset, &decoded_len);
+    if (ret == WL_OK) {
+      ret = wl_feed_parse_wire(ctx, encoded, decoded_len);
+    } else {
+      ctx->rx_counters.malformed++;
+    }
+
+    if (ctx->has_event != 0U &&
+        (ctx->event.type == WL_EVT_UNRELIABLE_RX ||
+         ctx->event.type == WL_EVT_RELIABLE_RX)) {
+      if (ctx->rx_candidate_source == WL_RX_SOURCE_RING) {
+        ctx->rx_pending_consume = physical_len;
+      } else {
+        (void)wl_rx_ring_consumer_consume(&ctx->rx_ring, physical_len);
+        ctx->rx_pending_consume = 0U;
+      }
+      return;
+    }
+
+    (void)wl_rx_ring_consumer_consume(&ctx->rx_ring, physical_len);
+    ctx->rx_candidate_source = WL_RX_SOURCE_NONE;
+    if (ctx->has_event != 0U) {
+      return;
+    }
+    (void)ret;
+  }
 }
 
 int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
@@ -639,6 +744,12 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
         }
       }
     }
+  }
+
+  if (ctx->has_event == 0U && ctx->rx_event_leased == 0U &&
+      ctx->config != NULL &&
+      ctx->config->envelope == WL_ENVELOPE_COBS_STREAM) {
+    wl_process_rx_stream(ctx);
   }
 
   if (!ctx->has_event) {

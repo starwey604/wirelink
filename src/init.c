@@ -5,6 +5,8 @@
 #include "wirelink/cobs.h"
 #include "wirelink/wirelink.h"
 
+#include "rx_ring.h"
+
 static size_t wl_max_unit_size(const wl_config_t *config) {
   const size_t raw = wl_frame_raw_size(config->max_payload_len, config->integrity);
   if (raw == 0U) {
@@ -51,9 +53,12 @@ int wl_config_requirements(const wl_config_t *config,
   out_requirements->tx_payload_size = config->max_payload_len;
   out_requirements->tx_unit_size = unit;
   out_requirements->control_unit_size = control;
-  out_requirements->rx_event_payload_size = config->max_payload_len;
-  out_requirements->rx_stream_size =
-      (config->envelope == WL_ENVELOPE_COBS_STREAM) ? unit - 1U : 0U;
+  out_requirements->rx_fifo_size =
+      (config->envelope == WL_ENVELOPE_COBS_STREAM)
+          ? wl_rx_ring_storage_size(unit)
+          : 0U;
+  out_requirements->rx_fallback_size =
+      (config->envelope == WL_ENVELOPE_COBS_STREAM) ? unit - 1U : unit;
   return WL_OK;
 }
 
@@ -65,14 +70,14 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
     return WL_ERR_INVALID_ARG;
   }
   if (storage->tx_payload == NULL || storage->tx_unit == NULL || storage->control_unit == NULL ||
-      storage->rx_event_payload == NULL ||
+      storage->rx_fallback == NULL ||
       storage->tx_payload_size < requirements.tx_payload_size ||
       storage->tx_unit_size < requirements.tx_unit_size ||
       storage->control_unit_size < requirements.control_unit_size ||
-      storage->rx_event_payload_size < requirements.rx_event_payload_size ||
-      (requirements.rx_stream_size != 0U &&
-       (storage->rx_stream == NULL ||
-        storage->rx_stream_size < requirements.rx_stream_size))) {
+      storage->rx_fallback_size < requirements.rx_fallback_size ||
+      (requirements.rx_fifo_size != 0U &&
+       (storage->rx_fifo == NULL ||
+        storage->rx_fifo_size < requirements.rx_fifo_size))) {
     return WL_ERR_BUF_TOO_SMALL;
   }
 
@@ -94,7 +99,13 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
   ctx->tx_waiting_seq = 0U;
   ctx->tx_wait_state = WL_TX_WAIT_NONE;
   ctx->tx_payload = (wl_span_t){storage->tx_payload, 0U};
-  ctx->rx_payload = (wl_span_t){storage->rx_event_payload, 0U};
+  ctx->rx_payload = (wl_span_t){storage->rx_fallback, 0U};
+
+  if (requirements.rx_fifo_size != 0U &&
+      wl_rx_ring_init(&ctx->rx_ring, storage->rx_fifo,
+                      storage->rx_fifo_size) != WL_OK) {
+    return WL_ERR_INVALID_ARG;
+  }
 
   return WL_OK;
 }

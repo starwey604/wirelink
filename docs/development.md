@@ -76,12 +76,23 @@ the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
 callback remains valid until its matching `wl_tx_complete()`. ACK/control
 units use their own buffer and are submitted before a queued application unit.
 
-Received payload bytes are copied into the RX event buffer before an event is
-made visible. An RX event remains leased after `wl_poll()` until
-`wl_event_release()`; while leased, subsequent DATA packets receive explicit
-backpressure and reliable DATA is not ACKed. Malformed, integrity-failing,
-overflowed, duplicate, and unsupported packets are observable through the RX
-counter query rather than as application events.
+COBS stream bytes enter a single-producer/single-consumer RX ring. The producer
+side (`wl_feed_bytes()` or `wl_rx_reserve()`/`wl_rx_commit()`) only publishes
+bytes; COBS decoding, frame validation, ACK scheduling, and event creation run
+from the consumer-side `wl_poll()`. A contiguous frame is decoded in place and
+its event payload borrows the ring. A frame crossing the ring boundary is
+copied once into the caller-supplied fallback buffer. Native packet and bus
+units also use that fallback buffer to make their synchronous input lifetime
+explicit.
+
+An RX event remains leased until `wl_event_release()`. A ring-backed event
+freezes its physical frame bytes until release, and no subsequent DATA event is
+produced while any RX event is leased. The SPSC contract permits exactly one
+ISR or DMA-completion producer and one main-loop consumer; initialization,
+reset, polling, and event release must not run from additional concurrent
+contexts. Malformed, integrity-failing, overflowed, duplicate, and unsupported
+packets are observable through the RX counter query rather than as application
+events.
 
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after

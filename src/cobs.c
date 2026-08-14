@@ -179,3 +179,8 @@ int wl_cobs_decode(const uint8_t *input, size_t input_len, uint8_t *output,
 
   return WL_OK;
 }
+
+int wl_cobs_decode_in_place(uint8_t *buffer, size_t input_len,
+                            size_t *output_len) {
+  return wl_cobs_decode(buffer, input_len, buffer, input_len, output_len);
+}

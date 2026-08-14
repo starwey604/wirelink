@@ -13,8 +13,8 @@ struct endpoint {
   uint8_t tx_payload[64];
   uint8_t tx_unit[WL_FRAME_MAX_COBS_LEN];
   uint8_t control_unit[WL_FRAME_MAX_COBS_LEN];
-  uint8_t rx_payload[64];
-  uint8_t rx_stream[WL_FRAME_MAX_COBS_LEN];
+  uint8_t rx_fallback[WL_FRAME_MAX_COBS_LEN];
+  uint8_t rx_fifo[WL_FRAME_MAX_COBS_LEN];
   uint8_t outbound[WL_FRAME_MAX_COBS_LEN];
   size_t outbound_len;
 };
@@ -53,10 +53,10 @@ static void endpoint_init(struct endpoint *endpoint, wl_envelope_type_t envelope
       .tx_unit_size = sizeof(endpoint->tx_unit),
       .control_unit = endpoint->control_unit,
       .control_unit_size = sizeof(endpoint->control_unit),
-      .rx_event_payload = endpoint->rx_payload,
-      .rx_event_payload_size = sizeof(endpoint->rx_payload),
-      .rx_stream = endpoint->rx_stream,
-      .rx_stream_size = sizeof(endpoint->rx_stream),
+      .rx_fifo = endpoint->rx_fifo,
+      .rx_fifo_size = sizeof(endpoint->rx_fifo),
+      .rx_fallback = endpoint->rx_fallback,
+      .rx_fallback_size = sizeof(endpoint->rx_fallback),
   };
   zassert_ok(wl_init(&endpoint->ctx, &endpoint->config, &endpoint->storage));
   zassert_ok(wl_set_sink(&endpoint->ctx, memory_sink, endpoint));
@@ -125,7 +125,10 @@ ZTEST(wirelink_protocol_integration, test_cobs_chunking_and_corruption)
   endpoint_init(right, WL_ENVELOPE_COBS_STREAM, WL_INTEGRITY_CRC32C, 0x66U);
   zassert_ok(wl_send_unreliable(&left->ctx, 9U, payload, sizeof(payload)));
   for (size_t i = 0; i < left->outbound_len; ++i) {
-    zassert_ok(wl_feed_bytes(&right->ctx, &left->outbound[i], 1U));
+    size_t accepted = 0U;
+    zassert_ok(wl_feed_bytes(&right->ctx, &left->outbound[i], 1U,
+                             &accepted));
+    zassert_equal(accepted, 1U);
   }
   left->outbound_len = 0U;
   zassert_ok(wl_poll(&right->ctx, 0U, &event));
@@ -137,7 +140,10 @@ ZTEST(wirelink_protocol_integration, test_cobs_chunking_and_corruption)
 
   zassert_ok(wl_send_unreliable(&left->ctx, 9U, payload, sizeof(payload)));
   left->outbound[1] ^= 0x01U;
-  zassert_ok(wl_feed_bytes(&right->ctx, left->outbound, left->outbound_len));
+  size_t accepted = 0U;
+  zassert_ok(wl_feed_bytes(&right->ctx, left->outbound, left->outbound_len,
+                           &accepted));
+  zassert_equal(accepted, left->outbound_len);
   zassert_equal(wl_poll(&right->ctx, 1U, &event), WL_ERR_NO_DATA);
 }
 

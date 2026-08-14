@@ -6,6 +6,7 @@
 
 #include "wirelink/bipbuf.h"
 #include "wirelink/frame.h"
+#include "wirelink/rx_ring_state.h"
 #include "wirelink/types.h"
 
 #ifdef __cplusplus
@@ -87,18 +88,18 @@ typedef struct {
   size_t tx_unit_size;
   uint8_t *control_unit;
   size_t control_unit_size;
-  uint8_t *rx_event_payload;
-  size_t rx_event_payload_size;
-  uint8_t *rx_stream;
-  size_t rx_stream_size;
+  uint8_t *rx_fifo;
+  size_t rx_fifo_size;
+  uint8_t *rx_fallback;
+  size_t rx_fallback_size;
 } wl_storage_t;
 
 typedef struct {
   size_t tx_payload_size;
   size_t tx_unit_size;
   size_t control_unit_size;
-  size_t rx_event_payload_size;
-  size_t rx_stream_size;
+  size_t rx_fifo_size;
+  size_t rx_fallback_size;
 } wl_storage_requirements_t;
 
 typedef struct {
@@ -110,7 +111,7 @@ typedef struct {
 } wl_rx_counters_t;
 
 typedef struct wl_ctx {
-  wl_bipbuf_t rx_fifo;
+  wl_rx_ring_state_t rx_ring;
   wl_bipbuf_t tx_fifo;
 
   const wl_config_t *config;
@@ -153,13 +154,13 @@ typedef struct wl_ctx {
   uint8_t tx_queued;
   size_t control_len;
   uint8_t rx_event_leased;
+  uint8_t rx_candidate_source;
+  uint8_t rx_lease_source;
   uint32_t rx_event_generation;
+  size_t rx_pending_consume;
   wl_rx_counters_t rx_counters;
 
   wl_time_ms_t now_ms;
-
-  size_t cobs_accum_len;
-  uint8_t cobs_overflow;
 
   wl_span_t rx_payload;
   wl_span_t tx_payload;
@@ -183,7 +184,11 @@ int wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
                wl_tx_result_t *out_result);
 int wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle);
 
-int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len);
+/* Single-producer entry points: no parsing, callbacks, or ACK work is done. */
+int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
+                  size_t *out_accepted);
+int wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span);
+int wl_rx_commit(wl_ctx_t *ctx, size_t len);
 int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 
 int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event);
