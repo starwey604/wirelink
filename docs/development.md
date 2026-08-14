@@ -44,6 +44,10 @@ Ztest `unit_testing` scenarios rather than as a parallel CTest suite.
 The top-level CMake build remains supported for library consumers, but it does
 not define or run tests.
 
+The top-level target is compiled as strict ISO C11. GCC and Clang builds enable
+`-Wall`, `-Wextra`, and `-Wpedantic`; warnings in Wirelink sources are treated
+as release blockers even when a consumer supplies different project defaults.
+
 ## Zephyr architecture
 
 `src/` and `include/wirelink/` are the transport- and RTOS-independent C
@@ -95,6 +99,10 @@ duplicates without emitting another event.
   or hardware. Use for protocol-stack and adapter integration.
 - Multi-device transport tests use Twister's pytest harness and a hardware map
   when real DUTs are required.
+
+`tests/zephyr/integration/protocol` is the core in-memory two-peer fixture. It
+exercises reliable acknowledgement, a dropped first DATA retry, COBS
+byte-at-a-time ingestion, and corrupted-unit rejection without hardware.
 
 ## Integration platform matrix
 
