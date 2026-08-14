@@ -96,9 +96,11 @@ freezes its physical frame bytes until release, and no subsequent DATA event is
 produced while any RX event is leased. The SPSC contract permits exactly one
 ISR or DMA-completion producer and one main-loop consumer; initialization,
 reset, polling, and event release must not run from additional concurrent
-contexts. Malformed, integrity-failing, overflowed, duplicate, and unsupported
-packets are observable through the RX counter query rather than as application
-events.
+contexts. A producer-side full-ring notification causes the next consumer poll
+to discard the incomplete RX window and resume at a later COBS delimiter; it
+does not parse or run callbacks from the producer context. Malformed,
+integrity-failing, overflowed, duplicate, and unsupported packets are
+observable through the RX counter query rather than as application events.
 
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after

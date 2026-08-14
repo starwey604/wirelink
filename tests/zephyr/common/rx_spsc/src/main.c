@@ -274,6 +274,8 @@ ZTEST(wirelink_rx_spsc, test_full_buffer_reports_partial_acceptance) {
   uint8_t input[TEST_RX_STORAGE + 8U];
   size_t accepted = SIZE_MAX;
   size_t capacity;
+  wl_event_t event = {0};
+  wl_rx_counters_t counters = {0};
 
   memset(input, 0x7EU, sizeof(input));
   init_fixture(&fixture);
@@ -285,7 +287,9 @@ ZTEST(wirelink_rx_spsc, test_full_buffer_reports_partial_acceptance) {
   zassert_equal(wl_feed_bytes(&fixture.ctx, input, 1U, &accepted),
                 WL_ERR_WOULD_BLOCK);
   zassert_equal(accepted, 0U);
-  zassert_ok(wl_feed_recover_reset(&fixture.ctx));
+  zassert_equal(wl_poll(&fixture.ctx, 7U, &event), WL_ERR_NO_DATA);
+  zassert_ok(wl_rx_get_counters(&fixture.ctx, &counters));
+  zassert_equal(counters.overflow, 2U);
   zassert_ok(wl_feed_bytes(&fixture.ctx, input, 1U, &accepted));
   zassert_equal(accepted, 1U);
 }

@@ -14,6 +14,7 @@ int wl_rx_ring_init(wl_rx_ring_state_t *state, uint8_t *memory,
 int wl_rx_ring_producer_reserve(wl_rx_ring_state_t *state,
                                 wl_span_t *out_span);
 int wl_rx_ring_producer_commit(wl_rx_ring_state_t *state, size_t length);
+void wl_rx_ring_producer_note_overflow(wl_rx_ring_state_t *state);
 
 size_t wl_rx_ring_readable(const wl_rx_ring_state_t *state);
 wl_span_t wl_rx_ring_consumer_peek(wl_rx_ring_state_t *state);
@@ -22,5 +23,7 @@ int wl_rx_ring_consumer_find(const wl_rx_ring_state_t *state, uint8_t value,
 int wl_rx_ring_consumer_copy(const wl_rx_ring_state_t *state, size_t offset,
                              uint8_t *output, size_t length);
 int wl_rx_ring_consumer_consume(wl_rx_ring_state_t *state, size_t length);
+unsigned int
+wl_rx_ring_consumer_take_overflow(wl_rx_ring_state_t *state);
 
 #endif /* WIRELINK_SRC_RX_RING_H_ */

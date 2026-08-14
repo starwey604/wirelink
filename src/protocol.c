@@ -635,12 +635,27 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
 
   *out_accepted = accepted;
   if (accepted != len) {
+    wl_rx_ring_producer_note_overflow(&ctx->rx_ring);
     return WL_ERR_WOULD_BLOCK;
   }
   return WL_OK;
 }
 
 static void wl_process_rx_stream(wl_ctx_t *ctx) {
+  unsigned int overflow_events =
+      wl_rx_ring_consumer_take_overflow(&ctx->rx_ring);
+
+  if (overflow_events != 0U) {
+    size_t readable = wl_rx_ring_readable(&ctx->rx_ring);
+    uint32_t remaining = UINT32_MAX - ctx->rx_counters.overflow;
+    uint32_t increment = overflow_events > remaining
+                             ? remaining
+                             : (uint32_t)overflow_events;
+
+    ctx->rx_counters.overflow += increment;
+    (void)wl_rx_ring_consumer_consume(&ctx->rx_ring, readable);
+  }
+
   while (ctx->has_event == 0U && ctx->rx_event_leased == 0U) {
     wl_span_t contiguous;
     uint8_t *encoded;

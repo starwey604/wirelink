@@ -15,6 +15,7 @@
 
 typedef struct {
   lwrb_t buffer;
+  _Atomic unsigned int overflow_events;
   size_t reserved_length;
   uint8_t reservation_active;
 } wl_rx_lwrb_state_t;
@@ -52,12 +53,25 @@ int wl_rx_ring_init(wl_rx_ring_state_t *state, uint8_t *memory,
   if (lwrb_init(&backend->buffer, memory, (lwrb_sz_t)memory_size) == 0U) {
     return WL_ERR_INVALID_ARG;
   }
+  atomic_init(&backend->overflow_events, 0U);
   if (!atomic_is_lock_free(&backend->buffer.r_ptr) ||
-      !atomic_is_lock_free(&backend->buffer.w_ptr)) {
+      !atomic_is_lock_free(&backend->buffer.w_ptr) ||
+      !atomic_is_lock_free(&backend->overflow_events)) {
     lwrb_free(&backend->buffer);
     return WL_ERR_NOT_SUPPORTED;
   }
   return WL_OK;
+}
+
+void wl_rx_ring_producer_note_overflow(wl_rx_ring_state_t *state) {
+  wl_rx_lwrb_state_t *backend;
+
+  if (state == NULL) {
+    return;
+  }
+  backend = rx_state(state);
+  (void)atomic_fetch_add_explicit(&backend->overflow_events, 1U,
+                                  memory_order_release);
 }
 
 int wl_rx_ring_producer_reserve(wl_rx_ring_state_t *state,
@@ -184,4 +198,13 @@ int wl_rx_ring_consumer_consume(wl_rx_ring_state_t *state, size_t length) {
   return (size_t)lwrb_skip(&backend->buffer, (lwrb_sz_t)length) == length
              ? WL_OK
              : WL_ERR_INVALID_STATE;
+}
+
+unsigned int
+wl_rx_ring_consumer_take_overflow(wl_rx_ring_state_t *state) {
+  if (state == NULL) {
+    return 0U;
+  }
+  return atomic_exchange_explicit(&rx_state(state)->overflow_events, 0U,
+                                  memory_order_acq_rel);
 }
