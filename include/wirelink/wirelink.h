@@ -19,13 +19,17 @@ typedef struct wl_ctx wl_ctx_t;
 
 typedef enum {
   WL_TX_STATE_IDLE = 0,
-  WL_TX_STATE_QUEUED,
   WL_TX_STATE_SENDING,
   WL_TX_STATE_WAITING_ACK,
   WL_TX_STATE_SUCCESS,
   WL_TX_STATE_FAILED,
   WL_TX_STATE_CANCELLED,
 } wl_tx_state_t;
+
+typedef enum {
+  WL_TX_WAIT_NONE = 0,
+  WL_TX_WAIT_ACK,
+} wl_tx_wait_reason_t;
 
 typedef enum {
   WL_EVT_NONE = 0,
@@ -85,7 +89,7 @@ typedef struct wl_ctx {
   uint32_t tx_retry_sequence;
   uint32_t tx_waiting_seq;
   uint8_t tx_inflight;
-  uint8_t tx_waiting_ack;
+  wl_tx_wait_reason_t tx_wait_state;
   uint8_t tx_current_reliable;
   uint16_t tx_last_cmd_id;
   uint8_t tx_last_flags;

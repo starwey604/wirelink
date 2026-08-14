@@ -566,6 +566,14 @@ Malformed input is expected on stream and network boundaries and SHOULD result
 in bounded work, a counter update, and safe discard rather than context
 corruption.
 
+Recommended local error mapping for protocol constraints:
+
+- `WL_ERR_BAD_FRAME`: 零 `session_id`、非法 `packet_type`、未知/保留 `flags`、ACK 的
+  `message_id != 0` 或 `payload_length != 0` 等；
+- `WL_ERR_PAYLOAD_TOO_LONG`: 已解码长度或运行时 payload 超过 `max_payload_len`；
+- `WL_ERR_WOULD_BLOCK`/`WL_ERR_BUSY`: 发送路径 busy、重试拥塞、或者等待 ACK 的可靠事务上再次发起发送；
+- `WL_ERR_QUEUE_FULL`: 已有待处理事件时无法接受新的接收事件（包括可恢复可靠 DATA）。
+
 ## 13. Security considerations
 
 Wirelink v1 is not a secure transport. CRC and COBS do not provide identity,

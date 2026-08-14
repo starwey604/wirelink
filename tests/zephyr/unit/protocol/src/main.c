@@ -114,6 +114,89 @@ ZTEST(wirelink_protocol_unit, test_reliable_send_busy_does_not_occupy_tx_slot)
   zassert_equal(ctx.tx_state, WL_TX_STATE_IDLE);
 }
 
+ZTEST(wirelink_protocol_unit, test_send_reliable_blocked_while_waiting_ack)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+  wl_tx_handle_t handle = 0;
+
+  wl_config_t cfg = {
+    .rx_buf_size = sizeof(rx_mem),
+    .tx_buf_size = sizeof(tx_mem),
+    .max_payload_len = 128U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC16,
+    .session_id = 0xCAFEC0DEC0DEC0DEULL,
+    .max_retries = 0U,
+    .ack_timeout_ms = 20U,
+  };
+
+  wl_sink_result_t script[] = {WL_SINK_STARTED};
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                   sizeof(tx_mem), script, 1);
+
+  zassert_ok(wl_send_reliable(&ctx, 1U, (const uint8_t *)"Q", 1U, &handle));
+  zassert_ok(wl_tx_complete(&ctx, cap.last_token, WL_OK));
+  zassert_equal(ctx.tx_state, WL_TX_STATE_WAITING_ACK);
+  zassert_equal(wl_send_reliable(&ctx, 2U, (const uint8_t *)"R", 1U, &handle),
+                WL_ERR_BUSY);
+}
+
+ZTEST(wirelink_protocol_unit, test_send_zero_session_is_invalid)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+  wl_config_t cfg = {
+    .rx_buf_size = sizeof(rx_mem),
+    .tx_buf_size = sizeof(tx_mem),
+    .max_payload_len = 128U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC16,
+    .session_id = 0x1122334455667788ULL,
+    .max_retries = 0U,
+    .ack_timeout_ms = 20U,
+  };
+
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                   sizeof(tx_mem), script, 1);
+
+  ctx.session_id = 0U;
+  zassert_equal(wl_send_unreliable(&ctx, 7U, (const uint8_t *)"A", 1U),
+                WL_ERR_INVALID_ARG);
+}
+
+ZTEST(wirelink_protocol_unit, test_send_rejects_payload_over_max_config)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+
+  wl_config_t cfg = {
+    .rx_buf_size = sizeof(rx_mem),
+    .tx_buf_size = sizeof(tx_mem),
+    .max_payload_len = 2U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = 0x2233445566778899ULL,
+    .max_retries = 0U,
+    .ack_timeout_ms = 20U,
+  };
+
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                   sizeof(tx_mem), script, 1);
+
+  const uint8_t payload[] = {1, 2, 3};
+  zassert_equal(wl_send_unreliable(&ctx, 8U, payload, sizeof(payload)),
+                WL_ERR_PAYLOAD_TOO_LONG);
+}
+
 ZTEST(wirelink_protocol_unit, test_reliable_send_started_and_complete)
 {
   wl_ctx_t ctx = {0};
@@ -335,6 +418,96 @@ ZTEST(wirelink_protocol_unit, test_rejects_crc_broken_frame)
   wire[wire_len - 1U] ^= 0x01U;
 
   zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_CRC);
+}
+
+ZTEST(wirelink_protocol_unit, test_rejects_receive_reserved_flags)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+  wl_event_t event = {0};
+
+  wl_config_t cfg = {
+    .rx_buf_size = sizeof(rx_mem),
+    .tx_buf_size = sizeof(tx_mem),
+    .max_payload_len = 64U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = 0xBEEF000000000001ULL,
+    .max_retries = 0U,
+    .ack_timeout_ms = 20U,
+  };
+
+  wl_sink_result_t script[] = {WL_SINK_FAILED};
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                   sizeof(tx_mem), script, 1);
+
+  wl_wire_packet_t packet = {
+    .type = WL_PACKET_DATA,
+    .flags = WL_PACKET_FLAG_RELIABLE,
+    .cmd_id = 0x11U,
+    .session_id = ctx.session_id,
+    .sequence = 1U,
+    .payload = NULL,
+    .payload_len = 0U,
+    .integrity = WL_INTEGRITY_NONE,
+  };
+
+  uint8_t wire[WL_FRAME_MAX_RAW_LEN];
+  size_t wire_len = 0U;
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, wire,
+                            sizeof(wire), &wire_len));
+  wire[5] |= WL_PACKET_FLAG_RESERVED_MASK;
+
+  zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_BAD_FRAME);
+  zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
+}
+
+ZTEST(wirelink_protocol_unit, test_rejects_receive_nack_and_payload_overflow)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+  wl_event_t event = {0};
+  const uint8_t payload[] = {1, 2, 3};
+
+  wl_config_t cfg = {
+    .rx_buf_size = sizeof(rx_mem),
+    .tx_buf_size = sizeof(tx_mem),
+    .max_payload_len = 2U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = 0xBEEF000000000002ULL,
+    .max_retries = 0U,
+    .ack_timeout_ms = 20U,
+  };
+
+  wl_sink_result_t script[] = {WL_SINK_FAILED};
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                   sizeof(tx_mem), script, 1);
+
+  wl_wire_packet_t packet = {
+    .type = WL_PACKET_DATA,
+    .flags = 0U,
+    .cmd_id = 0x12U,
+    .session_id = ctx.session_id,
+    .sequence = 1U,
+    .payload = payload,
+    .payload_len = sizeof(payload),
+    .integrity = WL_INTEGRITY_NONE,
+  };
+  uint8_t wire[WL_FRAME_MAX_RAW_LEN];
+  size_t wire_len = 0U;
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, wire,
+                            sizeof(wire), &wire_len));
+  zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_PAYLOAD_TOO_LONG);
+  zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
+
+  wire[4] = WL_PACKET_NACK;
+  zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_BAD_FRAME);
+  zassert_equal(wl_poll(&ctx, 2U, &event), WL_ERR_NO_DATA);
 }
 
 ZTEST_SUITE(wirelink_protocol_unit, NULL, NULL, NULL, NULL, NULL);

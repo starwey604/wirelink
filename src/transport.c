@@ -27,7 +27,7 @@ int wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle) {
     return WL_ERR_INVALID_STATE;
   }
   ctx->tx_state = WL_TX_STATE_CANCELLED;
-  ctx->tx_waiting_ack = 0U;
+  ctx->tx_wait_state = WL_TX_WAIT_NONE;
   ctx->tx_waiting_seq = 0U;
   ctx->tx_inflight = 0;
   ctx->in_flight_reliable = 0;

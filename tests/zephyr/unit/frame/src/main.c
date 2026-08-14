@@ -65,6 +65,50 @@ ZTEST(wirelink_frame_unit, test_reject_invalid_session_and_flags)
                 WL_ERR_BAD_FRAME);
 }
 
+ZTEST(wirelink_frame_unit, test_encode_rejects_zero_session)
+{
+  wl_wire_packet_t packet = {0};
+  uint8_t encoded[WL_FRAME_MAX_RAW_LEN] = {0};
+  size_t encoded_len = 0;
+
+  packet.type = WL_PACKET_DATA;
+  packet.flags = 0U;
+  packet.cmd_id = 1U;
+  packet.session_id = 0ULL;
+  packet.sequence = 1U;
+  packet.integrity = WL_INTEGRITY_NONE;
+  packet.payload = NULL;
+  packet.payload_len = 0U;
+
+  zassert_equal(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
+                               sizeof(encoded), &encoded_len),
+                WL_ERR_INVALID_ARG);
+}
+
+ZTEST(wirelink_frame_unit, test_nack_packet_is_rejected)
+{
+  uint8_t encoded[WL_FRAME_MAX_RAW_LEN] = {0};
+  size_t encoded_len = 0;
+  wl_frame_view_t view = {0};
+
+  wl_wire_packet_t packet = {0};
+  packet.type = WL_PACKET_DATA;
+  packet.flags = 0U;
+  packet.cmd_id = 1U;
+  packet.session_id = 0x0102030405060708ULL;
+  packet.sequence = 1U;
+  packet.integrity = WL_INTEGRITY_NONE;
+  packet.payload = NULL;
+  packet.payload_len = 0U;
+
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
+                            sizeof(encoded), &encoded_len));
+
+  encoded[4] = WL_PACKET_NACK;
+  zassert_equal(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_NONE, &view),
+                WL_ERR_BAD_FRAME);
+}
+
 ZTEST(wirelink_frame_unit, test_crc16_tamper_detection)
 {
   const uint8_t payload[] = {0xAA, 0xBB, 0xCC};

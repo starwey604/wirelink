@@ -42,13 +42,14 @@ typedef enum {
   WL_PACKET_DATA = 0x01,
   WL_PACKET_ACK = 0x02,
   WL_PACKET_NACK = 0x03,
-  WL_PACKET_UNRELIABLE = WL_PACKET_DATA,
-  WL_PACKET_RELIABLE = WL_PACKET_DATA,
   WL_PACKET_PRIVATE_USE = 0x80,
 } wl_packet_type_t;
 
 typedef enum {
+  /* V1: only bit0 is defined as WL_PACKET_FLAG_RELIABLE. */
   WL_PACKET_FLAG_RELIABLE = 0x01,
+  /* Used to reject illegal non-zero reserved bits deterministically. */
+  WL_PACKET_FLAG_RESERVED_MASK = 0xFEU,
 } wl_packet_flag_t;
 
 typedef struct {
