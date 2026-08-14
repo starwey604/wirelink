@@ -1,0 +1,26 @@
+tests:
+  wirelink.rx_spsc.integration.bipbuf:
+    tags:
+      - wirelink
+      - rx
+      - spsc
+      - integration
+    harness: ztest
+    integration_platforms:
+      - native_sim
+    platform_allow:
+      - native_sim
+  wirelink.rx_spsc.integration.lwrb:
+    tags:
+      - wirelink
+      - rx
+      - spsc
+      - integration
+      - lwrb
+    harness: ztest
+    extra_args:
+      - -DWIRELINK_TEST_RX_BACKEND=LWRB
+    integration_platforms:
+      - native_sim
+    platform_allow:
+      - native_sim
