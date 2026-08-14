@@ -22,6 +22,19 @@ library errors, `clap` for its CLI, and `insta` for future reviewed codegen
 snapshots. New dependencies need a focused compiler concern and must be
 recorded in `wlc/README.md` before adoption.
 
+## WLC semantic baseline
+
+`analyze_schema` resolves parsed field types and produces an ID-sorted semantic
+model. ID allocation is explicit: schemas must never receive implicit message,
+enum, or field numbers. `check_compatibility` compares two such models; deleted
+declaration IDs require top-level `reserved N;`, while deleted fields require
+the same declaration inside their message. Reserved IDs are permanent.
+
+The baseline treats a field's number, name, resolved type, and cardinality as
+wire identity. Reordering source declarations or fields is semantically inert.
+CLI support for selecting a previous schema is deferred to the CLI milestone;
+the library API and tests are the compatibility contract until then.
+
 ## Persistent testing decision
 
 Wirelink uses Zephyr's Twister and Ztest as its only maintained test
