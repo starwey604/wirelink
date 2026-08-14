@@ -1,0 +1,7 @@
+tests:
+  wirelink.rx_ring_lwrb.unit:
+    type: unit
+    tags:
+      - wirelink
+      - rx
+      - lwrb

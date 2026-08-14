@@ -7,6 +7,23 @@ project(wirelink_protocol_integration)
 
 set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 
+set(WIRELINK_TEST_RX_BACKEND "BIPBUF" CACHE STRING
+    "RX ring backend used by this integration fixture")
+
+if(WIRELINK_TEST_RX_BACKEND STREQUAL "BIPBUF")
+  set(WIRELINK_TEST_RX_SOURCES ${WIRELINK_ROOT}/src/rx_ring_bipbuf.c)
+elseif(WIRELINK_TEST_RX_BACKEND STREQUAL "LWRB")
+  set(WIRELINK_TEST_RX_SOURCES
+    ${WIRELINK_ROOT}/src/rx_ring_lwrb.c
+    ${WIRELINK_ROOT}/third_party/lwrb/src/lwrb.c
+  )
+  target_include_directories(app PRIVATE
+    ${WIRELINK_ROOT}/third_party/lwrb/include
+  )
+else()
+  message(FATAL_ERROR "Unsupported WIRELINK_TEST_RX_BACKEND")
+endif()
+
 target_sources(app PRIVATE
   src/main.c
   ${WIRELINK_ROOT}/src/bipbuf.c
@@ -15,7 +32,7 @@ target_sources(app PRIVATE
   ${WIRELINK_ROOT}/src/frame.c
   ${WIRELINK_ROOT}/src/init.c
   ${WIRELINK_ROOT}/src/protocol.c
-  ${WIRELINK_ROOT}/src/rx_ring_bipbuf.c
+  ${WIRELINK_TEST_RX_SOURCES}
   ${WIRELINK_ROOT}/src/transport.c
   ${WIRELINK_ROOT}/src/types.c
 )

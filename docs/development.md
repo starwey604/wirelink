@@ -62,6 +62,12 @@ drivers. The repository is a Zephyr module through `zephyr/module.yml`:
 This keeps the same protocol implementation usable in bare-metal, other RTOS,
 and desktop applications.
 
+The RX ring backend is selected at build time and does not enter the public
+ABI. Top-level CMake accepts `-DWIRELINK_RX_BACKEND=BIPBUF` (the default) or
+`LWRB`; Zephyr uses the matching `CONFIG_WIRELINK_RX_BACKEND_*` choice. The
+vendored LwRB backend retains its C11 atomic indices and requires them to be
+lock-free on the target.
+
 ## Core storage contract
 
 The v1 core has one application TX slot, one control/ACK TX slot, and one RX
