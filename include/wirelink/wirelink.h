@@ -46,6 +46,7 @@ typedef struct {
   size_t payload_len;
   wl_tx_handle_t handle;
   int io_result;
+  uint32_t lease;
 } wl_event_t;
 
 typedef enum {

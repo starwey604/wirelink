@@ -65,6 +65,14 @@ int wl_rx_get_counters(const wl_ctx_t *ctx, wl_rx_counters_t *out_counters) {
 }
 
 void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event) {
-  (void)ctx;
-  (void)event;
+  if (ctx == NULL || event == NULL) {
+    return;
+  }
+  if ((event->type == WL_EVT_UNRELIABLE_RX ||
+       event->type == WL_EVT_RELIABLE_RX) &&
+      ctx->rx_event_leased != 0U &&
+      event->lease == ctx->rx_event_generation) {
+    ctx->rx_event_leased = 0U;
+    ctx->rx_payload.length = 0U;
+  }
 }

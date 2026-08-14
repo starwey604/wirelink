@@ -267,7 +267,7 @@ int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
   if (expected == 0 || expected > WL_FRAME_MAX_RAW_LEN) {
     return WL_ERR_FRAME_TOO_LONG;
   }
-  if (expected > in_len) {
+  if (expected != in_len) {
     return WL_ERR_BAD_FRAME;
   }
 

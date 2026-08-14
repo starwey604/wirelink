@@ -17,16 +17,34 @@ static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
 static int wl_push_event(wl_ctx_t *ctx, wl_event_type_t type, uint16_t cmd_id,
                         const uint8_t *payload, size_t payload_len,
                         wl_tx_handle_t handle) {
-  if (ctx->has_event) {
+  const uint8_t is_rx = (type == WL_EVT_UNRELIABLE_RX ||
+                         type == WL_EVT_RELIABLE_RX);
+  if (ctx->has_event || (is_rx != 0U && ctx->rx_event_leased != 0U)) {
     return WL_ERR_QUEUE_FULL;
+  }
+  if (is_rx != 0U) {
+    if (payload_len > ctx->storage.rx_event_payload_size ||
+        (payload_len != 0U && payload == NULL)) {
+      return WL_ERR_PAYLOAD_TOO_LONG;
+    }
+    if (payload_len != 0U) {
+      memcpy(ctx->storage.rx_event_payload, payload, payload_len);
+    }
+    ctx->rx_payload.data = ctx->storage.rx_event_payload;
+    ctx->rx_payload.length = payload_len;
+    ctx->rx_event_generation++;
+    if (ctx->rx_event_generation == 0U) {
+      ctx->rx_event_generation = 1U;
+    }
   }
 
   ctx->event.type = type;
   ctx->event.cmd_id = cmd_id;
-  ctx->event.payload = payload;
+  ctx->event.payload = (is_rx != 0U) ? ctx->rx_payload.data : payload;
   ctx->event.payload_len = payload_len;
   ctx->event.handle = handle;
   ctx->event.io_result = 0;
+  ctx->event.lease = (is_rx != 0U) ? ctx->rx_event_generation : 0U;
   ctx->has_event = 1U;
   return WL_OK;
 }
@@ -420,6 +438,11 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
                                        WL_INTEGRITY_NONE,
                        &view);
   if (ret != WL_OK) {
+    if (ret == WL_ERR_CRC) {
+      ctx->rx_counters.bad_integrity++;
+    } else {
+      ctx->rx_counters.malformed++;
+    }
     return ret;
   }
 
@@ -430,12 +453,12 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
   switch (view.type) {
   case WL_PACKET_DATA:
     if ((view.flags & WL_PACKET_FLAG_RELIABLE) != 0U) {
-      if (ctx->has_event) {
-        return WL_ERR_QUEUE_FULL;
-      }
-      (void)wl_send_ack(ctx, &view);
-      return wl_push_event(ctx, WL_EVT_RELIABLE_RX, view.cmd_id, view.payload.data,
+      ret = wl_push_event(ctx, WL_EVT_RELIABLE_RX, view.cmd_id, view.payload.data,
                           view.payload.length, 0U);
+      if (ret != WL_OK) {
+        return ret;
+      }
+      return wl_send_ack(ctx, &view);
     }
     return wl_push_event(ctx, WL_EVT_UNRELIABLE_RX, view.cmd_id, view.payload.data,
                         view.payload.length, 0U);
@@ -467,8 +490,29 @@ int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
 }
 
 static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
+  size_t raw_len;
   if (ctx == NULL || unit == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->config->envelope == WL_ENVELOPE_BUS_LENGTH16) {
+    if (len < 2U) {
+      ctx->rx_counters.malformed++;
+      return WL_ERR_BAD_FRAME;
+    }
+    raw_len = ((size_t)unit[0] << 8U) | unit[1];
+    if (raw_len + 2U > len ||
+        (ctx->config->max_transmission_unit != 0U &&
+         raw_len + 2U > ctx->config->max_transmission_unit)) {
+      ctx->rx_counters.malformed++;
+      return WL_ERR_BAD_FRAME;
+    }
+    for (size_t i = raw_len + 2U; i < len; ++i) {
+      if (unit[i] != 0U) {
+        ctx->rx_counters.malformed++;
+        return WL_ERR_BAD_FRAME;
+      }
+    }
+    return wl_feed_parse_wire(ctx, unit + 2U, raw_len);
   }
   return wl_feed_parse_wire(ctx, unit, len);
 }
@@ -496,6 +540,7 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
         continue;
       }
       if (ctx->cobs_overflow) {
+        ctx->rx_counters.overflow++;
         ctx->cobs_accum_len = 0;
         ctx->cobs_overflow = 0;
         continue;
@@ -507,6 +552,8 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
                                sizeof(decoded), &decoded_len);
       if (ret == WL_OK) {
         (void)wl_feed_parse_wire(ctx, decoded, decoded_len);
+      } else {
+        ctx->rx_counters.malformed++;
       }
       ctx->cobs_accum_len = 0;
       continue;

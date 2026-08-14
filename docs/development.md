@@ -72,6 +72,13 @@ the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
 callback remains valid until its matching `wl_tx_complete()`. ACK/control
 units use their own buffer and are submitted before a queued application unit.
 
+Received payload bytes are copied into the RX event buffer before an event is
+made visible. An RX event remains leased after `wl_poll()` until
+`wl_event_release()`; while leased, subsequent DATA packets receive explicit
+backpressure and reliable DATA is not ACKed. Malformed, integrity-failing,
+overflowed, duplicate, and unsupported packets are observable through the RX
+counter query rather than as application events.
+
 ## Test layers
 
 - `tests/zephyr/unit/`: Twister `type: unit` tests using the host-native

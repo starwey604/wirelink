@@ -524,4 +524,45 @@ ZTEST(wirelink_protocol_unit, test_rejects_receive_nack_and_payload_overflow)
   zassert_equal(wl_poll(&ctx, 2U, &event), WL_ERR_NO_DATA);
 }
 
+ZTEST(wirelink_protocol_unit, test_rx_event_copies_payload_until_release)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[64];
+  uint8_t tx_mem[128];
+  struct test_sink_capture cap = {0};
+  wl_event_t event = {0};
+  const uint8_t payload[] = {0x11U, 0x22U, 0x33U};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = 0xC0DEC0DEC0DEC0DEULL,
+    .ack_timeout_ms = 20U,
+  };
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+  wl_wire_packet_t packet = {
+    .type = WL_PACKET_DATA,
+    .cmd_id = 0x55U,
+    .session_id = 1U,
+    .sequence = 1U,
+    .payload = payload,
+    .payload_len = sizeof(payload),
+    .integrity = WL_INTEGRITY_NONE,
+  };
+  uint8_t wire[WL_FRAME_MAX_RAW_LEN];
+  size_t wire_len = 0U;
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, 1U);
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, wire,
+                              sizeof(wire), &wire_len));
+  zassert_ok(wl_feed_unit(&ctx, wire, wire_len));
+  memset(wire, 0, wire_len);
+  zassert_ok(wl_poll(&ctx, 1U, &event));
+  zassert_mem_equal(event.payload, payload, sizeof(payload));
+  zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_BAD_FRAME);
+  wl_event_release(&ctx, &event);
+  zassert_equal(ctx.rx_event_leased, 0U);
+}
+
 ZTEST_SUITE(wirelink_protocol_unit, NULL, NULL, NULL, NULL, NULL);
