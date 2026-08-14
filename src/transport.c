@@ -31,6 +31,7 @@ int wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle) {
   ctx->tx_waiting_seq = 0U;
   ctx->tx_inflight = 0;
   ctx->in_flight_reliable = 0;
+  ctx->tx_retries_left = 0U;
   return WL_OK;
 }
 

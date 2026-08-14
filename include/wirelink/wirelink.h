@@ -82,9 +82,13 @@ typedef struct wl_ctx {
   uint16_t tx_retries_left;
   uint16_t tx_retries_max;
   uint32_t tx_sequence;
+  uint32_t tx_retry_sequence;
   uint32_t tx_waiting_seq;
   uint8_t tx_inflight;
   uint8_t tx_waiting_ack;
+  uint8_t tx_current_reliable;
+  uint16_t tx_last_cmd_id;
+  uint8_t tx_last_flags;
 
   uint64_t session_id;
   uint32_t seq_recv;

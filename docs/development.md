@@ -1,5 +1,27 @@
 # Development policy
 
+## WLC compiler baseline
+
+The Rust compiler lives in `wlc/`. Its initial frontend owns the versioned
+`.wl` grammar, AST, and source-located validation. The supported baseline
+constructs are `message`, `enum`, `optional`, `repeated`, and `default`; see
+`wlc/README.md` for the normative grammar and current validation rules.
+
+Run its focused checks from the repository root with:
+
+```sh
+cargo test --manifest-path wlc/Cargo.toml
+```
+
+The frontend accepts user-defined field types syntactically. Cross-reference
+resolution, stable ID allocation, compatibility checks, IR, and C generation
+belong to the subsequent WLC milestones and must preserve this grammar.
+
+`wlc` uses `miette` for source-aware user diagnostics, `thiserror` for typed
+library errors, `clap` for its CLI, and `insta` for future reviewed codegen
+snapshots. New dependencies need a focused compiler concern and must be
+recorded in `wlc/README.md` before adoption.
+
 ## Persistent testing decision
 
 Wirelink uses Zephyr's Twister and Ztest as its only maintained test

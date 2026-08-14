@@ -13,6 +13,12 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config, uint8_t *rx_mem,
       config->max_payload_len > WL_FRAME_MAX_PAYLOAD) {
     return WL_ERR_INVALID_ARG;
   }
+  if (config->envelope >= 3U) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (config->integrity > WL_INTEGRITY_CRC32) {
+    return WL_ERR_INVALID_ARG;
+  }
   if (config->session_id == 0ULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -34,10 +40,17 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config, uint8_t *rx_mem,
   ctx->tx_token = 1U;
   ctx->tx_next_handle = 1U;
   ctx->tx_state = WL_TX_STATE_IDLE;
-  ctx->tx_waiting_ack = 0U;
+  ctx->tx_last_cmd_id = 0U;
+  ctx->tx_last_flags = 0U;
+  ctx->tx_current_reliable = 0U;
+  ctx->tx_retry_sequence = 0U;
   ctx->tx_waiting_seq = 0U;
+  ctx->tx_waiting_ack = 0U;
   ctx->cobs_accum_len = 0;
   ctx->cobs_overflow = 0;
+  ctx->tx_payload = (wl_span_t){ctx->tx_payload_storage, 0U};
+  memset(ctx->rx_payload_storage, 0, sizeof(ctx->rx_payload_storage));
+  memset(ctx->tx_payload_storage, 0, sizeof(ctx->tx_payload_storage));
 
   return WL_OK;
 }

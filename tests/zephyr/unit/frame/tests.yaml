@@ -1,0 +1,6 @@
+tests:
+  wirelink.frame.unit:
+    type: unit
+    tags:
+      - wirelink
+      - frame

@@ -1,0 +1,6 @@
+tests:
+  wirelink.protocol.unit:
+    type: unit
+    tags:
+      - wirelink
+      - protocol
