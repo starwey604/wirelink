@@ -54,7 +54,8 @@ and **MAY** are to be interpreted as normative requirements.
 Wirelink separates three concerns:
 
 1. WLC-generated codecs convert typed application objects to and from payload
-   bytes.
+   bytes. Payload schema and codec rules are defined by
+   [`docs/schema-v1.md`](schema-v1.md).
 2. The Wirelink core adds packet format, integrity, duplicate suppression, ACK,
    timeout, and retransmission behavior.
 3. A platform adapter maps transmission units to hardware or an operating
