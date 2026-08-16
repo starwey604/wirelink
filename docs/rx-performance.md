@@ -54,6 +54,9 @@ not the deciding ring microbenchmark.
   raw serial log for every run; do not average different firmware images.
   Its `meta` row records the image's cycle frequency and RX buffer sizes;
   obtain section sizes from the matching Zephyr build report.
+  ESP32-S3 measurements use its hardware CPU cycle counter, not the Zephyr
+  system-tick counter. `run_cycles` is the sum of the measured frame latencies,
+  which avoids a 32-bit hardware-counter rollover during long profiles.
 
 Correctness is a gate: no corrupted delivery, invalid lease, unexpected drop,
 or failed SPSC test is permitted. Among correct backends, choose the one with

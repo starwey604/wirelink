@@ -10,6 +10,8 @@
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/util.h>
 
+#include <esp_cpu.h>
+
 #if defined(WL_BENCH_INGRESS_USB)
 #include <sample_usbd.h>
 #include <zephyr/usb/usbd.h>
@@ -50,6 +52,10 @@ static atomic_t producer_cycles;
 static atomic_t accepted_bytes;
 static atomic_t dropped_bytes;
 static atomic_t ingress_errors;
+
+static uint32_t bench_cycle_count(void) {
+  return (uint32_t)esp_cpu_get_cycle_count();
+}
 
 static wl_sink_result_t discard_sink(void *user_data, wl_io_token_t token,
                                      const uint8_t *data, size_t len) {
@@ -151,9 +157,9 @@ static int run_reserve_commit_primitive(size_t chunk_length) {
 
     while (offset < chunk_length) {
       wl_span_t span = {0};
-      uint64_t started = k_cycle_get_64();
+      uint32_t started = bench_cycle_count();
       int ret = wl_rx_reserve(&link_ctx, &span);
-      uint64_t reserve_cycles = k_cycle_get_64() - started;
+      uint32_t reserve_cycles = bench_cycle_count() - started;
       size_t part;
 
       if (ret != WL_OK || span.length == 0U) {
@@ -164,10 +170,10 @@ static int run_reserve_commit_primitive(size_t chunk_length) {
       if (offset + part == chunk_length) {
         span.data[part - 1U] = 0U;
       }
-      started = k_cycle_get_64();
+      started = bench_cycle_count();
       ret = wl_rx_commit(&link_ctx, part);
       if (operation >= BENCH_PRIMITIVE_WARMUP) {
-        measured_cycles += reserve_cycles + k_cycle_get_64() - started;
+        measured_cycles += reserve_cycles + bench_cycle_count() - started;
         ++measured_calls;
       }
       if (ret != WL_OK) {
@@ -195,10 +201,10 @@ static int run_feed_primitive(size_t chunk_length) {
   primitive_bytes[chunk_length - 1U] = 0U;
   for (size_t operation = 0U; operation < total; ++operation) {
     size_t accepted = 0U;
-    uint64_t started = k_cycle_get_64();
+    uint32_t started = bench_cycle_count();
     int ret = wl_feed_bytes(&link_ctx, primitive_bytes, chunk_length,
                             &accepted);
-    uint64_t elapsed = k_cycle_get_64() - started;
+    uint32_t elapsed = bench_cycle_count() - started;
 
     if (ret != WL_OK || accepted != chunk_length) {
       return -EIO;
@@ -248,10 +254,10 @@ static void reset_ingress_stats(void) {
 
 #if !defined(WL_BENCH_INGRESS_DMA)
 static void account_feed(const uint8_t *data, size_t len) {
-  uint64_t started = k_cycle_get_64();
+  uint32_t started = bench_cycle_count();
   size_t accepted = 0U;
   int ret = wl_feed_bytes(&link_ctx, data, len, &accepted);
-  uint64_t elapsed = k_cycle_get_64() - started;
+  uint32_t elapsed = bench_cycle_count() - started;
 
   atomic_inc(&producer_calls);
   atomic_add(&producer_cycles, (atomic_val_t)elapsed);
@@ -316,14 +322,14 @@ static void uart_dma_ingress(const struct device *dev,
 
   switch (event->type) {
   case UART_RX_RDY: {
-    uint64_t started = k_cycle_get_64();
+    uint32_t started = bench_cycle_count();
     size_t length = event->data.rx.len;
     int ret = atomic_get(&dma_reservation_active) != 0 &&
                       event->data.rx.offset == 0U &&
                       length == dma_active_length
                   ? wl_rx_commit(&link_ctx, length)
                   : WL_ERR_INVALID_STATE;
-    uint64_t elapsed = k_cycle_get_64() - started;
+    uint32_t elapsed = bench_cycle_count() - started;
 
     atomic_set(&dma_reservation_active, 0);
     dma_active_length = 0U;
@@ -427,7 +433,7 @@ static size_t encode_frame(size_t payload_len, uint32_t sequence) {
   return wire_len;
 }
 
-static int wait_for_frame(size_t payload_len, uint64_t started,
+static int wait_for_frame(size_t payload_len, uint32_t started,
                           uint64_t *out_latency) {
   int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
 
@@ -439,7 +445,7 @@ static int wait_for_frame(size_t payload_len, uint64_t started,
                          event.type == WL_EVT_RELIABLE_RX)) {
       bool valid = event.payload_len == payload_len &&
                    memcmp(event.payload, frame_payload, payload_len) == 0;
-      *out_latency = k_cycle_get_64() - started;
+      *out_latency = (uint32_t)(bench_cycle_count() - started);
       wl_event_release(&link_ctx, &event);
       return valid ? 0 : -EBADMSG;
     }
@@ -467,19 +473,18 @@ static void sort_latencies(size_t count) {
 
 static int run_uart_profile(size_t payload_len) {
   const size_t total = BENCH_WARMUP_FRAMES + BENCH_SAMPLE_FRAMES;
-  uint64_t run_started;
+  uint64_t run_cycles = 0U;
 
   reset_ingress_stats();
-  run_started = k_cycle_get_64();
   for (size_t i = 0U; i < total; ++i) {
     size_t wire_len = encode_frame(payload_len, (uint32_t)i);
-    uint64_t started;
+    uint32_t started;
     uint64_t latency;
 
     if (wire_len == 0U) {
       return -EINVAL;
     }
-    started = k_cycle_get_64();
+    started = bench_cycle_count();
 #if defined(WL_BENCH_INGRESS_DMA)
     for (size_t offset = 0U; offset < wire_len;) {
       int64_t deadline;
@@ -513,13 +518,12 @@ static int run_uart_profile(size_t payload_len) {
     }
     if (i >= BENCH_WARMUP_FRAMES) {
       latency_samples[i - BENCH_WARMUP_FRAMES] = latency;
+      run_cycles += latency;
     } else if (i + 1U == BENCH_WARMUP_FRAMES) {
       reset_ingress_stats();
-      run_started = k_cycle_get_64();
     }
   }
 
-  uint64_t run_cycles = k_cycle_get_64() - run_started;
   sort_latencies(BENCH_SAMPLE_FRAMES);
   printk("%s,%s,%s,%u,%u,%llu,%lld,%lld,%lld,%lld,%llu,%llu,%llu\n",
          "wirelink_rx_bench_v1", backend_name(), ingress_name(),
