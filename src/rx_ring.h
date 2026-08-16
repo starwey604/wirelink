@@ -7,6 +7,10 @@
 #include "wirelink/rx_ring_state.h"
 #include "wirelink/span.h"
 
+/*
+ * Internal API of Wirelink's fixed atomic SPSC BipBuffer implementation.
+ * It is deliberately not a selectable backend boundary.
+ */
 size_t wl_rx_ring_storage_size(size_t usable_capacity);
 int wl_rx_ring_init(wl_rx_ring_state_t *state, uint8_t *memory,
                     size_t memory_size);

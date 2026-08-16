@@ -10,25 +10,4 @@ config WIRELINK
 	  are supplied separately so the core can be shared by Zephyr, bare-metal,
 	  and other RTOS projects.
 
-if WIRELINK
-
-choice WIRELINK_RX_BACKEND
-	prompt "Wirelink RX ring backend"
-	default WIRELINK_RX_BACKEND_BIPBUF
-	help
-	  Select the internal single-producer/single-consumer byte ring used by
-	  streaming transports. The selected backend is private to Wirelink.
-
-config WIRELINK_RX_BACKEND_BIPBUF
-	bool "Wirelink BipBuffer"
-
-config WIRELINK_RX_BACKEND_LWRB
-	bool "Vendored LwRB"
-	help
-	  Use the atomic SPSC implementation vendored from MaJerle/LwRB v3.3.0.
-
-endchoice
-
-endif # WIRELINK
-
 endmenu

@@ -14,8 +14,7 @@ struct endpoint {
   uint8_t tx_unit[WL_FRAME_MAX_COBS_LEN];
   uint8_t control_unit[WL_FRAME_MAX_COBS_LEN];
   uint8_t rx_fallback[WL_FRAME_MAX_COBS_LEN];
-  /* LwRB reserves one physical byte to distinguish full from empty. */
-  uint8_t rx_fifo[WL_FRAME_MAX_COBS_LEN + 1U];
+  uint8_t rx_fifo[WL_FRAME_MAX_COBS_LEN];
   uint8_t outbound[WL_FRAME_MAX_COBS_LEN];
   size_t outbound_len;
 };

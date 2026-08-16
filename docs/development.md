@@ -62,11 +62,12 @@ drivers. The repository is a Zephyr module through `zephyr/module.yml`:
 This keeps the same protocol implementation usable in bare-metal, other RTOS,
 and desktop applications.
 
-The RX ring backend is selected at build time and does not enter the public
-ABI. Top-level CMake accepts `-DWIRELINK_RX_BACKEND=BIPBUF` (the default) or
-`LWRB`; Zephyr uses the matching `CONFIG_WIRELINK_RX_BACKEND_*` choice. The
-vendored LwRB backend retains its C11 atomic indices and requires them to be
-lock-free on the target.
+The RX ring is a fixed, internal atomic SPSC BipBuffer implementation. It does
+not enter the public ABI and Wirelink intentionally exposes no build-time
+backend selection. The producer release-publishes its write cursor and the
+consumer release-publishes reclaimed space; initialization requires the C11
+atomics to be lock-free on the target. The selection rationale and ESP32-S3
+measurements are retained in `docs/rx-performance.md`.
 
 ## Core storage contract
 
@@ -119,8 +120,9 @@ duplicates without emitting another event.
 - Multi-device transport tests use Twister's pytest harness and a hardware map
   when real DUTs are required.
 - `benchmarks/zephyr/rx_backend/` is the build-only ESP32-S3 matrix for the
-  BipBuffer/LwRB and UART IRQ/UART DMA/USB CDC combinations. Its physical test
-  procedure and backend selection rules are defined in `docs/rx-performance.md`.
+  fixed BipBuffer implementation with UART IRQ/UART DMA/USB CDC ingress. Its
+  physical test procedure and buffer-selection record are in
+  `docs/rx-performance.md`.
 
 `tests/zephyr/integration/protocol` is the core in-memory two-peer fixture. It
 exercises reliable acknowledgement, a dropped first DATA retry, COBS

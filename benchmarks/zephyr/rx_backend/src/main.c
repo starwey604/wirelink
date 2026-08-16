@@ -21,7 +21,6 @@
 #include "wirelink/wirelink.h"
 
 #define BENCH_RX_USABLE 4096U
-#define BENCH_RX_PHYSICAL (BENCH_RX_USABLE + 1U)
 #define BENCH_FALLBACK_SIZE WL_FRAME_MAX_COBS_LEN
 #define BENCH_UART_CHUNK 64U
 #define BENCH_PRIMITIVE_WARMUP 10000U
@@ -36,7 +35,7 @@ static wl_storage_t link_storage;
 static uint8_t tx_payload[WL_FRAME_MAX_PAYLOAD];
 static uint8_t tx_unit[WL_FRAME_MAX_COBS_LEN];
 static uint8_t control_unit[128U];
-static uint8_t rx_fifo[BENCH_RX_PHYSICAL] __aligned(64);
+static uint8_t rx_fifo[BENCH_RX_USABLE] __aligned(64);
 static uint8_t rx_fallback[BENCH_FALLBACK_SIZE] __aligned(64);
 static uint8_t primitive_bytes[256U];
 
@@ -67,11 +66,7 @@ static wl_sink_result_t discard_sink(void *user_data, wl_io_token_t token,
 }
 
 static const char *backend_name(void) {
-#if defined(WL_BENCH_BACKEND_LWRB)
-  return "lwrb";
-#else
   return "bipbuf_spsc";
-#endif
 }
 
 static const char *ingress_name(void) {
@@ -85,20 +80,11 @@ static const char *ingress_name(void) {
 }
 
 static size_t physical_ring_size(void) {
-#if defined(WL_BENCH_BACKEND_LWRB)
-  return BENCH_RX_PHYSICAL;
-#else
   return BENCH_RX_USABLE;
-#endif
 }
 
 static int init_link(void) {
   wl_storage_requirements_t requirements;
-  size_t fifo_size = BENCH_RX_USABLE;
-
-#if defined(WL_BENCH_BACKEND_LWRB)
-  fifo_size = BENCH_RX_PHYSICAL;
-#endif
 
   link_config = (wl_config_t){
       .max_payload_len = WL_FRAME_MAX_PAYLOAD,
@@ -112,7 +98,7 @@ static int init_link(void) {
   if (wl_config_requirements(&link_config, &requirements) != WL_OK) {
     return -EINVAL;
   }
-  if (requirements.rx_fifo_size > fifo_size ||
+  if (requirements.rx_fifo_size > sizeof(rx_fifo) ||
       requirements.rx_fallback_size > sizeof(rx_fallback)) {
     return -ENOMEM;
   }
@@ -125,7 +111,7 @@ static int init_link(void) {
       .control_unit = control_unit,
       .control_unit_size = sizeof(control_unit),
       .rx_fifo = rx_fifo,
-      .rx_fifo_size = fifo_size,
+      .rx_fifo_size = sizeof(rx_fifo),
       .rx_fallback = rx_fallback,
       .rx_fallback_size = sizeof(rx_fallback),
   };

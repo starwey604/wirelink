@@ -1,16 +1,7 @@
 tests:
-  wirelink.rx_spsc.unit.bipbuf:
+  wirelink.rx_spsc.unit:
     type: unit
     tags:
       - wirelink
       - rx
       - spsc
-  wirelink.rx_spsc.unit.lwrb:
-    type: unit
-    tags:
-      - wirelink
-      - rx
-      - spsc
-      - lwrb
-    extra_args:
-      - -DWIRELINK_TEST_RX_BACKEND=LWRB
