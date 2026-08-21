@@ -25,6 +25,14 @@
  * data obtains the second contiguous region with its next operation.
  */
 typedef struct {
+  size_t cursor;
+  size_t length;
+  size_t published;
+  uint32_t token;
+  uint8_t active;
+} wl_rx_dma_claim_state_t;
+
+typedef struct {
   uint8_t *memory;
   size_t capacity;
   _Atomic size_t read_cursor;
@@ -35,6 +43,11 @@ typedef struct {
   size_t reservation_cursor;
   size_t reservation_length;
   uint8_t reservation_active;
+
+  /* Producer-private direct-DMA claim state. */
+  size_t dma_reserve_cursor;
+  uint32_t dma_next_token;
+  wl_rx_dma_claim_state_t dma_claims[WL_RX_DMA_MAX_CLAIMS];
 } wl_rx_bipbuf_state_t;
 
 _Static_assert(sizeof(wl_rx_bipbuf_state_t) <= WL_RX_RING_STATE_SIZE,
@@ -66,6 +79,49 @@ static size_t contiguous_length(size_t capacity, size_t cursor,
                                 size_t available) {
   const size_t to_end = capacity - cursor_physical(capacity, cursor);
   return available < to_end ? available : to_end;
+}
+
+static size_t producer_reserved_cursor(const wl_rx_bipbuf_state_t *backend) {
+  return backend->dma_claims[0].active != 0U ||
+                 backend->dma_claims[1].active != 0U
+             ? backend->dma_reserve_cursor
+             : atomic_load_explicit(&backend->write_cursor,
+                                    memory_order_relaxed);
+}
+
+static wl_rx_dma_claim_state_t *find_dma_claim(
+    wl_rx_bipbuf_state_t *backend, uint32_t token) {
+  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+    if (backend->dma_claims[i].active != 0U &&
+        backend->dma_claims[i].token == token) {
+      return &backend->dma_claims[i];
+    }
+  }
+  return NULL;
+}
+
+static wl_rx_dma_claim_state_t *oldest_dma_claim(
+    wl_rx_bipbuf_state_t *backend) {
+  wl_rx_dma_claim_state_t *oldest = NULL;
+
+  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+    wl_rx_dma_claim_state_t *candidate = &backend->dma_claims[i];
+
+    if (candidate->active != 0U &&
+        (oldest == NULL || candidate->token < oldest->token)) {
+      oldest = candidate;
+    }
+  }
+  return oldest;
+}
+
+static size_t active_dma_claim_count(const wl_rx_bipbuf_state_t *backend) {
+  size_t count = 0U;
+
+  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+    count += backend->dma_claims[i].active != 0U ? 1U : 0U;
+  }
+  return count;
 }
 
 static size_t readable_snapshot(const wl_rx_bipbuf_state_t *backend,
@@ -103,6 +159,7 @@ int wl_rx_ring_init(wl_rx_ring_state_t *state, uint8_t *memory,
   atomic_init(&backend->read_cursor, 0U);
   atomic_init(&backend->write_cursor, 0U);
   atomic_init(&backend->overflow_events, 0U);
+  backend->dma_next_token = 1U;
 
   if (!atomic_is_lock_free(&backend->read_cursor) ||
       !atomic_is_lock_free(&backend->write_cursor) ||
@@ -141,7 +198,8 @@ int wl_rx_ring_producer_reserve(wl_rx_ring_state_t *state,
   if (backend->memory == NULL || backend->capacity == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (backend->reservation_active != 0U) {
+  if (backend->reservation_active != 0U ||
+      active_dma_claim_count(backend) != 0U) {
     return WL_ERR_INVALID_STATE;
   }
 
@@ -163,6 +221,146 @@ int wl_rx_ring_producer_reserve(wl_rx_ring_state_t *state,
   out_span->data =
       backend->memory + cursor_physical(backend->capacity, write_cursor);
   out_span->length = backend->reservation_length;
+  return WL_OK;
+}
+
+int wl_rx_ring_dma_claim(wl_rx_ring_state_t *state, size_t maximum_length,
+                         wl_rx_dma_claim_t *out_claim) {
+  wl_rx_bipbuf_state_t *backend;
+  wl_rx_dma_claim_state_t *claim = NULL;
+  size_t read_cursor;
+  size_t reserve_cursor;
+  size_t reserved;
+  size_t free_space;
+  size_t length;
+
+  if (state == NULL || out_claim == NULL || maximum_length == 0U) {
+    return WL_ERR_INVALID_ARG;
+  }
+  backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (backend->reservation_active != 0U ||
+      active_dma_claim_count(backend) >= WL_RX_DMA_MAX_CLAIMS) {
+    return WL_ERR_WOULD_BLOCK;
+  }
+  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+    if (backend->dma_claims[i].active == 0U) {
+      claim = &backend->dma_claims[i];
+      break;
+    }
+  }
+  if (claim == NULL) {
+    return WL_ERR_WOULD_BLOCK;
+  }
+
+  reserve_cursor = producer_reserved_cursor(backend);
+  read_cursor = atomic_load_explicit(&backend->read_cursor, memory_order_acquire);
+  reserved = cursor_distance(backend->capacity * 2U, read_cursor, reserve_cursor);
+  if (reserved > backend->capacity) {
+    return WL_ERR_INVALID_STATE;
+  }
+  free_space = backend->capacity - reserved;
+  length = contiguous_length(backend->capacity, reserve_cursor, free_space);
+  if (length > maximum_length) {
+    length = maximum_length;
+  }
+  if (length == 0U) {
+    return WL_ERR_WOULD_BLOCK;
+  }
+
+  if (backend->dma_next_token == 0U) {
+    ++backend->dma_next_token;
+  }
+  *claim = (wl_rx_dma_claim_state_t){
+      .cursor = reserve_cursor,
+      .length = length,
+      .published = 0U,
+      .token = backend->dma_next_token++,
+      .active = 1U,
+  };
+  backend->dma_reserve_cursor =
+      cursor_advance(backend->capacity * 2U, reserve_cursor, length);
+  out_claim->span = (wl_span_t){
+      backend->memory + cursor_physical(backend->capacity, reserve_cursor),
+      length};
+  out_claim->token = claim->token;
+  return WL_OK;
+}
+
+int wl_rx_ring_dma_publish(wl_rx_ring_state_t *state,
+                           const wl_rx_dma_claim_t *claim, size_t offset,
+                           size_t length) {
+  wl_rx_bipbuf_state_t *backend;
+  wl_rx_dma_claim_state_t *stored;
+  wl_rx_dma_claim_state_t *oldest;
+
+  if (state == NULL || claim == NULL || claim->token == 0U) {
+    return WL_ERR_INVALID_ARG;
+  }
+  backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  stored = find_dma_claim(backend, claim->token);
+  oldest = oldest_dma_claim(backend);
+  if (stored == NULL || oldest != stored || offset != stored->published ||
+      length > stored->length - offset) {
+    return WL_ERR_INVALID_STATE;
+  }
+
+  stored->published += length;
+  atomic_store_explicit(&backend->write_cursor,
+                        cursor_advance(backend->capacity * 2U,
+                                       stored->cursor, stored->published),
+                        memory_order_release);
+  return WL_OK;
+}
+
+int wl_rx_ring_dma_finish(wl_rx_ring_state_t *state,
+                          const wl_rx_dma_claim_t *claim) {
+  wl_rx_bipbuf_state_t *backend;
+  wl_rx_dma_claim_state_t *stored;
+  wl_rx_dma_claim_state_t *oldest;
+
+  if (state == NULL || claim == NULL || claim->token == 0U) {
+    return WL_ERR_INVALID_ARG;
+  }
+  backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  stored = find_dma_claim(backend, claim->token);
+  oldest = oldest_dma_claim(backend);
+  if (stored == NULL || oldest != stored || stored->published != stored->length) {
+    return WL_ERR_INVALID_STATE;
+  }
+  memset(stored, 0, sizeof(*stored));
+  if (active_dma_claim_count(backend) == 0U) {
+    backend->dma_reserve_cursor = atomic_load_explicit(&backend->write_cursor,
+                                                        memory_order_relaxed);
+  }
+  return WL_OK;
+}
+
+int wl_rx_ring_dma_abort(wl_rx_ring_state_t *state) {
+  wl_rx_bipbuf_state_t *backend;
+
+  if (state == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  backend = rx_state(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (backend->reservation_active != 0U) {
+    return WL_ERR_INVALID_STATE;
+  }
+  memset(backend->dma_claims, 0, sizeof(backend->dma_claims));
+  backend->dma_reserve_cursor = atomic_load_explicit(&backend->write_cursor,
+                                                      memory_order_relaxed);
+  wl_rx_ring_producer_note_overflow(state);
   return WL_OK;
 }
 

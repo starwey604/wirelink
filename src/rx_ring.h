@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/wirelink.h"
 #include "wirelink/rx_ring_state.h"
 #include "wirelink/span.h"
 
@@ -19,6 +20,15 @@ int wl_rx_ring_producer_reserve(wl_rx_ring_state_t *state,
                                 wl_span_t *out_span);
 int wl_rx_ring_producer_commit(wl_rx_ring_state_t *state, size_t length);
 void wl_rx_ring_producer_note_overflow(wl_rx_ring_state_t *state);
+
+int wl_rx_ring_dma_claim(wl_rx_ring_state_t *state, size_t maximum_length,
+                         wl_rx_dma_claim_t *out_claim);
+int wl_rx_ring_dma_publish(wl_rx_ring_state_t *state,
+                           const wl_rx_dma_claim_t *claim, size_t offset,
+                           size_t length);
+int wl_rx_ring_dma_finish(wl_rx_ring_state_t *state,
+                          const wl_rx_dma_claim_t *claim);
+int wl_rx_ring_dma_abort(wl_rx_ring_state_t *state);
 
 size_t wl_rx_ring_readable(const wl_rx_ring_state_t *state);
 wl_span_t wl_rx_ring_consumer_peek(wl_rx_ring_state_t *state);

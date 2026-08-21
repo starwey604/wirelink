@@ -269,6 +269,73 @@ ZTEST(wirelink_rx_spsc, test_reserve_short_commit_and_double_reserve) {
   wl_event_release(&fixture.ctx, &event);
 }
 
+ZTEST(wirelink_rx_spsc, test_dma_claims_publish_in_order_and_decode) {
+  struct rx_fixture fixture;
+  uint8_t wire[TEST_RX_STORAGE];
+  const uint8_t payload[] = {0xABU, 0x00U, 0xCDU};
+  wl_rx_dma_claim_t first = {0};
+  wl_rx_dma_claim_t second = {0};
+  wl_rx_dma_claim_t third = {0};
+  wl_event_t event = {0};
+  size_t wire_len;
+  const size_t first_length = 7U;
+
+  init_fixture(&fixture);
+  wire_len = encode_data(&fixture, 0U, 0x511U, 1U, payload, sizeof(payload),
+                         wire, sizeof(wire));
+  zassert_true(wire_len > first_length);
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, first_length, &first));
+  zassert_equal(first.span.length, first_length);
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, wire_len - first_length, &second));
+  zassert_equal(wl_rx_dma_claim(&fixture.ctx, 1U, &third),
+                WL_ERR_WOULD_BLOCK);
+
+  memcpy(first.span.data, wire, first_length);
+  memcpy(second.span.data, wire + first_length, wire_len - first_length);
+  zassert_ok(wl_rx_dma_publish(&fixture.ctx, &first, 0U, 3U));
+  zassert_equal(wl_rx_dma_publish(&fixture.ctx, &second, 0U, 1U),
+                WL_ERR_INVALID_STATE);
+  zassert_ok(wl_rx_dma_publish(&fixture.ctx, &first, 3U, first_length - 3U));
+  zassert_ok(wl_rx_dma_finish(&fixture.ctx, &first));
+  zassert_ok(
+      wl_rx_dma_publish(&fixture.ctx, &second, 0U, wire_len - first_length));
+  zassert_ok(wl_rx_dma_finish(&fixture.ctx, &second));
+
+  zassert_ok(wl_poll(&fixture.ctx, 7U, &event));
+  zassert_equal(event.cmd_id, 0x511U);
+  zassert_mem_equal(event.payload, payload, sizeof(payload));
+  wl_event_release(&fixture.ctx, &event);
+}
+
+ZTEST(wirelink_rx_spsc, test_dma_abort_discards_partial_stream_before_resume) {
+  struct rx_fixture fixture;
+  uint8_t wire[TEST_RX_STORAGE];
+  const uint8_t payload[] = {0xA5U, 0x5AU};
+  wl_rx_dma_claim_t claim = {0};
+  wl_event_t event = {0};
+  wl_rx_counters_t counters = {0};
+  size_t accepted = 0U;
+  size_t wire_len;
+
+  init_fixture(&fixture);
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, 8U, &claim));
+  memset(claim.span.data, 0xA5, 4U);
+  zassert_ok(wl_rx_dma_publish(&fixture.ctx, &claim, 0U, 4U));
+  zassert_ok(wl_rx_dma_abort(&fixture.ctx));
+  zassert_equal(wl_poll(&fixture.ctx, 8U, &event), WL_ERR_NO_DATA);
+  zassert_ok(wl_rx_get_counters(&fixture.ctx, &counters));
+  zassert_equal(counters.overflow, 1U);
+
+  wire_len = encode_data(&fixture, 0U, 0x512U, 1U, payload, sizeof(payload),
+                         wire, sizeof(wire));
+  zassert_ok(wl_feed_bytes(&fixture.ctx, wire, wire_len, &accepted));
+  zassert_equal(accepted, wire_len);
+  zassert_ok(wl_poll(&fixture.ctx, 9U, &event));
+  zassert_equal(event.cmd_id, 0x512U);
+  zassert_mem_equal(event.payload, payload, sizeof(payload));
+  wl_event_release(&fixture.ctx, &event);
+}
+
 ZTEST(wirelink_rx_spsc, test_full_buffer_reports_partial_acceptance) {
   struct rx_fixture fixture;
   uint8_t input[TEST_RX_STORAGE + 8U];

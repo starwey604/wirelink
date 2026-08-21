@@ -110,6 +110,19 @@ typedef struct {
   uint32_t unsupported;
 } wl_rx_counters_t;
 
+/* At most two UART/DMA buffers may be owned by a direct RX producer. */
+#define WL_RX_DMA_MAX_CLAIMS 2U
+
+/*
+ * A direct-DMA claim owns a contiguous range in the RX ring. Its span is
+ * writable only by the single producer until wl_rx_dma_finish() or
+ * wl_rx_dma_abort(). Applications must treat token as opaque.
+ */
+typedef struct wl_rx_dma_claim {
+  wl_span_t span;
+  uint32_t token;
+} wl_rx_dma_claim_t;
+
 typedef struct wl_ctx {
   wl_rx_ring_state_t rx_ring;
   wl_bipbuf_t tx_fifo;
@@ -189,6 +202,19 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
                   size_t *out_accepted);
 int wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span);
 int wl_rx_commit(wl_ctx_t *ctx, size_t len);
+/*
+ * Direct-DMA producer lifecycle. Claims are published and finished strictly
+ * in claim order. publish() accepts only the next un-published prefix.
+ * abort() is valid only after the platform has stopped DMA access to every
+ * claim; it discards un-published space and forces COBS resynchronization.
+ */
+int wl_rx_dma_claim(wl_ctx_t *ctx, size_t maximum_length,
+                    wl_rx_dma_claim_t *out_claim);
+int wl_rx_dma_publish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim,
+                      size_t offset, size_t length);
+int wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim);
+int wl_rx_dma_abort(wl_ctx_t *ctx);
+void wl_rx_note_overflow(wl_ctx_t *ctx);
 int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 
 int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event);

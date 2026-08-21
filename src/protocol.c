@@ -590,6 +590,67 @@ int wl_rx_commit(wl_ctx_t *ctx, size_t len) {
   return wl_rx_ring_producer_commit(&ctx->rx_ring, len);
 }
 
+int wl_rx_dma_claim(wl_ctx_t *ctx, size_t maximum_length,
+                    wl_rx_dma_claim_t *out_claim) {
+  if (ctx == NULL || out_claim == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->config == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_rx_ring_dma_claim(&ctx->rx_ring, maximum_length, out_claim);
+}
+
+int wl_rx_dma_publish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim,
+                      size_t offset, size_t length) {
+  if (ctx == NULL || claim == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->config == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_rx_ring_dma_publish(&ctx->rx_ring, claim, offset, length);
+}
+
+int wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim) {
+  if (ctx == NULL || claim == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->config == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_rx_ring_dma_finish(&ctx->rx_ring, claim);
+}
+
+int wl_rx_dma_abort(wl_ctx_t *ctx) {
+  if (ctx == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (ctx->config == NULL) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (ctx->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_rx_ring_dma_abort(&ctx->rx_ring);
+}
+
+void wl_rx_note_overflow(wl_ctx_t *ctx) {
+  if (ctx != NULL && ctx->config != NULL &&
+      ctx->config->envelope == WL_ENVELOPE_COBS_STREAM) {
+    wl_rx_ring_producer_note_overflow(&ctx->rx_ring);
+  }
+}
+
 int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
                   size_t *out_accepted) {
   size_t accepted = 0U;

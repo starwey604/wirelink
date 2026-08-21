@@ -9,10 +9,11 @@ extern "C" {
 #endif
 
 /*
- * Backend-private RX ring state.  Keeping this storage opaque prevents a
- * selected third-party backend from becoming part of Wirelink's public ABI.
+ * Private state of Wirelink's fixed SPSC BipBuffer. Keeping the storage opaque
+ * permits the core to evolve its direct-DMA claim bookkeeping without exposing
+ * cursor layout to applications.
  */
-#define WL_RX_RING_STATE_SIZE 128U
+#define WL_RX_RING_STATE_SIZE 256U
 
 typedef union {
   max_align_t align;
