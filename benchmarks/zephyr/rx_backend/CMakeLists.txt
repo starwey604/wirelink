@@ -32,5 +32,12 @@ else()
   message(FATAL_ERROR "WIRELINK_BENCH_INGRESS must be IRQ, DMA, or USB")
 endif()
 
-target_sources(app PRIVATE src/main.c ${WIRELINK_CORE_SOURCES})
-target_include_directories(app PRIVATE ${WIRELINK_ROOT}/include)
+target_sources(app PRIVATE
+  src/main.c
+  ${WIRELINK_CORE_SOURCES}
+  ${WIRELINK_ROOT}/adapters/zephyr/uart_dma/src/uart_dma.c
+)
+target_include_directories(app PRIVATE
+  ${WIRELINK_ROOT}/include
+  ${WIRELINK_ROOT}/adapters/zephyr/uart_dma/include
+)

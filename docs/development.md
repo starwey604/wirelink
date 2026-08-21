@@ -103,6 +103,29 @@ does not parse or run callbacks from the producer context. Malformed,
 integrity-failing, overflowed, duplicate, and unsupported packets are
 observable through the RX counter query rather than as application events.
 
+## Direct DMA ingress
+
+`wl_rx_dma_claim()`, `wl_rx_dma_publish()`, `wl_rx_dma_finish()`, and
+`wl_rx_dma_abort()` are a platform-independent producer lifecycle for a DMA
+engine that writes directly into the RX ring. At most two claims may be active;
+they are published and finished strictly in allocation order. A partial publish
+only exposes a completed prefix, so a DMA timeout can make a short control
+frame visible without releasing the driver-owned tail.
+
+The platform adapter, not the core, owns DMA descriptors, cache maintenance,
+interrupt registration, and restart policy. It must stop DMA access to every
+claim before calling `wl_rx_dma_abort()`. Abort records overflow, and the main
+loop must run `wl_poll()` once to discard the incomplete COBS window before
+the adapter resumes ingress. This contract maps to Zephyr UART async RX, Linux
+DMA/serial drivers, and bare-metal completion ISRs without putting their types
+or scheduling assumptions in the core.
+
+`adapters/zephyr/uart_dma/` is the first mapping. It answers
+`UART_RX_BUF_REQUEST` with a second direct ring claim, publishes only new
+`UART_RX_RDY` bytes, and waits for `UART_RX_BUF_RELEASED` before finishing a
+claim. Its `service()` function runs in the consumer context after `wl_poll()`
+to perform deferred recovery and backpressure restart.
+
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink

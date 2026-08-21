@@ -28,6 +28,7 @@ typedef struct {
   size_t cursor;
   size_t length;
   size_t published;
+  uint64_t order;
   uint32_t token;
   uint8_t active;
 } wl_rx_dma_claim_state_t;
@@ -46,6 +47,7 @@ typedef struct {
 
   /* Producer-private direct-DMA claim state. */
   size_t dma_reserve_cursor;
+  uint64_t dma_next_order;
   uint32_t dma_next_token;
   wl_rx_dma_claim_state_t dma_claims[WL_RX_DMA_MAX_CLAIMS];
 } wl_rx_bipbuf_state_t;
@@ -108,7 +110,7 @@ static wl_rx_dma_claim_state_t *oldest_dma_claim(
     wl_rx_dma_claim_state_t *candidate = &backend->dma_claims[i];
 
     if (candidate->active != 0U &&
-        (oldest == NULL || candidate->token < oldest->token)) {
+        (oldest == NULL || candidate->order < oldest->order)) {
       oldest = candidate;
     }
   }
@@ -160,6 +162,7 @@ int wl_rx_ring_init(wl_rx_ring_state_t *state, uint8_t *memory,
   atomic_init(&backend->write_cursor, 0U);
   atomic_init(&backend->overflow_events, 0U);
   backend->dma_next_token = 1U;
+  backend->dma_next_order = 1U;
 
   if (!atomic_is_lock_free(&backend->read_cursor) ||
       !atomic_is_lock_free(&backend->write_cursor) ||
@@ -277,6 +280,7 @@ int wl_rx_ring_dma_claim(wl_rx_ring_state_t *state, size_t maximum_length,
       .cursor = reserve_cursor,
       .length = length,
       .published = 0U,
+      .order = backend->dma_next_order++,
       .token = backend->dma_next_token++,
       .active = 1U,
   };

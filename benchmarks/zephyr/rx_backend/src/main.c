@@ -12,6 +12,10 @@
 
 #include <esp_cpu.h>
 
+#if defined(WL_BENCH_INGRESS_DMA)
+#include "wirelink/zephyr/uart_dma.h"
+#endif
+
 #if defined(WL_BENCH_INGRESS_USB)
 #include <sample_usbd.h>
 #include <zephyr/usb/usbd.h>
@@ -40,7 +44,8 @@ static uint8_t rx_fallback[BENCH_FALLBACK_SIZE] __aligned(64);
 static uint8_t primitive_bytes[256U];
 
 #if !defined(WL_BENCH_INGRESS_USB)
-static const size_t payload_sizes[] = {16U, 64U, 256U, 1024U, 2048U};
+static const size_t payload_sizes[] = {16U, 20U, 64U, 120U, 256U, 1024U,
+                                       2048U};
 static uint8_t frame_payload[WL_FRAME_MAX_PAYLOAD];
 static uint8_t frame_wire[WL_FRAME_MAX_COBS_LEN];
 static uint64_t latency_samples[BENCH_SAMPLE_FRAMES];
@@ -280,94 +285,7 @@ static void uart_irq_ingress(const struct device *dev, void *user_data) {
 #endif
 
 #if defined(WL_BENCH_INGRESS_DMA)
-static atomic_t dma_reservation_active;
-static atomic_t dma_running;
-static size_t dma_active_length;
-
-static int reserve_dma_span(wl_span_t *span, size_t maximum_length) {
-  int ret = wl_rx_reserve(&link_ctx, span);
-
-  if (ret != WL_OK) {
-    return ret;
-  }
-  if (span->length > maximum_length) {
-    span->length = maximum_length;
-  }
-  if (span->length == 0U) {
-    (void)wl_rx_commit(&link_ctx, 0U);
-    return WL_ERR_WOULD_BLOCK;
-  }
-  atomic_set(&dma_reservation_active, 1);
-  dma_active_length = span->length;
-  return WL_OK;
-}
-
-static void uart_dma_ingress(const struct device *dev,
-                             struct uart_event *event, void *user_data) {
-  ARG_UNUSED(user_data);
-
-  switch (event->type) {
-  case UART_RX_RDY: {
-    uint32_t started = bench_cycle_count();
-    size_t length = event->data.rx.len;
-    int ret = atomic_get(&dma_reservation_active) != 0 &&
-                      event->data.rx.offset == 0U &&
-                      length == dma_active_length
-                  ? wl_rx_commit(&link_ctx, length)
-                  : WL_ERR_INVALID_STATE;
-    uint32_t elapsed = bench_cycle_count() - started;
-
-    atomic_set(&dma_reservation_active, 0);
-    dma_active_length = 0U;
-    atomic_inc(&producer_calls);
-    atomic_add(&producer_cycles, (atomic_val_t)elapsed);
-    if (ret == WL_OK) {
-      atomic_add(&accepted_bytes, (atomic_val_t)length);
-    } else {
-      atomic_add(&dropped_bytes, (atomic_val_t)length);
-      atomic_inc(&ingress_errors);
-    }
-    break;
-  }
-  case UART_RX_BUF_REQUEST:
-    /* The Wirelink producer contract permits one outstanding reservation. */
-    break;
-  case UART_RX_DISABLED:
-    atomic_set(&dma_running, 0);
-    break;
-  case UART_RX_STOPPED:
-    atomic_set(&dma_running, 0);
-    atomic_inc(&ingress_errors);
-    break;
-  default:
-    break;
-  }
-}
-
-static int start_dma_rx(size_t maximum_length) {
-  wl_span_t span = {0};
-  int ret;
-
-  if (atomic_get(&dma_running) != 0) {
-    return -EBUSY;
-  }
-  if (maximum_length > BENCH_UART_CHUNK) {
-    maximum_length = BENCH_UART_CHUNK;
-  }
-  ret = reserve_dma_span(&span, maximum_length);
-  if (ret != WL_OK) {
-    return ret;
-  }
-  ret = uart_rx_enable(data_uart, span.data, span.length, SYS_FOREVER_US);
-  if (ret != 0) {
-    (void)wl_rx_commit(&link_ctx, 0U);
-    atomic_set(&dma_reservation_active, 0);
-    dma_active_length = 0U;
-    return ret;
-  }
-  atomic_set(&dma_running, 1);
-  return 0;
-}
+static wl_zephyr_uart_dma_t dma_adapter;
 #endif
 
 static int init_uart_ingress(void) {
@@ -383,7 +301,15 @@ static int init_uart_ingress(void) {
     return -ENODEV;
   }
 #if defined(WL_BENCH_INGRESS_DMA)
-  if (uart_callback_set(data_uart, uart_dma_ingress, NULL) != 0) {
+  wl_zephyr_uart_dma_config_t dma_config = {
+      .uart = data_uart,
+      .link = &link_ctx,
+      .maximum_chunk = 256U,
+      .timeout_us = 50,
+  };
+
+  if (wl_zephyr_uart_dma_init(&dma_adapter, &dma_config) != WL_OK ||
+      wl_zephyr_uart_dma_start(&dma_adapter) != WL_OK) {
     return -ENOTSUP;
   }
   return 0;
@@ -426,6 +352,10 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
   while (k_uptime_get() < deadline) {
     wl_event_t event = {0};
     int ret = wl_poll(&link_ctx, (wl_time_ms_t)k_uptime_get_32(), &event);
+
+#if defined(WL_BENCH_INGRESS_DMA)
+    (void)wl_zephyr_uart_dma_service(&dma_adapter);
+#endif
 
     if (ret == WL_OK && (event.type == WL_EVT_UNRELIABLE_RX ||
                          event.type == WL_EVT_RELIABLE_RX)) {
@@ -472,27 +402,8 @@ static int run_uart_profile(size_t payload_len) {
     }
     started = bench_cycle_count();
 #if defined(WL_BENCH_INGRESS_DMA)
-    for (size_t offset = 0U; offset < wire_len;) {
-      int64_t deadline;
-      size_t remaining = wire_len - offset;
-      size_t chunk_length;
-
-      if (start_dma_rx(remaining) != 0) {
-        return -EIO;
-      }
-      chunk_length = dma_active_length;
-      for (size_t j = 0U; j < chunk_length; ++j) {
-        uart_poll_out(data_uart, frame_wire[offset + j]);
-      }
-      offset += chunk_length;
-      deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
-      while (atomic_get(&dma_running) != 0 && k_uptime_get() < deadline) {
-        k_yield();
-      }
-      if (atomic_get(&dma_running) != 0 ||
-          atomic_get(&dma_reservation_active) != 0) {
-        return -ETIMEDOUT;
-      }
+    for (size_t j = 0U; j < wire_len; ++j) {
+      uart_poll_out(data_uart, frame_wire[j]);
     }
 #else
     for (size_t j = 0U; j < wire_len; ++j) {
@@ -511,7 +422,7 @@ static int run_uart_profile(size_t payload_len) {
   }
 
   sort_latencies(BENCH_SAMPLE_FRAMES);
-  printk("%s,%s,%s,%u,%u,%llu,%lld,%lld,%lld,%lld,%llu,%llu,%llu\n",
+  printk("%s,%s,%s,%u,%u,%llu,%lld,%lld,%lld,%lld,%llu,%llu,%llu,%llu\n",
          "wirelink_rx_bench_v1", backend_name(), ingress_name(),
          (unsigned int)payload_len, BENCH_SAMPLE_FRAMES,
          (unsigned long long)run_cycles,
@@ -521,6 +432,8 @@ static int run_uart_profile(size_t payload_len) {
          (long long)atomic_get(&dropped_bytes),
          (unsigned long long)latency_samples[BENCH_SAMPLE_FRAMES / 2U],
          (unsigned long long)latency_samples[(BENCH_SAMPLE_FRAMES * 95U) /
+                                             100U],
+         (unsigned long long)latency_samples[(BENCH_SAMPLE_FRAMES * 99U) /
                                              100U],
          (unsigned long long)latency_samples[BENCH_SAMPLE_FRAMES - 1U]);
   return atomic_get(&ingress_errors) == 0 ? 0 : -EIO;
@@ -631,7 +544,7 @@ int main(void) {
          BENCH_FALLBACK_SIZE);
   printk("wirelink_rx_bench_v1,backend,ingress,payload,frames,run_cycles,"
          "producer_calls,producer_cycles,accepted,dropped,latency_median,"
-         "latency_p95,latency_max\n");
+         "latency_p95,latency_p99,latency_max\n");
 
 #if defined(WL_BENCH_INGRESS_USB)
   ret = init_usb_ingress();

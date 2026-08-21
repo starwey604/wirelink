@@ -94,10 +94,12 @@ the UART SPSC-buffer decision.
 Correctness is a gate: no corrupted delivery, invalid lease, unexpected drop,
 or failed SPSC test is permitted. For a future hardware comparison, use five
 independent reset runs per image, preserve every raw CSV log, and compare the
-same firmware revision, payload set (16, 64, 256, 1024, 2048), frequency,
-buffer sizes, and UART fixture. Compare UART producer cycles per byte first;
-if a future change is within measurement noise, then compare throughput, p95
-latency, and image/RAM size.
+same firmware revision, payload set (16, 20, 64, 120, 256, 1024, 2048),
+frequency, buffer sizes, and UART fixture. The 20-byte and 120-byte profiles
+represent one joint command and a six-joint aggregate command respectively.
+Compare UART producer cycles per byte first; if a future change is within
+measurement noise, then compare throughput, p95/p99 latency, and image/RAM
+size.
 
 The ESP32-S3 benchmark remains build-only in Twister and can be compiled with:
 
