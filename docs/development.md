@@ -109,8 +109,11 @@ observable through the RX counter query rather than as application events.
 `wl_rx_dma_abort()` are a platform-independent producer lifecycle for a DMA
 engine that writes directly into the RX ring. At most two claims may be active;
 they are published and finished strictly in allocation order. A partial publish
-only exposes a completed prefix, so a DMA timeout can make a short control
-frame visible without releasing the driver-owned tail.
+only exposes a completed prefix. A last, partially published claim may then be
+finished, returning its unwritten tail to the ring; this supports DMA engines
+that release their current buffer on an idle timeout. A partially published
+claim with a queued successor cannot finish, because removing its tail would
+leave a logical hole in the contiguous ring.
 
 The platform adapter, not the core, owns DMA descriptors, cache maintenance,
 interrupt registration, and restart policy. It must stop DMA access to every
@@ -120,11 +123,17 @@ the adapter resumes ingress. This contract maps to Zephyr UART async RX, Linux
 DMA/serial drivers, and bare-metal completion ISRs without putting their types
 or scheduling assumptions in the core.
 
-`adapters/zephyr/uart_dma/` is the first mapping. It answers
-`UART_RX_BUF_REQUEST` with a second direct ring claim, publishes only new
-`UART_RX_RDY` bytes, and waits for `UART_RX_BUF_RELEASED` before finishing a
-claim. Its `service()` function runs in the consumer context after `wl_poll()`
-to perform deferred recovery and backpressure restart.
+`adapters/zephyr/uart_dma/` is the first mapping. It publishes only new
+`UART_RX_RDY` bytes and waits for `UART_RX_BUF_RELEASED` before finishing a
+claim. With `SYS_FOREVER_US` timeout it answers `UART_RX_BUF_REQUEST` with a
+second direct ring claim for sustained throughput. With a finite timeout it
+deliberately runs one DMA buffer at a time, so an idle-released short buffer
+can be finished without creating a hole; the consumer-side `service()` call
+re-arms RX after `UART_RX_DISABLED`. The release bit is the atomic ownership
+handoff from the driver callback to `service()`; slot progress fields are not
+read by the consumer until that handoff. `WL_ERR_WOULD_BLOCK` from `service()`
+is transient and means the main loop should retry. This is the low-latency mode
+used by the ESP32 benchmark.
 
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after

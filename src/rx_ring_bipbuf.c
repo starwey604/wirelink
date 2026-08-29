@@ -11,11 +11,13 @@
 /*
  * RX-only SPSC BipBuffer.
  *
- * The producer exclusively advances write_cursor and the consumer exclusively
- * advances read_cursor.  The opposite side only observes a cursor through an
- * acquire load.  Consequently the byte stores preceding a producer commit are
- * visible to the consumer, and a producer cannot reuse bytes until the
- * consumer publishes a consume.
+ * The producer advances write_cursor and the consumer advances read_cursor.
+ * The sole exception is direct-DMA normalization of an observed-empty ring;
+ * it atomically moves both cursors to an equivalent physical-zero epoch. The
+ * snapshot order below makes that transition appear empty or temporarily
+ * invalid, never readable. Consequently the byte stores preceding a producer
+ * commit are visible to the consumer, and a producer cannot reuse bytes until
+ * the consumer publishes a consume.
  *
  * Each cursor ranges over two buffer lengths.  The extra epoch distinguishes
  * a full buffer from an empty one, while bounding cursor arithmetic so it
@@ -128,10 +130,10 @@ static size_t active_dma_claim_count(const wl_rx_bipbuf_state_t *backend) {
 
 static size_t readable_snapshot(const wl_rx_bipbuf_state_t *backend,
                                 size_t *out_read_cursor) {
-  const size_t read_cursor =
-      atomic_load_explicit(&backend->read_cursor, memory_order_relaxed);
   const size_t write_cursor =
       atomic_load_explicit(&backend->write_cursor, memory_order_acquire);
+  const size_t read_cursor =
+      atomic_load_explicit(&backend->read_cursor, memory_order_relaxed);
   const size_t readable =
       cursor_distance(backend->capacity * 2U, read_cursor, write_cursor);
 
@@ -236,6 +238,7 @@ int wl_rx_ring_dma_claim(wl_rx_ring_state_t *state, size_t maximum_length,
   size_t reserved;
   size_t free_space;
   size_t length;
+  size_t reset_cursor;
 
   if (state == NULL || out_claim == NULL || maximum_length == 0U) {
     return WL_ERR_INVALID_ARG;
@@ -260,6 +263,28 @@ int wl_rx_ring_dma_claim(wl_rx_ring_state_t *state, size_t maximum_length,
 
   reserve_cursor = producer_reserved_cursor(backend);
   read_cursor = atomic_load_explicit(&backend->read_cursor, memory_order_acquire);
+  if (active_dma_claim_count(backend) == 0U && reserve_cursor == read_cursor &&
+      maximum_length <= backend->capacity &&
+      contiguous_length(backend->capacity, reserve_cursor, backend->capacity) <
+          maximum_length) {
+    /*
+     * Empty rings have no borrowed consumer bytes. Normalize both epochs to
+     * offset zero so a DMA claim can use the larger physical A region instead
+     * of being artificially limited by the old tail position.
+     */
+    /* Pick the opposite epoch's physical zero. A consumer that captured the
+     * old write cursor before this read-cursor store computes a distance over
+     * capacity and treats the snapshot as unavailable. A consumer that sees
+     * the following release-store to write_cursor also observes this reset. */
+    reset_cursor = reserve_cursor < backend->capacity ? backend->capacity : 0U;
+    atomic_store_explicit(&backend->read_cursor, reset_cursor,
+                          memory_order_release);
+    atomic_store_explicit(&backend->write_cursor, reset_cursor,
+                          memory_order_release);
+    backend->dma_reserve_cursor = reset_cursor;
+    reserve_cursor = reset_cursor;
+    read_cursor = reset_cursor;
+  }
   reserved = cursor_distance(backend->capacity * 2U, read_cursor, reserve_cursor);
   if (reserved > backend->capacity) {
     return WL_ERR_INVALID_STATE;
@@ -337,7 +362,9 @@ int wl_rx_ring_dma_finish(wl_rx_ring_state_t *state,
   }
   stored = find_dma_claim(backend, claim->token);
   oldest = oldest_dma_claim(backend);
-  if (stored == NULL || oldest != stored || stored->published != stored->length) {
+  if (stored == NULL || oldest != stored ||
+      (stored->published != stored->length &&
+       active_dma_claim_count(backend) != 1U)) {
     return WL_ERR_INVALID_STATE;
   }
   memset(stored, 0, sizeof(*stored));

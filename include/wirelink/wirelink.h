@@ -205,6 +205,10 @@ int wl_rx_commit(wl_ctx_t *ctx, size_t len);
 /*
  * Direct-DMA producer lifecycle. Claims are published and finished strictly
  * in claim order. publish() accepts only the next un-published prefix.
+ * finish() may close a partially published claim only when it is the last
+ * outstanding claim; its un-published tail is then returned to the ring.
+ * A producer with a successor claim must finish its preceding claim in full,
+ * so the ring never has a logical hole.
  * abort() is valid only after the platform has stopped DMA access to every
  * claim; it discards un-published space and forces COBS resynchronization.
  */

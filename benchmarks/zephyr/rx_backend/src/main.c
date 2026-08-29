@@ -27,11 +27,30 @@
 #define BENCH_RX_USABLE 4096U
 #define BENCH_FALLBACK_SIZE WL_FRAME_MAX_COBS_LEN
 #define BENCH_UART_CHUNK 64U
+#ifndef BENCH_PRIMITIVE_WARMUP
 #define BENCH_PRIMITIVE_WARMUP 10000U
+#endif
+#ifndef BENCH_PRIMITIVE_SAMPLES
 #define BENCH_PRIMITIVE_SAMPLES 100000U
+#endif
+#ifndef BENCH_WARMUP_FRAMES
 #define BENCH_WARMUP_FRAMES 1000U
+#endif
+#ifndef BENCH_SAMPLE_FRAMES
 #define BENCH_SAMPLE_FRAMES 10000U
+#endif
+#ifndef BENCH_FRAME_TIMEOUT_MS
 #define BENCH_FRAME_TIMEOUT_MS 1000U
+#endif
+#ifndef BENCH_UART_TIMEOUT_US
+#define BENCH_UART_TIMEOUT_US 200
+#endif
+#ifndef BENCH_DMA_MAX_CHUNK
+#define BENCH_DMA_MAX_CHUNK BENCH_RX_USABLE
+#endif
+#ifndef BENCH_PAYLOAD_START_INDEX
+#define BENCH_PAYLOAD_START_INDEX 0U
+#endif
 
 static wl_ctx_t link_ctx;
 static wl_config_t link_config;
@@ -57,9 +76,20 @@ static atomic_t accepted_bytes;
 static atomic_t dropped_bytes;
 static atomic_t ingress_errors;
 
+#if defined(WL_BENCH_INGRESS_DMA)
+static wl_zephyr_uart_dma_t dma_adapter;
+#endif
+
 static uint32_t bench_cycle_count(void) {
   return (uint32_t)esp_cpu_get_cycle_count();
 }
+
+#if defined(WL_BENCH_INGRESS_DMA)
+static uint32_t dma_cycle_counter(void *user_data) {
+  ARG_UNUSED(user_data);
+  return bench_cycle_count();
+}
+#endif
 
 static wl_sink_result_t discard_sink(void *user_data, wl_io_token_t token,
                                      const uint8_t *data, size_t len) {
@@ -240,6 +270,9 @@ static void reset_ingress_stats(void) {
   atomic_set(&accepted_bytes, 0);
   atomic_set(&dropped_bytes, 0);
   atomic_set(&ingress_errors, 0);
+#if defined(WL_BENCH_INGRESS_DMA)
+  wl_zephyr_uart_dma_reset_stats(&dma_adapter);
+#endif
 }
 #endif
 
@@ -284,10 +317,6 @@ static void uart_irq_ingress(const struct device *dev, void *user_data) {
 }
 #endif
 
-#if defined(WL_BENCH_INGRESS_DMA)
-static wl_zephyr_uart_dma_t dma_adapter;
-#endif
-
 static int init_uart_ingress(void) {
   struct uart_config config = {
       .baudrate = 3000000U,
@@ -304,8 +333,9 @@ static int init_uart_ingress(void) {
   wl_zephyr_uart_dma_config_t dma_config = {
       .uart = data_uart,
       .link = &link_ctx,
-      .maximum_chunk = 256U,
-      .timeout_us = 50,
+      .maximum_chunk = BENCH_DMA_MAX_CHUNK,
+      .timeout_us = BENCH_UART_TIMEOUT_US,
+      .cycle_counter = dma_cycle_counter,
   };
 
   if (wl_zephyr_uart_dma_init(&dma_adapter, &dma_config) != WL_OK ||
@@ -345,6 +375,37 @@ static size_t encode_frame(size_t payload_len, uint32_t sequence) {
   return wire_len;
 }
 
+#if defined(WL_BENCH_INGRESS_DMA)
+static int ensure_dma_running(void) {
+  int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
+
+  while (k_uptime_get() < deadline) {
+    wl_zephyr_uart_dma_stats_t stats = {0};
+    int ret = wl_zephyr_uart_dma_service(&dma_adapter);
+
+    if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK && ret != WL_ERR_BUSY) {
+      return -EIO;
+    }
+    wl_zephyr_uart_dma_get_stats(&dma_adapter, &stats);
+    if (stats.running != 0U) {
+      if (BENCH_UART_TIMEOUT_US == SYS_FOREVER_US) {
+        return 0;
+      }
+      for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+        if (dma_adapter.slots[i].claim.token != 0U &&
+            dma_adapter.slots[i].received == 0U &&
+            dma_adapter.slots[i].published == 0U &&
+            !atomic_test_bit(&dma_adapter.released_slots, (int)i)) {
+          return 0;
+        }
+      }
+    }
+    k_busy_wait(10U);
+  }
+  return -ETIMEDOUT;
+}
+#endif
+
 static int wait_for_frame(size_t payload_len, uint32_t started,
                           uint64_t *out_latency) {
   int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
@@ -353,23 +414,53 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
     wl_event_t event = {0};
     int ret = wl_poll(&link_ctx, (wl_time_ms_t)k_uptime_get_32(), &event);
 
-#if defined(WL_BENCH_INGRESS_DMA)
-    (void)wl_zephyr_uart_dma_service(&dma_adapter);
-#endif
-
     if (ret == WL_OK && (event.type == WL_EVT_UNRELIABLE_RX ||
                          event.type == WL_EVT_RELIABLE_RX)) {
       bool valid = event.payload_len == payload_len &&
                    memcmp(event.payload, frame_payload, payload_len) == 0;
       *out_latency = (uint32_t)(bench_cycle_count() - started);
       wl_event_release(&link_ctx, &event);
+#if defined(WL_BENCH_INGRESS_DMA)
+      (void)wl_zephyr_uart_dma_service(&dma_adapter);
+#endif
       return valid ? 0 : -EBADMSG;
     }
     if (ret != WL_OK && ret != WL_ERR_NO_DATA) {
       return -EIO;
     }
+#if defined(WL_BENCH_INGRESS_DMA)
+    (void)wl_zephyr_uart_dma_service(&dma_adapter);
+#endif
     k_yield();
   }
+#if defined(WL_BENCH_INGRESS_DMA)
+  {
+    wl_rx_counters_t counters = {0};
+    wl_zephyr_uart_dma_stats_t stats = {0};
+
+    (void)wl_rx_get_counters(&link_ctx, &counters);
+    wl_zephyr_uart_dma_get_stats(&dma_adapter, &stats);
+    printk("wirelink_rx_dma_timeout_v1,%u,%u,%u,%u,%u,%u,%u,%u,"
+           "%u,%u,%u,%u,%u,%u,%u,%u\n",
+           (unsigned int)payload_len, counters.malformed,
+           counters.bad_integrity, counters.overflow, stats.errors,
+           stats.running, stats.paused, stats.published_bytes,
+           dma_adapter.slots[0].claim.token != 0U ? 1U : 0U,
+           (unsigned int)dma_adapter.slots[0].received,
+           (unsigned int)dma_adapter.slots[0].published,
+           dma_adapter.slots[0].claim.token != 0U &&
+                   !atomic_test_bit(&dma_adapter.released_slots, 0)
+               ? 1U
+               : 0U,
+           dma_adapter.slots[1].claim.token != 0U ? 1U : 0U,
+           (unsigned int)dma_adapter.slots[1].received,
+           (unsigned int)dma_adapter.slots[1].published,
+           dma_adapter.slots[1].claim.token != 0U &&
+                   !atomic_test_bit(&dma_adapter.released_slots, 1)
+               ? 1U
+               : 0U);
+  }
+#endif
   return -ETIMEDOUT;
 }
 
@@ -390,6 +481,9 @@ static void sort_latencies(size_t count) {
 static int run_uart_profile(size_t payload_len) {
   const size_t total = BENCH_WARMUP_FRAMES + BENCH_SAMPLE_FRAMES;
   uint64_t run_cycles = 0U;
+#if defined(WL_BENCH_INGRESS_DMA)
+  wl_zephyr_uart_dma_stats_t dma_stats;
+#endif
 
   reset_ingress_stats();
   for (size_t i = 0U; i < total; ++i) {
@@ -400,18 +494,23 @@ static int run_uart_profile(size_t payload_len) {
     if (wire_len == 0U) {
       return -EINVAL;
     }
-    started = bench_cycle_count();
 #if defined(WL_BENCH_INGRESS_DMA)
-    for (size_t j = 0U; j < wire_len; ++j) {
-      uart_poll_out(data_uart, frame_wire[j]);
-    }
-#else
-    for (size_t j = 0U; j < wire_len; ++j) {
-      uart_poll_out(data_uart, frame_wire[j]);
+    {
+      int ret = ensure_dma_running();
+
+      if (ret != 0) {
+        return ret;
+      }
     }
 #endif
-    if (wait_for_frame(payload_len, started, &latency) != 0) {
-      return -EIO;
+    started = bench_cycle_count();
+    for (size_t j = 0U; j < wire_len; ++j) {
+      uart_poll_out(data_uart, frame_wire[j]);
+    }
+    int ret = wait_for_frame(payload_len, started, &latency);
+
+    if (ret != 0) {
+      return ret;
     }
     if (i >= BENCH_WARMUP_FRAMES) {
       latency_samples[i - BENCH_WARMUP_FRAMES] = latency;
@@ -422,21 +521,35 @@ static int run_uart_profile(size_t payload_len) {
   }
 
   sort_latencies(BENCH_SAMPLE_FRAMES);
-  printk("%s,%s,%s,%u,%u,%llu,%lld,%lld,%lld,%lld,%llu,%llu,%llu,%llu\n",
-         "wirelink_rx_bench_v1", backend_name(), ingress_name(),
-         (unsigned int)payload_len, BENCH_SAMPLE_FRAMES,
-         (unsigned long long)run_cycles,
-         (long long)atomic_get(&producer_calls),
-         (long long)atomic_get(&producer_cycles),
-         (long long)atomic_get(&accepted_bytes),
-         (long long)atomic_get(&dropped_bytes),
-         (unsigned long long)latency_samples[BENCH_SAMPLE_FRAMES / 2U],
-         (unsigned long long)latency_samples[(BENCH_SAMPLE_FRAMES * 95U) /
-                                             100U],
-         (unsigned long long)latency_samples[(BENCH_SAMPLE_FRAMES * 99U) /
-                                             100U],
-         (unsigned long long)latency_samples[BENCH_SAMPLE_FRAMES - 1U]);
-  return atomic_get(&ingress_errors) == 0 ? 0 : -EIO;
+#if defined(WL_BENCH_INGRESS_DMA)
+  wl_zephyr_uart_dma_get_stats(&dma_adapter, &dma_stats);
+#endif
+  printk(
+      "%s,%s,%s,%u,%u,%llu,%lld,%lld,%lld,%lld,%llu,%llu,%llu,%llu\n",
+      "wirelink_rx_bench_v1", backend_name(), ingress_name(),
+      (unsigned int)payload_len, BENCH_SAMPLE_FRAMES,
+      (unsigned long long)run_cycles,
+      (long long)
+#if defined(WL_BENCH_INGRESS_DMA)
+          dma_stats.rx_ready_events,
+      (long long)dma_stats.producer_cycles,
+      (long long)dma_stats.published_bytes,
+#else
+          atomic_get(&producer_calls),
+      (long long)atomic_get(&producer_cycles),
+      (long long)atomic_get(&accepted_bytes),
+#endif
+      (long long)atomic_get(&dropped_bytes),
+      (unsigned long long)latency_samples[BENCH_SAMPLE_FRAMES / 2U],
+      (unsigned long long)latency_samples[(BENCH_SAMPLE_FRAMES * 95U) / 100U],
+      (unsigned long long)latency_samples[(BENCH_SAMPLE_FRAMES * 99U) / 100U],
+      (unsigned long long)latency_samples[BENCH_SAMPLE_FRAMES - 1U]);
+  return atomic_get(&ingress_errors) == 0
+#if defined(WL_BENCH_INGRESS_DMA)
+                 && dma_stats.errors == 0U
+#endif
+             ? 0
+             : -EIO;
 }
 #endif /* !WL_BENCH_INGRESS_USB */
 
@@ -554,7 +667,8 @@ int main(void) {
 #else
   ret = init_uart_ingress();
   if (ret == 0) {
-    for (size_t i = 0U; i < ARRAY_SIZE(payload_sizes); ++i) {
+    for (size_t i = BENCH_PAYLOAD_START_INDEX; i < ARRAY_SIZE(payload_sizes);
+         ++i) {
       ret = run_uart_profile(payload_sizes[i]);
       if (ret != 0) {
         break;
@@ -563,6 +677,17 @@ int main(void) {
   }
 #endif
 
+#if defined(WL_BENCH_INGRESS_DMA)
+  {
+    wl_zephyr_uart_dma_stats_t dma_stats;
+
+    wl_zephyr_uart_dma_get_stats(&dma_adapter, &dma_stats);
+    printk("wirelink_rx_dma_stats_v1,%u,%u,%u,%u,%u,%u\n",
+           dma_stats.buffer_requests, dma_stats.rx_ready_events,
+           dma_stats.published_bytes, dma_stats.producer_cycles,
+           dma_stats.errors, dma_stats.running);
+  }
+#endif
   printk("wirelink_rx_bench_v1,error,%s,%s,%d\n", backend_name(),
          ingress_name(), ret);
   return 0;

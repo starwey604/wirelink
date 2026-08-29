@@ -336,6 +336,66 @@ ZTEST(wirelink_rx_spsc, test_dma_abort_discards_partial_stream_before_resume) {
   wl_event_release(&fixture.ctx, &event);
 }
 
+ZTEST(wirelink_rx_spsc, test_dma_finish_reclaims_short_final_claim) {
+  struct rx_fixture fixture;
+  uint8_t wire[TEST_RX_STORAGE];
+  const uint8_t payload[] = {0x35U, 0x46U, 0x57U};
+  wl_rx_dma_claim_t claim = {0};
+  wl_rx_dma_claim_t successor = {0};
+  wl_event_t event = {0};
+  size_t wire_len;
+
+  init_fixture(&fixture);
+  wire_len = encode_data(&fixture, 0U, 0x513U, 1U, payload, sizeof(payload),
+                         wire, sizeof(wire));
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, wire_len + 8U, &claim));
+  memcpy(claim.span.data, wire, wire_len);
+  zassert_ok(wl_rx_dma_publish(&fixture.ctx, &claim, 0U, wire_len));
+  zassert_ok(wl_rx_dma_finish(&fixture.ctx, &claim));
+
+  zassert_ok(wl_poll(&fixture.ctx, 10U, &event));
+  zassert_equal(event.cmd_id, 0x513U);
+  zassert_mem_equal(event.payload, payload, sizeof(payload));
+  wl_event_release(&fixture.ctx, &event);
+
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, 8U, &claim));
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, 8U, &successor));
+  memset(claim.span.data, 0xA5, 4U);
+  zassert_ok(wl_rx_dma_publish(&fixture.ctx, &claim, 0U, 4U));
+  zassert_equal(wl_rx_dma_finish(&fixture.ctx, &claim), WL_ERR_INVALID_STATE);
+  zassert_ok(wl_rx_dma_abort(&fixture.ctx));
+}
+
+ZTEST(wirelink_rx_spsc, test_dma_short_claim_can_restart_from_empty_ring) {
+  struct rx_fixture fixture;
+  uint8_t wire[TEST_RX_STORAGE];
+  const uint8_t payloads[][4] = {
+      {0x11U, 0x00U, 0x22U, 0x33U},
+      {0x44U, 0x55U, 0x00U, 0x66U},
+      {0x77U, 0x88U, 0x99U, 0x00U},
+  };
+
+  init_fixture(&fixture);
+  for (size_t i = 0U; i < ARRAY_SIZE(payloads); ++i) {
+    wl_rx_dma_claim_t claim = {0};
+    wl_event_t event = {0};
+    size_t wire_len =
+        encode_data(&fixture, 0U, 0x514U, (uint32_t)(i + 1U), payloads[i],
+                    sizeof(payloads[i]), wire, sizeof(wire));
+
+    zassert_ok(
+        wl_rx_dma_claim(&fixture.ctx, usable_rx_capacity(&fixture), &claim));
+    zassert_equal(claim.span.length, usable_rx_capacity(&fixture));
+    memcpy(claim.span.data, wire, wire_len);
+    zassert_ok(wl_rx_dma_publish(&fixture.ctx, &claim, 0U, wire_len));
+    zassert_ok(wl_rx_dma_finish(&fixture.ctx, &claim));
+    zassert_ok(wl_poll(&fixture.ctx, (wl_time_ms_t)(11U + i), &event));
+    zassert_equal(event.cmd_id, 0x514U);
+    zassert_mem_equal(event.payload, payloads[i], sizeof(payloads[i]));
+    wl_event_release(&fixture.ctx, &event);
+  }
+}
+
 ZTEST(wirelink_rx_spsc, test_full_buffer_reports_partial_acceptance) {
   struct rx_fixture fixture;
   uint8_t input[TEST_RX_STORAGE + 8U];
