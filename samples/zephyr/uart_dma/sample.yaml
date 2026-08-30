@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+sample:
+  name: Wirelink Zephyr asynchronous UART DMA endpoint
+  description: Allocation-free full-duplex Wirelink endpoint over asynchronous UART
+common:
+  build_only: true
+  platform_allow:
+    - esp32s3_devkitc/esp32s3/procpu
+  extra_args:
+    - DTC_OVERLAY_FILE=boards/esp32s3_devkitc_esp32s3_procpu.overlay
+tests:
+  sample.wirelink.uart_dma: {}

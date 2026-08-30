@@ -40,12 +40,15 @@ option(WIRELINK_BUILD_ASTRIAL_ADAPTER
   "Build the optional Astrial desktop serial adapter" OFF)
 option(WIRELINK_BUILD_FUZZERS
   "Build Clang libFuzzer targets" OFF)
+option(WIRELINK_BUILD_EXAMPLES
+  "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_INSTALL
   "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
 
 if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
+  enable_language(CXX)
   if(NOT TARGET astrial)
     if(WIRELINK_ASTRIAL_SOURCE_DIR STREQUAL "")
       message(FATAL_ERROR
@@ -74,6 +77,10 @@ if(WIRELINK_BUILD_FUZZERS)
     -fsanitize=address,undefined
     -fno-omit-frame-pointer)
   add_subdirectory(fuzz)
+endif()
+
+if(WIRELINK_BUILD_EXAMPLES)
+  add_subdirectory(examples)
 endif()
 
 if(WIRELINK_INSTALL)
