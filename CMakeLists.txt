@@ -38,6 +38,8 @@ endif()
 
 option(WIRELINK_BUILD_ASTRIAL_ADAPTER
   "Build the optional Astrial desktop serial adapter" OFF)
+option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER
+  "Build the optional Astrial USB bulk adapter" OFF)
 option(WIRELINK_BUILD_FUZZERS
   "Build Clang libFuzzer targets" OFF)
 option(WIRELINK_BUILD_EXAMPLES
@@ -47,7 +49,7 @@ option(WIRELINK_INSTALL
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
 
-if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
+if(WIRELINK_BUILD_ASTRIAL_ADAPTER OR WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
   enable_language(CXX)
   if(NOT TARGET astrial)
     if(WIRELINK_ASTRIAL_SOURCE_DIR STREQUAL "")
@@ -57,16 +59,33 @@ if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
     endif()
     set(_WIRELINK_SAVED_BUILD_EXAMPLE "${BUILD_EXAMPLE}")
     set(_WIRELINK_SAVED_BUILD_TESTING "${BUILD_TESTING}")
+    set(_WIRELINK_SAVED_ASTRIAL_BUILD_USB "${ASTRIAL_BUILD_USB}")
     set(BUILD_EXAMPLE OFF)
     set(BUILD_TESTING OFF)
+    if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
+      set(ASTRIAL_BUILD_USB ON)
+    endif()
     add_subdirectory("${WIRELINK_ASTRIAL_SOURCE_DIR}"
       "${CMAKE_CURRENT_BINARY_DIR}/_deps/astrial" EXCLUDE_FROM_ALL)
     set(BUILD_EXAMPLE "${_WIRELINK_SAVED_BUILD_EXAMPLE}")
     set(BUILD_TESTING "${_WIRELINK_SAVED_BUILD_TESTING}")
+    set(ASTRIAL_BUILD_USB "${_WIRELINK_SAVED_ASTRIAL_BUILD_USB}")
     unset(_WIRELINK_SAVED_BUILD_EXAMPLE)
     unset(_WIRELINK_SAVED_BUILD_TESTING)
+    unset(_WIRELINK_SAVED_ASTRIAL_BUILD_USB)
   endif()
+endif()
+
+if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
   add_subdirectory(adapters/astrial)
+endif()
+
+if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
+  if(NOT TARGET astrial_usb)
+    message(FATAL_ERROR
+      "WIRELINK_BUILD_ASTRIAL_USB_ADAPTER requires the Astrial USB target")
+  endif()
+  add_subdirectory(adapters/astrial_usb)
 endif()
 
 if(WIRELINK_BUILD_FUZZERS)

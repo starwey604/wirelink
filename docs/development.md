@@ -207,6 +207,20 @@ OS serial path, borrowed ring ingestion, and WLC decode. Decoded `string` and
 A second frame is buffered but not delivered until `wl_event_release()`, which
 ties the generated codec's borrowed fields to the core event lifetime.
 
+`adapters/astrial_usb/` maps Astrial's optional libusb Bulk backend to the same
+consumer-side service contract. The host controller writes directly into a
+`wl_rx_dma_claim()` span; the libusb event thread publishes and finishes that
+claim, while protocol polling remains in the application thread. TX borrows
+the stable Wirelink unit and forwards completion through an atomic mailbox.
+
+The direct USB mapping uses exactly one outstanding IN transfer. This is a
+consequence of variable-length Bulk transfers rather than a libusb limitation:
+a short first transfer must return its claim's unused tail, which the ring can
+only do before a successor claim is allocated. Two queued direct claims would
+create a logical hole. A future deep-queue mode may instead use adapter-owned
+staging buffers and copy completed bytes into the ring; benchmarks must show a
+real latency or throughput win before that extra path is retained.
+
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink

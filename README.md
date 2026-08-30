@@ -11,10 +11,10 @@ and C API. Exact wire bytes are frozen by the
 and pre-1.0 limits are documented in
 [`docs/compatibility.md`](docs/compatibility.md).
 
-Platform adapters currently cover Zephyr asynchronous UART DMA and Astrial
-serial ports on Linux, macOS, and Windows. WLC-generated C codecs turn typed
-schemas into payloads while preserving borrowed `string` and `bytes` fields on
-decode.
+Platform adapters currently cover Zephyr asynchronous UART DMA plus Astrial
+serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C
+codecs turn typed schemas into payloads while preserving borrowed `string` and
+`bytes` fields on decode.
 
 ## Build the core
 
@@ -58,6 +58,23 @@ ctest --test-dir build/host --output-on-failure
 The adapter target is `wirelink::astrial`. On Linux and macOS the test uses a
 pseudo-terminal to verify full-duplex serial traffic, RX backpressure, and a
 WLC-generated six-joint command payload.
+
+## Build the desktop USB bulk adapter
+
+```sh
+cmake -S . -B build/usb-host \
+  -DWIRELINK_BUILD_ASTRIAL_USB_ADAPTER=ON \
+  -DWIRELINK_ASTRIAL_SOURCE_DIR=/path/to/astrial \
+  -DASTRIAL_IO_URING=OFF
+cmake --build build/usb-host
+```
+
+The `wirelink::astrial_usb` target uses libusb through Astrial. RX transfers
+land directly in Wirelink's SPSC ring, and TX transfers borrow Wirelink's
+stable encoded unit until completion. It intentionally queues one variable-
+length RX claim: a short USB packet must be able to return the unused tail of
+the current BipBuffer claim before another claim exists. Deeper queued USB
+reads require a staging/copy path and are evaluated separately by benchmarks.
 
 ## Examples
 
