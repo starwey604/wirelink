@@ -203,3 +203,53 @@ The retained code then passed Astrial's three host tests, Wirelink's two host
 tests, and the complete Zephyr unit/integration matrix: 21/21 configurations
 and 105/105 cases across `unit_testing`, `native_sim`, `qemu_cortex_m3`,
 `qemu_riscv32`, and `qemu_x86_64`.
+
+### 2026-08-31 ESP32-S3 device CPU-cycle profile
+
+The 120-byte polling profile was repeated three times on the same
+ESP32-S3-N8R2 at 240 MHz. Each run used 1,000 warm-ups and 10,000 measured
+sequential echo exchanges. The median host result was 484.39 us p50,
+610.07 us p99, and 489.70 us mean RTT; all three runs completed without a
+timeout, payload mismatch, or device adapter error.
+
+This profile distinguishes the actual DWC2 interrupt from the deferred USB
+work. The execution chain is DWC2 top-half ISR, DWC2 bottom-half thread,
+Zephyr USBD event thread, then Wirelink's main-loop service. In particular,
+the Wirelink class `request` callback runs in the USBD thread and is not an
+ISR.
+
+| Measured region | Calls/exchange | Mean/invocation (us) | Time/exchange (us) | Boot-wide max (us) | Cycle-window / elapsed |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| DWC2 top-half ISR | 6.00 | 6.075 | 36.450 | 49.450 | 7.44% |
+| DWC2 bottom-half event | 4.00 | 5.441 | 21.766 | 43.529 | 4.45% |
+| Zephyr USBD event | 2.00 | 7.038 | 14.076 | 200.658 | 2.87% |
+| Wirelink RX class callback | 1.00 | 5.851 | 5.851 | 38.958 | 1.20% |
+| Wirelink TX class callback | 1.00 | 2.646 | 2.646 | 7.796 | 0.54% |
+| Wirelink TX submit/sink | 1.00 | 24.719 | 24.719 | 74.088 | 5.04% |
+| Active adapter service | 1.95 | 13.849 | 27.055 | 63.071 | 5.52% |
+
+The approximately six top-half calls per exchange are consistent with a
+120-byte Wirelink payload plus its envelope crossing several 64-byte
+Full-Speed packets in each direction. During a continuous sequential load,
+the measured DWC2 ISR therefore occupied about 7.4% of the single 240 MHz
+core. Its mean cost was stable to 0.001 us across the three runs.
+
+The table must not be summed into a total CPU percentage. The USBD row already
+contains the RX and TX class callbacks, and cycle-counter intervals around
+thread work include time spent preempted by an interrupt. The maxima for the
+DWC2 and USBD layers are conservative boot-wide values and include USB
+enumeration/control traffic. They are useful regression bounds, not
+payload-only maxima. The sample also continuously calls `k_yield()`; this
+experiment records hot-region cost rather than scheduler idle time or total
+application CPU load.
+
+The adapter instrumentation is optional and disabled in the normal sample.
+`cpu_stats.conf` enables the ESP32-S3 cycle counter and emits a CSV record
+after traffic becomes idle. DWC2 and USBD measurements used temporary local
+Zephyr hooks at the ISR entry/exit, after the DWC2 event wait, and after the
+USBD message-queue wait. Those hooks were removed after this run so the Zephyr
+checkout and production firmware remain unmodified.
+
+After removing the hooks, both the normal and `cpu_stats.conf` ESP32-S3 sample
+images built successfully against a clean Zephyr checkout. The complete
+Twister matrix also passed 21/21 configurations and 105/105 test cases.
