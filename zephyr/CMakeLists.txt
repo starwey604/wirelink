@@ -13,6 +13,18 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/types.c
 )
 
+if(CONFIG_WIRELINK AND NOT CONFIG_ASAN AND NOT CONFIG_UBSAN)
+  if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/frame.c APPEND
+      PROPERTY COMPILE_OPTIONS -Werror=frame-larger-than=256)
+  elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
+    set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/frame.c APPEND
+      PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+  endif()
+endif()
+
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_DMA
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_dma/src/uart_dma.c
 )

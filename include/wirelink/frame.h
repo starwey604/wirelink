@@ -100,6 +100,7 @@ size_t wl_frame_overhead(wl_integrity_t integrity);
 size_t wl_frame_encode_overhead(wl_envelope_type_t envelope, wl_integrity_t integrity);
 size_t wl_frame_raw_size(size_t payload_len, wl_integrity_t integrity);
 
+/* Overlap is allowed and produces the same result as disjoint buffers. */
 int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
                    uint8_t *out, size_t out_cap, size_t *out_len);
 int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,

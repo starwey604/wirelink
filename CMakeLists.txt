@@ -32,8 +32,29 @@ target_include_directories(wirelink PUBLIC
 )
 set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 
+option(WIRELINK_BUILD_FUZZERS
+  "Build Clang libFuzzer targets" OFF)
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink PRIVATE -Wall -Wextra -Wpedantic)
+  # Sanitizer instrumentation adds artificial compiler-managed stack state,
+  # so enforce the embedded frame budget only on regular builds.
+  string(CONCAT _wirelink_c_flags
+    "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_DEBUG} ${CMAKE_C_FLAGS_RELEASE} "
+    "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${CMAKE_C_FLAGS_MINSIZEREL}")
+  if(NOT WIRELINK_BUILD_FUZZERS AND NOT _wirelink_c_flags MATCHES "-fsanitize")
+    # wl_frame_encode() runs on small embedded stacks. Keep its fixed frame
+    # comfortably below the public frame payload limit that it processes.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+      set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
+        -Werror=frame-larger-than=256)
+    else()
+      set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+    endif()
+  endif()
+  unset(_wirelink_c_flags)
 endif()
 
 option(WIRELINK_BUILD_ASTRIAL_ADAPTER
@@ -42,8 +63,6 @@ option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER
   "Build the optional Astrial USB bulk adapter" OFF)
 option(WIRELINK_BUILD_HOST_BENCHMARKS
   "Build host USB Bulk and CDC latency benchmarks" OFF)
-option(WIRELINK_BUILD_FUZZERS
-  "Build Clang libFuzzer targets" OFF)
 option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_INSTALL

@@ -6,6 +6,8 @@
 #include "wirelink/crc.h"
 #include "wirelink/frame.h"
 
+#include "crc_internal.h"
+
 static const uint16_t WL_CRC16_TABLE[256] = {
     0x0000u,
 
@@ -1098,27 +1100,34 @@ static const uint32_t WL_CRC32_TABLE[256] = {
 
 };
 
+uint16_t wl_crc16_ccitt_false_update(uint16_t state, const uint8_t *data,
+                                     size_t length) {
+  for (size_t i = 0U; i < length; ++i) {
+    state = (uint16_t)((state << 8u) ^
+                       WL_CRC16_TABLE[(uint8_t)((state >> 8u) ^ data[i])]);
+  }
+  return state;
+}
+
+uint32_t wl_crc32c_update(uint32_t state, const uint8_t *data, size_t length) {
+  for (size_t i = 0U; i < length; ++i) {
+    state = WL_CRC32_TABLE[(uint8_t)(state ^ data[i])] ^ (state >> 8u);
+  }
+  return state;
+}
+
 uint16_t wl_crc16_ccitt_false(const uint8_t *data, size_t length) {
-  uint16_t crc = 0xFFFFu;
   if (data == NULL && length != 0U) {
     return 0;
   }
-  for (size_t i = 0U; i < length; ++i) {
-    crc = (uint16_t)((crc << 8u) ^
-                    WL_CRC16_TABLE[(uint8_t)((crc >> 8u) ^ data[i])]);
-  }
-  return crc;
+  return wl_crc16_ccitt_false_update(0xFFFFu, data, length);
 }
 
 uint32_t wl_crc32c(const uint8_t *data, size_t length) {
-  uint32_t crc = 0xFFFFFFFFu;
   if (data == NULL && length != 0U) {
     return 0;
   }
-  for (size_t i = 0U; i < length; ++i) {
-    crc = WL_CRC32_TABLE[(uint8_t)(crc ^ data[i])] ^ (crc >> 8u);
-  }
-  return crc ^ 0xFFFFFFFFu;
+  return wl_crc32c_update(0xFFFFFFFFu, data, length) ^ 0xFFFFFFFFu;
 }
 
 size_t wl_crc_size_bytes(uint8_t integrity_selector) {
