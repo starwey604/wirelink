@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+sample:
+  name: Wirelink USB CDC interrupt endpoint
+  description: Wirelink protocol echo over the CDC ACM interrupt API
+tests:
+  sample.wirelink.usb_cdc_irq:
+    build_only: true
+    depends_on: usbd
+    tags:
+      - usb
+      - serial
+      - wirelink
+    integration_platforms:
+      - esp32s3_devkitc/esp32s3/procpu

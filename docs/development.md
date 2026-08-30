@@ -231,6 +231,16 @@ publishes only direct-claim and atomic-mailbox state. The consumer loop calls
 completion. Exact-multiple IN units request a ZLP so host reads terminate
 without a timeout.
 
+`adapters/zephyr/uart_irq/` is the generic interrupt-driven fallback used by
+the CDC ACM comparison. Its callback drains the UART FIFO straight into a
+producer reservation and fills TX from Wirelink's borrowed unit; it performs
+no parsing, event delivery, ACK work, or retry scheduling. Ring backpressure
+disables RX IRQ delivery until the consumer calls `service()`. A hardware UART
+keeps the borrowed TX unit until `uart_irq_tx_complete()` reports physical
+idle. Zephyr CDC ACM does not implement that query, but its `fifo_fill()` has
+already copied the bytes into the class-owned FIFO, so `-ENOSYS` is the correct
+memory-ownership completion boundary for that device.
+
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink

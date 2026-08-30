@@ -89,6 +89,9 @@ reads require a staging/copy path and are evaluated separately by benchmarks.
 - [`samples/zephyr/usb_bulk`](samples/zephyr/usb_bulk) is a full-duplex custom
   Vendor Bulk endpoint with direct SPSC-ring RX and a protocol-level echo for
   host integration and latency tests.
+- [`samples/zephyr/usb_cdc_irq`](samples/zephyr/usb_cdc_irq) exercises the
+  portable interrupt-driven UART fallback over Zephyr CDC ACM with USB DMA
+  disabled.
 
 Top-level examples are enabled by default and may be disabled with
 `-DWIRELINK_BUILD_EXAMPLES=OFF`.

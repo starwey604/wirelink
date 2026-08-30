@@ -30,6 +30,16 @@ config WIRELINK_ZEPHYR_USB_BULK
 	  publish ownership and completion state; the main loop performs protocol
 	  work and re-arms endpoint requests.
 
+config WIRELINK_ZEPHYR_UART_IRQ
+	bool "Enable the Zephyr interrupt-driven UART adapter"
+	depends on SERIAL
+	depends on UART_INTERRUPT_DRIVEN
+	help
+	  Build Wirelink's interrupt-driven UART adapter. It is the low-latency
+	  fallback for USB CDC ACM devices and UART controllers without an async
+	  DMA implementation. RX FIFO bytes are written directly into the SPSC
+	  ring and all protocol processing remains in the consumer loop.
+
 endif
 
 endmenu
