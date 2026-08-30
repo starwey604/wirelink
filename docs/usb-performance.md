@@ -253,3 +253,86 @@ checkout and production firmware remain unmodified.
 After removing the hooks, both the normal and `cpu_stats.conf` ESP32-S3 sample
 images built successfully against a clean Zephyr checkout. The complete
 Twister matrix also passed 21/21 configurations and 105/105 test cases.
+
+### CPU telemetry procedure and CSV v2
+
+The optional telemetry image can be built against an unmodified Zephyr tree:
+
+```sh
+west build -p always -b esp32s3_devkitc/esp32s3/procpu \
+  /path/to/wirelink/samples/zephyr/usb_bulk -d build/usb-bulk-cpu -- \
+  -DEXTRA_CONF_FILE=/path/to/wirelink/samples/zephyr/usb_bulk/cpu_stats.conf
+```
+
+Run the same sequential `wirelink-bulk` host command used for the latency
+profile. After the final TX completion has been quiet for 500 ms, the device
+emits one logical CSV line. Its first field is the schema identifier
+`wirelink_usb_cpu_v2`; every remaining pair of fields is a key followed by its
+value. The line can therefore be parsed without depending on field order:
+
+```python
+import csv
+
+fields = next(csv.reader([line]))
+assert fields[0] == "wirelink_usb_cpu_v2"
+assert len(fields) % 2 == 1
+record = dict(zip(fields[1::2], fields[2::2], strict=True))
+```
+
+The fixed scalar keys are `cpu_hz`, `rx_claims`, `rx_completions`, `rx_bytes`,
+`rx_pauses`, `tx_submissions`, `tx_completions`, and `errors`. The following
+region prefixes add `_calls`, `_total_cycles`, and `_max_cycles` keys:
+
+| Region prefix | Exact measured window | Counter scope |
+| --- | --- | --- |
+| `dwc2_isr` | Optional local hook around the DWC2 top half | Boot-wide |
+| `dwc2_thread` | Optional local hook around one deferred DWC2 event | Boot-wide |
+| `usbd_thread` | Optional local hook around one USBD event | Boot-wide |
+| `adapter_active_service` | Adapter service entry to return when completion or rearm work exists | Boot-wide |
+| `wl_poll` | `wl_poll()` entry to return; `k_uptime_get_32()` is excluded | Echo activity window |
+| `rx_event_copy_release` | RX event metadata and payload copy through `wl_event_release()` return | Echo activity window |
+| `wl_send_unreliable` | `wl_send_unreliable()` entry to return, including any nested sink call | Echo activity window |
+| `wl_zephyr_usb_bulk_service` | Every full service call from entry to return, including inactive checks | Echo activity window |
+
+The adapter also reports total and maximum cycles for
+`adapter_rx_callback`, `adapter_tx_callback`, and `adapter_tx_sink`. Those
+paths predate the v2 schema and do not expose exact invocation counters, so v2
+does not synthesize call counts for them.
+
+An echo activity window opens when `wl_poll()` returns a reliable or
+unreliable RX payload; that delivering poll call is included. It closes after
+the corresponding TX completion is consumed by
+`wl_zephyr_usb_bulk_service()`. If another response is submitted in that same
+main-loop iteration, the window remains open. Consequently, the application
+counters exclude boot/enumeration polling and the 500 ms quiet period, while
+still including busy retries and the service call that closes each exchange.
+Counters accumulate across multiple traffic bursts until reboot. They are
+unsigned 32-bit values; use modulo-2^32 subtraction for snapshot deltas and
+reboot before formal runs when a fresh maximum is required.
+
+The regions deliberately describe execution intervals, not disjoint CPU
+ownership. In particular:
+
+- `adapter_tx_sink` is nested inside a successful
+  `wl_send_unreliable` window;
+- `adapter_active_service` is nested inside the corresponding full
+  `wl_zephyr_usb_bulk_service` window;
+- RX and TX class callbacks are nested inside `usbd_thread` when the optional
+  USBD hook is present; and
+- a DWC2 interrupt can preempt any thread or main-loop window, so that outer
+  interval includes the preemption time.
+
+Do not sum these totals as a CPU percentage. For a single region, compute mean
+invocation time as `total_cycles / calls / cpu_hz`; divide by the exchange
+count separately for per-exchange cost. With a clean Zephyr checkout the three
+optional DWC2/USBD hook regions remain zero. The sample and adapter regions are
+still fully populated and require no Zephyr source changes.
+
+The counter updates themselves run just after their measured intervals and
+perturb the instrumented firmware slightly. Use this image for attribution;
+use the normal image for the retained host-latency numbers.
+
+`CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS` remains disabled in `prj.conf`. In a
+normal image, the sample measurement state, cycle reads, completion polling,
+and counter updates are all removed at preprocessing time, and the adapter's
+cycle-counter callback remains null.

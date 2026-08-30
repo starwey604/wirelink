@@ -12,3 +12,13 @@ tests:
       - wirelink
     integration_platforms:
       - esp32s3_devkitc/esp32s3/procpu
+  sample.wirelink.usb_bulk.cpu_stats:
+    build_only: true
+    platform_allow:
+      - esp32s3_devkitc/esp32s3/procpu
+    extra_conf_files:
+      - cpu_stats.conf
+    tags:
+      - usb
+      - wirelink
+      - benchmark
