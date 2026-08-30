@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+
+sample:
+  name: Wirelink USB vendor bulk endpoint
+  description: Full-duplex Wirelink endpoint over an interrupt-driven USB class
+tests:
+  sample.wirelink.usb_bulk:
+    build_only: true
+    depends_on: usbd
+    tags:
+      - usb
+      - wirelink
+    integration_platforms:
+      - esp32s3_devkitc/esp32s3/procpu

@@ -86,6 +86,9 @@ reads require a staging/copy path and are evaluated separately by benchmarks.
 - [`samples/zephyr/uart_dma`](samples/zephyr/uart_dma) is a full-duplex
   asynchronous UART/DMA endpoint. Its ESP32-S3 overlay uses UART1 at 3 Mbaud,
   GPIO17 TX and GPIO18 RX.
+- [`samples/zephyr/usb_bulk`](samples/zephyr/usb_bulk) is a full-duplex custom
+  Vendor Bulk endpoint with direct SPSC-ring RX and a protocol-level echo for
+  host integration and latency tests.
 
 Top-level examples are enabled by default and may be disabled with
 `-DWIRELINK_BUILD_EXAMPLES=OFF`.
@@ -97,6 +100,10 @@ west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/samples/zephyr/uart_dma -- \
   -DDTC_OVERLAY_FILE=boards/esp32s3_devkitc_esp32s3_procpu.overlay
 ```
+
+For the custom USB endpoint, select `samples/zephyr/usb_bulk` instead. The
+sample deliberately sets `CONFIG_UDC_DWC2_DMA=n`, so initial measurements
+isolate interrupt-driven Bulk performance before controller DMA is introduced.
 
 ## Typed payload workflow
 

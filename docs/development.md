@@ -221,6 +221,16 @@ create a logical hole. A future deep-queue mode may instead use adapter-owned
 staging buffers and copy completed bytes into the ring; benchmarks must show a
 real latency or throughput win before that extra path is retained.
 
+`adapters/zephyr/usb_bulk/` provides the matching Zephyr USB-next custom class
+with vendor subclass `0x57`, protocol `0x4c`, Bulk OUT `0x01`, and Bulk IN
+`0x81`. Initialize its singleton adapter before `usbd_init()` or the sample USB
+setup helper. One externally backed `net_buf` wraps a direct ring claim for
+OUT; a second wrapper permits simultaneous borrowed IN. Endpoint completion
+publishes only direct-claim and atomic-mailbox state. The consumer loop calls
+`wl_poll()` and then `wl_zephyr_usb_bulk_service()` to re-arm OUT and advance TX
+completion. Exact-multiple IN units request a ZLP so host reads terminate
+without a timeout.
+
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink

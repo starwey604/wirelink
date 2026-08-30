@@ -21,6 +21,15 @@ config WIRELINK_ZEPHYR_UART_DMA
 	  UART asynchronous callback, receives directly into the Wirelink SPSC
 	  ring, and exposes the UART TX path as the Wirelink sink.
 
+config WIRELINK_ZEPHYR_USB_BULK
+	bool "Enable the Zephyr USB vendor bulk adapter"
+	depends on USB_DEVICE_STACK_NEXT
+	help
+	  Build Wirelink's full-duplex custom USB Bulk class. The UDC receives
+	  directly into one Wirelink ring claim. USB completion callbacks only
+	  publish ownership and completion state; the main loop performs protocol
+	  work and re-arms endpoint requests.
+
 endif
 
 endmenu
