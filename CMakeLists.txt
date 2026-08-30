@@ -114,7 +114,7 @@ if(WIRELINK_INSTALL)
   write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion)
+    COMPATIBILITY SameMinorVersion)
   configure_file(cmake/wirelink.pc.in wirelink.pc @ONLY)
 
   install(FILES

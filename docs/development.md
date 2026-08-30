@@ -38,12 +38,12 @@ checking at the CLI boundary before generation.
 
 ## Persistent testing decision
 
-Wirelink uses Zephyr's Twister and Ztest as its only maintained test
-framework. This includes tests of the platform-independent C core: they run as
-Ztest `unit_testing` scenarios rather than as a parallel CTest suite.
-
-The top-level CMake build remains supported for library consumers, but it does
-not define or run tests.
+Wirelink uses Zephyr's Twister and Ztest for the normative behavioral suite.
+This includes tests of the platform-independent C core, which run as Ztest
+`unit_testing` scenarios instead of duplicating every case in a host framework.
+CTest is used for host-only integration concerns: Astrial pseudo-terminals,
+installed-package consumption, executable examples, and bounded fuzz smoke
+runs.
 
 The top-level target is compiled as strict ISO C11. GCC and Clang builds enable
 `-Wall`, `-Wextra`, and `-Wpedantic`; warnings in Wirelink sources are treated
@@ -57,8 +57,9 @@ drivers. The repository is a Zephyr module through `zephyr/module.yml`:
 
 - `zephyr/Kconfig` controls whether the core is included (`CONFIG_WIRELINK`).
 - `zephyr/CMakeLists.txt` builds the existing C sources as a Zephyr library.
-- Future UART, USB, SPI, and UDP adapters belong in separate Zephyr-specific
-  sources and depend on a transport interface owned by the core.
+- UART, USB, SPI, and UDP adapters belong outside the core and depend on its
+  transport interface. Only adapters that use Zephyr APIs belong in
+  Zephyr-specific sources.
 
 This keeps the same protocol implementation usable in bare-metal, other RTOS,
 and desktop applications.
@@ -80,10 +81,12 @@ assertion so future changes cannot silently exceed the reserved storage.
 
 The v1 core has one application TX slot, one control/ACK TX slot, and one RX
 event slot. `wl_init()` receives a `wl_storage_t`; its buffers remain owned by
-the caller and must outlive the context. Use `wl_config_requirements()` before
-allocation to obtain the exact worst-case buffer sizes for the configured
-profile. A profile's `max_transmission_unit`, when nonzero, must accommodate
-the complete envelope including COBS delimiters or a length prefix.
+the caller and must outlive the context. The configuration and storage
+descriptor values are copied during initialization, so those two input
+structures may be temporary. Use `wl_config_requirements()` before allocation
+to obtain the exact worst-case buffer sizes for the configured profile. A
+profile's `max_transmission_unit`, when nonzero, must accommodate the complete
+envelope including COBS delimiters or a length prefix.
 
 Application bytes are copied before a send is accepted and are encoded into
 the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
@@ -214,7 +217,7 @@ duplicates without emitting another event.
 ## Test layers
 
 - `tests/zephyr/unit/`: Twister `type: unit` tests using the host-native
-  `unit_testing` board. Use for pure C modules such as BipBuffer, CRC, COBS,
+  `unit_testing` board. Use for pure C modules such as the RX ring, CRC, COBS,
   frame codecs, and ARQ state transitions.
 - `tests/zephyr/integration/`: Ztest applications run on `native_sim`, QEMU,
   or hardware. Use for protocol-stack and adapter integration.
@@ -228,6 +231,15 @@ duplicates without emitting another event.
   artifacts independently. It covers unknown-field skipping, absent added
   fields and defaults, borrowed length-delimited values, repeated capacity,
   duplicate fields, UTF-8, wire-type, and malformed-input failures.
+- `tests/zephyr/unit/conformance/` reproduces the exact v1 transmission units
+  and freezes decoder rejection classes.
+- `fuzz/` contains Clang libFuzzer harnesses for COBS, frames, chunked protocol
+  streams, and generated codecs. CTest limits each smoke target to 5000 runs;
+  longer corpus-guided jobs may invoke the executables directly.
+- `tests/package/consumer/` is a separate CMake project that validates the
+  installed `Wirelink::wirelink` target.
+- `examples/` and `samples/zephyr/uart_dma/` are compile-checked integration
+  references for bare-metal, desktop, and Zephyr users.
 
 `tests/zephyr/integration/protocol` is the core in-memory two-peer fixture. It
 exercises reliable acknowledgement, a dropped first DATA retry, COBS
@@ -240,9 +252,25 @@ restart, and asynchronous stop across the native/QEMU platform matrix.
 
 GitHub Actions builds the C11 core and optional Astrial adapter on Linux,
 macOS, and Windows. Linux additionally runs the Astrial PTY path under ASan and
-UBSan. A separate Zephyr job uses the pinned west manifest and executes all
-unit and integration scenarios on `unit_testing`, `native_sim`,
+UBSan plus bounded Clang fuzz targets. Every host platform installs the core
+and builds an external package consumer. A separate Zephyr job uses the pinned
+west manifest and executes all unit and integration scenarios on
+`unit_testing`, `native_sim`,
 `qemu_cortex_m3`, `qemu_riscv32`, and `qemu_x86_64`.
+
+## Packaging and examples
+
+`WIRELINK_INSTALL` defaults on only when Wirelink is the top-level project.
+It installs the core archive, public headers, a relocatable CMake package, a
+pkg-config file, and the license. Private RX state and platform adapters are
+not installed. Until the project reaches 1.0, generated package compatibility
+is restricted to the same `0.x` minor release.
+
+`WIRELINK_BUILD_EXAMPLES` also defaults on only for top-level builds. The
+bare-metal loopback is registered with CTest. The typed Astrial example is
+added only when `WIRELINK_BUILD_ASTRIAL_ADAPTER=ON`. The Zephyr UART/DMA sample
+is a standalone Zephyr application and therefore is built with `west`, not by
+top-level CMake.
 
 ## Integration platform matrix
 

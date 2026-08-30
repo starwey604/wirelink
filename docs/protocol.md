@@ -1,7 +1,9 @@
 # Wirelink Protocol Specification
 
-Status: **v1 design draft**. Numeric assignments and behavior in this document
-may change until the first protocol version is declared stable.
+Status: **v1 release candidate**. Numeric assignments and normative behavior
+are frozen by the [v1 conformance vectors](conformance-v1.md). Any incompatible
+wire-format change requires a new protocol version; clarifications that do not
+change accepted or emitted bytes may still be made before the 1.0 release.
 
 ## 1. Scope
 
@@ -134,7 +136,7 @@ C structure representation.
  ------  ----  --------------------------------------------
  0       2     magic              bytes 0x57, 0x4c ("WL")
  2       1     version            0x01
- 3       1     header_length      22 for this draft
+ 3       1     header_length      22 for v1
  4       1     packet_type
  5       1     flags
  6       8     session_id
