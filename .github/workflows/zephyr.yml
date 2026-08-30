@@ -1,0 +1,48 @@
+name: Zephyr CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zephyr-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  twister:
+    name: Twister unit/native/QEMU
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Wirelink
+        uses: actions/checkout@v4
+        with:
+          path: wirelink
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Zephyr workspace
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: wirelink
+          toolchains: arm-zephyr-eabi:riscv64-zephyr-elf:x86_64-zephyr-elf
+
+      - name: Run Twister
+        run: >-
+          west twister
+          -T wirelink/tests/zephyr/unit
+          -T wirelink/tests/zephyr/integration
+          -p unit_testing
+          -p native_sim
+          -p qemu_cortex_m3
+          -p qemu_riscv32
+          -p qemu_x86_64
+          --inline-logs
+          --outdir twister-out
