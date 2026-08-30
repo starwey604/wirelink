@@ -11,6 +11,9 @@ int wl_set_sink(wl_ctx_t *ctx, wl_sink_fn sink, void *user_data) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (wl_ctx_impl(ctx)->in_callback) {
     return WL_ERR_REENTRANT;
   }
@@ -33,6 +36,9 @@ int wl_get_config(const wl_ctx_t *ctx, wl_config_t *out_config) {
 int wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
   }
   if (handle == 0U || handle != wl_ctx_impl_const(ctx)->tx_handle) {
     return WL_ERR_NOT_FOUND;
@@ -59,6 +65,9 @@ int wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle,
   if (ctx == NULL || out_state == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl_const(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (handle == 0U || handle != wl_ctx_impl_const(ctx)->tx_handle) {
     return WL_ERR_NOT_FOUND;
   }
@@ -70,6 +79,9 @@ int wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
                wl_tx_result_t *out_result) {
   if (ctx == NULL || out_result == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
   }
   if (handle == 0U || handle != wl_ctx_impl(ctx)->tx_handle) {
     return WL_ERR_NOT_FOUND;
@@ -97,6 +109,12 @@ int wl_feed_recover_reset(wl_ctx_t *ctx) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
   if (wl_ctx_impl(ctx)->rx_event_leased != 0U) {
     return WL_ERR_WOULD_BLOCK;
   }
@@ -109,12 +127,15 @@ int wl_rx_get_counters(const wl_ctx_t *ctx, wl_rx_counters_t *out_counters) {
   if (ctx == NULL || out_counters == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl_const(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   *out_counters = wl_ctx_impl_const(ctx)->rx_counters;
   return WL_OK;
 }
 
 void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event) {
-  if (ctx == NULL || event == NULL) {
+  if (ctx == NULL || event == NULL || wl_ctx_impl(ctx)->initialized == 0U) {
     return;
   }
   if ((event->type == WL_EVT_UNRELIABLE_RX ||

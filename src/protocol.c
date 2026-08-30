@@ -166,6 +166,9 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (wl_ctx_impl(ctx)->control_inflight != 0U && wl_ctx_impl(ctx)->tx_token == token) {
     wl_ctx_impl(ctx)->control_inflight = 0U;
     wl_ctx_impl(ctx)->control_pending = 0U;
@@ -336,12 +339,12 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   if (ctx == NULL || pkt == NULL || (pkt->payload_len != 0U && pkt->payload == NULL)) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (wl_ctx_impl(ctx)->session_id == 0ULL) {
     /* session_id=0 is reserved by protocol; fail fast before serialization. */
     return WL_ERR_INVALID_ARG;
-  }
-  if (wl_ctx_impl(ctx)->initialized == 0U) {
-    return WL_ERR_NOT_INITIALIZED;
   }
   if (pkt->payload_len > wl_ctx_impl(ctx)->config.max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
@@ -415,6 +418,9 @@ int wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payloa
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
   if (wl_ctx_impl(ctx)->tx_sequence == UINT32_MAX) {
     return WL_ERR_INVALID_STATE;
   }
@@ -436,6 +442,9 @@ int wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
 
   if (ctx == NULL || out_handle == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
   }
   if (wl_ctx_impl(ctx)->tx_sequence == UINT32_MAX) {
     return WL_ERR_INVALID_STATE;
@@ -789,6 +798,10 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
   if (ctx == NULL || out_event == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
+    return WL_ERR_NOT_INITIALIZED;
+  }
+  memset(out_event, 0, sizeof(*out_event));
   wl_ctx_impl(ctx)->now_ms = now_ms;
 
   (void)wl_submit_control(ctx);
