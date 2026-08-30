@@ -19,17 +19,32 @@ extern "C" {
 #define WL_ZEPHYR_USB_BULK_INTERFACE_SUBCLASS 0x57U
 #define WL_ZEPHYR_USB_BULK_INTERFACE_PROTOCOL 0x4CU
 
+typedef uint32_t (*wl_zephyr_usb_bulk_cycle_count_fn)(void *user_data);
+
 typedef struct wl_zephyr_usb_bulk_config {
   wl_ctx_t *link;
   size_t maximum_rx_size;
+  /* Optional thread/ISR-safe cycle counter used only for instrumentation. */
+  void *cycle_counter_user_data;
+  wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
 } wl_zephyr_usb_bulk_config_t;
 
 typedef struct wl_zephyr_usb_bulk_stats {
   uint32_t rx_claims;
+  uint32_t rx_completions;
   uint32_t rx_bytes;
   uint32_t rx_pauses;
   uint32_t tx_submissions;
   uint32_t tx_completions;
+  uint32_t rx_callback_cycles;
+  uint32_t rx_callback_max_cycles;
+  uint32_t tx_callback_cycles;
+  uint32_t tx_callback_max_cycles;
+  uint32_t tx_sink_cycles;
+  uint32_t tx_sink_max_cycles;
+  uint32_t active_service_calls;
+  uint32_t active_service_cycles;
+  uint32_t active_service_max_cycles;
   uint32_t errors;
   bool enabled;
   bool rx_active;
@@ -39,15 +54,27 @@ typedef struct wl_zephyr_usb_bulk_stats {
 typedef struct wl_zephyr_usb_bulk {
   wl_ctx_t *link;
   size_t maximum_rx_size;
+  void *cycle_counter_user_data;
+  wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
   wl_rx_dma_claim_t rx_claim;
   wl_io_token_t tx_token;
   atomic_t flags;
   atomic_t tx_completion;
   atomic_t rx_claims;
+  atomic_t rx_completions;
   atomic_t rx_bytes;
   atomic_t rx_pauses;
   atomic_t tx_submissions;
   atomic_t tx_completions;
+  atomic_t rx_callback_cycles;
+  atomic_t rx_callback_max_cycles;
+  atomic_t tx_callback_cycles;
+  atomic_t tx_callback_max_cycles;
+  atomic_t tx_sink_cycles;
+  atomic_t tx_sink_max_cycles;
+  atomic_t active_service_calls;
+  atomic_t active_service_cycles;
+  atomic_t active_service_max_cycles;
   atomic_t errors;
 } wl_zephyr_usb_bulk_t;
 
@@ -57,6 +84,8 @@ int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
 
 /* Call from Wirelink's single-consumer context after wl_poll(). */
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter);
+/* Clear telemetry counters without changing endpoint ownership. */
+void wl_zephyr_usb_bulk_reset_stats(wl_zephyr_usb_bulk_t *adapter);
 void wl_zephyr_usb_bulk_get_stats(const wl_zephyr_usb_bulk_t *adapter,
                                   wl_zephyr_usb_bulk_stats_t *out_stats);
 

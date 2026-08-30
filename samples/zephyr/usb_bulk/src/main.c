@@ -8,8 +8,13 @@
 #include <sample_usbd.h>
 
 #include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/usb/usbd.h>
+
+#if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
+#include <esp_cpu.h>
+#endif
 
 #include "wirelink/wirelink.h"
 #include "wirelink/zephyr/usb_bulk.h"
@@ -25,6 +30,82 @@ static uint8_t tx_unit[UNIT_STORAGE];
 static uint8_t control_unit[64];
 static uint8_t rx_fifo[RX_RING_STORAGE];
 static uint8_t rx_fallback[UNIT_STORAGE];
+
+#if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
+static atomic_t dwc2_isr_calls;
+static atomic_t dwc2_isr_cycles;
+static atomic_t dwc2_isr_max_cycles;
+static atomic_t dwc2_thread_calls;
+static atomic_t dwc2_thread_cycles;
+static atomic_t dwc2_thread_max_cycles;
+static atomic_t usbd_thread_calls;
+static atomic_t usbd_thread_cycles;
+static atomic_t usbd_thread_max_cycles;
+
+static void update_max(atomic_t *maximum, uint32_t value) {
+  atomic_val_t previous = atomic_get(maximum);
+
+  while (value > (uint32_t)previous &&
+         !atomic_cas(maximum, previous, (atomic_val_t)value)) {
+    previous = atomic_get(maximum);
+  }
+}
+
+static void record_cpu_cycles(atomic_t *calls, atomic_t *total,
+                              atomic_t *maximum, uint32_t cycles) {
+  atomic_inc(calls);
+  atomic_add(total, (atomic_val_t)cycles);
+  update_max(maximum, cycles);
+}
+
+uint32_t wirelink_usb_cpu_cycle_count(void) {
+  return (uint32_t)esp_cpu_get_cycle_count();
+}
+
+void wirelink_usb_cpu_record_dwc2_isr(uint32_t cycles) {
+  record_cpu_cycles(&dwc2_isr_calls, &dwc2_isr_cycles,
+                    &dwc2_isr_max_cycles, cycles);
+}
+
+void wirelink_usb_cpu_record_dwc2_thread(uint32_t cycles) {
+  record_cpu_cycles(&dwc2_thread_calls, &dwc2_thread_cycles,
+                    &dwc2_thread_max_cycles, cycles);
+}
+
+void wirelink_usb_cpu_record_usbd_thread(uint32_t cycles) {
+  record_cpu_cycles(&usbd_thread_calls, &usbd_thread_cycles,
+                    &usbd_thread_max_cycles, cycles);
+}
+
+static uint32_t adapter_cycle_count(void *user_data) {
+  (void)user_data;
+  return wirelink_usb_cpu_cycle_count();
+}
+
+static void print_cpu_stats(const wl_zephyr_usb_bulk_stats_t *stats) {
+  printk("wirelink_usb_cpu_v1,cpu_hz,240000000,rx,%u,tx,%u,rx_bytes,%u,"
+         "isr_calls,%u,isr_cycles,%u,isr_max,%u,dwc2_calls,%u,"
+         "dwc2_cycles,%u,dwc2_max,%u,usbd_calls,%u,usbd_cycles,%u,"
+         "usbd_max,%u,rx_cb_cycles,%u,rx_cb_max,%u,tx_cb_cycles,%u,"
+         "tx_cb_max,%u,tx_sink_cycles,%u,tx_sink_max,%u,service_calls,%u,"
+         "service_cycles,%u,service_max,%u,errors,%u\n",
+         stats->rx_completions, stats->tx_completions, stats->rx_bytes,
+         (uint32_t)atomic_get(&dwc2_isr_calls),
+         (uint32_t)atomic_get(&dwc2_isr_cycles),
+         (uint32_t)atomic_get(&dwc2_isr_max_cycles),
+         (uint32_t)atomic_get(&dwc2_thread_calls),
+         (uint32_t)atomic_get(&dwc2_thread_cycles),
+         (uint32_t)atomic_get(&dwc2_thread_max_cycles),
+         (uint32_t)atomic_get(&usbd_thread_calls),
+         (uint32_t)atomic_get(&usbd_thread_cycles),
+         (uint32_t)atomic_get(&usbd_thread_max_cycles),
+         stats->rx_callback_cycles, stats->rx_callback_max_cycles,
+         stats->tx_callback_cycles, stats->tx_callback_max_cycles,
+         stats->tx_sink_cycles, stats->tx_sink_max_cycles,
+         stats->active_service_calls, stats->active_service_cycles,
+         stats->active_service_max_cycles, stats->errors);
+}
+#endif
 
 static void usb_message(struct usbd_context *context,
                         const struct usbd_msg *message) {
@@ -62,12 +143,21 @@ int main(void) {
   const wl_zephyr_usb_bulk_config_t adapter_config = {
       .link = &link,
       .maximum_rx_size = UNIT_STORAGE,
+#if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
+      .cycle_counter = adapter_cycle_count,
+#endif
   };
   struct usbd_context *usb_context;
   uint8_t pending_payload[MAX_PAYLOAD];
   size_t pending_payload_len = 0U;
   uint16_t pending_message_id = 0U;
   bool echo_pending = false;
+#if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
+  int64_t next_stats_check = 0;
+  int64_t last_activity = 0;
+  uint32_t observed_completions = 0U;
+  uint32_t reported_completions = 0U;
+#endif
   int result;
 
   result = wl_init(&link, &config, &storage);
@@ -122,6 +212,24 @@ int main(void) {
         echo_pending = false;
       }
     }
+#if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
+    if (k_uptime_get() >= next_stats_check) {
+      wl_zephyr_usb_bulk_stats_t stats;
+      const int64_t now = k_uptime_get();
+
+      wl_zephyr_usb_bulk_get_stats(&usb_adapter, &stats);
+      next_stats_check = now + 100;
+      if (stats.tx_completions != observed_completions) {
+        observed_completions = stats.tx_completions;
+        last_activity = now;
+      } else if (observed_completions != 0U &&
+                 observed_completions != reported_completions &&
+                 now - last_activity >= 500) {
+        print_cpu_stats(&stats);
+        reported_completions = observed_completions;
+      }
+    }
+#endif
     k_yield();
   }
   return 0;

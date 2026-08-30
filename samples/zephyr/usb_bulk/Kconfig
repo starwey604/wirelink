@@ -2,3 +2,11 @@
 
 source "samples/subsys/usb/common/Kconfig.sample_usbd"
 source "Kconfig.zephyr"
+
+config SAMPLE_WIRELINK_USB_CPU_STATS
+	bool "Collect ESP32-S3 USB CPU cycle telemetry"
+	depends on SOC_SERIES_ESP32S3
+	help
+	  Enables adapter cycle counters and the hooks used by the local DWC2
+	  ISR/driver-thread benchmark instrumentation. This is off by default so
+	  the normal latency sample has no telemetry overhead.
