@@ -6,6 +6,12 @@
 
 #include <zephyr/ztest.h>
 
+#if defined(CONFIG_ARCH_POSIX)
+#include <stdatomic.h>
+
+#include <zephyr/kernel.h>
+#endif
+
 #include "wirelink/cobs.h"
 #include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
@@ -218,6 +224,7 @@ ZTEST(wirelink_rx_spsc, test_held_event_prevents_borrowed_bytes_overwrite) {
   size_t wire_len;
   size_t capacity;
   wl_event_t event = {0};
+  wl_rx_counters_t counters = {0};
 
   memset(filler, 0x5AU, sizeof(filler));
   init_fixture(&fixture);
@@ -238,6 +245,10 @@ ZTEST(wirelink_rx_spsc, test_held_event_prevents_borrowed_bytes_overwrite) {
   zassert_equal(accepted, 0U);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&fixture.ctx, &event);
+  zassert_equal(wl_poll(&fixture.ctx, 6U, &event), WL_ERR_NO_DATA);
+  zassert_ok(wl_rx_get_counters(&fixture.ctx, &counters));
+  zassert_equal(counters.overflow, 1U,
+                "consumer must account for producer backpressure");
 }
 
 ZTEST(wirelink_rx_spsc, test_reserve_short_commit_and_double_reserve) {
@@ -435,5 +446,121 @@ ZTEST(wirelink_rx_spsc, test_cobs_decode_in_place) {
   zassert_equal(decoded_len, sizeof(original));
   zassert_mem_equal(buffer, original, sizeof(original));
 }
+
+#if defined(CONFIG_ARCH_POSIX)
+
+#define SPSC_STRESS_FRAMES 2000U
+#define SPSC_STRESS_WINDOW 2U
+#define SPSC_STRESS_STACK_SIZE 4096U
+
+struct spsc_stress_state {
+  struct rx_fixture *fixture;
+  atomic_uint produced;
+  atomic_uint consumed;
+  atomic_uint done;
+  atomic_int error;
+};
+
+static struct k_thread spsc_producer_thread;
+K_THREAD_STACK_DEFINE(spsc_producer_stack, SPSC_STRESS_STACK_SIZE);
+
+static void spsc_producer_entry(void *arg1, void *arg2, void *arg3) {
+  struct spsc_stress_state *state = arg1;
+
+  (void)arg2;
+  (void)arg3;
+  for (uint32_t sequence = 0U; sequence < SPSC_STRESS_FRAMES; ++sequence) {
+    uint8_t payload[] = {(uint8_t)(sequence >> 24U), (uint8_t)(sequence >> 16U),
+                         (uint8_t)(sequence >> 8U), (uint8_t)sequence};
+    uint8_t wire[TEST_RX_STORAGE];
+    wl_wire_packet_t packet = {
+        .type = WL_PACKET_DATA,
+        .integrity = state->fixture->config.integrity,
+        .message_id = 0x701U,
+        .session_id = UINT64_C(0x0FEDCBA987654321),
+        .sequence = sequence,
+        .payload = payload,
+        .payload_len = sizeof(payload),
+    };
+    size_t wire_len = 0U;
+    size_t accepted = 0U;
+    int ret;
+
+    while (sequence -
+               atomic_load_explicit(&state->consumed, memory_order_relaxed) >=
+           SPSC_STRESS_WINDOW) {
+      k_yield();
+    }
+    ret = wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM, wire, sizeof(wire),
+                          &wire_len);
+    if (ret == WL_OK) {
+      ret = wl_feed_bytes(&state->fixture->ctx, wire, wire_len, &accepted);
+    }
+    if (ret != WL_OK || accepted != wire_len) {
+      atomic_store_explicit(&state->error,
+                            ret != WL_OK ? ret : WL_ERR_INVALID_STATE,
+                            memory_order_relaxed);
+      atomic_store_explicit(&state->done, 1U, memory_order_relaxed);
+      return;
+    }
+    atomic_store_explicit(&state->produced, sequence + 1U,
+                          memory_order_relaxed);
+  }
+  atomic_store_explicit(&state->done, 1U, memory_order_relaxed);
+}
+
+ZTEST(wirelink_rx_spsc, test_threaded_sustained_producer_consumer_stress) {
+  struct rx_fixture fixture;
+  struct spsc_stress_state state = {.fixture = &fixture};
+
+  init_fixture(&fixture);
+  atomic_init(&state.produced, 0U);
+  atomic_init(&state.consumed, 0U);
+  atomic_init(&state.done, 0U);
+  atomic_init(&state.error, WL_OK);
+
+  (void)k_thread_create(&spsc_producer_thread, spsc_producer_stack,
+                        K_THREAD_STACK_SIZEOF(spsc_producer_stack),
+                        spsc_producer_entry, &state, NULL, NULL,
+                        k_thread_priority_get(k_current_get()), 0U, K_NO_WAIT);
+
+  for (uint32_t expected = 0U; expected < SPSC_STRESS_FRAMES; ++expected) {
+    wl_event_t event = {0};
+    const uint8_t expected_payload[] = {
+        (uint8_t)(expected >> 24U), (uint8_t)(expected >> 16U),
+        (uint8_t)(expected >> 8U), (uint8_t)expected};
+    int ret;
+
+    do {
+      ret = wl_poll(&fixture.ctx, expected, &event);
+      if (ret == WL_ERR_NO_DATA) {
+        zassert_equal(
+            atomic_load_explicit(&state.error, memory_order_relaxed), WL_OK,
+            "producer failed at frame %u", expected);
+        zassert_false(
+            atomic_load_explicit(&state.done, memory_order_relaxed) != 0U,
+            "producer stopped before frame %u became visible", expected);
+        k_yield();
+      }
+    } while (ret == WL_ERR_NO_DATA);
+    zassert_ok(ret, "committed frame %u was not visible", expected);
+    zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
+    zassert_equal(event.message_id, 0x701U);
+    zassert_equal(event.payload_len, sizeof(expected_payload));
+    zassert_mem_equal(event.payload, expected_payload,
+                      sizeof(expected_payload));
+    wl_event_release(&fixture.ctx, &event);
+    atomic_store_explicit(&state.consumed, expected + 1U,
+                          memory_order_relaxed);
+  }
+
+  zassert_ok(k_thread_join(&spsc_producer_thread, K_SECONDS(5)));
+  zassert_equal(atomic_load_explicit(&state.produced, memory_order_relaxed),
+                SPSC_STRESS_FRAMES);
+  zassert_equal(fixture.sink.calls, 0U,
+                "unreliable RX must never invoke the TX sink");
+}
+
+#endif /* CONFIG_ARCH_POSIX */
 
 ZTEST_SUITE(wirelink_rx_spsc, NULL, NULL, NULL, NULL, NULL);

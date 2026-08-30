@@ -649,4 +649,154 @@ ZTEST(wirelink_protocol_unit, test_reliable_take_invalidates_generation_handle)
   zassert_equal(wl_tx_status(&ctx, first, &result.state), WL_ERR_NOT_FOUND);
 }
 
+ZTEST(wirelink_protocol_unit, test_cancel_queued_reliable_send)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  struct test_sink_capture cap = {0};
+  wl_tx_handle_t handle = 0U;
+  wl_tx_result_t result = {0};
+  wl_event_t event = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC16,
+    .session_id = UINT64_C(0xCA11000000000001),
+    .max_retries = 2U,
+    .ack_timeout_ms = 5U,
+  };
+  wl_sink_result_t script[] = {WL_SINK_BUSY, WL_SINK_SENT};
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_send_reliable(&ctx, 0x61U, NULL, 0U, &handle));
+  zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
+  zassert_ok(wl_tx_cancel(&ctx, handle));
+  zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 0U);
+  zassert_equal(wl_poll(&ctx, 100U, &event), WL_ERR_NO_DATA);
+  zassert_equal(cap.call_count, 1U, "a cancelled queued send must not start");
+  zassert_ok(wl_tx_take(&ctx, handle, &result));
+  zassert_equal(result.state, WL_TX_STATE_CANCELLED);
+  zassert_equal(result.result, WL_ERR_CANCELLED);
+  zassert_equal(result.retries_used, 0U);
+}
+
+ZTEST(wirelink_protocol_unit, test_cancel_inflight_waits_for_io_completion)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  struct test_sink_capture cap = {0};
+  wl_tx_handle_t handle = 0U;
+  wl_tx_result_t result = {0};
+  wl_event_t event = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC16,
+    .session_id = UINT64_C(0xCA11000000000002),
+    .max_retries = 2U,
+    .ack_timeout_ms = 5U,
+  };
+  wl_sink_result_t script[] = {WL_SINK_STARTED};
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_send_reliable(&ctx, 0x62U, NULL, 0U, &handle));
+  zassert_equal(wl_ctx_impl(&ctx)->tx_inflight, 1U);
+  zassert_ok(wl_tx_cancel(&ctx, handle));
+  zassert_equal(wl_tx_take(&ctx, handle, &result), WL_ERR_INVALID_STATE,
+                "the transport still owns the in-flight unit");
+  zassert_equal(wl_poll(&ctx, 100U, &event), WL_ERR_NO_DATA);
+  zassert_ok(wl_tx_complete(&ctx, cap.last_token, WL_OK));
+  zassert_ok(wl_tx_take(&ctx, handle, &result));
+  zassert_equal(result.state, WL_TX_STATE_CANCELLED);
+  zassert_equal(result.result, WL_ERR_CANCELLED);
+  zassert_equal(cap.call_count, 1U, "completion must not restart a cancelled TX");
+}
+
+ZTEST(wirelink_protocol_unit, test_cancel_waiting_ack_ignores_late_ack)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  uint8_t ack_wire[WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC];
+  size_t ack_len = 0U;
+  struct test_sink_capture cap = {0};
+  wl_tx_handle_t handle = 0U;
+  wl_tx_result_t result = {0};
+  wl_event_t event = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC32C,
+    .session_id = UINT64_C(0xCA11000000000003),
+    .max_retries = 2U,
+    .ack_timeout_ms = 5U,
+  };
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+  wl_wire_packet_t ack = {
+    .type = WL_PACKET_ACK,
+    .integrity = WL_INTEGRITY_CRC32C,
+    .session_id = cfg.session_id,
+    .sequence = 0U,
+  };
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_send_reliable(&ctx, 0x63U, NULL, 0U, &handle));
+  zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
+  zassert_ok(wl_tx_cancel(&ctx, handle));
+  zassert_ok(wl_frame_encode(&ack, WL_ENVELOPE_NATIVE_PACKET, ack_wire,
+                             sizeof(ack_wire), &ack_len));
+  zassert_ok(wl_feed_unit(&ctx, ack_wire, ack_len));
+  zassert_equal(wl_poll(&ctx, 100U, &event), WL_ERR_NO_DATA,
+                "a late ACK must not resurrect a cancelled transaction");
+  zassert_ok(wl_tx_take(&ctx, handle, &result));
+  zassert_equal(result.state, WL_TX_STATE_CANCELLED);
+  zassert_equal(result.result, WL_ERR_CANCELLED);
+}
+
+ZTEST(wirelink_protocol_unit, test_ack_timeout_across_uint32_time_wrap)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  struct test_sink_capture cap = {0};
+  wl_tx_handle_t handle = 0U;
+  wl_tx_result_t result = {0};
+  wl_event_t event = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC16,
+    .session_id = UINT64_C(0x710E000000000001),
+    .max_retries = 1U,
+    .ack_timeout_ms = 5U,
+  };
+  wl_sink_result_t script[] = {WL_SINK_SENT, WL_SINK_SENT};
+  const wl_time_ms_t before_wrap = UINT32_MAX - 2U;
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_equal(wl_poll(&ctx, before_wrap, &event), WL_ERR_NO_DATA);
+  zassert_ok(wl_send_reliable(&ctx, 0x64U, NULL, 0U, &handle));
+
+  zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
+  zassert_equal(cap.call_count, 1U, "only four milliseconds have elapsed");
+  zassert_equal(wl_poll(&ctx, 2U, &event), WL_ERR_NO_DATA);
+  zassert_equal(cap.call_count, 2U, "the retry is due after wraparound");
+  zassert_equal(wl_ctx_impl(&ctx)->tx_retries_used, 1U);
+
+  zassert_equal(wl_poll(&ctx, 6U, &event), WL_ERR_NO_DATA);
+  zassert_ok(wl_poll(&ctx, 7U, &event));
+  zassert_equal(event.type, WL_EVT_TX_TIMEOUT);
+  zassert_equal(event.handle, handle);
+  zassert_ok(wl_tx_take(&ctx, handle, &result));
+  zassert_equal(result.state, WL_TX_STATE_FAILED);
+  zassert_equal(result.result, WL_ERR_TIMEOUT);
+  zassert_equal(result.retries_used, 1U);
+}
+
 ZTEST_SUITE(wirelink_protocol_unit, NULL, NULL, NULL, NULL, NULL);
