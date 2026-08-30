@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(wirelink VERSION 0.1.0 LANGUAGES C CXX)
+project(wirelink VERSION 0.9.0 LANGUAGES C)
 
 include(CTest)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -22,11 +24,13 @@ set(WIRELINK_SOURCES
 )
 
 add_library(wirelink ${WIRELINK_SOURCES})
+add_library(Wirelink::wirelink ALIAS wirelink)
 
 target_include_directories(wirelink PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
+set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink PRIVATE -Wall -Wextra -Wpedantic)
@@ -36,6 +40,8 @@ option(WIRELINK_BUILD_ASTRIAL_ADAPTER
   "Build the optional Astrial desktop serial adapter" OFF)
 option(WIRELINK_BUILD_FUZZERS
   "Build Clang libFuzzer targets" OFF)
+option(WIRELINK_INSTALL
+  "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
 
@@ -68,4 +74,47 @@ if(WIRELINK_BUILD_FUZZERS)
     -fsanitize=address,undefined
     -fno-omit-frame-pointer)
   add_subdirectory(fuzz)
+endif()
+
+if(WIRELINK_INSTALL)
+  install(TARGETS wirelink
+    EXPORT WirelinkTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+  install(FILES
+    include/wirelink/cobs.h
+    include/wirelink/codec.h
+    include/wirelink/crc.h
+    include/wirelink/frame.h
+    include/wirelink/span.h
+    include/wirelink/types.h
+    include/wirelink/version.h
+    include/wirelink/wirelink.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
+
+  install(EXPORT WirelinkTargets
+    FILE WirelinkTargets.cmake
+    NAMESPACE Wirelink::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
+
+  configure_package_config_file(
+    cmake/WirelinkConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
+  write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+  configure_file(cmake/wirelink.pc.in wirelink.pc @ONLY)
+
+  install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+  install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/wirelink)
 endif()

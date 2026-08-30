@@ -34,6 +34,18 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      - name: Install
+        run: cmake --install build --config Release --prefix ${{ github.workspace }}/install
+
+      - name: Configure package consumer
+        run: cmake -S tests/package/consumer -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build package consumer
+        run: cmake --build consumer-build --config Release --parallel
+
+      - name: Test package consumer
+        run: ctest --test-dir consumer-build --build-config Release --output-on-failure
+
   astrial:
     name: Astrial adapter (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
