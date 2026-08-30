@@ -99,3 +99,23 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build --output-on-failure
+
+  fuzz-smoke:
+    name: Clang fuzz smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Wirelink
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DWIRELINK_BUILD_FUZZERS=ON -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Fuzz smoke
+        env:
+          ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build --output-on-failure

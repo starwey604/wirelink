@@ -34,6 +34,8 @@ endif()
 
 option(WIRELINK_BUILD_ASTRIAL_ADAPTER
   "Build the optional Astrial desktop serial adapter" OFF)
+option(WIRELINK_BUILD_FUZZERS
+  "Build Clang libFuzzer targets" OFF)
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
 
@@ -56,4 +58,14 @@ if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
     unset(_WIRELINK_SAVED_BUILD_TESTING)
   endif()
   add_subdirectory(adapters/astrial)
+endif()
+
+if(WIRELINK_BUILD_FUZZERS)
+  if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+    message(FATAL_ERROR "WIRELINK_BUILD_FUZZERS requires Clang")
+  endif()
+  target_compile_options(wirelink PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer)
+  add_subdirectory(fuzz)
 endif()
