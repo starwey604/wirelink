@@ -5,6 +5,7 @@
 #include "wirelink/cobs.h"
 #include "wirelink/wirelink.h"
 
+#include "context.h"
 #include "rx_ring.h"
 
 static size_t wl_max_unit_size(const wl_config_t *config) {
@@ -82,27 +83,27 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
   }
 
   memset(ctx, 0, sizeof(*ctx));
-  ctx->config = config;
-  ctx->storage = *storage;
-  ctx->tx_retries_max =
+  wl_ctx_impl(ctx)->config = config;
+  wl_ctx_impl(ctx)->storage = *storage;
+  wl_ctx_impl(ctx)->tx_retries_max =
       (config->max_retries != 0U) ? config->max_retries : 0U;
-  ctx->tx_retries_left = ctx->tx_retries_max;
-  ctx->session_id = config->session_id;
-  ctx->tx_handle = 0U;
-  ctx->tx_token = 1U;
-  ctx->tx_next_handle = 1U;
-  ctx->tx_state = WL_TX_STATE_IDLE;
-  ctx->tx_last_cmd_id = 0U;
-  ctx->tx_last_flags = 0U;
-  ctx->tx_current_reliable = 0U;
-  ctx->tx_retry_sequence = 0U;
-  ctx->tx_waiting_seq = 0U;
-  ctx->tx_wait_state = WL_TX_WAIT_NONE;
-  ctx->tx_payload = (wl_span_t){storage->tx_payload, 0U};
-  ctx->rx_payload = (wl_span_t){storage->rx_fallback, 0U};
+  wl_ctx_impl(ctx)->tx_retries_left = wl_ctx_impl(ctx)->tx_retries_max;
+  wl_ctx_impl(ctx)->session_id = config->session_id;
+  wl_ctx_impl(ctx)->tx_handle = 0U;
+  wl_ctx_impl(ctx)->tx_token = 1U;
+  wl_ctx_impl(ctx)->tx_next_handle = 1U;
+  wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_IDLE;
+  wl_ctx_impl(ctx)->tx_last_message_id = 0U;
+  wl_ctx_impl(ctx)->tx_last_flags = 0U;
+  wl_ctx_impl(ctx)->tx_current_reliable = 0U;
+  wl_ctx_impl(ctx)->tx_retry_sequence = 0U;
+  wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
+  wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
+  wl_ctx_impl(ctx)->tx_payload = (wl_span_t){storage->tx_payload, 0U};
+  wl_ctx_impl(ctx)->rx_payload = (wl_span_t){storage->rx_fallback, 0U};
 
   if (requirements.rx_fifo_size != 0U &&
-      wl_rx_ring_init(&ctx->rx_ring, storage->rx_fifo,
+      wl_rx_ring_init(&wl_ctx_impl(ctx)->rx_ring, storage->rx_fifo,
                       storage->rx_fifo_size) != WL_OK) {
     return WL_ERR_INVALID_ARG;
   }

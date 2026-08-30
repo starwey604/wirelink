@@ -113,18 +113,16 @@ SerialAdapter::~SerialAdapter()
     m_impl->stopping.store(true, std::memory_order_release);
     m_impl->port.close();
     (void)service();
-    if (m_impl->link.sink_user_data == this)
-    {
-        (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
-    }
+    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
     m_impl->started.store(false, std::memory_order_release);
 }
 
 tl::expected<std::unique_ptr<SerialAdapter>, std::error_code>
 SerialAdapter::open(wl_ctx_t& link, const SerialConfig& config)
 {
-    if (link.config == nullptr || config.port.empty() ||
-        link.config->envelope != WL_ENVELOPE_COBS_STREAM)
+    wl_config_t link_config{};
+    if (wl_get_config(&link, &link_config) != WL_OK || config.port.empty() ||
+        link_config.envelope != WL_ENVELOPE_COBS_STREAM)
     {
         return tl::make_unexpected(make_error_code(SerialError::InvalidArgument));
     }

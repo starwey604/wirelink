@@ -99,7 +99,7 @@ wl_err_t wl_frame_validate_header(const wl_frame_header_t *hdr) {
 
   switch (hdr->packet_type) {
   case WL_PACKET_DATA:
-    if (hdr->cmd_id == 0U) {
+    if (hdr->message_id == 0U) {
       return WL_ERR_BAD_FRAME;
     }
     if (hdr->flags & ~WL_PACKET_FLAG_RELIABLE) {
@@ -107,7 +107,7 @@ wl_err_t wl_frame_validate_header(const wl_frame_header_t *hdr) {
     }
     break;
   case WL_PACKET_ACK:
-    if (hdr->cmd_id != 0U || hdr->payload_length != 0U || hdr->flags != 0U) {
+    if (hdr->message_id != 0U || hdr->payload_length != 0U || hdr->flags != 0U) {
       return WL_ERR_BAD_FRAME;
     }
     break;
@@ -142,14 +142,14 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
     return WL_ERR_INVALID_ARG;
   }
   if (packet->type == WL_PACKET_DATA) {
-    if (packet->cmd_id == 0U) {
+    if (packet->message_id == 0U) {
       return WL_ERR_INVALID_ARG;
     }
     if (packet->flags & ~WL_PACKET_FLAG_RELIABLE) {
       return WL_ERR_INVALID_ARG;
     }
   } else if (packet->type == WL_PACKET_ACK) {
-    if (packet->cmd_id != 0U || packet->payload_len != 0U ||
+    if (packet->message_id != 0U || packet->payload_len != 0U ||
         packet->flags != 0U) {
       return WL_ERR_INVALID_ARG;
     }
@@ -174,7 +174,7 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
   raw[5] = packet->flags;
   write_u64_be(&raw[6], (uint64_t)packet->session_id);
   write_u32_be(&raw[14], packet->sequence);
-  write_u16_be(&raw[18], packet->cmd_id);
+  write_u16_be(&raw[18], packet->message_id);
   write_u16_be(&raw[20], (uint16_t)packet->payload_len);
 
   cursor = raw + WL_FRAME_HEADER_SIZE;
@@ -254,7 +254,7 @@ int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
   hdr.flags = in[5];
   hdr.session_id = read_u64_be(in + 6);
   hdr.sequence = read_u32_be(in + 14);
-  hdr.cmd_id = read_u16_be(in + 18);
+  hdr.message_id = read_u16_be(in + 18);
   hdr.payload_length = read_u16_be(in + 20);
 
   wl_err_t e = wl_frame_validate_header(&hdr);
@@ -293,7 +293,7 @@ int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
 
   out_view->type = (wl_packet_type_t)hdr.packet_type;
   out_view->flags = hdr.flags;
-  out_view->cmd_id = hdr.cmd_id;
+  out_view->message_id = hdr.message_id;
   out_view->session_id = hdr.session_id;
   out_view->sequence = hdr.sequence;
   out_view->integrity = integrity;

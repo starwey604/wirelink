@@ -3,7 +3,6 @@
 zephyr_library_named(wirelink)
 
 zephyr_library_sources_ifdef(CONFIG_WIRELINK
-  ${ZEPHYR_CURRENT_MODULE_DIR}/src/bipbuf.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/cobs.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/crc.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/frame.c

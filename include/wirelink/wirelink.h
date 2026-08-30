@@ -4,9 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wirelink/bipbuf.h"
 #include "wirelink/frame.h"
-#include "wirelink/rx_ring_state.h"
+#include "wirelink/span.h"
 #include "wirelink/types.h"
 
 #ifdef __cplusplus
@@ -16,7 +15,17 @@ extern "C" {
 typedef uint32_t wl_time_ms_t;
 typedef uint32_t wl_tx_handle_t;
 typedef uint32_t wl_io_token_t;
-typedef struct wl_ctx wl_ctx_t;
+
+/*
+ * Allocation-free opaque context storage. Applications may allocate this as
+ * a static object or on the stack, but must not inspect its private bytes.
+ * The size and alignment are stable for the Wirelink v1 ABI.
+ */
+#define WL_CONTEXT_STORAGE_SIZE 640U
+typedef union wl_ctx {
+  max_align_t align;
+  uint8_t private_bytes[WL_CONTEXT_STORAGE_SIZE];
+} wl_ctx_t;
 
 typedef enum {
   WL_TX_STATE_IDLE = 0,
@@ -43,7 +52,7 @@ typedef enum {
 
 typedef struct {
   wl_event_type_t type;
-  uint16_t cmd_id;
+  uint16_t message_id;
   const uint8_t *payload;
   size_t payload_len;
   wl_tx_handle_t handle;
@@ -68,9 +77,6 @@ typedef wl_sink_result_t (*wl_sink_fn)(void *user_data, wl_io_token_t token,
                                        const uint8_t *data, size_t len);
 
 typedef struct {
-  /* Deprecated compatibility hints; storage capacities are authoritative. */
-  size_t rx_buf_size;
-  size_t tx_buf_size;
   uint16_t max_payload_len;
   wl_envelope_type_t envelope;
   wl_integrity_t integrity;
@@ -123,72 +129,17 @@ typedef struct wl_rx_dma_claim {
   uint32_t token;
 } wl_rx_dma_claim_t;
 
-typedef struct wl_ctx {
-  wl_rx_ring_state_t rx_ring;
-  wl_bipbuf_t tx_fifo;
-
-  const wl_config_t *config;
-  wl_storage_t storage;
-
-  wl_sink_fn sink;
-  void *sink_user_data;
-
-  wl_tx_state_t tx_state;
-  wl_tx_handle_t tx_handle;
-  wl_tx_handle_t tx_next_handle;
-  wl_io_token_t tx_token;
-  wl_time_ms_t tx_start_ts;
-  uint16_t tx_retries_left;
-  uint16_t tx_retries_max;
-  uint16_t tx_retries_used;
-  uint32_t tx_sequence;
-  uint32_t tx_retry_sequence;
-  uint32_t tx_waiting_seq;
-  uint8_t tx_inflight;
-  wl_tx_wait_reason_t tx_wait_state;
-  uint8_t tx_current_reliable;
-  uint8_t tx_cancel_requested;
-  uint16_t tx_generation;
-  int tx_result_code;
-  uint16_t tx_last_cmd_id;
-  uint8_t tx_last_flags;
-
-  uint64_t session_id;
-  uint32_t seq_recv;
-  uint64_t rx_session_id;
-  uint8_t rx_have_reliable;
-
-  wl_event_t event;
-  uint8_t has_event;
-  uint8_t in_callback;
-  uint8_t in_flight_reliable;
-  uint8_t control_pending;
-  uint8_t control_inflight;
-  uint8_t tx_queued;
-  size_t control_len;
-  uint8_t rx_event_leased;
-  uint8_t rx_candidate_source;
-  uint8_t rx_lease_source;
-  uint32_t rx_event_generation;
-  size_t rx_pending_consume;
-  wl_rx_counters_t rx_counters;
-
-  wl_time_ms_t now_ms;
-
-  wl_span_t rx_payload;
-  wl_span_t tx_payload;
-} wl_ctx_t;
-
 int wl_config_requirements(const wl_config_t *config,
                            wl_storage_requirements_t *out_requirements);
 int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
             const wl_storage_t *storage);
+int wl_get_config(const wl_ctx_t *ctx, wl_config_t *out_config);
 int wl_set_sink(wl_ctx_t *ctx, wl_sink_fn sink, void *user_data);
 int wl_rx_get_counters(const wl_ctx_t *ctx, wl_rx_counters_t *out_counters);
 
-int wl_send_unreliable(wl_ctx_t *ctx, uint16_t cmd_id, const uint8_t *payload,
+int wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
                        size_t payload_len);
-int wl_send_reliable(wl_ctx_t *ctx, uint16_t cmd_id, const uint8_t *payload,
+int wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
                      size_t payload_len, wl_tx_handle_t *out_handle);
 
 int wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle,
@@ -231,4 +182,4 @@ int wl_feed_recover_reset(wl_ctx_t *ctx);
 }
 #endif
 
-#endif // INCLUDE_WIRELINK_WIRELINK_H_
+#endif /* INCLUDE_WIRELINK_WIRELINK_H_ */

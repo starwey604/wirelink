@@ -1,6 +1,0 @@
-tests:
-  wirelink.bipbuf.unit:
-    type: unit
-    tags:
-      - wirelink
-      - bipbuf

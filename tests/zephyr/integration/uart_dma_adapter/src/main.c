@@ -13,6 +13,7 @@
 #include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 #include "wirelink/zephyr/uart_dma.h"
+#include "context.h"
 
 #define TEST_MAX_PAYLOAD 64U
 #define TEST_STORAGE_SIZE 128U
@@ -262,7 +263,7 @@ static size_t encode_rx_frame(const struct fixture *fixture,
   wl_wire_packet_t packet = {
       .type = WL_PACKET_DATA,
       .integrity = fixture->config.integrity,
-      .cmd_id = 0x301U,
+      .message_id = 0x301U,
       .session_id = UINT64_C(0x0FEDCBA987654321),
       .sequence = 1U,
       .payload = payload,
@@ -283,21 +284,21 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_done_is_deferred_to_service) {
 
   init_fixture(&fixture);
   zassert_equal(fake_data.callback_sets, 1U);
-  zassert_equal(fixture.link.sink_user_data, &fixture.adapter);
+  zassert_equal(wl_ctx_impl(&fixture.link)->sink_user_data, &fixture.adapter);
   zassert_ok(
       wl_send_unreliable(&fixture.link, 0x101U, payload, sizeof(payload)));
   zassert_true(fake_data.tx_active);
-  zassert_equal(fixture.link.tx_inflight, 1U);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 1U);
 
   emit_tx_event(UART_TX_DONE, fake_data.tx_len);
-  zassert_equal(fixture.link.tx_inflight, 1U,
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 1U,
                 "UART callback must not enter the protocol consumer");
   wl_zephyr_uart_dma_get_stats(&fixture.adapter, &stats);
   zassert_equal(stats.tx_active, 1U);
   zassert_equal(stats.tx_done_events, 1U);
 
   zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
-  zassert_equal(fixture.link.tx_inflight, 0U);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 0U);
   zassert_ok(wl_poll(&fixture.link, 1U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
 }
@@ -313,11 +314,11 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_done_waits_for_physical_idle) {
   emit_tx_done_before_idle();
   zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter),
                 WL_ERR_WOULD_BLOCK);
-  zassert_equal(fixture.link.tx_inflight, 1U);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 1U);
 
   fake_data.tx_idle = true;
   zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
-  zassert_equal(fixture.link.tx_inflight, 0U);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 0U);
   zassert_ok(wl_poll(&fixture.link, 1U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
 }
@@ -333,7 +334,7 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_busy_retries_and_failure_maps_to_io) {
   fake_data.next_tx_result = -EBUSY;
   zassert_ok(
       wl_send_unreliable(&fixture.link, 0x102U, payload, sizeof(payload)));
-  zassert_equal(fixture.link.tx_queued, 1U);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_queued, 1U);
   zassert_equal(wl_poll(&fixture.link, 1U, &event), WL_ERR_NO_DATA);
   zassert_true(fake_data.tx_active);
   emit_tx_event(UART_TX_DONE, fake_data.tx_len);

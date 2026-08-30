@@ -11,7 +11,6 @@ set(CMAKE_C_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 set(WIRELINK_SOURCES
-  src/bipbuf.c
   src/cobs.c
   src/crc.c
   src/frame.c

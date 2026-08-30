@@ -16,7 +16,7 @@ ZTEST(wirelink_frame_unit, test_encode_decode_roundtrip_crc32c)
   wl_wire_packet_t packet = {0};
   packet.type = WL_PACKET_DATA;
   packet.flags = 0;
-  packet.cmd_id = 1U;
+  packet.message_id = 1U;
   packet.session_id = 0x0102030405060708ULL;
   packet.sequence = 42U;
   packet.integrity = WL_INTEGRITY_CRC32C;
@@ -30,7 +30,7 @@ ZTEST(wirelink_frame_unit, test_encode_decode_roundtrip_crc32c)
   zassert_ok(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_CRC32C, &view));
   zassert_equal(view.type, WL_PACKET_DATA);
   zassert_equal(view.flags, packet.flags);
-  zassert_equal(view.cmd_id, packet.cmd_id);
+  zassert_equal(view.message_id, packet.message_id);
   zassert_equal(view.session_id, packet.session_id);
   zassert_equal(view.sequence, packet.sequence);
   zassert_mem_equal(view.payload.data, payload, sizeof(payload));
@@ -46,7 +46,7 @@ ZTEST(wirelink_frame_unit, test_reject_invalid_session_and_flags)
   wl_wire_packet_t packet = {0};
   packet.type = WL_PACKET_DATA;
   packet.flags = 0;
-  packet.cmd_id = 1U;
+  packet.message_id = 1U;
   packet.session_id = 1ULL;
   packet.sequence = 1U;
   packet.integrity = WL_INTEGRITY_NONE;
@@ -73,7 +73,7 @@ ZTEST(wirelink_frame_unit, test_encode_rejects_zero_session)
 
   packet.type = WL_PACKET_DATA;
   packet.flags = 0U;
-  packet.cmd_id = 1U;
+  packet.message_id = 1U;
   packet.session_id = 0ULL;
   packet.sequence = 1U;
   packet.integrity = WL_INTEGRITY_NONE;
@@ -94,7 +94,7 @@ ZTEST(wirelink_frame_unit, test_nack_packet_is_rejected)
   wl_wire_packet_t packet = {0};
   packet.type = WL_PACKET_DATA;
   packet.flags = 0U;
-  packet.cmd_id = 1U;
+  packet.message_id = 1U;
   packet.session_id = 0x0102030405060708ULL;
   packet.sequence = 1U;
   packet.integrity = WL_INTEGRITY_NONE;
@@ -119,7 +119,7 @@ ZTEST(wirelink_frame_unit, test_crc16_tamper_detection)
   wl_wire_packet_t packet = {0};
   packet.type = WL_PACKET_DATA;
   packet.flags = 0;
-  packet.cmd_id = 7U;
+  packet.message_id = 7U;
   packet.session_id = 0x0102030405060708ULL;
   packet.sequence = 3U;
   packet.integrity = WL_INTEGRITY_CRC16;

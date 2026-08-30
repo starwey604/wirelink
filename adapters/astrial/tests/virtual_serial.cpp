@@ -219,7 +219,7 @@ void test_wirelink_round_trip()
     event = {};
     require(poll_until_event(*adapter, device, event, WL_EVT_UNRELIABLE_RX),
             "adapter did not deliver inbound frame");
-    require(event.cmd_id == 0x42, "inbound command id mismatch");
+    require(event.message_id == 0x42, "inbound command id mismatch");
     require(event.payload_len == inbound_payload.size(), "inbound payload length mismatch");
     require(std::memcmp(event.payload, inbound_payload.data(), inbound_payload.size()) == 0,
             "inbound payload mismatch");
@@ -242,7 +242,7 @@ void test_wirelink_round_trip()
     event = {};
     require(wl_poll(&peer.context, 2, &event) == WL_OK, "peer did not decode adapter TX frame");
     require(event.type == WL_EVT_UNRELIABLE_RX, "peer received wrong event type");
-    require(event.cmd_id == 0x84, "outbound command id mismatch");
+    require(event.message_id == 0x84, "outbound command id mismatch");
     require(event.payload_len == outbound_payload.size(), "outbound payload length mismatch");
     require(std::memcmp(event.payload, outbound_payload.data(), outbound_payload.size()) == 0,
             "outbound payload mismatch");
@@ -299,7 +299,7 @@ void test_rx_backpressure_resume()
                 "backpressure wl_poll failed");
         if (polled == WL_OK && event.type == WL_EVT_UNRELIABLE_RX)
         {
-            require(event.cmd_id == 0x55 && event.payload_len == 1,
+            require(event.message_id == 0x55 && event.payload_len == 1,
                     "backpressure frame metadata mismatch");
             require(event.payload[0] == static_cast<uint8_t>(received),
                     "backpressure frame order mismatch");
@@ -393,7 +393,7 @@ void test_generated_codec_borrows_event_payload()
     wl_event_t event{};
     require(poll_until_event(*adapter, device, event, WL_EVT_UNRELIABLE_RX),
             "typed frame was not delivered");
-    require(event.cmd_id == ARM_COMMAND_MESSAGE_ID, "typed message id mismatch");
+    require(event.message_id == ARM_COMMAND_MESSAGE_ID, "typed message id mismatch");
 
     std::array<joint_command_t, 6> decoded_joints{};
     arm_command_t decoded{};

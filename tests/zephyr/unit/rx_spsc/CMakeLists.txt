@@ -9,7 +9,6 @@ set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 
 target_sources(testbinary PRIVATE
   ${WIRELINK_ROOT}/tests/zephyr/common/rx_spsc/src/main.c
-  ${WIRELINK_ROOT}/src/bipbuf.c
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
   ${WIRELINK_ROOT}/src/frame.c
@@ -20,4 +19,7 @@ target_sources(testbinary PRIVATE
   ${WIRELINK_ROOT}/src/types.c
 )
 
-target_include_directories(testbinary PRIVATE ${WIRELINK_ROOT}/include)
+target_include_directories(testbinary PRIVATE
+  ${WIRELINK_ROOT}/include
+  ${WIRELINK_ROOT}/src
+)

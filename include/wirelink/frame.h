@@ -60,7 +60,7 @@ typedef struct {
   uint8_t flags;
   uint64_t session_id;
   uint32_t sequence;
-  uint16_t cmd_id;
+  uint16_t message_id;
   uint16_t payload_length;
 } wl_frame_header_t;
 
@@ -68,7 +68,7 @@ typedef struct {
   wl_packet_type_t type;
   wl_integrity_t integrity;
   uint8_t flags;
-  uint16_t cmd_id;
+  uint16_t message_id;
   uint64_t session_id;
   uint32_t sequence;
   const uint8_t *payload;
@@ -78,7 +78,7 @@ typedef struct {
 typedef struct {
   wl_packet_type_t type;
   uint8_t flags;
-  uint16_t cmd_id;
+  uint16_t message_id;
   uint64_t session_id;
   uint32_t sequence;
   wl_integrity_t integrity;

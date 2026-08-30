@@ -427,7 +427,7 @@ static size_t encode_frame(size_t payload_len, uint32_t sequence) {
       .type = WL_PACKET_DATA,
       .integrity = WL_INTEGRITY_CRC32C,
       .flags = 0U,
-      .cmd_id = 1U,
+      .message_id = 1U,
       .session_id = UINT64_C(0x1122334455667788),
       .sequence = sequence,
       .payload = frame_payload,

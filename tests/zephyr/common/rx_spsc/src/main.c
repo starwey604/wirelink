@@ -9,6 +9,7 @@
 #include "wirelink/cobs.h"
 #include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
+#include "context.h"
 
 #define TEST_MAX_PAYLOAD 64U
 #define TEST_RX_STORAGE 128U
@@ -79,14 +80,14 @@ static void init_fixture(struct rx_fixture *fixture) {
 }
 
 static size_t encode_data(const struct rx_fixture *fixture, uint8_t flags,
-                          uint16_t cmd_id, uint32_t sequence,
+                          uint16_t message_id, uint32_t sequence,
                           const uint8_t *payload, size_t payload_len,
                           uint8_t *output, size_t output_size) {
   wl_wire_packet_t packet = {
       .type = WL_PACKET_DATA,
       .integrity = fixture->config.integrity,
       .flags = flags,
-      .cmd_id = cmd_id,
+      .message_id = message_id,
       .session_id = UINT64_C(0x0FEDCBA987654321),
       .sequence = sequence,
       .payload = payload,
@@ -128,9 +129,9 @@ ZTEST(wirelink_rx_spsc, test_feed_only_enqueues_until_poll) {
   zassert_ok(wl_feed_bytes(&fixture.ctx, wire, wire_len, &accepted));
   zassert_equal(accepted, wire_len);
   zassert_equal(fixture.sink.calls, 0U, "producer path must not emit an ACK");
-  zassert_equal(fixture.ctx.has_event, 0U,
+  zassert_equal(wl_ctx_impl(&fixture.ctx)->has_event, 0U,
                 "producer path must not parse or publish an event");
-  zassert_equal(fixture.ctx.control_pending, 0U);
+  zassert_equal(wl_ctx_impl(&fixture.ctx)->control_pending, 0U);
 
   zassert_ok(wl_poll(&fixture.ctx, 1U, &event));
   zassert_equal(event.type, WL_EVT_RELIABLE_RX);
@@ -158,9 +159,9 @@ ZTEST(wirelink_rx_spsc, test_contiguous_payload_is_borrowed_from_ring) {
   zassert_true(points_into(event.payload, fixture.rx_fifo,
                            fixture.storage.rx_fifo_size));
   zassert_mem_equal(event.payload, payload, sizeof(payload));
-  zassert_equal(fixture.ctx.rx_event_leased, 1U);
+  zassert_equal(wl_ctx_impl(&fixture.ctx)->rx_event_leased, 1U);
   wl_event_release(&fixture.ctx, &event);
-  zassert_equal(fixture.ctx.rx_event_leased, 0U);
+  zassert_equal(wl_ctx_impl(&fixture.ctx)->rx_event_leased, 0U);
 }
 
 ZTEST(wirelink_rx_spsc, test_wrapped_frame_uses_fallback) {
@@ -192,14 +193,14 @@ ZTEST(wirelink_rx_spsc, test_wrapped_frame_uses_fallback) {
   zassert_ok(wl_feed_bytes(&fixture.ctx, first, first_len, &accepted));
   zassert_ok(wl_feed_bytes(&fixture.ctx, wrapped, prefix_len, &accepted));
   zassert_ok(wl_poll(&fixture.ctx, 3U, &event));
-  zassert_equal(event.cmd_id, 0x301U);
+  zassert_equal(event.message_id, 0x301U);
   wl_event_release(&fixture.ctx, &event);
 
   zassert_ok(wl_feed_bytes(&fixture.ctx, wrapped + prefix_len,
                            wrapped_len - prefix_len, &accepted));
   event = (wl_event_t){0};
   zassert_ok(wl_poll(&fixture.ctx, 4U, &event));
-  zassert_equal(event.cmd_id, 0x302U);
+  zassert_equal(event.message_id, 0x302U);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   zassert_true(points_into(event.payload, fixture.rx_fallback,
                            fixture.storage.rx_fallback_size));
@@ -264,7 +265,7 @@ ZTEST(wirelink_rx_spsc, test_reserve_short_commit_and_double_reserve) {
                            wire_len - first_chunk, &accepted));
   zassert_equal(accepted, wire_len - first_chunk);
   zassert_ok(wl_poll(&fixture.ctx, 6U, &event));
-  zassert_equal(event.cmd_id, 0x501U);
+  zassert_equal(event.message_id, 0x501U);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&fixture.ctx, &event);
 }
@@ -302,7 +303,7 @@ ZTEST(wirelink_rx_spsc, test_dma_claims_publish_in_order_and_decode) {
   zassert_ok(wl_rx_dma_finish(&fixture.ctx, &second));
 
   zassert_ok(wl_poll(&fixture.ctx, 7U, &event));
-  zassert_equal(event.cmd_id, 0x511U);
+  zassert_equal(event.message_id, 0x511U);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&fixture.ctx, &event);
 }
@@ -331,7 +332,7 @@ ZTEST(wirelink_rx_spsc, test_dma_abort_discards_partial_stream_before_resume) {
   zassert_ok(wl_feed_bytes(&fixture.ctx, wire, wire_len, &accepted));
   zassert_equal(accepted, wire_len);
   zassert_ok(wl_poll(&fixture.ctx, 9U, &event));
-  zassert_equal(event.cmd_id, 0x512U);
+  zassert_equal(event.message_id, 0x512U);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&fixture.ctx, &event);
 }
@@ -354,7 +355,7 @@ ZTEST(wirelink_rx_spsc, test_dma_finish_reclaims_short_final_claim) {
   zassert_ok(wl_rx_dma_finish(&fixture.ctx, &claim));
 
   zassert_ok(wl_poll(&fixture.ctx, 10U, &event));
-  zassert_equal(event.cmd_id, 0x513U);
+  zassert_equal(event.message_id, 0x513U);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&fixture.ctx, &event);
 
@@ -390,7 +391,7 @@ ZTEST(wirelink_rx_spsc, test_dma_short_claim_can_restart_from_empty_ring) {
     zassert_ok(wl_rx_dma_publish(&fixture.ctx, &claim, 0U, wire_len));
     zassert_ok(wl_rx_dma_finish(&fixture.ctx, &claim));
     zassert_ok(wl_poll(&fixture.ctx, (wl_time_ms_t)(11U + i), &event));
-    zassert_equal(event.cmd_id, 0x514U);
+    zassert_equal(event.message_id, 0x514U);
     zassert_mem_equal(event.payload, payloads[i], sizeof(payloads[i]));
     wl_event_release(&fixture.ctx, &event);
   }

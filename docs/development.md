@@ -63,12 +63,18 @@ drivers. The repository is a Zephyr module through `zephyr/module.yml`:
 This keeps the same protocol implementation usable in bare-metal, other RTOS,
 and desktop applications.
 
-The RX ring is a fixed, internal atomic SPSC BipBuffer implementation. It does
-not enter the public ABI and Wirelink intentionally exposes no build-time
-backend selection. The producer release-publishes its write cursor and the
-consumer release-publishes reclaimed space; initialization requires the C11
-atomics to be lock-free on the target. The selection rationale and ESP32-S3
-measurements are retained in `docs/rx-performance.md`.
+The RX ring is a fixed, internal atomic SPSC BipBuffer implementation. Its
+standalone predecessor and public `wl_bb_*` API were removed before v1; the RX
+backend does not enter the public API and Wirelink intentionally exposes no
+build-time backend selection. The producer release-publishes its write cursor
+and the consumer release-publishes reclaimed space; initialization requires
+the C11 atomics to be lock-free on the target. The selection rationale and
+ESP32-S3 measurements are retained in `docs/rx-performance.md`.
+
+`wl_ctx_t` is fixed-size, correctly aligned opaque storage. Applications can
+allocate it statically without knowing protocol internals. Its size and
+alignment are part of the v1 ABI; internal state is guarded by a build-time
+assertion so future changes cannot silently exceed the reserved storage.
 
 ## Core storage contract
 
@@ -256,11 +262,11 @@ Only integration tests should list these platforms in `tests.yaml`; pure-core
 tests remain `type: unit` and run exclusively on `unit_testing`. Hardware
 scenarios are added separately with explicit driver and fixture requirements.
 
-From an existing Zephyr workspace, run the current BipBuffer unit test with:
+From an existing Zephyr workspace, run the current RX-ring unit test with:
 
 ```sh
 cd ~/zephyrproject/zephyr
-../.venv/bin/west twister -T /path/to/wirelink/tests/zephyr/unit/bipbuf \
+../.venv/bin/west twister -T /path/to/wirelink/tests/zephyr/unit/rx_ring \
   -p unit_testing
 ```
 

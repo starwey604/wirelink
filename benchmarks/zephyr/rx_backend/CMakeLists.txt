@@ -10,7 +10,6 @@ set(WIRELINK_BENCH_INGRESS "IRQ" CACHE STRING
     "Wirelink RX ingress: IRQ, DMA, or USB")
 
 set(WIRELINK_CORE_SOURCES
-  ${WIRELINK_ROOT}/src/bipbuf.c
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
   ${WIRELINK_ROOT}/src/frame.c
