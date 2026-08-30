@@ -23,10 +23,10 @@ int wl_get_config(const wl_ctx_t *ctx, wl_config_t *out_config) {
   if (ctx == NULL || out_config == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl_const(ctx)->config == NULL) {
+  if (wl_ctx_impl_const(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  *out_config = *wl_ctx_impl_const(ctx)->config;
+  *out_config = wl_ctx_impl_const(ctx)->config;
   return WL_OK;
 }
 

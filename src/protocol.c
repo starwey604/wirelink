@@ -33,7 +33,7 @@ static int wl_push_event(wl_ctx_t *ctx, wl_event_type_t type, uint16_t message_i
     return WL_ERR_QUEUE_FULL;
   }
   if (is_rx != 0U) {
-    if (payload_len > wl_ctx_impl(ctx)->config->max_payload_len ||
+    if (payload_len > wl_ctx_impl(ctx)->config.max_payload_len ||
         (payload_len != 0U && payload == NULL) ||
         wl_ctx_impl(ctx)->rx_candidate_source == WL_RX_SOURCE_NONE) {
       return WL_ERR_PAYLOAD_TOO_LONG;
@@ -60,7 +60,9 @@ static int wl_push_event(wl_ctx_t *ctx, wl_event_type_t type, uint16_t message_i
 static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
   wl_wire_packet_t wire = {
       .type = WL_PACKET_DATA,
-      .integrity = wl_ctx_impl(ctx)->config ? wl_ctx_impl(ctx)->config->integrity : WL_INTEGRITY_NONE,
+      .integrity = wl_ctx_impl(ctx)->initialized != 0U
+                       ? wl_ctx_impl(ctx)->config.integrity
+                       : WL_INTEGRITY_NONE,
       .flags = wl_ctx_impl(ctx)->tx_last_flags,
       .message_id = wl_ctx_impl(ctx)->tx_last_message_id,
       .session_id = wl_ctx_impl(ctx)->session_id,
@@ -77,14 +79,14 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL || wl_ctx_impl(ctx)->sink == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U || wl_ctx_impl(ctx)->sink == NULL) {
     return WL_ERR_NOT_INITIALIZED;
   }
   if (wl_ctx_impl(ctx)->in_callback) {
     return WL_ERR_REENTRANT;
   }
 
-  ret = wl_frame_encode(&wire, wl_ctx_impl(ctx)->config->envelope, wl_ctx_impl(ctx)->storage.tx_unit,
+  ret = wl_frame_encode(&wire, wl_ctx_impl(ctx)->config.envelope, wl_ctx_impl(ctx)->storage.tx_unit,
                        wl_ctx_impl(ctx)->storage.tx_unit_size, &encoded_len);
   if (ret != WL_OK) {
     return ret;
@@ -239,7 +241,7 @@ static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view) {
   if (ctx == NULL || view == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL || wl_ctx_impl(ctx)->sink == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U || wl_ctx_impl(ctx)->sink == NULL) {
     return WL_ERR_NOT_INITIALIZED;
   }
   if (wl_ctx_impl(ctx)->in_callback) {
@@ -253,12 +255,12 @@ static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view) {
   ack.sequence = view->sequence;
   ack.payload = NULL;
   ack.payload_len = 0U;
-  ack.integrity = wl_ctx_impl(ctx)->config->integrity;
+  ack.integrity = wl_ctx_impl(ctx)->config.integrity;
 
   if (wl_ctx_impl(ctx)->control_pending != 0U) {
     return WL_ERR_QUEUE_FULL;
   }
-  int ret = wl_frame_encode(&ack, wl_ctx_impl(ctx)->config->envelope, wl_ctx_impl(ctx)->storage.control_unit,
+  int ret = wl_frame_encode(&ack, wl_ctx_impl(ctx)->config.envelope, wl_ctx_impl(ctx)->storage.control_unit,
                             wl_ctx_impl(ctx)->storage.control_unit_size, &encoded_len);
   if (ret != WL_OK) {
     return ret;
@@ -338,10 +340,10 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     /* session_id=0 is reserved by protocol; fail fast before serialization. */
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (pkt->payload_len > wl_ctx_impl(ctx)->config->max_payload_len) {
+  if (pkt->payload_len > wl_ctx_impl(ctx)->config.max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
   if (wl_ctx_impl(ctx)->tx_wait_state == WL_TX_WAIT_ACK || wl_ctx_impl(ctx)->tx_handle != 0U ||
@@ -353,7 +355,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     return WL_ERR_REENTRANT;
   }
 
-  if (pkt->payload_len > wl_ctx_impl(ctx)->config->max_payload_len) {
+  if (pkt->payload_len > wl_ctx_impl(ctx)->config.max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
 
@@ -459,8 +461,10 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
     return WL_ERR_INVALID_ARG;
   }
 
-  ret = wl_frame_decode(data, len, wl_ctx_impl(ctx)->config ? wl_ctx_impl(ctx)->config->integrity :
-                                       WL_INTEGRITY_NONE,
+  ret = wl_frame_decode(data, len,
+                        wl_ctx_impl(ctx)->initialized != 0U
+                            ? wl_ctx_impl(ctx)->config.integrity
+                            : WL_INTEGRITY_NONE,
                        &view);
   if (ret != WL_OK) {
     if (ret == WL_ERR_CRC) {
@@ -473,7 +477,7 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
     return ret;
   }
 
-  if (view.payload.length > wl_ctx_impl(ctx)->config->max_payload_len) {
+  if (view.payload.length > wl_ctx_impl(ctx)->config.max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
 
@@ -516,11 +520,11 @@ int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
   if (unit == NULL && len != 0U) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
 
-  if (wl_ctx_impl(ctx)->config->envelope == WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
     return wl_feed_bytes(ctx, unit, len, &accepted);
   }
 
@@ -542,15 +546,15 @@ static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
   if (ctx == NULL || unit == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config->envelope == WL_ENVELOPE_BUS_LENGTH16) {
+  if (wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_BUS_LENGTH16) {
     if (len < 2U) {
       wl_ctx_impl(ctx)->rx_counters.malformed++;
       return WL_ERR_BAD_FRAME;
     }
     raw_len = ((size_t)unit[0] << 8U) | unit[1];
     if (raw_len + 2U > len ||
-        (wl_ctx_impl(ctx)->config->max_transmission_unit != 0U &&
-         raw_len + 2U > wl_ctx_impl(ctx)->config->max_transmission_unit)) {
+        (wl_ctx_impl(ctx)->config.max_transmission_unit != 0U &&
+         raw_len + 2U > wl_ctx_impl(ctx)->config.max_transmission_unit)) {
       wl_ctx_impl(ctx)->rx_counters.malformed++;
       return WL_ERR_BAD_FRAME;
     }
@@ -569,10 +573,10 @@ int wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span) {
   if (ctx == NULL || out_span == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   return wl_rx_ring_producer_reserve(&wl_ctx_impl(ctx)->rx_ring, out_span);
@@ -582,10 +586,10 @@ int wl_rx_commit(wl_ctx_t *ctx, size_t len) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   return wl_rx_ring_producer_commit(&wl_ctx_impl(ctx)->rx_ring, len);
@@ -596,10 +600,10 @@ int wl_rx_dma_claim(wl_ctx_t *ctx, size_t maximum_length,
   if (ctx == NULL || out_claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   return wl_rx_ring_dma_claim(&wl_ctx_impl(ctx)->rx_ring, maximum_length, out_claim);
@@ -610,10 +614,10 @@ int wl_rx_dma_publish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim,
   if (ctx == NULL || claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   return wl_rx_ring_dma_publish(&wl_ctx_impl(ctx)->rx_ring, claim, offset, length);
@@ -623,10 +627,10 @@ int wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim) {
   if (ctx == NULL || claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   return wl_rx_ring_dma_finish(&wl_ctx_impl(ctx)->rx_ring, claim);
@@ -636,18 +640,18 @@ int wl_rx_dma_abort(wl_ctx_t *ctx) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   return wl_rx_ring_dma_abort(&wl_ctx_impl(ctx)->rx_ring);
 }
 
 void wl_rx_note_overflow(wl_ctx_t *ctx) {
-  if (ctx != NULL && wl_ctx_impl(ctx)->config != NULL &&
-      wl_ctx_impl(ctx)->config->envelope == WL_ENVELOPE_COBS_STREAM) {
+  if (ctx != NULL && wl_ctx_impl(ctx)->initialized != 0U &&
+      wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
     wl_rx_ring_producer_note_overflow(&wl_ctx_impl(ctx)->rx_ring);
   }
 }
@@ -663,10 +667,10 @@ int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
     return WL_ERR_INVALID_ARG;
   }
   *out_accepted = 0U;
-  if (wl_ctx_impl(ctx)->config == NULL) {
+  if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config->envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
 
@@ -794,9 +798,9 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
   }
 
   if (wl_ctx_impl(ctx)->control_pending == 0U && wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_WAITING_ACK &&
-      wl_ctx_impl(ctx)->config != NULL && wl_ctx_impl(ctx)->config->ack_timeout_ms != 0U) {
+      wl_ctx_impl(ctx)->initialized != 0U && wl_ctx_impl(ctx)->config.ack_timeout_ms != 0U) {
     wl_time_ms_t timeout_ms = now_ms - wl_ctx_impl(ctx)->tx_start_ts;
-    if (timeout_ms >= wl_ctx_impl(ctx)->config->ack_timeout_ms) {
+    if (timeout_ms >= wl_ctx_impl(ctx)->config.ack_timeout_ms) {
       if (wl_ctx_impl(ctx)->tx_retries_left == 0U) {
         wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_FAILED;
         wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
@@ -824,8 +828,8 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
   }
 
   if (wl_ctx_impl(ctx)->has_event == 0U && wl_ctx_impl(ctx)->rx_event_leased == 0U &&
-      wl_ctx_impl(ctx)->config != NULL &&
-      wl_ctx_impl(ctx)->config->envelope == WL_ENVELOPE_COBS_STREAM) {
+      wl_ctx_impl(ctx)->initialized != 0U &&
+      wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
     wl_process_rx_stream(ctx);
   }
 

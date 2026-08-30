@@ -12,8 +12,9 @@
 typedef struct {
   wl_rx_ring_state_t rx_ring;
 
-  const wl_config_t *config;
+  wl_config_t config;
   wl_storage_t storage;
+  uint8_t initialized;
 
   wl_sink_fn sink;
   void *sink_user_data;

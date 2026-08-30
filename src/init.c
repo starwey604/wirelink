@@ -83,7 +83,7 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
   }
 
   memset(ctx, 0, sizeof(*ctx));
-  wl_ctx_impl(ctx)->config = config;
+  wl_ctx_impl(ctx)->config = *config;
   wl_ctx_impl(ctx)->storage = *storage;
   wl_ctx_impl(ctx)->tx_retries_max =
       (config->max_retries != 0U) ? config->max_retries : 0U;
@@ -108,5 +108,6 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
     return WL_ERR_INVALID_ARG;
   }
 
+  wl_ctx_impl(ctx)->initialized = 1U;
   return WL_OK;
 }

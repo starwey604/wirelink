@@ -131,6 +131,7 @@ typedef struct wl_rx_dma_claim {
 
 int wl_config_requirements(const wl_config_t *config,
                            wl_storage_requirements_t *out_requirements);
+/* Config and the storage descriptor are copied; pointed-to buffers are not. */
 int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
             const wl_storage_t *storage);
 int wl_get_config(const wl_ctx_t *ctx, wl_config_t *out_config);

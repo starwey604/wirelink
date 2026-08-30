@@ -73,6 +73,39 @@ static void init_ctx_and_sink(struct test_sink_capture *cap, wl_ctx_t *ctx,
   zassert_ok(wl_set_sink(ctx, test_sink_fn, cap));
 }
 
+ZTEST(wirelink_protocol_unit, test_init_copies_configuration)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 128U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC32C,
+    .session_id = UINT64_C(0x12345678AABBCCDD),
+    .max_retries = 2U,
+    .ack_timeout_ms = 5U,
+    .max_transmission_unit = sizeof(tx_mem),
+  };
+  wl_config_t copied = {0};
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, 1U);
+  memset(&cfg, 0, sizeof(cfg));
+
+  zassert_ok(wl_get_config(&ctx, &copied));
+  zassert_equal(copied.max_payload_len, 128U);
+  zassert_equal(copied.envelope, WL_ENVELOPE_NATIVE_PACKET);
+  zassert_equal(copied.integrity, WL_INTEGRITY_CRC32C);
+  zassert_equal(copied.session_id, UINT64_C(0x12345678AABBCCDD));
+  zassert_equal(copied.max_retries, 2U);
+  zassert_equal(copied.ack_timeout_ms, 5U);
+  zassert_equal(copied.max_transmission_unit, sizeof(tx_mem));
+  zassert_ok(wl_send_unreliable(&ctx, 1U, NULL, 0U));
+}
+
 ZTEST(wirelink_protocol_unit, test_busy_on_send_is_would_block)
 {
   wl_ctx_t ctx = {0};
