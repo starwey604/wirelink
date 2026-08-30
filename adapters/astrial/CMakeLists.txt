@@ -14,7 +14,10 @@ endif()
 
 if(BUILD_TESTING AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE))
   add_executable(wirelink_astrial_virtual_serial_tests
-    tests/virtual_serial.cpp)
+    tests/virtual_serial.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures/wlc/generated/current/control.c)
+  target_include_directories(wirelink_astrial_virtual_serial_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures/wlc/generated/current)
   target_link_libraries(wirelink_astrial_virtual_serial_tests
     PRIVATE wirelink_astrial)
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

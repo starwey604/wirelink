@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "wirelink/astrial/serial_adapter.hpp"
+#include "control.h"
 
 #include <array>
 #include <cerrno>
@@ -16,6 +17,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <termios.h>
 #include <thread>
@@ -117,7 +119,7 @@ struct Endpoint
     wl_ctx_t context{};
     wl_config_t config{};
     wl_storage_t storage{};
-    std::array<uint8_t, 64> tx_payload{};
+    std::array<uint8_t, 256> tx_payload{};
     std::array<uint8_t, WL_FRAME_MAX_COBS_LEN> tx_unit{};
     std::array<uint8_t, WL_FRAME_MAX_COBS_LEN> control_unit{};
     std::array<uint8_t, WL_FRAME_MAX_COBS_LEN> rx_fifo{};
@@ -125,9 +127,10 @@ struct Endpoint
     std::vector<uint8_t> outbound;
 
     explicit Endpoint(uint64_t session_id,
-                      std::size_t rx_capacity = WL_FRAME_MAX_COBS_LEN)
+                      std::size_t rx_capacity = WL_FRAME_MAX_COBS_LEN,
+                      uint16_t max_payload_length = 64)
     {
-        config.max_payload_len = tx_payload.size();
+        config.max_payload_len = max_payload_length;
         config.envelope = WL_ENVELOPE_COBS_STREAM;
         config.integrity = WL_INTEGRITY_CRC32C;
         config.session_id = session_id;
@@ -176,6 +179,15 @@ bool poll_until_event(wirelink::astrial::SerialAdapter& adapter, Endpoint& endpo
         std::this_thread::sleep_for(1ms);
     }
     return false;
+}
+
+bool points_into(const void* pointer, std::size_t length,
+                 const uint8_t* storage, std::size_t storage_length)
+{
+    const auto address = reinterpret_cast<std::uintptr_t>(pointer);
+    const auto begin = reinterpret_cast<std::uintptr_t>(storage);
+    return address >= begin && length <= storage_length &&
+           address - begin <= storage_length - length;
 }
 
 void test_wirelink_round_trip()
@@ -305,6 +317,133 @@ void test_rx_backpressure_resume()
     require(stats.rx_bytes == stream.size(), "backpressure RX byte count mismatch");
     require(stats.errors == 0, "backpressure path reported an error");
 }
+
+void test_generated_codec_borrows_event_payload()
+{
+    PseudoTerminal terminal;
+    Endpoint device(0x5555, WL_FRAME_MAX_COBS_LEN, 256);
+    Endpoint peer(0x6666, WL_FRAME_MAX_COBS_LEN, 256);
+    peer.enable_capture();
+
+    wirelink::astrial::SerialConfig adapter_config;
+    adapter_config.port = terminal.slave_name();
+    adapter_config.auto_reconnect = false;
+    auto opened = wirelink::astrial::SerialAdapter::open(device.context, adapter_config);
+    if (!opened) throw std::system_error(opened.error(), "open typed adapter");
+    auto adapter = std::move(opened.value());
+
+    std::array<joint_command_t, 6> joints{};
+    for (std::size_t index = 0; index < joints.size(); ++index)
+    {
+        joint_command_clear(&joints[index]);
+        joints[index].has_position_bits = true;
+        joints[index].position_bits = 0x3F800000U + static_cast<uint32_t>(index);
+        joints[index].has_velocity_bits = true;
+        joints[index].velocity_bits = 0x40000000U + static_cast<uint32_t>(index);
+        joints[index].has_torque_bits = true;
+        joints[index].torque_bits = 0x40400000U + static_cast<uint32_t>(index);
+        joints[index].has_kp_bits = true;
+        joints[index].kp_bits = 0x40800000U + static_cast<uint32_t>(index);
+        joints[index].has_kd_bits = true;
+        joints[index].kd_bits = 0x40A00000U + static_cast<uint32_t>(index);
+        joints[index].has_mode = true;
+        joints[index].mode = MIT;
+    }
+
+    static constexpr std::string_view source{"desktop-control"};
+    static constexpr std::array<uint8_t, 4> extension{0x00, 0xA5, 0x5A, 0xFF};
+    arm_command_t command{};
+    arm_command_clear(&command);
+    command.joints = joints.data();
+    command.joints_count = joints.size();
+    command.joints_capacity = joints.size();
+    command.has_sequence = true;
+    command.sequence = 0x1020304050607080ULL;
+    command.has_source = true;
+    command.source = {source.data(), source.size()};
+    command.has_extension = true;
+    command.extension = {extension.data(), extension.size()};
+    command.has_enabled = true;
+    command.enabled = true;
+
+    std::array<uint8_t, 256> payload{};
+    std::size_t payload_length = 0;
+    require(arm_command_encode(&command, payload.data(), payload.size(),
+                               &payload_length) == WL_CODEC_OK,
+            "generated ArmCommand encode failed");
+    require(payload_length == arm_command_encoded_size(&command),
+            "generated encoded size mismatch");
+
+    auto transmit_from_peer = [&]() -> std::size_t
+    {
+        require(wl_send_unreliable(&peer.context, ARM_COMMAND_MESSAGE_ID,
+                                   payload.data(), payload_length) == WL_OK,
+                "typed peer encode failed");
+        wl_event_t tx_event{};
+        require(wl_poll(&peer.context, 0, &tx_event) == WL_OK &&
+                    tx_event.type == WL_EVT_TX_SUCCESS,
+                "typed peer TX event missing");
+        const std::size_t wire_length = peer.outbound.size();
+        terminal.write_all(peer.outbound);
+        peer.outbound.clear();
+        return wire_length;
+    };
+
+    const std::size_t first_wire_length = transmit_from_peer();
+    wl_event_t event{};
+    require(poll_until_event(*adapter, device, event, WL_EVT_UNRELIABLE_RX),
+            "typed frame was not delivered");
+    require(event.cmd_id == ARM_COMMAND_MESSAGE_ID, "typed message id mismatch");
+
+    std::array<joint_command_t, 6> decoded_joints{};
+    arm_command_t decoded{};
+    decoded.joints = decoded_joints.data();
+    decoded.joints_capacity = decoded_joints.size();
+    require(arm_command_decode(event.payload, event.payload_len, &decoded) == WL_CODEC_OK,
+            "generated ArmCommand decode failed");
+    require(decoded.joints_count == joints.size(), "typed joint count mismatch");
+    require(decoded.joints[5].kd_bits == joints[5].kd_bits,
+            "typed nested joint payload mismatch");
+    require(decoded.has_sequence && decoded.sequence == command.sequence,
+            "typed sequence mismatch");
+    require(decoded.has_source && decoded.source.length == source.size() &&
+                std::memcmp(decoded.source.data, source.data(), source.size()) == 0,
+            "typed source mismatch");
+    require(decoded.has_extension && decoded.extension.length == extension.size() &&
+                std::memcmp(decoded.extension.data, extension.data(), extension.size()) == 0,
+            "typed extension mismatch");
+    require(points_into(decoded.source.data, decoded.source.length,
+                        event.payload, event.payload_len),
+            "decoded string did not borrow the Wirelink event payload");
+    require(points_into(decoded.extension.data, decoded.extension.length,
+                        event.payload, event.payload_len),
+            "decoded bytes did not borrow the Wirelink event payload");
+
+    const std::size_t second_wire_length = transmit_from_peer();
+    const auto expected_rx_bytes = first_wire_length + second_wire_length;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    wirelink::astrial::SerialAdapterStats stats;
+    do
+    {
+        adapter->get_stats(stats);
+        if (stats.rx_bytes >= expected_rx_bytes) break;
+        require(adapter->service() == WL_OK, "typed adapter service failed");
+        std::this_thread::sleep_for(1ms);
+    } while (std::chrono::steady_clock::now() < deadline);
+    require(stats.rx_bytes >= expected_rx_bytes,
+            "second typed frame was not buffered during the event lease");
+    require(std::memcmp(decoded.source.data, source.data(), source.size()) == 0,
+            "leased string changed before event release");
+    wl_event_t blocked{};
+    require(wl_poll(&device.context, 1, &blocked) == WL_ERR_NO_DATA,
+            "a second RX event escaped while the first event was leased");
+
+    wl_event_release(&device.context, &event);
+    event = {};
+    require(poll_until_event(*adapter, device, event, WL_EVT_UNRELIABLE_RX),
+            "typed RX did not resume after event release");
+    wl_event_release(&device.context, &event);
+}
 }
 
 int main()
@@ -313,6 +452,7 @@ int main()
     {
         test_wirelink_round_trip();
         test_rx_backpressure_resume();
+        test_generated_codec_borrows_event_payload();
         std::cout << "Wirelink Astrial virtual serial tests passed\n";
         return 0;
     }
