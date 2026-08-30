@@ -2,10 +2,11 @@
 
 ## WLC compiler baseline
 
-The Rust compiler lives in `wlc/`. Its initial frontend owns the versioned
-`.wl` grammar, AST, and source-located validation. The supported baseline
+The Rust compiler is developed in the adjacent `wlc/` worktree. It owns the
+versioned `.wl` grammar, AST, source-located validation, semantic model,
+compatibility checks, and deterministic C generator. The supported baseline
 constructs are `message`, `enum`, `optional`, `repeated`, and `default`; see
-`wlc/README.md` for the normative grammar and current validation rules.
+`docs/schema-v1.md` for the normative v1 contract.
 
 Run its focused checks from the repository root with:
 
@@ -13,9 +14,9 @@ Run its focused checks from the repository root with:
 cargo test --manifest-path wlc/Cargo.toml
 ```
 
-The frontend accepts user-defined field types syntactically. Cross-reference
-resolution, stable ID allocation, compatibility checks, IR, and C generation
-belong to the subsequent WLC milestones and must preserve this grammar.
+Generated headers expose allocation-free clear, encoded-size, encode, and
+decode functions. Generated sources compile as ISO C11 against
+`wirelink/codec.h`; no Rust runtime is present on the target.
 
 `wlc` uses `miette` for source-aware user diagnostics, `thiserror` for typed
 library errors, `clap` for its CLI, and `insta` for future reviewed codegen
@@ -32,8 +33,8 @@ the same declaration inside their message. Reserved IDs are permanent.
 
 The baseline treats a field's number, name, resolved type, and cardinality as
 wire identity. Reordering source declarations or fields is semantically inert.
-CLI support for selecting a previous schema is deferred to the CLI milestone;
-the library API and tests are the compatibility contract until then.
+`wlc validate --previous` and `wlc compile --previous` expose compatibility
+checking at the CLI boundary before generation.
 
 ## Persistent testing decision
 
@@ -190,6 +191,13 @@ port, returns any outstanding borrowed RX reservation, forwards an outstanding
 TX cancellation, and then unbinds the sink. Bare-metal and Zephyr builds do not
 enable or compile this adapter.
 
+The Astrial PTY fixture also compiles the current generated control schema and
+runs a typed six-joint command through WLC encode, Wirelink COBS framing, the
+OS serial path, borrowed ring ingestion, and WLC decode. Decoded `string` and
+`bytes` pointers are asserted to lie inside the leased Wirelink event payload.
+A second frame is buffered but not delivered until `wl_event_release()`, which
+ties the generated codec's borrowed fields to the core event lifetime.
+
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink
@@ -210,6 +218,10 @@ duplicates without emitting another event.
   fixed BipBuffer implementation with UART IRQ/UART DMA/USB CDC ingress. Its
   physical test procedure and buffer-selection record are in
   `docs/rx-performance.md`.
+- `tests/zephyr/unit/generated_codec/` compiles the previous and current WLC
+  artifacts independently. It covers unknown-field skipping, absent added
+  fields and defaults, borrowed length-delimited values, repeated capacity,
+  duplicate fields, UTF-8, wire-type, and malformed-input failures.
 
 `tests/zephyr/integration/protocol` is the core in-memory two-peer fixture. It
 exercises reliable acknowledgement, a dropped first DATA retry, COBS
@@ -217,6 +229,14 @@ byte-at-a-time ingestion, and corrupted-unit rejection without hardware.
 `tests/zephyr/integration/uart_dma_adapter` supplies a fake asynchronous UART
 device and covers deferred TX completion, BUSY retry, abort/retry, finite RX
 restart, and asynchronous stop across the native/QEMU platform matrix.
+
+## Continuous integration
+
+GitHub Actions builds the C11 core and optional Astrial adapter on Linux,
+macOS, and Windows. Linux additionally runs the Astrial PTY path under ASan and
+UBSan. A separate Zephyr job uses the pinned west manifest and executes all
+unit and integration scenarios on `unit_testing`, `native_sim`,
+`qemu_cortex_m3`, `qemu_riscv32`, and `qemu_x86_64`.
 
 ## Integration platform matrix
 
