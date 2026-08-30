@@ -156,6 +156,40 @@ query. It gives the ACK timer the correct starting boundary on ESP32-S3. The
 DMA benchmark runs a startup TX-completion self-test while RX is active before
 collecting RX measurements.
 
+`adapters/astrial/` is the optional desktop serial mapping for Linux, Windows,
+and macOS applications. It is deliberately outside the C11 core and requires
+C++20 plus Astrial. Astrial owns the operating-system serial port and I/O
+thread; its borrowed read provider calls `wl_rx_reserve()` on that thread so
+Asio reads directly into Wirelink's SPSC ring. The matching completion commits
+only the bytes reported by the operating system. An empty reservation pauses
+the Astrial read loop, leaving bytes in the OS buffer until the main loop
+releases ring space and calls adapter `service()`.
+
+The Astrial TX sink uses borrowed asynchronous writes and returns
+`WL_SINK_STARTED`. Its I/O-thread callback only publishes completion into an
+atomic mailbox. `service()`, called from the Wirelink consumer context after
+`wl_poll()`, releases adapter ownership before calling `wl_tx_complete()` so a
+retry or pending ACK may submit synchronously. Thus neither Asio callbacks nor
+the Astrial worker thread run the Wirelink protocol state machine.
+
+Build the host adapter against an existing Astrial target, or point Wirelink at
+an Astrial source checkout:
+
+```sh
+cmake -S . -B build/host \
+  -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON \
+  -DWIRELINK_ASTRIAL_SOURCE_DIR=/path/to/astrial \
+  -DBUILD_TESTING=ON
+cmake --build build/host
+ctest --test-dir build/host --output-on-failure
+```
+
+`SerialAdapter::open()` owns the Astrial serial object and binds the Wirelink
+sink. The adapter must outlive its `wl_ctx_t`. Destruction closes the serial
+port, returns any outstanding borrowed RX reservation, forwards an outstanding
+TX cancellation, and then unbinds the sink. Bare-metal and Zephyr builds do not
+enable or compile this adapter.
+
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink
