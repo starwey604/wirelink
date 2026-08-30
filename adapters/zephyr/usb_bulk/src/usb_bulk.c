@@ -287,6 +287,20 @@ static int queue_out(struct usbd_class_data *class_data,
     atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
     return result;
   }
+  /* Never expose a short physical ring tail as a USB transfer buffer. A full
+   * endpoint packet could overflow it before the stream can wrap. Waiting for
+   * the consumer lets the empty ring normalize back to physical offset zero. */
+  if (claim.span.length < adapter->maximum_rx_size) {
+    result = wl_rx_dma_finish(adapter->link, &claim);
+    if (result != WL_OK) {
+      (void)wl_rx_dma_abort(adapter->link);
+      atomic_inc(&adapter->errors);
+      return result;
+    }
+    atomic_inc(&adapter->rx_pauses);
+    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
+    return WL_ERR_WOULD_BLOCK;
+  }
 
   request_size = claim.span.length;
   buffer = net_buf_alloc_with_data(&wl_usb_bulk_pool, claim.span.data,

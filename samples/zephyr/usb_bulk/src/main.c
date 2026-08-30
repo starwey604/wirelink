@@ -61,7 +61,7 @@ int main(void) {
   };
   const wl_zephyr_usb_bulk_config_t adapter_config = {
       .link = &link,
-      .maximum_rx_size = 512U,
+      .maximum_rx_size = UNIT_STORAGE,
   };
   struct usbd_context *usb_context;
   uint8_t pending_payload[MAX_PAYLOAD];

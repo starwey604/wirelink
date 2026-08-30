@@ -39,6 +39,22 @@ public:
             rx_paused.store(true, std::memory_order_release);
             return {};
         }
+        // A short tail claim is not a safe USB transfer buffer: the host
+        // controller may receive a full endpoint packet and report overflow
+        // before Wirelink gets a chance to wrap the ring. Pause until the
+        // consumer drains the ring, allowing the next claim to normalize at
+        // physical offset zero.
+        if (next.span.length < maximum_read_size)
+        {
+            if (wl_rx_dma_finish(&link, &next) != WL_OK)
+            {
+                (void)wl_rx_dma_abort(&link);
+                errors.fetch_add(1, std::memory_order_relaxed);
+            }
+            rx_pauses.fetch_add(1, std::memory_order_relaxed);
+            rx_paused.store(true, std::memory_order_release);
+            return {};
+        }
 
         claim = next;
         claim_active = true;

@@ -311,7 +311,7 @@ std::vector<double> run_wirelink_bulk(const Options& options)
     config.usb.vendor_id = options.vendor_id;
     config.usb.product_id = options.product_id;
     config.usb.auto_reconnect = false;
-    config.maximum_read_size = 512;
+    config.maximum_read_size = UnitStorage;
     auto opened = wirelink::astrial::UsbBulkAdapter::open(fixture.link, config);
     if (!opened) throw std::system_error(opened.error());
     auto adapter = std::move(opened.value());
