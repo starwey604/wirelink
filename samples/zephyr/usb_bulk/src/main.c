@@ -64,6 +64,10 @@ int main(void) {
       .maximum_rx_size = 512U,
   };
   struct usbd_context *usb_context;
+  uint8_t pending_payload[MAX_PAYLOAD];
+  size_t pending_payload_len = 0U;
+  uint16_t pending_message_id = 0U;
+  bool echo_pending = false;
   int result;
 
   result = wl_init(&link, &config, &storage);
@@ -92,21 +96,32 @@ int main(void) {
 
   printk("Wirelink vendor bulk endpoint ready (OUT=0x01 IN=0x81 DMA=off)\n");
   for (;;) {
-    wl_event_t event;
+    if (!echo_pending) {
+      wl_event_t pending_event;
 
-    memset(&event, 0, sizeof(event));
-    result = wl_poll(&link, k_uptime_get_32(), &event);
-    if (result == WL_OK) {
-      if (event.type == WL_EVT_UNRELIABLE_RX ||
-          event.type == WL_EVT_RELIABLE_RX) {
-        /* Echo payloads for host integration and latency measurement. */
-        (void)wl_send_unreliable(&link, event.message_id, event.payload,
-                                 event.payload_len);
-        wl_event_release(&link, &event);
+      memset(&pending_event, 0, sizeof(pending_event));
+      result = wl_poll(&link, k_uptime_get_32(), &pending_event);
+      if (result == WL_OK &&
+          (pending_event.type == WL_EVT_UNRELIABLE_RX ||
+           pending_event.type == WL_EVT_RELIABLE_RX)) {
+        pending_message_id = pending_event.message_id;
+        pending_payload_len = pending_event.payload_len;
+        memcpy(pending_payload, pending_event.payload, pending_payload_len);
+        wl_event_release(&link, &pending_event);
+        echo_pending = true;
       }
     }
 
     (void)wl_zephyr_usb_bulk_service(&usb_adapter);
+    if (echo_pending) {
+      result = wl_send_unreliable(&link, pending_message_id, pending_payload,
+                                  pending_payload_len);
+      if (result == WL_OK) {
+        echo_pending = false;
+      } else if (result != WL_ERR_BUSY) {
+        echo_pending = false;
+      }
+    }
     k_yield();
   }
   return 0;
