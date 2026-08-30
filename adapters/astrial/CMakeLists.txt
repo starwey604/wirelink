@@ -12,11 +12,14 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink_astrial PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(BUILD_TESTING AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(BUILD_TESTING AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE))
   add_executable(wirelink_astrial_virtual_serial_tests
     tests/virtual_serial.cpp)
   target_link_libraries(wirelink_astrial_virtual_serial_tests
-    PRIVATE wirelink_astrial util)
+    PRIVATE wirelink_astrial)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(wirelink_astrial_virtual_serial_tests PRIVATE util)
+  endif()
   add_test(NAME wirelink_astrial_virtual_serial
     COMMAND wirelink_astrial_virtual_serial_tests)
   set_tests_properties(wirelink_astrial_virtual_serial PROPERTIES TIMEOUT 15)

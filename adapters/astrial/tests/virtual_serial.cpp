@@ -8,7 +8,11 @@
 #include <cstring>
 #include <iostream>
 #include <poll.h>
+#if defined(__APPLE__)
+#include <util.h>
+#else
 #include <pty.h>
+#endif
 #include <span>
 #include <stdexcept>
 #include <string>
