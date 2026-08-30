@@ -48,6 +48,14 @@ build/usb-bench/benchmarks/host/wirelink_transport_benchmark raw-bulk \
 build/usb-bench/benchmarks/host/wirelink_transport_benchmark wirelink-bulk \
   --vid 0x2fe3 --pid 0x574c --payload 120 --warmup 1000 --iterations 10000
 
+# Balanced host profile: sleep for both RX and TX completions.
+build/usb-bench/benchmarks/host/wirelink_transport_benchmark wirelink-bulk \
+  --idle wait --wake all --payload 120 --warmup 1000 --iterations 10000
+
+# Request/response profile: coalesce TX completion into the RX wakeup.
+build/usb-bench/benchmarks/host/wirelink_transport_benchmark wirelink-bulk \
+  --idle wait --wake rx --payload 120 --warmup 1000 --iterations 10000
+
 build/usb-bench/benchmarks/host/wirelink_transport_benchmark cdc \
   --port /dev/ttyACM1 --payload 120 --warmup 1000 --iterations 10000
 ```
@@ -143,3 +151,55 @@ must not be an arbitrary short ring tail, and its configured read size must fit
 the largest encoded transmission unit (with suitable endpoint-packet
 alignment). The echo samples use a separate payload mailbox so they can release
 the borrowed RX event before rearming OUT and retry safely if TX is busy.
+
+### 2026-08-31 host API and CPU/latency iteration
+
+This iteration used the same board, firmware, host port, cable, 120-byte
+payload, 1,000 warm-ups, and 10,000 measured exchanges. The host tool was a
+Release build using Astrial `4ec4dc3`. Shell `time` supplied user and system
+CPU values; their sum is reported below. The host still used the non-real-time
+`powersave` governor, so isolated maxima are recorded but not used to select a
+strategy.
+
+| RX path | Idle/wake policy | p50 (us) | p95 (us) | p99 (us) | Max (us) | Mean (us) | Payload B/s | CPU (s) | Wall (s) | Wakeups |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Direct ring | Poll | 453.74 | 522.62 | 563.78 | 768.64 | 459.12 | 261,368 | 5.271 | 5.186 | 0 |
+| Direct ring | Wait, all completions | 473.01 | 539.94 | 572.58 | 3,101.97 | 478.48 | 250,792 | 0.768 | 5.400 | 21,989 |
+| Direct ring | Wait, receive only | 476.02 | 545.28 | 596.51 | 5,225.99 | 484.76 | 247,546 | 0.704 | 5.502 | 11,002 |
+| Four staged reads | Poll | 452.77 | 525.20 | 565.70 | 1,027.88 | 458.99 | 261,441 | 5.313 | 5.190 | 0 |
+| Four staged reads | Wait, all completions | 473.55 | 541.08 | 586.35 | 1,307.09 | 478.42 | 250,825 | 0.776 | 5.401 | 21,994 |
+
+The balanced default for an application that does not need continuous busy
+polling is direct ring plus `wait`/`AllCompletions`. Relative to polling it
+reduced measured host CPU time by 85.4%, while p50 increased 19.27 us (4.2%)
+and p99 increased 8.80 us (1.6%). Polling remains the explicit lowest-latency
+profile. The tested 50, 150, and 300 us yield/spin windows did not recover the
+polling latency and consumed progressively more CPU, so no hybrid duration is
+recommended.
+
+`ReceiveOnly` is an opt-in request/response policy. It halved scheduler
+wakeups and reduced CPU a further 8.3% in the retained Release run, but had a
+24 us higher p99 than `AllCompletions`. The safe default therefore continues
+to wake for both RX and TX. A receive-only user must wait with a finite
+deadline so one-way TX and missing responses still reach `service()`.
+
+The four-read staged prototype allocated four 576-byte adapter buffers and
+copied every libusb completion into Wirelink's ring. It produced no meaningful
+sequential RTT, goodput, or CPU improvement and worsened the wait-profile p99.
+It is not retained. Astrial invokes its providers and completions on one event
+thread, while Wirelink's destination ring is already SPSC, so placing an
+external lock-free queue between them would add another ownership boundary and
+buffering delay without removing a contended lock. The production adapter
+therefore keeps one direct, zero-copy IN claim and no selectable RX backend.
+
+Astrial's USB transfer hot path itself now dispatches RX callbacks directly
+and gates its single borrowed TX with atomics. An interleaved before/after run
+showed no latency shift outside board/host jitter, confirming that the removed
+uncontended mutex was not the USB RTT bottleneck. The change is retained for a
+simpler non-blocking transfer path and a race-free synchronous
+`stop_reads()`, not claimed as a latency win.
+
+The retained code then passed Astrial's three host tests, Wirelink's two host
+tests, and the complete Zephyr unit/integration matrix: 21/21 configurations
+and 105/105 cases across `unit_testing`, `native_sim`, `qemu_cortex_m3`,
+`qemu_riscv32`, and `qemu_x86_64`.

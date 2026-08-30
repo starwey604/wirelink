@@ -217,9 +217,11 @@ The direct USB mapping uses exactly one outstanding IN transfer. This is a
 consequence of variable-length Bulk transfers rather than a libusb limitation:
 a short first transfer must return its claim's unused tail, which the ring can
 only do before a successor claim is allocated. Two queued direct claims would
-create a logical hole. A future deep-queue mode may instead use adapter-owned
-staging buffers and copy completed bytes into the ring; benchmarks must show a
-real latency or throughput win before that extra path is retained.
+create a logical hole. A four-transfer adapter-owned staging prototype was
+measured and rejected: its copy and 2,304 bytes of extra buffers produced no
+meaningful RTT, goodput, or CPU improvement. Because Astrial's USB callbacks
+already form one producer and Wirelink's ring is the SPSC handoff, no external
+lock-free queue or selectable USB RX backend is retained.
 
 `adapters/zephyr/usb_bulk/` provides the matching Zephyr USB-next custom class
 with vendor subclass `0x57`, protocol `0x4c`, Bulk OUT `0x01`, and Bulk IN
