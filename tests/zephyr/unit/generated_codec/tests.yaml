@@ -1,0 +1,15 @@
+tests:
+  wirelink.generated_codec.current:
+    type: unit
+    tags:
+      - wirelink
+      - wlc
+      - codec
+    extra_args: WLC_SCHEMA_REVISION=current
+  wirelink.generated_codec.previous:
+    type: unit
+    tags:
+      - wirelink
+      - wlc
+      - codec
+    extra_args: WLC_SCHEMA_REVISION=previous
