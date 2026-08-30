@@ -34,6 +34,12 @@ line; internal state may change without requiring applications to recompile
 their own allocation strategy. Applications must never inspect or persist its
 private bytes.
 
+Public enum-like domains are fixed-width `int32_t` typedefs with named
+constants. Their layout therefore does not depend on a compiler's native enum
+width or options such as GCC and Clang `-fshort-enums`. Pointer- and
+`size_t`-containing structures remain ABI-specific to the target architecture,
+as normal for a C library.
+
 Until 1.0, source or ABI corrections may occur between `0.x` minor releases
 and will be recorded in [`CHANGELOG.md`](../CHANGELOG.md). CMake therefore
 considers only the same minor `0.9.x` line package-compatible. Starting with

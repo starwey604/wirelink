@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef WIRELINK_CODEC_H
 #define WIRELINK_CODEC_H
 
@@ -21,7 +23,8 @@ typedef struct {
 } wl_codec_string_t;
 
 /** Result of a generated WLC codec operation. */
-typedef enum {
+typedef int32_t wl_codec_status_t;
+enum {
     WL_CODEC_OK = 0,
     WL_CODEC_ERR_MALFORMED,
     WL_CODEC_ERR_OVERFLOW,
@@ -30,7 +33,7 @@ typedef enum {
     WL_CODEC_ERR_DUPLICATE_FIELD,
     WL_CODEC_ERR_UTF8,
     WL_CODEC_ERR_INVALID_VALUE,
-} wl_codec_status_t;
+};
 
 #ifdef __cplusplus
 }

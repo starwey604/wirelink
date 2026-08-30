@@ -1,11 +1,16 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef INCLUDE_WIRELINK_TYPE_H_
 #define INCLUDE_WIRELINK_TYPE_H_
+
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
-typedef enum {
+typedef int32_t wl_err_t;
+enum {
   WL_OK = 0, /**< 成功 (Success) */
 
   /* --- 通用系统级错误 (-1 ~ -9) --- */
@@ -47,7 +52,7 @@ typedef enum {
   WL_ERR_CORRUPT_PAYLOAD =
       -50, /**< Payload 解析失败 (比如反序列化时发现字段越界或类型不匹配) */
 
-} wl_err_t;
+};
 
 const char *wl_err_str(int err);
 

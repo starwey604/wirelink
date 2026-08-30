@@ -4,6 +4,19 @@
 #include <wirelink/version.h>
 #include <wirelink/wirelink.h>
 
+_Static_assert(sizeof(wl_envelope_type_t) == sizeof(int32_t),
+               "public envelope ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_integrity_t) == sizeof(int32_t),
+               "public integrity ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_packet_type_t) == sizeof(int32_t),
+               "public packet ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_tx_state_t) == sizeof(int32_t),
+               "public transaction ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_event_type_t) == sizeof(int32_t),
+               "public event ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_sink_result_t) == sizeof(int32_t),
+               "public sink ABI must not depend on -fshort-enums");
+
 int main(void) {
   wl_ctx_t context = {0};
   wl_config_t config = {

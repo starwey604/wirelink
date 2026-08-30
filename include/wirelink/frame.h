@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef INCLUDE_WIRELINK_FRAME_H_
 #define INCLUDE_WIRELINK_FRAME_H_
 
@@ -25,32 +27,36 @@ extern "C" {
  */
 #define WL_FRAME_MAX_COBS_LEN 2084U
 
-typedef enum {
+typedef int32_t wl_envelope_type_t;
+enum {
   WL_ENVELOPE_COBS_STREAM = 0,
   WL_ENVELOPE_NATIVE_PACKET = 1,
   WL_ENVELOPE_BUS_LENGTH16 = 2,
-} wl_envelope_type_t;
+};
 
-typedef enum {
+typedef int32_t wl_integrity_t;
+enum {
   WL_INTEGRITY_NONE = 0,
   WL_INTEGRITY_CRC16 = 1,
   WL_INTEGRITY_CRC32C = 2,
   WL_INTEGRITY_CRC32 = WL_INTEGRITY_CRC32C,
-} wl_integrity_t;
+};
 
-typedef enum {
+typedef int32_t wl_packet_type_t;
+enum {
   WL_PACKET_DATA = 0x01,
   WL_PACKET_ACK = 0x02,
   WL_PACKET_NACK = 0x03,
   WL_PACKET_PRIVATE_USE = 0x80,
-} wl_packet_type_t;
+};
 
-typedef enum {
+typedef int32_t wl_packet_flag_t;
+enum {
   /* V1: only bit0 is defined as WL_PACKET_FLAG_RELIABLE. */
   WL_PACKET_FLAG_RELIABLE = 0x01,
   /* Used to reject illegal non-zero reserved bits deterministically. */
   WL_PACKET_FLAG_RESERVED_MASK = 0xFEU,
-} wl_packet_flag_t;
+};
 
 typedef struct {
   uint8_t magic[2];

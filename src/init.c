@@ -35,10 +35,12 @@ int wl_config_requirements(const wl_config_t *config,
       config->max_payload_len > WL_FRAME_MAX_PAYLOAD) {
     return WL_ERR_INVALID_ARG;
   }
-  if (config->envelope >= 3U) {
+  if (config->envelope < WL_ENVELOPE_COBS_STREAM ||
+      config->envelope > WL_ENVELOPE_BUS_LENGTH16) {
     return WL_ERR_INVALID_ARG;
   }
-  if (config->integrity > WL_INTEGRITY_CRC32) {
+  if (config->integrity < WL_INTEGRITY_NONE ||
+      config->integrity > WL_INTEGRITY_CRC32) {
     return WL_ERR_INVALID_ARG;
   }
   if (config->session_id == 0ULL) {

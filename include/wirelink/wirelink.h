@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 #ifndef INCLUDE_WIRELINK_WIRELINK_H_
 #define INCLUDE_WIRELINK_WIRELINK_H_
 
@@ -27,28 +29,31 @@ typedef union wl_ctx {
   uint8_t private_bytes[WL_CONTEXT_STORAGE_SIZE];
 } wl_ctx_t;
 
-typedef enum {
+typedef int32_t wl_tx_state_t;
+enum {
   WL_TX_STATE_IDLE = 0,
   WL_TX_STATE_SENDING,
   WL_TX_STATE_WAITING_ACK,
   WL_TX_STATE_SUCCESS,
   WL_TX_STATE_FAILED,
   WL_TX_STATE_CANCELLED,
-} wl_tx_state_t;
+};
 
-typedef enum {
+typedef int32_t wl_tx_wait_reason_t;
+enum {
   WL_TX_WAIT_NONE = 0,
   WL_TX_WAIT_ACK,
-} wl_tx_wait_reason_t;
+};
 
-typedef enum {
+typedef int32_t wl_event_type_t;
+enum {
   WL_EVT_NONE = 0,
   WL_EVT_UNRELIABLE_RX,
   WL_EVT_RELIABLE_RX,
   WL_EVT_TX_SUCCESS,
   WL_EVT_TX_TIMEOUT,
   WL_EVT_TX_FAILED,
-} wl_event_type_t;
+};
 
 typedef struct {
   wl_event_type_t type;
@@ -66,12 +71,13 @@ typedef struct {
   uint16_t retries_used;
 } wl_tx_result_t;
 
-typedef enum {
+typedef int32_t wl_sink_result_t;
+enum {
   WL_SINK_SENT = 0,
   WL_SINK_STARTED,
   WL_SINK_BUSY,
   WL_SINK_FAILED,
-} wl_sink_result_t;
+};
 
 typedef wl_sink_result_t (*wl_sink_fn)(void *user_data, wl_io_token_t token,
                                        const uint8_t *data, size_t len);
