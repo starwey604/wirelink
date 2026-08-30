@@ -23,6 +23,8 @@ ABI.
 The following public structures are closed for v1 and must not gain fields in
 the 1.x line:
 
+- `wl_span_t`, `wl_codec_bytes_t`, and `wl_codec_string_t`;
+- `wl_frame_header_t`, `wl_wire_packet_t`, and `wl_frame_view_t`;
 - `wl_config_t`;
 - `wl_storage_t` and `wl_storage_requirements_t`;
 - `wl_event_t` and `wl_tx_result_t`;
