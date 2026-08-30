@@ -130,8 +130,8 @@ public:
     explicit RawBulkRunner(const Options& options)
     {
         UsbBulkConfig config;
-        config.vendor_id = options.vendor_id;
-        config.product_id = options.product_id;
+        config.device.vendor_id = options.vendor_id;
+        config.device.product_id = options.product_id;
         config.read_queue_depth = 1;
         config.auto_reconnect = false;
         auto opened = UsbBulkDevice::open(config);
@@ -308,8 +308,8 @@ std::vector<double> run_wirelink_bulk(const Options& options)
 {
     LinkFixture fixture;
     wirelink::astrial::UsbBulkAdapterConfig config;
-    config.usb.vendor_id = options.vendor_id;
-    config.usb.product_id = options.product_id;
+    config.usb.device.vendor_id = options.vendor_id;
+    config.usb.device.product_id = options.product_id;
     config.usb.auto_reconnect = false;
     config.maximum_read_size = UnitStorage;
     auto opened = wirelink::astrial::UsbBulkAdapter::open(fixture.link, config);
