@@ -9,7 +9,9 @@ The current release is the `0.9.0` release candidate for the v1 wire protocol
 and C API. Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in
-[`docs/compatibility.md`](docs/compatibility.md).
+[`docs/compatibility.md`](docs/compatibility.md). The completed C surface audit
+and remaining pre-1.0 API decisions are in
+[`docs/api-v1-audit.md`](docs/api-v1-audit.md).
 
 Platform adapters currently cover Zephyr asynchronous UART DMA plus Astrial
 serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C
