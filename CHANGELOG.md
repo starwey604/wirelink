@@ -23,6 +23,10 @@ First release candidate for the Wirelink v1 protocol and C API.
   backpressure recovery, shutdown, cache hooks, and ESP32-S3 line-idle timing.
 - Added the Astrial serial adapter for Linux, macOS, and Windows with borrowed
   SPSC reads and deferred asynchronous writes.
+- Added custom Zephyr Vendor Bulk and Astrial/libusb transports with direct
+  ring ingress, borrowed TX, explicit ZLP handling, and reconnect support.
+- Added the generic Zephyr UART IRQ fallback and a USB CDC ACM endpoint for
+  boards where a custom class or DMA path is unavailable.
 - Selected the internal atomic SPSC BipBuffer after host and ESP32-S3
   comparison with LwRB; retained reproducible latency and throughput results.
 
@@ -36,3 +40,5 @@ First release candidate for the Wirelink v1 protocol and C API.
   QEMU coverage.
 - Added relocatable CMake and pkg-config installation plus bare-metal, Astrial,
   and Zephyr UART/DMA examples.
+- Added comparable Raw Bulk, full Wirelink Bulk, and CDC IRQ RTT benchmark
+  firmware and host tooling, with a fixed ESP32-S3 measurement procedure.

@@ -284,11 +284,12 @@ restart, and asynchronous stop across the native/QEMU platform matrix.
 
 ## Continuous integration
 
-GitHub Actions builds the C11 core and optional Astrial adapter on Linux,
-macOS, and Windows. Linux additionally runs the Astrial PTY path under ASan and
-UBSan plus bounded Clang fuzz targets. Every host platform installs the core
-and builds an external package consumer. A separate Zephyr job uses the pinned
-west manifest and executes all unit and integration scenarios on
+GitHub Actions builds the C11 core, Astrial serial adapter, optional
+Astrial/libusb Bulk adapter, and host benchmark on Linux, macOS, and Windows.
+Linux additionally runs the Astrial PTY path under ASan and UBSan plus bounded
+Clang fuzz targets. Every host platform installs the core and builds an
+external package consumer. A separate Zephyr job uses the pinned west manifest
+and executes all unit and integration scenarios on
 `unit_testing`, `native_sim`,
 `qemu_cortex_m3`, `qemu_riscv32`, and `qemu_x86_64`.
 
