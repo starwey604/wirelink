@@ -123,17 +123,38 @@ the adapter resumes ingress. This contract maps to Zephyr UART async RX, Linux
 DMA/serial drivers, and bare-metal completion ISRs without putting their types
 or scheduling assumptions in the core.
 
-`adapters/zephyr/uart_dma/` is the first mapping. It publishes only new
-`UART_RX_RDY` bytes and waits for `UART_RX_BUF_RELEASED` before finishing a
-claim. With `SYS_FOREVER_US` timeout it answers `UART_RX_BUF_REQUEST` with a
-second direct ring claim for sustained throughput. With a finite timeout it
-deliberately runs one DMA buffer at a time, so an idle-released short buffer
-can be finished without creating a hole; the consumer-side `service()` call
-re-arms RX after `UART_RX_DISABLED`. The release bit is the atomic ownership
-handoff from the driver callback to `service()`; slot progress fields are not
-read by the consumer until that handoff. `WL_ERR_WOULD_BLOCK` from `service()`
-is transient and means the main loop should retry. This is the low-latency mode
-used by the ESP32 benchmark.
+`adapters/zephyr/uart_dma/` is the first mapping and is a unified full-duplex
+owner of Zephyr's asynchronous UART callback. Enable it with
+`CONFIG_WIRELINK_ZEPHYR_UART_DMA=y`. Initialization registers the UART's sole
+async callback and installs its `uart_tx()` sink on the Wirelink context, so a
+second IRQ or async adapter must not use that UART concurrently. The callback
+publishes only new `UART_RX_RDY` bytes and records TX completion in an atomic
+mailbox; protocol TX completion, retry, ACK submission, RX reclamation, and
+recovery remain in the single-consumer `service()` call.
+
+With `SYS_FOREVER_US` RX timeout the adapter answers `UART_RX_BUF_REQUEST` with
+a second direct ring claim for sustained throughput. With a finite timeout it
+deliberately runs one DMA buffer at a time, so an idle-released short buffer can
+be finished without creating a hole; `service()` re-arms RX after
+`UART_RX_DISABLED`. The release bit is the atomic ownership handoff from the
+driver callback to `service()`; slot progress fields are not read by the
+consumer until that handoff. `WL_ERR_WOULD_BLOCK` from `service()` is transient
+and means the main loop should retry on a later iteration.
+
+The lifecycle is `init()` once, `start()`, then `wl_poll()`/event handling and
+`service()` from the same main-loop context. `stop()` rejects new TX immediately
+and requests RX disable plus TX abort; keep servicing until statistics report
+both `started=0` and `stopping=0`, because the driver may still own buffers.
+`UART_TX_DONE` and `UART_TX_ABORTED` are deliberately deferred to `service()`:
+this keeps ISR work bounded and lets a reliable retry synchronously submit a
+new TX only after the previous UART ownership has been released. When the
+driver reports DMA FIFO fill rather than final line completion, enable
+`wait_for_tx_idle`; a successful DMA event is then held until
+`uart_irq_tx_complete()` reports the UART physically idle. This is opt-in
+because not every asynchronous driver also implements the interrupt-driven
+query. It gives the ACK timer the correct starting boundary on ESP32-S3. The
+DMA benchmark runs a startup TX-completion self-test while RX is active before
+collecting RX measurements.
 
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
@@ -159,6 +180,9 @@ duplicates without emitting another event.
 `tests/zephyr/integration/protocol` is the core in-memory two-peer fixture. It
 exercises reliable acknowledgement, a dropped first DATA retry, COBS
 byte-at-a-time ingestion, and corrupted-unit rejection without hardware.
+`tests/zephyr/integration/uart_dma_adapter` supplies a fake asynchronous UART
+device and covers deferred TX completion, BUSY retry, abort/retry, finite RX
+restart, and asynchronous stop across the native/QEMU platform matrix.
 
 ## Integration platform matrix
 

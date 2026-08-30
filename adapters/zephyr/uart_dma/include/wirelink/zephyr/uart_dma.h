@@ -25,6 +25,9 @@ typedef struct {
   wl_ctx_t *link;
   size_t maximum_chunk;
   int32_t timeout_us;
+  int32_t tx_timeout_us;
+  /* Work around DMA drivers whose TX_DONE precedes physical line idle. */
+  bool wait_for_tx_idle;
   void *cache_user_data;
   wl_zephyr_uart_dma_cache_fn prepare_for_dma;
   wl_zephyr_uart_dma_cache_fn complete_from_dma;
@@ -42,17 +45,28 @@ typedef struct {
 typedef struct {
   wl_zephyr_uart_dma_config_t config;
   wl_zephyr_uart_dma_slot_t slots[WL_RX_DMA_MAX_CLAIMS];
+  wl_io_token_t tx_token;
+  const uint8_t *tx_data;
+  size_t tx_length;
+  atomic_t started;
+  atomic_t stopping;
   atomic_t running;
   atomic_t paused;
   atomic_t abort_pending;
   atomic_t recovery_barrier;
   atomic_t expected_disabled;
+  atomic_t tx_active;
+  atomic_t tx_completion;
   /* Callback-to-service ownership handoff, one bit per slot. */
   atomic_t released_slots;
   atomic_t buffer_requests;
   atomic_t rx_ready_events;
   atomic_t published_bytes;
   atomic_t producer_cycles;
+  atomic_t tx_submissions;
+  atomic_t tx_done_events;
+  atomic_t tx_aborted_events;
+  atomic_t tx_busy;
   atomic_t errors;
 } wl_zephyr_uart_dma_t;
 
@@ -61,12 +75,23 @@ typedef struct {
   uint32_t rx_ready_events;
   uint32_t published_bytes;
   uint32_t producer_cycles;
+  uint32_t tx_submissions;
+  uint32_t tx_done_events;
+  uint32_t tx_aborted_events;
+  uint32_t tx_busy;
   uint32_t errors;
+  uint8_t started;
+  uint8_t stopping;
   uint8_t running;
   uint8_t paused;
+  uint8_t tx_active;
 } wl_zephyr_uart_dma_stats_t;
 
-/* Initialize and register the UART callback. Does not start reception. */
+/*
+ * Initialize the full-duplex adapter, register the UART's sole async callback,
+ * and bind the Wirelink TX sink. The adapter must outlive the link context.
+ * Does not start reception.
+ */
 int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
                             const wl_zephyr_uart_dma_config_t *config);
 
@@ -74,9 +99,17 @@ int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
 int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter);
 
 /*
- * Call from the single consumer context after wl_poll(). It performs deferred
- * recovery and resumes RX after backpressure. A recovery barrier deliberately
- * consumes one service call so wl_poll() can discard the aborted COBS window.
+ * Begin an asynchronous stop. New sink submissions fail immediately. The
+ * driver may still own RX buffers or an active TX until callbacks hand them
+ * back; keep calling service() until stats report started=0 and stopping=0.
+ */
+int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter);
+
+/*
+ * Call from the single consumer context after wl_poll(). It delivers deferred
+ * TX completion to the core, performs RX recovery, completes stop requests,
+ * and resumes RX after backpressure. A recovery barrier deliberately consumes
+ * one service call so wl_poll() can discard the aborted COBS window.
  * WL_ERR_WOULD_BLOCK is transient: call service again from a later main-loop
  * iteration after the UART callback has handed buffer ownership back.
  */

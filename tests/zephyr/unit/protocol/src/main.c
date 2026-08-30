@@ -99,6 +99,36 @@ ZTEST(wirelink_protocol_unit, test_busy_on_send_is_would_block)
   zassert_equal(ctx.tx_queued, 1U);
 }
 
+ZTEST(wirelink_protocol_unit, test_busy_send_clears_queue_when_retry_starts)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  struct test_sink_capture cap = {0};
+  wl_event_t event = {0};
+
+  wl_config_t cfg = {
+    .rx_buf_size = sizeof(rx_mem),
+    .tx_buf_size = sizeof(tx_mem),
+    .max_payload_len = 128U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_CRC32C,
+    .session_id = 0x12345678AABBCCDDULL,
+    .max_retries = 0,
+    .ack_timeout_ms = 5U,
+  };
+
+  wl_sink_result_t script[] = {WL_SINK_BUSY, WL_SINK_STARTED};
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                   sizeof(tx_mem), script, 2);
+
+  zassert_ok(wl_send_unreliable(&ctx, 1U, (const uint8_t *)"", 0U));
+  zassert_equal(ctx.tx_queued, 1U);
+  zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
+  zassert_equal(ctx.tx_queued, 0U);
+  zassert_equal(ctx.tx_inflight, 1U);
+}
+
 ZTEST(wirelink_protocol_unit, test_reliable_send_busy_does_not_occupy_tx_slot)
 {
   wl_ctx_t ctx = {0};

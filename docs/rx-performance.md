@@ -153,6 +153,37 @@ configuration was retained and built successfully. `BENCH_PAYLOAD_START_INDEX`
 and `BENCH_PAYLOAD_END_INDEX` can select a bounded subset for future external
 fixture runs.
 
+## ESP32-S3 full-duplex adapter validation — 2026-08-30
+
+The unified Zephyr adapter was then validated on the same board and
+GPIO16-to-GPIO18 fixture. UART1 async RX DMA remained enabled while Wirelink
+submitted one unreliable frame through UART1 async TX. The adapter received
+`UART_TX_DONE`, waited for `uart_irq_tx_complete()` to report physical line
+idle, delivered `WL_EVT_TX_SUCCESS` from consumer context, and printed
+`wirelink_uart_dma_tx_v1,pass`. The UART0-to-UART1 RX benchmark then continued
+without reinitializing the adapter. UART1 TX was not routed to an external
+receiver in this fixture, so this validates driver/adapter ownership and
+completion timing rather than the TX waveform or payload at another device.
+
+The physical-idle check matters on this driver: its DMA completion can precede
+the last byte leaving the UART FIFO. Wirelink exposes the check as the opt-in
+`wait_for_tx_idle` adapter setting so platforms whose async event already has
+the standard final-line semantics do not depend on the interrupt-driven query.
+
+The final no-debug image completed the first three 10,000-frame profiles with
+zero dropped bytes and no adapter error:
+
+| Payload | Frames | Accepted bytes | Producer cycles | Median cycles | Median | p95 cycles | p99 cycles | Max cycles |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 10,000 | 440,000 | 1,490,000 | 60,507 | 252.1 us | 60,637 | 60,712 | 64,969 |
+| 20 | 10,000 | 480,000 | 1,490,000 | 66,014 | 275.1 us | 66,419 | 66,434 | 68,939 |
+| 64 | 10,000 | 920,000 | 1,490,000 | 100,769 | 419.9 us | 101,021 | 101,067 | 105,691 |
+
+This run is a lifecycle and concurrency regression gate rather than a new RX
+performance baseline: its purpose is to prove that TX completion, physical
+idle deferral, and subsequent RX DMA release/re-arm coexist on the same
+adapter instance.
+
 ## Regression procedure
 
 Correctness is a gate: no corrupted delivery, invalid lease, unexpected drop,

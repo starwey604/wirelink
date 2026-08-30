@@ -103,6 +103,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
 
   if (sink_result == WL_SINK_STARTED) {
     ctx->tx_inflight = 1;
+    ctx->tx_queued = 0U;
     ctx->tx_state = WL_TX_STATE_SENDING;
     ctx->tx_start_ts = ctx->now_ms;
     ctx->in_flight_reliable = ctx->tx_current_reliable;

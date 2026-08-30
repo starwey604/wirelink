@@ -8,6 +8,12 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
+enum {
+  TX_COMPLETION_NONE = 0,
+  TX_COMPLETION_DONE,
+  TX_COMPLETION_ABORTED,
+};
+
 static wl_zephyr_uart_dma_slot_t *find_slot(wl_zephyr_uart_dma_t *adapter,
                                             uint8_t *data) {
   for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
@@ -20,8 +26,8 @@ static wl_zephyr_uart_dma_slot_t *find_slot(wl_zephyr_uart_dma_t *adapter,
   return NULL;
 }
 
-static wl_zephyr_uart_dma_slot_t *find_free_slot(
-    wl_zephyr_uart_dma_t *adapter) {
+static wl_zephyr_uart_dma_slot_t *
+find_free_slot(wl_zephyr_uart_dma_t *adapter) {
   for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
     if (adapter->slots[i].claim.token == 0U) {
       return &adapter->slots[i];
@@ -152,11 +158,11 @@ static int supply_buffer(wl_zephyr_uart_dma_t *adapter, bool first) {
                                     slot->claim.span.data,
                                     slot->claim.span.length);
   }
-  ret = first
-            ? uart_rx_enable(adapter->config.uart, slot->claim.span.data,
-                             slot->claim.span.length, adapter->config.timeout_us)
-            : uart_rx_buf_rsp(adapter->config.uart, slot->claim.span.data,
-                              slot->claim.span.length);
+  ret = first ? uart_rx_enable(adapter->config.uart, slot->claim.span.data,
+                               slot->claim.span.length,
+                               adapter->config.timeout_us)
+              : uart_rx_buf_rsp(adapter->config.uart, slot->claim.span.data,
+                                slot->claim.span.length);
   if (ret != 0) {
     atomic_set_bit(&adapter->released_slots, (int)slot_index);
     mark_abort(adapter);
@@ -165,14 +171,114 @@ static int supply_buffer(wl_zephyr_uart_dma_t *adapter, bool first) {
   return WL_OK;
 }
 
-static void uart_dma_callback(const struct device *dev, struct uart_event *event,
-                              void *user_data) {
+static wl_sink_result_t uart_dma_sink(void *user_data, wl_io_token_t token,
+                                      const uint8_t *data, size_t length) {
+  wl_zephyr_uart_dma_t *adapter = user_data;
+  int ret;
+
+  if (adapter == NULL || data == NULL || length == 0U ||
+      atomic_get(&adapter->started) == 0 ||
+      atomic_get(&adapter->stopping) != 0) {
+    return WL_SINK_FAILED;
+  }
+  if (!atomic_cas(&adapter->tx_active, 0, 1)) {
+    atomic_inc(&adapter->tx_busy);
+    return WL_SINK_BUSY;
+  }
+  adapter->tx_token = token;
+  adapter->tx_data = data;
+  adapter->tx_length = length;
+  atomic_set(&adapter->tx_completion, TX_COMPLETION_NONE);
+
+  ret = uart_tx(adapter->config.uart, data, length,
+                adapter->config.tx_timeout_us);
+  if (ret == 0) {
+    atomic_inc(&adapter->tx_submissions);
+    return WL_SINK_STARTED;
+  }
+
+  adapter->tx_token = 0U;
+  adapter->tx_data = NULL;
+  adapter->tx_length = 0U;
+  atomic_set(&adapter->tx_active, 0);
+  if (ret == -EBUSY || ret == -EAGAIN) {
+    atomic_inc(&adapter->tx_busy);
+    return WL_SINK_BUSY;
+  }
+  atomic_inc(&adapter->errors);
+  return WL_SINK_FAILED;
+}
+
+static void record_tx_completion(wl_zephyr_uart_dma_t *adapter,
+                                 atomic_val_t completion) {
+  if (atomic_get(&adapter->tx_active) == 0 ||
+      !atomic_cas(&adapter->tx_completion, TX_COMPLETION_NONE, completion)) {
+    atomic_inc(&adapter->errors);
+  }
+}
+
+static int service_tx_completion(wl_zephyr_uart_dma_t *adapter) {
+  atomic_val_t completion = atomic_get(&adapter->tx_completion);
+  wl_io_token_t token;
+  int ret;
+
+  if (completion == TX_COMPLETION_NONE) {
+    return WL_OK;
+  }
+  if (completion == TX_COMPLETION_DONE && adapter->config.wait_for_tx_idle) {
+    /* Some DMA-backed drivers raise UART_TX_DONE when DMA has filled the UART
+     * FIFO, before the final byte has left the peripheral. Where the optional
+     * IRQ query exists, keep the core's buffer/transaction ownership until
+     * the UART reports physically idle. */
+    ret = uart_irq_tx_complete(adapter->config.uart);
+    if (ret == 0) {
+      return WL_ERR_WOULD_BLOCK;
+    }
+  }
+  if (!atomic_cas(&adapter->tx_completion, completion, TX_COMPLETION_NONE)) {
+    return WL_OK;
+  }
+
+  token = adapter->tx_token;
+  adapter->tx_token = 0U;
+  adapter->tx_data = NULL;
+  adapter->tx_length = 0U;
+  /* wl_tx_complete() may synchronously submit a retry or pending ACK. */
+  atomic_set(&adapter->tx_active, 0);
+  ret = wl_tx_complete(adapter->config.link, token,
+                       completion == TX_COMPLETION_DONE ? WL_OK : WL_ERR_IO);
+  if (ret != WL_OK) {
+    atomic_inc(&adapter->errors);
+  }
+  return ret;
+}
+
+static void uart_dma_callback(const struct device *dev,
+                              struct uart_event *event, void *user_data) {
   wl_zephyr_uart_dma_t *adapter = user_data;
 
   if (adapter == NULL || dev != adapter->config.uart) {
     return;
   }
   switch (event->type) {
+  case UART_TX_DONE:
+    atomic_inc(&adapter->tx_done_events);
+    if (event->data.tx.buf != adapter->tx_data ||
+        event->data.tx.len != adapter->tx_length) {
+      atomic_inc(&adapter->errors);
+      record_tx_completion(adapter, TX_COMPLETION_ABORTED);
+    } else {
+      record_tx_completion(adapter, TX_COMPLETION_DONE);
+    }
+    break;
+  case UART_TX_ABORTED:
+    atomic_inc(&adapter->tx_aborted_events);
+    if (event->data.tx.buf != adapter->tx_data ||
+        event->data.tx.len > adapter->tx_length) {
+      atomic_inc(&adapter->errors);
+    }
+    record_tx_completion(adapter, TX_COMPLETION_ABORTED);
+    break;
   case UART_RX_RDY: {
     wl_zephyr_uart_dma_slot_t *slot = find_slot(adapter, event->data.rx.buf);
     size_t end;
@@ -196,6 +302,10 @@ static void uart_dma_callback(const struct device *dev, struct uart_event *event
   }
   case UART_RX_BUF_REQUEST:
     atomic_inc(&adapter->buffer_requests);
+    if (atomic_get(&adapter->stopping) != 0) {
+      atomic_set(&adapter->expected_disabled, 1);
+      break;
+    }
     /* Finite-timeout drivers may release a short buffer. Keep that mode to
      * one MTU-sized claim so the unwritten tail can be reclaimed safely. */
     if (adapter->config.timeout_us != SYS_FOREVER_US) {
@@ -204,6 +314,7 @@ static void uart_dma_callback(const struct device *dev, struct uart_event *event
       break;
     }
     if (supply_buffer(adapter, false) != WL_OK) {
+      atomic_set(&adapter->expected_disabled, 1);
       atomic_set(&adapter->paused, 1);
     }
     break;
@@ -219,13 +330,19 @@ static void uart_dma_callback(const struct device *dev, struct uart_event *event
     break;
   }
   case UART_RX_STOPPED:
-    mark_abort(adapter);
+    if (atomic_get(&adapter->stopping) == 0) {
+      mark_abort(adapter);
+    }
     break;
   case UART_RX_DISABLED:
     atomic_set(&adapter->running, 0);
-    if (atomic_get(&adapter->paused) != 0 &&
-        atomic_get(&adapter->abort_pending) == 0 &&
-        !atomic_cas(&adapter->expected_disabled, 1, 0)) {
+    if (atomic_get(&adapter->stopping) != 0) {
+      atomic_set(&adapter->expected_disabled, 0);
+      break;
+    }
+    if (atomic_get(&adapter->abort_pending) == 0 &&
+        (atomic_get(&adapter->paused) == 0 ||
+         !atomic_cas(&adapter->expected_disabled, 1, 0))) {
       mark_abort(adapter);
     }
     break;
@@ -236,25 +353,27 @@ static void uart_dma_callback(const struct device *dev, struct uart_event *event
 
 int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
                             const wl_zephyr_uart_dma_config_t *config) {
+  int ret;
+
   if (adapter == NULL || config == NULL || config->uart == NULL ||
       config->link == NULL || config->maximum_chunk == 0U ||
       (config->timeout_us < 0 && config->timeout_us != SYS_FOREVER_US) ||
+      (config->tx_timeout_us < 0 && config->tx_timeout_us != SYS_FOREVER_US) ||
       !device_is_ready(config->uart)) {
     return WL_ERR_INVALID_ARG;
   }
   memset(adapter, 0, sizeof(*adapter));
   adapter->config = *config;
-  return uart_callback_set(config->uart, uart_dma_callback, adapter) == 0
-             ? WL_OK
-             : WL_ERR_NOT_SUPPORTED;
+  ret = uart_callback_set(config->uart, uart_dma_callback, adapter);
+  if (ret != 0) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  return wl_set_sink(config->link, uart_dma_sink, adapter);
 }
 
-int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
+static int start_rx(wl_zephyr_uart_dma_t *adapter) {
   int ret;
 
-  if (adapter == NULL || adapter->config.link == NULL) {
-    return WL_ERR_INVALID_ARG;
-  }
   if (atomic_get(&adapter->running) != 0 || any_slot_is_active(adapter)) {
     return WL_ERR_BUSY;
   }
@@ -266,7 +385,66 @@ int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
   if (ret != WL_OK) {
     atomic_set(&adapter->running, 0);
     atomic_set(&adapter->paused, 1);
-    return ret;
+  }
+  return ret;
+}
+
+int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
+  int ret;
+
+  if (adapter == NULL || adapter->config.link == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (atomic_get(&adapter->started) != 0 ||
+      atomic_get(&adapter->stopping) != 0) {
+    return WL_ERR_BUSY;
+  }
+  atomic_set(&adapter->started, 1);
+  ret = start_rx(adapter);
+  if (ret != WL_OK) {
+    atomic_set(&adapter->started, 0);
+  }
+  return ret;
+}
+
+int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
+  int ret;
+
+  if (adapter == NULL || adapter->config.link == NULL) {
+    return WL_ERR_INVALID_ARG;
+  }
+  if (atomic_get(&adapter->started) == 0 &&
+      atomic_get(&adapter->stopping) == 0) {
+    return WL_OK;
+  }
+
+  atomic_set(&adapter->stopping, 1);
+  atomic_set(&adapter->paused, 0);
+  atomic_set(&adapter->expected_disabled, 1);
+  if (atomic_get(&adapter->running) != 0) {
+    ret = uart_rx_disable(adapter->config.uart);
+    if (ret == -EFAULT) {
+      atomic_set(&adapter->running, 0);
+      for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+        if (adapter->slots[i].claim.token != 0U) {
+          atomic_set_bit(&adapter->released_slots, (int)i);
+        }
+      }
+    } else if (ret != 0) {
+      atomic_inc(&adapter->errors);
+      return WL_ERR_IO;
+    }
+  }
+
+  if (atomic_get(&adapter->tx_active) != 0 &&
+      atomic_get(&adapter->tx_completion) == TX_COMPLETION_NONE) {
+    ret = uart_tx_abort(adapter->config.uart);
+    if (ret == -EFAULT) {
+      record_tx_completion(adapter, TX_COMPLETION_ABORTED);
+    } else if (ret != 0) {
+      atomic_inc(&adapter->errors);
+      return WL_ERR_IO;
+    }
   }
   return WL_OK;
 }
@@ -274,8 +452,12 @@ int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
 int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
   int ret;
 
-  if (adapter == NULL) {
+  if (adapter == NULL || adapter->config.link == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  ret = service_tx_completion(adapter);
+  if (ret != WL_OK) {
+    return ret;
   }
   if (atomic_get(&adapter->abort_pending) != 0) {
     if (driver_owns_any_slot(adapter)) {
@@ -301,8 +483,19 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
     atomic_set(&adapter->recovery_barrier, 0);
     return WL_ERR_WOULD_BLOCK;
   }
-  if (atomic_get(&adapter->running) == 0 &&
-      atomic_get(&adapter->paused) != 0) {
+  if (atomic_get(&adapter->stopping) != 0) {
+    if (atomic_get(&adapter->running) != 0 ||
+        atomic_get(&adapter->tx_active) != 0 || any_slot_is_active(adapter)) {
+      return WL_ERR_WOULD_BLOCK;
+    }
+    atomic_set(&adapter->started, 0);
+    atomic_set(&adapter->stopping, 0);
+    atomic_set(&adapter->paused, 0);
+    atomic_set(&adapter->expected_disabled, 0);
+    return WL_OK;
+  }
+  if (atomic_get(&adapter->started) != 0 &&
+      atomic_get(&adapter->running) == 0 && atomic_get(&adapter->paused) != 0) {
     /* RX_DISABLED is the release handoff barrier. Reap again after observing
      * it so a callback racing the first pass cannot leave a short predecessor
      * active while start() allocates a successor. */
@@ -314,7 +507,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
     if (any_slot_is_active(adapter)) {
       return WL_ERR_WOULD_BLOCK;
     }
-    return wl_zephyr_uart_dma_start(adapter);
+    return start_rx(adapter);
   }
   return WL_OK;
 }
@@ -327,6 +520,10 @@ void wl_zephyr_uart_dma_reset_stats(wl_zephyr_uart_dma_t *adapter) {
   atomic_set(&adapter->rx_ready_events, 0);
   atomic_set(&adapter->published_bytes, 0);
   atomic_set(&adapter->producer_cycles, 0);
+  atomic_set(&adapter->tx_submissions, 0);
+  atomic_set(&adapter->tx_done_events, 0);
+  atomic_set(&adapter->tx_aborted_events, 0);
+  atomic_set(&adapter->tx_busy, 0);
   atomic_set(&adapter->errors, 0);
 }
 
@@ -340,8 +537,15 @@ void wl_zephyr_uart_dma_get_stats(const wl_zephyr_uart_dma_t *adapter,
       .rx_ready_events = (uint32_t)atomic_get(&adapter->rx_ready_events),
       .published_bytes = (uint32_t)atomic_get(&adapter->published_bytes),
       .producer_cycles = (uint32_t)atomic_get(&adapter->producer_cycles),
+      .tx_submissions = (uint32_t)atomic_get(&adapter->tx_submissions),
+      .tx_done_events = (uint32_t)atomic_get(&adapter->tx_done_events),
+      .tx_aborted_events = (uint32_t)atomic_get(&adapter->tx_aborted_events),
+      .tx_busy = (uint32_t)atomic_get(&adapter->tx_busy),
       .errors = (uint32_t)atomic_get(&adapter->errors),
+      .started = atomic_get(&adapter->started) != 0 ? 1U : 0U,
+      .stopping = atomic_get(&adapter->stopping) != 0 ? 1U : 0U,
       .running = atomic_get(&adapter->running) != 0 ? 1U : 0U,
       .paused = atomic_get(&adapter->paused) != 0 ? 1U : 0U,
+      .tx_active = atomic_get(&adapter->tx_active) != 0 ? 1U : 0U,
   };
 }

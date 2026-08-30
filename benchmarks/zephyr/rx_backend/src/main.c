@@ -300,6 +300,37 @@ static void account_feed(const uint8_t *data, size_t len) {
 static const struct device *const rx_uart = DEVICE_DT_GET(DT_NODELABEL(uart1));
 static const struct device *const tx_uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
 
+#if defined(WL_BENCH_INGRESS_DMA)
+static int validate_uart_dma_tx(void) {
+  static const uint8_t payload[] = {0x57U, 0x4CU, 0x54U, 0x58U};
+  int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
+  int ret = wl_send_unreliable(&link_ctx, 0x7FFEU, payload, sizeof(payload));
+
+  if (ret != WL_OK) {
+    return ret;
+  }
+  while (k_uptime_get() < deadline) {
+    wl_event_t event = {0};
+
+    ret = wl_zephyr_uart_dma_service(&dma_adapter);
+    if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
+      return ret;
+    }
+    ret = wl_poll(&link_ctx, (wl_time_ms_t)k_uptime_get_32(), &event);
+    if (ret == WL_OK && event.type == WL_EVT_TX_SUCCESS) {
+      return 0;
+    }
+    if (ret == WL_OK) {
+      wl_event_release(&link_ctx, &event);
+    } else if (ret != WL_ERR_NO_DATA) {
+      return ret;
+    }
+    k_yield();
+  }
+  return -ETIMEDOUT;
+}
+#endif
+
 static int uart_tx_frame(const uint8_t *data, size_t length) {
   int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
   size_t offset = 0U;
@@ -372,6 +403,8 @@ static int init_uart_ingress(void) {
       .link = &link_ctx,
       .maximum_chunk = BENCH_DMA_MAX_CHUNK,
       .timeout_us = BENCH_UART_TIMEOUT_US,
+      .tx_timeout_us = SYS_FOREVER_US,
+      .wait_for_tx_idle = true,
       .cycle_counter = dma_cycle_counter,
   };
 
@@ -705,6 +738,12 @@ int main(void) {
   }
 #else
   ret = init_uart_ingress();
+#if defined(WL_BENCH_INGRESS_DMA)
+  if (ret == 0) {
+    ret = validate_uart_dma_tx();
+    printk("wirelink_uart_dma_tx_v1,%s\n", ret == 0 ? "pass" : "fail");
+  }
+#endif
   if (ret == 0) {
     for (size_t i = BENCH_PAYLOAD_START_INDEX;
          i < ARRAY_SIZE(payload_sizes) && i < BENCH_PAYLOAD_END_INDEX; ++i) {

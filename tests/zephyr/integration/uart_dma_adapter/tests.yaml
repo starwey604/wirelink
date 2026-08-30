@@ -1,0 +1,18 @@
+tests:
+  wirelink.uart_dma_adapter.integration:
+    tags:
+      - wirelink
+      - uart
+      - dma
+      - integration
+    harness: ztest
+    integration_platforms:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64
+    platform_allow:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64

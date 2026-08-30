@@ -14,6 +14,11 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/types.c
 )
 
-zephyr_library_include_directories(
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_DMA
+  ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_dma/src/uart_dma.c
+)
+
+zephyr_include_directories(
   ${ZEPHYR_CURRENT_MODULE_DIR}/include
+  ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_dma/include
 )

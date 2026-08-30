@@ -7,7 +7,20 @@ config WIRELINK
 	default y
 	help
 	  Build the platform-independent Wirelink protocol core. Transport adapters
-	  are supplied separately so the core can be shared by Zephyr, bare-metal,
-	  and other RTOS projects.
+	  are opt-in so the core can be shared by Zephyr, bare-metal, and other RTOS
+	  projects.
+
+if WIRELINK
+
+config WIRELINK_ZEPHYR_UART_DMA
+	bool "Enable the Zephyr asynchronous UART adapter"
+	depends on SERIAL
+	depends on UART_ASYNC_API
+	help
+	  Build Wirelink's full-duplex Zephyr UART adapter. The adapter owns the
+	  UART asynchronous callback, receives directly into the Wirelink SPSC
+	  ring, and exposes the UART TX path as the Wirelink sink.
+
+endif
 
 endmenu

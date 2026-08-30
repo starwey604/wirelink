@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "Wirelink UART adapter integration test"
+
+config WIRELINK_TEST_FAKE_UART_ASYNC
+	def_bool y
+	select SERIAL_SUPPORT_ASYNC
+	select SERIAL_SUPPORT_INTERRUPT
+	help
+	  Expose the asynchronous UART API on platforms whose physical UART driver
+	  does not implement it; this test supplies its own fake UART device.
+
+source "Kconfig.zephyr"
