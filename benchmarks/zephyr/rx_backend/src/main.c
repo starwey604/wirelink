@@ -51,6 +51,9 @@
 #ifndef BENCH_PAYLOAD_START_INDEX
 #define BENCH_PAYLOAD_START_INDEX 0U
 #endif
+#ifndef BENCH_PAYLOAD_END_INDEX
+#define BENCH_PAYLOAD_END_INDEX UINT32_MAX
+#endif
 
 static wl_ctx_t link_ctx;
 static wl_config_t link_config;
@@ -294,8 +297,40 @@ static void account_feed(const uint8_t *data, size_t len) {
 #endif
 
 #if !defined(WL_BENCH_INGRESS_USB)
-static const struct device *const data_uart =
-    DEVICE_DT_GET(DT_NODELABEL(uart1));
+static const struct device *const rx_uart = DEVICE_DT_GET(DT_NODELABEL(uart1));
+static const struct device *const tx_uart = DEVICE_DT_GET(DT_NODELABEL(uart0));
+
+static int uart_tx_frame(const uint8_t *data, size_t length) {
+  int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
+  size_t offset = 0U;
+
+  if (data == NULL || length == 0U) {
+    return -EINVAL;
+  }
+  /* ESP32-S3 UART async instances share UHCI0. Leave it to RX DMA and feed
+   * the independent source UART in bounded FIFO chunks without TX IRQs. */
+  while (offset < length && k_uptime_get() < deadline) {
+    size_t chunk = MIN(length - offset, BENCH_UART_CHUNK);
+    int sent = uart_fifo_fill(tx_uart, data + offset, chunk);
+
+    if (sent < 0) {
+      return -EIO;
+    }
+    if (sent == 0) {
+      k_yield();
+      continue;
+    }
+    offset += (size_t)sent;
+  }
+  while (offset == length && uart_irq_tx_complete(tx_uart) == 0 &&
+         k_uptime_get() < deadline) {
+    k_yield();
+  }
+  if (offset != length || uart_irq_tx_complete(tx_uart) == 0) {
+    return -ETIMEDOUT;
+  }
+  return 0;
+}
 
 #if defined(WL_BENCH_INGRESS_IRQ)
 static void uart_irq_ingress(const struct device *dev, void *user_data) {
@@ -326,12 +361,14 @@ static int init_uart_ingress(void) {
       .flow_ctrl = UART_CFG_FLOW_CTRL_NONE,
   };
 
-  if (!device_is_ready(data_uart) || uart_configure(data_uart, &config) != 0) {
+  if (!device_is_ready(rx_uart) || !device_is_ready(tx_uart) ||
+      uart_configure(rx_uart, &config) != 0 ||
+      uart_configure(tx_uart, &config) != 0) {
     return -ENODEV;
   }
 #if defined(WL_BENCH_INGRESS_DMA)
   wl_zephyr_uart_dma_config_t dma_config = {
-      .uart = data_uart,
+      .uart = rx_uart,
       .link = &link_ctx,
       .maximum_chunk = BENCH_DMA_MAX_CHUNK,
       .timeout_us = BENCH_UART_TIMEOUT_US,
@@ -344,10 +381,10 @@ static int init_uart_ingress(void) {
   }
   return 0;
 #else
-  if (uart_irq_callback_user_data_set(data_uart, uart_irq_ingress, NULL) != 0) {
+  if (uart_irq_callback_user_data_set(rx_uart, uart_irq_ingress, NULL) != 0) {
     return -ENOTSUP;
   }
-  uart_irq_rx_enable(data_uart);
+  uart_irq_rx_enable(rx_uart);
   return 0;
 #endif
 }
@@ -504,10 +541,12 @@ static int run_uart_profile(size_t payload_len) {
     }
 #endif
     started = bench_cycle_count();
-    for (size_t j = 0U; j < wire_len; ++j) {
-      uart_poll_out(data_uart, frame_wire[j]);
+    int ret = uart_tx_frame(frame_wire, wire_len);
+
+    if (ret != 0) {
+      return ret;
     }
-    int ret = wait_for_frame(payload_len, started, &latency);
+    ret = wait_for_frame(payload_len, started, &latency);
 
     if (ret != 0) {
       return ret;
@@ -667,8 +706,8 @@ int main(void) {
 #else
   ret = init_uart_ingress();
   if (ret == 0) {
-    for (size_t i = BENCH_PAYLOAD_START_INDEX; i < ARRAY_SIZE(payload_sizes);
-         ++i) {
+    for (size_t i = BENCH_PAYLOAD_START_INDEX;
+         i < ARRAY_SIZE(payload_sizes) && i < BENCH_PAYLOAD_END_INDEX; ++i) {
       ret = run_uart_profile(payload_sizes[i]);
       if (ret != 0) {
         break;

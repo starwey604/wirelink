@@ -89,61 +89,69 @@ input. It remains a build-only benchmark ingress fixture; its endpoint buffer
 would require a CDC-to-ring copy, so even future USB results must not override
 the UART SPSC-buffer decision.
 
-## ESP32-S3 direct-DMA adapter validation — 2026-08-30
+## ESP32-S3 independent-UART DMA validation — 2026-08-30
 
-This round validates the Zephyr async-UART adapter added on top of the direct
-DMA claim API. It is a correctness smoke test rather than a replacement for
-the five-reset performance dataset above.
+This round closes the same-UART fixture limitation above and validates the
+Zephyr async-UART RX adapter over a sustained physical UART path.
 
 Fixture and image settings:
 
 - ESP32-S3-N8R2 revision 0.2, Zephyr
   `v4.4.0-11610-gbd8c15382376`, 240 MHz.
-- UART1 at 3 Mbaud with GPIO17 (TX) wired to GPIO18 (RX); UART0 on
-  `/dev/ttyACM0` carried benchmark output.
-- 4096-byte RX ring, a 4096-byte maximum direct claim, and a 200 us finite RX
-  timeout. Finite-timeout mode deliberately uses one buffer, releases a short
-  claim in consumer context, and then re-arms RX.
-- One warm-up frame and ten measured frames per payload. Producer cycles cover
-  the cache-completion hook, direct-prefix publication, and adapter accounting
-  performed by `UART_RX_RDY`.
+- UART0 TX on GPIO16 was wired directly to UART1 RX on GPIO18. Both UARTs ran
+  at 3 Mbaud, 8-N-1, without flow control. The native USB Serial/JTAG device on
+  `/dev/ttyACM0` carried benchmark output independently of both data UARTs.
+- UART0 is only the traffic generator. The main thread fills its FIFO in
+  chunks of at most 64 bytes and waits for TX idle; it does not enable a TX
+  interrupt. UART1 is the measured Zephyr async RX/DMA path.
+- The RX side used a 4096-byte ring, a 4096-byte maximum direct claim, and a
+  200 us finite idle timeout. Finite-timeout mode deliberately uses one direct
+  claim at a time, finishes the short claim in consumer context, then re-arms
+  RX.
+- Every payload used 100 warm-up frames followed by 1,000 measured frames.
+  The complete run therefore transmitted 7,700 valid frames. Producer cycles
+  cover the direct-prefix publication and adapter accounting performed by
+  `UART_RX_RDY`; latency spans TX start through delivery by `wl_poll()`.
 
-The final sequential run completed through 1024 bytes without corruption,
-drops, RX counter failures, or adapter errors. Raw result rows were:
+The sustained run completed every payload with exact payload validation, zero
+dropped bytes, and no adapter error:
 
-| Payload | Frames | Producer cycles | Accepted bytes | Dropped | Median latency | p95/p99/max latency |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 16 | 10 | 1,976 | 440 | 0 | 66,411 | 67,354 |
-| 20 | 10 | 1,975 | 480 | 0 | 70,841 | 80,935 |
-| 64 | 10 | 1,975 | 920 | 0 | 118,894 | 121,746 |
-| 120 | 10 | 1,975 | 1,480 | 0 | 170,703 | 177,179 |
-| 256 | 10 | 3,433 | 2,840 | 0 | 306,586 | 315,105 |
-| 1024 | 10 | 3,920 | 10,550 | 0 | 1,074,242 | 1,075,749 |
+| Payload | Frames | Accepted bytes | Producer cycles | Median cycles | Median | p95 cycles | p99 cycles | Max cycles |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 1,000 | 44,000 | 149,000 | 59,917 | 249.7 us | 59,963 | 60,230 | 62,828 |
+| 20 | 1,000 | 48,000 | 149,000 | 63,304 | 263.8 us | 63,351 | 63,524 | 65,994 |
+| 64 | 1,000 | 92,000 | 149,000 | 100,393 | 418.3 us | 100,473 | 100,521 | 103,136 |
+| 120 | 1,000 | 148,000 | 149,000 | 147,420 | 614.3 us | 147,466 | 149,929 | 150,104 |
+| 256 | 1,000 | 284,032 | 149,000 | 263,079 | 1.096 ms | 265,272 | 266,432 | 268,727 |
+| 1024 | 1,000 | 1,055,031 | 149,000 | 918,899 | 3.829 ms | 918,937 | 919,567 | 919,602 |
+| 2048 | 1,000 | 2,083,031 | 149,000 | 1,789,397 | 7.456 ms | 1,789,430 | 1,790,339 | 1,790,372 |
 
-The median figures are 0.277 ms, 0.295 ms, 0.495 ms, 0.711 ms, 1.277 ms, and
-4.476 ms respectively at 240 MHz. They include polled transmission on the
-same UART and therefore are fixture end-to-end numbers, not isolated adapter
-cost. The producer-side adapter work was about 197.5 cycles per `UART_RX_RDY`
-call through 120-byte payloads, 343.3 cycles for 256 bytes, and 392 cycles for
-1024 bytes in this short run.
+At 149 cycles per completion, the measured producer-side adapter work is about
+0.62 us per frame at 240 MHz. Most end-to-end time is UART serialization and
+the 200 us idle boundary; the tight p95/p99 spread shows that the DMA release,
+consumer finish, and re-arm cycle remains deterministic over the sustained
+run. The accepted-byte variation at larger payloads is expected because the
+COBS wire length depends on frame contents.
 
-The same-UART loopback is not a valid sustained-stress fixture for this driver.
-After the successful 1024-byte row, the Zephyr ESP32 UART path stopped making
-progress while the benchmark was inside `uart_poll_out()`. An isolated run
-starting directly at the 2048-byte profile reproduced the same behavior before
-its first result row. Because the main thread never reached `wait_for_frame()`,
-there was no Wirelink timeout, malformed-frame counter, drop, or adapter error
-to report. Earlier stress attempts likewise progressed for different numbers
-of repeated disable/re-arm cycles before stopping, including 1,000 successful
-16-byte frames and 1,000 successful 20-byte frames with no drops or adapter
-errors.
+ESP32-S3 exposes one UHCI0 engine to the UART async driver. UART0 async DMA TX
+and UART1 async DMA RX therefore cannot operate concurrently: attaching UHCI0
+to the source UART disconnects the measured RX path. The independent source
+uses bounded FIFO writes for that reason. This is a fixture constraint, not a
+Wirelink adapter requirement on platforms with independent UART DMA engines.
 
-Consequently this round establishes on-board direct-DMA correctness for
-16–1024-byte frames, but leaves 2048-byte and sustained-throughput validation
-open. Those gates require an independent UART transmitter so TX polling and RX
-DMA do not share the ESP32 UART driver instance. USB CDC remained intentionally
-out of scope. The benchmark's `BENCH_PAYLOAD_START_INDEX` build override was
-added so an external-fixture run can select the 2048-byte profile directly.
+A rapid USB-JTAG reset loop is also not accepted as the five-independent-reset
+dataset requested by the regression procedure: it does not power-cycle UART
+peripherals. Seven of eleven such resets completed all seven one-frame smoke
+profiles; the other four completed through 1024 bytes and then stopped in the
+UART0 traffic generator before producing the 2048-byte row. They reported no
+RX drop or adapter error before that point. Independent power-cycle statistics
+remain a separate hardware-fixture task; the 7,700-frame uninterrupted run is
+the sustained RX adapter result for this round.
+
+USB CDC data ingress remained intentionally out of scope, but its benchmark
+configuration was retained and built successfully. `BENCH_PAYLOAD_START_INDEX`
+and `BENCH_PAYLOAD_END_INDEX` can select a bounded subset for future external
+fixture runs.
 
 ## Regression procedure
 
@@ -165,5 +173,5 @@ cd ~/zephyrproject/zephyr
   -p esp32s3_devkitc/esp32s3/procpu --build-only
 ```
 
-Physical UART measurement requires the loopback fixture and is never performed
-by Twister.
+Physical UART measurement requires the GPIO16-to-GPIO18 independent-UART
+fixture and is never performed by Twister.

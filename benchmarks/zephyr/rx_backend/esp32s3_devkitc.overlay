@@ -1,14 +1,50 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+/ {
+	chosen {
+		zephyr,console = &usb_serial;
+		zephyr,shell-uart = &usb_serial;
+	};
+};
+
 &dma {
 	status = "okay";
+};
+
+&pinctrl {
+	wirelink_uart0_tx: wirelink_uart0_tx {
+		group1 {
+			pinmux = <UART0_TX_GPIO16>;
+			output-high;
+		};
+	};
+
+	wirelink_uart1_rx: wirelink_uart1_rx {
+		group1 {
+			pinmux = <UART1_RX_GPIO18>;
+			bias-pull-up;
+		};
+	};
+};
+
+&usb_serial {
+	status = "okay";
+};
+
+&uart0 {
+	status = "okay";
+	current-speed = <3000000>;
+	pinctrl-0 = <&wirelink_uart0_tx>;
+	pinctrl-names = "default";
 };
 
 &uart1 {
 	status = "okay";
 	current-speed = <3000000>;
-	pinctrl-0 = <&uart1_default>;
+	pinctrl-0 = <&wirelink_uart1_rx>;
 	pinctrl-names = "default";
+	/* The ESP32 async UART driver requires both named DMA specifiers even
+	 * though this fixture only starts RX on UART1. */
 	dmas = <&dma 0>, <&dma 1>;
 	dma-names = "rx", "tx";
 };
