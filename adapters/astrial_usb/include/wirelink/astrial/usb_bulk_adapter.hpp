@@ -5,6 +5,7 @@
 
 #include <astrial/Usb.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -29,6 +30,10 @@ struct UsbBulkAdapterStats
     uint64_t rx_pauses{};
     uint64_t tx_submissions{};
     uint64_t tx_completions{};
+    uint64_t activity_notifications{};
+    uint64_t wait_calls{};
+    uint64_t wait_wakeups{};
+    uint64_t wait_timeouts{};
     uint64_t errors{};
     bool started{};
     bool rx_paused{};
@@ -50,6 +55,9 @@ public:
 
     // Call from Wirelink's single-consumer context after wl_poll().
     int service();
+    // Blocks the single-consumer context until RX/TX activity or timeout.
+    // Pending notifications are coalesced before returning.
+    bool wait_for_activity(std::chrono::nanoseconds timeout);
     void get_stats(UsbBulkAdapterStats& out_stats) const;
     UsbBulkDevice& device();
 

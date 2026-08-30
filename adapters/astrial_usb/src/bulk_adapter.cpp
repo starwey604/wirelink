@@ -3,6 +3,8 @@
 #include "wirelink/astrial/usb_bulk_adapter.hpp"
 
 #include <atomic>
+#include <climits>
+#include <semaphore>
 #include <span>
 #include <utility>
 
@@ -27,7 +29,7 @@ public:
         if (claim_active)
         {
             errors.fetch_add(1, std::memory_order_relaxed);
-            rx_paused.store(true, std::memory_order_release);
+            pause_rx();
             return {};
         }
 
@@ -36,7 +38,7 @@ public:
         if (result != WL_OK)
         {
             rx_pauses.fetch_add(1, std::memory_order_relaxed);
-            rx_paused.store(true, std::memory_order_release);
+            pause_rx();
             return {};
         }
         // A short tail claim is not a safe USB transfer buffer: the host
@@ -52,7 +54,7 @@ public:
                 errors.fetch_add(1, std::memory_order_relaxed);
             }
             rx_pauses.fetch_add(1, std::memory_order_relaxed);
-            rx_paused.store(true, std::memory_order_release);
+            pause_rx();
             return {};
         }
 
@@ -76,6 +78,7 @@ public:
                 claim = {};
             }
             errors.fetch_add(1, std::memory_order_relaxed);
+            notify_activity();
             return;
         }
 
@@ -95,6 +98,7 @@ public:
         {
             (void)wl_rx_dma_abort(&link);
             errors.fetch_add(1, std::memory_order_relaxed);
+            notify_activity();
             return;
         }
         rx_bytes.fetch_add(length, std::memory_order_relaxed);
@@ -103,6 +107,7 @@ public:
         {
             errors.fetch_add(1, std::memory_order_relaxed);
         }
+        notify_activity();
     }
 
     void record_tx_completion(const std::error_code& error,
@@ -118,6 +123,36 @@ public:
         {
             errors.fetch_add(1, std::memory_order_relaxed);
         }
+        notify_activity();
+    }
+
+    void pause_rx()
+    {
+        if (!rx_paused.exchange(true, std::memory_order_acq_rel))
+        {
+            notify_activity();
+        }
+    }
+
+    void notify_activity()
+    {
+        activity_notifications.fetch_add(1, std::memory_order_relaxed);
+        activity.release();
+    }
+
+    bool wait_for_activity(std::chrono::nanoseconds timeout)
+    {
+        wait_calls.fetch_add(1, std::memory_order_relaxed);
+        if (!activity.try_acquire_for(timeout))
+        {
+            wait_timeouts.fetch_add(1, std::memory_order_relaxed);
+            return false;
+        }
+        while (activity.try_acquire())
+        {
+        }
+        wait_wakeups.fetch_add(1, std::memory_order_relaxed);
+        return true;
     }
 
     wl_ctx_t& link;
@@ -130,12 +165,17 @@ public:
     wl_rx_dma_claim_t claim{};
     std::atomic<bool> tx_active{false};
     std::atomic<TxCompletion> tx_completion{TxCompletion::None};
+    std::counting_semaphore<INT_MAX> activity{0};
     wl_io_token_t tx_token{};
     std::atomic<uint64_t> rx_claims{};
     std::atomic<uint64_t> rx_bytes{};
     std::atomic<uint64_t> rx_pauses{};
     std::atomic<uint64_t> tx_submissions{};
     std::atomic<uint64_t> tx_completions{};
+    std::atomic<uint64_t> activity_notifications{};
+    std::atomic<uint64_t> wait_calls{};
+    std::atomic<uint64_t> wait_wakeups{};
+    std::atomic<uint64_t> wait_timeouts{};
     std::atomic<uint64_t> errors{};
 };
 
@@ -286,6 +326,12 @@ int UsbBulkAdapter::service()
     return WL_OK;
 }
 
+bool UsbBulkAdapter::wait_for_activity(std::chrono::nanoseconds timeout)
+{
+    if (!m_impl) return false;
+    return m_impl->wait_for_activity(timeout);
+}
+
 void UsbBulkAdapter::get_stats(UsbBulkAdapterStats& out_stats) const
 {
     out_stats.rx_claims = m_impl->rx_claims.load(std::memory_order_relaxed);
@@ -293,6 +339,11 @@ void UsbBulkAdapter::get_stats(UsbBulkAdapterStats& out_stats) const
     out_stats.rx_pauses = m_impl->rx_pauses.load(std::memory_order_relaxed);
     out_stats.tx_submissions = m_impl->tx_submissions.load(std::memory_order_relaxed);
     out_stats.tx_completions = m_impl->tx_completions.load(std::memory_order_relaxed);
+    out_stats.activity_notifications =
+        m_impl->activity_notifications.load(std::memory_order_relaxed);
+    out_stats.wait_calls = m_impl->wait_calls.load(std::memory_order_relaxed);
+    out_stats.wait_wakeups = m_impl->wait_wakeups.load(std::memory_order_relaxed);
+    out_stats.wait_timeouts = m_impl->wait_timeouts.load(std::memory_order_relaxed);
     out_stats.errors = m_impl->errors.load(std::memory_order_relaxed);
     out_stats.started = m_impl->started.load(std::memory_order_relaxed);
     out_stats.rx_paused = m_impl->rx_paused.load(std::memory_order_relaxed);

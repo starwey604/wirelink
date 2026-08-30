@@ -36,6 +36,7 @@ constexpr uint16_t MessageId = 0x424d;
 struct Options
 {
     std::string mode;
+    std::string idle_mode{"poll"};
     uint16_t vendor_id{0x2fe3};
     uint16_t product_id{0x574c};
     std::string port;
@@ -43,6 +44,7 @@ struct Options
     std::size_t warmup{200};
     std::size_t iterations{2000};
     std::chrono::milliseconds timeout{1000};
+    std::chrono::microseconds spin{50};
 };
 
 uint64_t parse_number(std::string_view value)
@@ -71,6 +73,9 @@ Options parse_options(int argc, char** argv)
         else if (key == "--iterations") options.iterations = parse_number(value);
         else if (key == "--timeout-ms") options.timeout =
             std::chrono::milliseconds(parse_number(value));
+        else if (key == "--idle") options.idle_mode = value;
+        else if (key == "--spin-us") options.spin =
+            std::chrono::microseconds(parse_number(value));
         else throw std::runtime_error("unknown option: " + std::string(key));
     }
     if (options.payload_size < sizeof(uint32_t) || options.payload_size > MaxPayload ||
@@ -81,6 +86,15 @@ Options parse_options(int argc, char** argv)
     if (options.mode == "cdc" && options.port.empty())
     {
         throw std::runtime_error("cdc mode requires --port");
+    }
+    if (options.idle_mode != "poll" && options.idle_mode != "wait" &&
+        options.idle_mode != "hybrid")
+    {
+        throw std::runtime_error("idle must be poll, wait, or hybrid");
+    }
+    if (options.mode != "wirelink-bulk" && options.idle_mode != "poll")
+    {
+        throw std::runtime_error("wait and hybrid idle require wirelink-bulk mode");
     }
     return options;
 }
@@ -114,7 +128,9 @@ void print_results(const Options& options, std::vector<double> samples)
         static_cast<double>(options.payload_size * samples.size()) / total_seconds;
 
     std::cout << std::fixed << std::setprecision(2)
-              << "mode=" << options.mode << " payload=" << options.payload_size
+              << "mode=" << options.mode << " idle=" << options.idle_mode
+              << " spin_us=" << options.spin.count()
+              << " payload=" << options.payload_size
               << " samples=" << samples.size() << "\n"
               << "rtt_us min=" << samples.front()
               << " p50=" << percentile(samples, 0.50)
@@ -232,12 +248,31 @@ uint32_t now_ms()
         Clock::now().time_since_epoch()).count());
 }
 
-template <typename Service>
+template <typename Wait>
+void idle_until(const Options& options, Wait& wait,
+                Clock::time_point spin_deadline, Clock::time_point deadline)
+{
+    const auto now = Clock::now();
+    if (options.idle_mode == "poll" ||
+        (options.idle_mode == "hybrid" && now < spin_deadline))
+    {
+        std::this_thread::yield();
+        return;
+    }
+    if (now < deadline)
+    {
+        (void)wait(std::chrono::duration_cast<std::chrono::nanoseconds>(deadline - now));
+    }
+}
+
+template <typename Service, typename Wait>
 double wirelink_exchange(LinkFixture& fixture, Service&& service,
+                         Wait&& wait, const Options& options,
                          const std::vector<uint8_t>& payload,
                          std::chrono::milliseconds timeout)
 {
     auto deadline = Clock::now() + timeout;
+    auto spin_deadline = Clock::now() + options.spin;
     int result;
     do
     {
@@ -254,19 +289,33 @@ double wirelink_exchange(LinkFixture& fixture, Service&& service,
             throw std::runtime_error("adapter service failed: " +
                                      std::to_string(service_result));
         }
-        std::this_thread::yield();
+        idle_until(options, wait, spin_deadline, deadline);
     } while (Clock::now() < deadline);
     if (result != WL_OK) throw std::runtime_error("previous TX did not complete");
 
     const auto begin = Clock::now();
     deadline = begin + timeout;
+    spin_deadline = begin + options.spin;
 
     while (Clock::now() < deadline)
     {
-        wl_event_t event{};
-        result = wl_poll(&fixture.link, now_ms(), &event);
-        if (result == WL_OK)
+        result = service();
+        if (result != WL_OK && result != WL_ERR_WOULD_BLOCK)
         {
+            throw std::runtime_error("adapter service failed: " +
+                                     std::to_string(result));
+        }
+
+        for (;;)
+        {
+            wl_event_t event{};
+            result = wl_poll(&fixture.link, now_ms(), &event);
+            if (result == WL_ERR_NO_DATA) break;
+            if (result != WL_OK)
+            {
+                throw std::runtime_error("wl_poll failed: " +
+                                         std::to_string(result));
+            }
             if (event.type == WL_EVT_UNRELIABLE_RX && event.message_id == MessageId)
             {
                 const bool matches = event.payload_len == payload.size() &&
@@ -275,17 +324,9 @@ double wirelink_exchange(LinkFixture& fixture, Service&& service,
                 if (!matches) throw std::runtime_error("Wirelink echo mismatch");
                 return Microseconds(Clock::now() - begin).count();
             }
+            wl_event_release(&fixture.link, &event);
         }
-        else if (result != WL_ERR_NO_DATA)
-        {
-            throw std::runtime_error("wl_poll failed: " + std::to_string(result));
-        }
-        result = service();
-        if (result != WL_OK && result != WL_ERR_WOULD_BLOCK)
-        {
-            throw std::runtime_error("adapter service failed: " + std::to_string(result));
-        }
-        std::this_thread::yield();
+        idle_until(options, wait, spin_deadline, deadline);
     }
     throw std::runtime_error("Wirelink exchange timed out");
 }
@@ -320,9 +361,20 @@ std::vector<double> run_wirelink_bulk(const Options& options)
     {
         const auto payload = make_payload(options.payload_size, static_cast<uint32_t>(index));
         const double elapsed = wirelink_exchange(
-            fixture, [&] { return adapter->service(); }, payload, options.timeout);
+            fixture, [&] { return adapter->service(); },
+            [&](std::chrono::nanoseconds timeout)
+            {
+                return adapter->wait_for_activity(timeout);
+            },
+            options, payload, options.timeout);
         if (index >= options.warmup) samples.push_back(elapsed);
     }
+    wirelink::astrial::UsbBulkAdapterStats stats{};
+    adapter->get_stats(stats);
+    std::cout << "adapter_activity notifications=" << stats.activity_notifications
+              << " waits=" << stats.wait_calls
+              << " wakeups=" << stats.wait_wakeups
+              << " timeouts=" << stats.wait_timeouts << "\n";
     return samples;
 }
 
@@ -340,7 +392,9 @@ std::vector<double> run_cdc(const Options& options)
     {
         const auto payload = make_payload(options.payload_size, static_cast<uint32_t>(index));
         const double elapsed = wirelink_exchange(
-            fixture, [&] { return adapter->service(); }, payload, options.timeout);
+            fixture, [&] { return adapter->service(); },
+            [](std::chrono::nanoseconds) { return false; },
+            options, payload, options.timeout);
         if (index >= options.warmup) samples.push_back(elapsed);
     }
     return samples;

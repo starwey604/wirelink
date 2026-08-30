@@ -75,6 +75,10 @@ stable encoded unit until completion. It intentionally queues one variable-
 length RX claim: a short USB packet must be able to return the unused tail of
 the current BipBuffer claim before another claim exists. Deeper queued USB
 reads require a staging/copy path and are evaluated separately by benchmarks.
+Applications may either poll `service()` for the lowest latency, or call
+`wait_for_activity()` after draining `wl_poll()` and `service()` to sleep until
+an RX/TX completion. The host benchmark's `--idle poll|wait|hybrid` option
+makes the latency/CPU tradeoff directly measurable.
 
 ## Examples
 
