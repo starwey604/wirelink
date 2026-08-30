@@ -40,6 +40,8 @@ option(WIRELINK_BUILD_ASTRIAL_ADAPTER
   "Build the optional Astrial desktop serial adapter" OFF)
 option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER
   "Build the optional Astrial USB bulk adapter" OFF)
+option(WIRELINK_BUILD_HOST_BENCHMARKS
+  "Build host USB Bulk and CDC latency benchmarks" OFF)
 option(WIRELINK_BUILD_FUZZERS
   "Build Clang libFuzzer targets" OFF)
 option(WIRELINK_BUILD_EXAMPLES
@@ -48,6 +50,11 @@ option(WIRELINK_INSTALL
   "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
+
+if(WIRELINK_BUILD_HOST_BENCHMARKS)
+  set(WIRELINK_BUILD_ASTRIAL_ADAPTER ON)
+  set(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER ON)
+endif()
 
 if(WIRELINK_BUILD_ASTRIAL_ADAPTER OR WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
   enable_language(CXX)
@@ -86,6 +93,10 @@ if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
       "WIRELINK_BUILD_ASTRIAL_USB_ADAPTER requires the Astrial USB target")
   endif()
   add_subdirectory(adapters/astrial_usb)
+endif()
+
+if(WIRELINK_BUILD_HOST_BENCHMARKS)
+  add_subdirectory(benchmarks/host)
 endif()
 
 if(WIRELINK_BUILD_FUZZERS)
