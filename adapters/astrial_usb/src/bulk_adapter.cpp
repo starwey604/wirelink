@@ -19,8 +19,9 @@ class UsbBulkAdapter::Impl
 {
 public:
     Impl(wl_ctx_t& link_context, UsbBulkDevice&& usb_device,
-         std::size_t read_size)
-        : link(link_context), device(std::move(usb_device)), maximum_read_size(read_size)
+         std::size_t read_size, UsbBulkWakePolicy policy)
+        : link(link_context), device(std::move(usb_device)),
+          maximum_read_size(read_size), wake_policy(policy)
     {
     }
 
@@ -123,7 +124,7 @@ public:
         {
             errors.fetch_add(1, std::memory_order_relaxed);
         }
-        notify_activity();
+        if (wake_policy == UsbBulkWakePolicy::AllCompletions) notify_activity();
     }
 
     void pause_rx()
@@ -158,6 +159,7 @@ public:
     wl_ctx_t& link;
     UsbBulkDevice device;
     std::size_t maximum_read_size{};
+    UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
     std::atomic<bool> started{false};
     std::atomic<bool> stopping{false};
     std::atomic<bool> rx_paused{false};
@@ -180,8 +182,10 @@ public:
 };
 
 UsbBulkAdapter::UsbBulkAdapter(wl_ctx_t& link, UsbBulkDevice&& device,
-                               std::size_t maximum_read_size)
-    : m_impl(std::make_unique<Impl>(link, std::move(device), maximum_read_size))
+                               std::size_t maximum_read_size,
+                               UsbBulkWakePolicy wake_policy)
+    : m_impl(std::make_unique<Impl>(link, std::move(device), maximum_read_size,
+                                    wake_policy))
 {
 }
 
@@ -220,7 +224,8 @@ UsbBulkAdapter::open(wl_ctx_t& link, const UsbBulkAdapterConfig& config)
     if (!opened) return tl::make_unexpected(opened.error());
 
     auto adapter = std::unique_ptr<UsbBulkAdapter>(new UsbBulkAdapter(
-        link, std::move(opened.value()), config.maximum_read_size));
+        link, std::move(opened.value()), config.maximum_read_size,
+        config.wake_policy));
     if (adapter->start() != WL_OK)
     {
         return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));

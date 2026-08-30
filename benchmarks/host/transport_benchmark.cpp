@@ -37,6 +37,7 @@ struct Options
 {
     std::string mode;
     std::string idle_mode{"poll"};
+    std::string wake_policy{"all"};
     uint16_t vendor_id{0x2fe3};
     uint16_t product_id{0x574c};
     std::string port;
@@ -74,6 +75,7 @@ Options parse_options(int argc, char** argv)
         else if (key == "--timeout-ms") options.timeout =
             std::chrono::milliseconds(parse_number(value));
         else if (key == "--idle") options.idle_mode = value;
+        else if (key == "--wake") options.wake_policy = value;
         else if (key == "--spin-us") options.spin =
             std::chrono::microseconds(parse_number(value));
         else throw std::runtime_error("unknown option: " + std::string(key));
@@ -95,6 +97,10 @@ Options parse_options(int argc, char** argv)
     if (options.mode != "wirelink-bulk" && options.idle_mode != "poll")
     {
         throw std::runtime_error("wait and hybrid idle require wirelink-bulk mode");
+    }
+    if (options.wake_policy != "all" && options.wake_policy != "rx")
+    {
+        throw std::runtime_error("wake must be all or rx");
     }
     return options;
 }
@@ -130,6 +136,7 @@ void print_results(const Options& options, std::vector<double> samples)
     std::cout << std::fixed << std::setprecision(2)
               << "mode=" << options.mode << " idle=" << options.idle_mode
               << " spin_us=" << options.spin.count()
+              << " wake=" << options.wake_policy
               << " payload=" << options.payload_size
               << " samples=" << samples.size() << "\n"
               << "rtt_us min=" << samples.front()
@@ -353,6 +360,9 @@ std::vector<double> run_wirelink_bulk(const Options& options)
     config.usb.device.product_id = options.product_id;
     config.usb.auto_reconnect = false;
     config.maximum_read_size = UnitStorage;
+    config.wake_policy = options.wake_policy == "rx"
+        ? wirelink::astrial::UsbBulkWakePolicy::ReceiveOnly
+        : wirelink::astrial::UsbBulkWakePolicy::AllCompletions;
     auto opened = wirelink::astrial::UsbBulkAdapter::open(fixture.link, config);
     if (!opened) throw std::system_error(opened.error());
     auto adapter = std::move(opened.value());

@@ -17,10 +17,17 @@
 
 namespace wirelink::astrial
 {
+enum class UsbBulkWakePolicy
+{
+    AllCompletions,
+    ReceiveOnly,
+};
+
 struct UsbBulkAdapterConfig
 {
     UsbBulkConfig usb;
     std::size_t maximum_read_size{512};
+    UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
 };
 
 struct UsbBulkAdapterStats
@@ -65,7 +72,7 @@ private:
     class Impl;
 
     UsbBulkAdapter(wl_ctx_t& link, UsbBulkDevice&& device,
-                   std::size_t maximum_read_size);
+                   std::size_t maximum_read_size, UsbBulkWakePolicy wake_policy);
     int start();
     static wl_sink_result_t sink(void* user_data, wl_io_token_t token,
                                  const uint8_t* data, size_t length);

@@ -80,6 +80,12 @@ Applications may either poll `service()` for the lowest latency, or call
 an RX/TX completion. The host benchmark's `--idle poll|wait|hybrid` option
 makes the latency/CPU tradeoff directly measurable.
 
+The default `AllCompletions` wake policy is safe for arbitrary traffic. A
+request/response application may select `ReceiveOnly` to coalesce the TX and
+RX phases into one scheduler wakeup. It must still use a finite wait deadline:
+a one-way transmission or missing peer response has no RX completion to wake
+the consumer, so timeout processing remains responsible for servicing TX.
+
 ## Examples
 
 - [`examples/bare_metal_loopback.c`](examples/bare_metal_loopback.c) is an
