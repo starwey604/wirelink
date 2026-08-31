@@ -2,7 +2,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <wirelink/cobs.h>
 #include <wirelink/codec.h>
+#include <wirelink/crc.h>
+#include <wirelink/frame.h>
+#include <wirelink/span.h>
+#include <wirelink/types.h>
 #include <wirelink/version.h>
 #include <wirelink/wirelink.h>
 

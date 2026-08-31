@@ -7,7 +7,18 @@ find_package(Wirelink 0.9 CONFIG REQUIRED)
 
 add_executable(wirelink_package_consumer main.c)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink)
-target_compile_features(wirelink_package_consumer PRIVATE c_std_11)
+set_target_properties(wirelink_package_consumer PROPERTIES
+  C_STANDARD 11
+  C_STANDARD_REQUIRED YES
+  C_EXTENSIONS NO
+  NO_SYSTEM_FROM_IMPORTED YES)
+
+if(MSVC)
+  target_compile_options(wirelink_package_consumer PRIVATE /W4 /WX)
+elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(wirelink_package_consumer PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 add_test(NAME wirelink_package_consumer COMMAND wirelink_package_consumer)
 
