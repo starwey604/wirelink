@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -15,6 +16,7 @@
   (WL_FRAME_HEADER_SIZE + APP_MAX_PAYLOAD + WL_FRAME_MAX_CRC)
 #define APP_CONTROL_CAPACITY (WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
 #define JOINT_FIFO_CAPACITY 3U
+#define RUNTIME_STORAGE_CAPACITY 2048U
 
 struct endpoint {
   wl_ctx_t ctx;
@@ -28,34 +30,29 @@ struct endpoint {
   size_t outbound_length;
 };
 
+typedef union runtime_storage_buffer {
+  max_align_t align;
+  uint8_t bytes[RUNTIME_STORAGE_CAPACITY];
+} runtime_storage_buffer_t;
+
 struct latest_fixture {
-  wl_latest_t mailbox;
-  arm_mit_command_t slots[WL_LATEST_SLOT_COUNT];
-  control_runtime_t runtime;
+  control_runtime_instance_t instance;
+  runtime_storage_buffer_t storage;
 };
 
 struct joint_fifo_fixture {
-  wl_fifo_t fifo;
-  joint_command_t slots[JOINT_FIFO_CAPACITY];
-  control_runtime_t runtime;
+  control_runtime_instance_t instance;
+  runtime_storage_buffer_t storage;
 };
 
 struct rpc_client_fixture {
-  wl_rpc_client_t runtime;
-  wl_rpc_client_slot_t slots[1];
-  uint8_t response_storage[16];
-  home_response_t response_scratch;
-  control_runtime_t generated;
+  control_runtime_instance_t instance;
+  runtime_storage_buffer_t storage;
 };
 
 struct rpc_server_fixture {
-  wl_rpc_server_t runtime;
-  wl_rpc_server_pending_slot_t pending[1];
-  wl_rpc_server_cache_slot_t cache[1];
-  uint8_t response_storage[32];
-  uint8_t canonical_request[32];
-  home_request_t request_scratch;
-  control_runtime_t generated;
+  control_runtime_instance_t instance;
+  runtime_storage_buffer_t storage;
   uint32_t handler_calls;
   uint32_t last_operation_id;
   uint32_t last_joint_mask;
@@ -69,6 +66,8 @@ static struct latest_fixture latest_fixture;
 static struct joint_fifo_fixture joint_fifo;
 static struct rpc_client_fixture rpc_client;
 static struct rpc_server_fixture rpc_server;
+static control_runtime_instance_t requirements_instance;
+static runtime_storage_buffer_t requirements_storage;
 
 static const control_runtime_retained_detail_t *
 retained_detail(const control_runtime_result_t *result) {
@@ -80,6 +79,36 @@ static const control_runtime_rpc_detail_t *
 rpc_detail(const control_runtime_result_t *result) {
   zassert_equal(result->detail_kind, CONTROL_RUNTIME_DETAIL_RPC);
   return &result->detail.rpc;
+}
+
+static control_runtime_config_t retained_runtime_config(uint32_t capacity) {
+  return (control_runtime_config_t){
+      .joint_command_fifo_capacity = capacity,
+      .arm_mit_command_latest_initial_generation = 0U,
+      .rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW,
+  };
+}
+
+static control_runtime_requirements_t
+initialize_generated_runtime(control_runtime_instance_t *instance,
+                             runtime_storage_buffer_t *buffer,
+                             const control_runtime_config_t *config) {
+  control_runtime_requirements_t requirements;
+  control_runtime_storage_t storage;
+
+  zassert_ok(control_runtime_requirements(config, &requirements));
+  zassert_true(requirements.storage_size <= sizeof(buffer->bytes));
+  zassert_true(requirements.storage_alignment <= _Alignof(*buffer));
+  storage = (control_runtime_storage_t){
+      .data = buffer->bytes,
+      .size = requirements.storage_size,
+  };
+  zassert_ok(control_runtime_init(instance, config, &storage));
+  zassert_equal(instance->runtime.joint_command_fifo,
+                &instance->joint_command_fifo);
+  zassert_equal(instance->runtime.arm_mit_command_latest,
+                &instance->arm_mit_command_latest);
+  return requirements;
 }
 
 static wl_sink_result_t memory_sink(void *user_data, wl_io_token_t token,
@@ -144,13 +173,67 @@ static void expect_local_unreliable_completion(struct endpoint *endpoint,
   zassert_equal(event.handle, 0U);
 }
 
+ZTEST(wirelink_application_runtime,
+      test_generated_runtime_requirements_and_storage_contract) {
+  control_runtime_config_t config = retained_runtime_config(2U);
+  control_runtime_requirements_t requirements;
+  control_runtime_storage_t storage;
+
+  config.rpc_client_enabled = 1U;
+  config.rpc_client_slot_count = 2U;
+  config.rpc_client_response_capacity = 16U;
+  config.rpc_client_next_operation_id = 7U;
+  config.rpc_server_enabled = 1U;
+  config.rpc_server_pending_slot_count = 2U;
+  config.rpc_server_cache_slot_count = 2U;
+  config.rpc_server_response_capacity = 32U;
+  config.home_canonical_request_capacity = 32U;
+
+  memset(&requirements_instance, 0xA5, sizeof(requirements_instance));
+  memset(&requirements_storage, 0, sizeof(requirements_storage));
+  zassert_ok(control_runtime_requirements(&config, &requirements));
+  zassert_true(requirements.storage_size > 1U);
+  zassert_true(requirements.storage_size < sizeof(requirements_storage.bytes));
+  zassert_true(requirements.storage_alignment > 1U);
+  zassert_true(requirements.storage_alignment <=
+               _Alignof(runtime_storage_buffer_t));
+
+  storage = (control_runtime_storage_t){
+      .data = requirements_storage.bytes,
+      .size = requirements.storage_size - 1U,
+  };
+  zassert_equal(control_runtime_init(&requirements_instance, &config, &storage),
+                WL_ERR_BUF_TOO_SMALL);
+
+  storage = (control_runtime_storage_t){
+      .data = requirements_storage.bytes + 1U,
+      .size = requirements.storage_size,
+  };
+  zassert_equal(control_runtime_init(&requirements_instance, &config, &storage),
+                WL_ERR_INVALID_ARG);
+
+  storage = (control_runtime_storage_t){
+      .data = requirements_storage.bytes,
+      .size = requirements.storage_size,
+  };
+  zassert_ok(control_runtime_init(&requirements_instance, &config, &storage));
+  zassert_equal(requirements_instance.runtime.joint_command_fifo,
+                &requirements_instance.joint_command_fifo);
+  zassert_equal(requirements_instance.runtime.arm_mit_command_latest,
+                &requirements_instance.arm_mit_command_latest);
+  zassert_equal(requirements_instance.runtime.rpc_client,
+                &requirements_instance.rpc_client);
+  zassert_equal(requirements_instance.runtime.rpc_server,
+                &requirements_instance.rpc_server);
+}
+
 static void dispatch_latest(struct endpoint *endpoint, wl_time_ms_t now_ms) {
   const wl_event_t event = poll_event(endpoint, now_ms, WL_EVT_UNRELIABLE_RX);
   control_runtime_result_t result;
 
   zassert_equal(event.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
-  result = control_runtime_dispatch_event(&endpoint->ctx, &event,
-                                          &latest_fixture.runtime, now_ms);
+  result = control_runtime_dispatch_event(
+      &endpoint->ctx, &event, &latest_fixture.instance.runtime, now_ms);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(result.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
   zassert_equal(retained_detail(&result)->storage_result, WL_OK);
@@ -158,24 +241,12 @@ static void dispatch_latest(struct endpoint *endpoint, wl_time_ms_t now_ms) {
 }
 
 static void latest_init(void) {
-  wl_latest_config_t config;
-  wl_latest_requirements_t requirements;
-  wl_latest_storage_t storage;
+  control_runtime_config_t config;
 
   memset(&latest_fixture, 0, sizeof(latest_fixture));
-  config = (wl_latest_config_t){
-      .value_size = sizeof(arm_mit_command_t),
-      .value_alignment = _Alignof(arm_mit_command_t),
-  };
-  zassert_ok(wl_latest_requirements(&config, &requirements));
-  zassert_equal(requirements.slot_count, WL_LATEST_SLOT_COUNT);
-  zassert_true(requirements.storage_size <= sizeof(latest_fixture.slots));
-  storage = (wl_latest_storage_t){
-      .data = latest_fixture.slots,
-      .size = sizeof(latest_fixture.slots),
-  };
-  zassert_ok(wl_latest_init(&latest_fixture.mailbox, &config, &storage));
-  latest_fixture.runtime.arm_mit_command_latest = &latest_fixture.mailbox;
+  config = retained_runtime_config(1U);
+  (void)initialize_generated_runtime(&latest_fixture.instance,
+                                     &latest_fixture.storage, &config);
 }
 
 ZTEST(wirelink_application_runtime,
@@ -213,7 +284,8 @@ ZTEST(wirelink_application_runtime,
     dispatch_latest(receiver, sequence);
   }
 
-  zassert_ok(wl_latest_read_acquire(&latest_fixture.mailbox, &view));
+  zassert_ok(wl_latest_read_acquire(
+      &latest_fixture.instance.arm_mit_command_latest, &view));
   zassert_equal(view.generation, 3U);
   zassert_equal(view.value_size, sizeof(arm_mit_command_t));
   const arm_mit_command_t *latest = view.value;
@@ -221,36 +293,26 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(latest->sequence, 3U);
   zassert_equal(latest->controls[0], 300.0F);
   zassert_equal(latest->controls[29], 329.0F);
-  zassert_ok(wl_latest_read_release(&latest_fixture.mailbox, &view));
-  zassert_equal(wl_latest_read_acquire(&latest_fixture.mailbox, &view),
+  zassert_ok(wl_latest_read_release(
+      &latest_fixture.instance.arm_mit_command_latest, &view));
+  zassert_equal(wl_latest_read_acquire(
+                    &latest_fixture.instance.arm_mit_command_latest, &view),
                 WL_ERR_NO_DATA);
 
-  zassert_ok(wl_latest_get_stats(&latest_fixture.mailbox, &stats));
+  zassert_ok(wl_latest_get_stats(
+      &latest_fixture.instance.arm_mit_command_latest, &stats));
   zassert_equal(stats.publishes, 3U);
   zassert_equal(stats.reads, 1U);
   zassert_equal(stats.coalesced, 2U);
 }
 
 static void joint_fifo_init(void) {
-  wl_fifo_config_t config;
-  wl_fifo_requirements_t requirements;
-  wl_fifo_storage_t storage;
+  control_runtime_config_t config;
 
   memset(&joint_fifo, 0, sizeof(joint_fifo));
-  config = (wl_fifo_config_t){
-      .value_size = sizeof(joint_command_t),
-      .value_alignment = _Alignof(joint_command_t),
-      .capacity = JOINT_FIFO_CAPACITY,
-  };
-  zassert_ok(wl_fifo_requirements(&config, &requirements));
-  zassert_equal(requirements.slot_count, JOINT_FIFO_CAPACITY);
-  zassert_true(requirements.storage_size <= sizeof(joint_fifo.slots));
-  storage = (wl_fifo_storage_t){
-      .data = joint_fifo.slots,
-      .size = sizeof(joint_fifo.slots),
-  };
-  zassert_ok(wl_fifo_init(&joint_fifo.fifo, &config, &storage));
-  joint_fifo.runtime.joint_command_fifo = &joint_fifo.fifo;
+  config = retained_runtime_config(JOINT_FIFO_CAPACITY);
+  (void)initialize_generated_runtime(&joint_fifo.instance, &joint_fifo.storage,
+                                     &config);
 }
 
 static control_runtime_result_t send_joint_reliable(struct endpoint *sender,
@@ -285,8 +347,8 @@ static control_runtime_result_t send_joint_reliable(struct endpoint *sender,
 
   event = poll_event(receiver, now_ms, WL_EVT_RELIABLE_RX);
   zassert_equal(event.message_id, JOINT_COMMAND_MESSAGE_ID);
-  runtime_result = control_runtime_dispatch_event(&receiver->ctx, &event,
-                                                  &joint_fifo.runtime, now_ms);
+  runtime_result = control_runtime_dispatch_event(
+      &receiver->ctx, &event, &joint_fifo.instance.runtime, now_ms);
   zassert_equal(runtime_result.message_id, JOINT_COMMAND_MESSAGE_ID);
   zassert_equal(runtime_result.event_type, WL_EVT_RELIABLE_RX);
 
@@ -325,7 +387,8 @@ ZTEST(wirelink_application_runtime,
   for (uint32_t sequence = 1U; sequence <= JOINT_FIFO_CAPACITY; ++sequence) {
     const joint_command_t *command;
 
-    zassert_ok(wl_fifo_read_acquire(&joint_fifo.fifo, &view));
+    zassert_ok(
+        wl_fifo_read_acquire(&joint_fifo.instance.joint_command_fifo, &view));
     zassert_equal(view.value_size, sizeof(joint_command_t));
     command = view.value;
     zassert_true(command->has_position_bits);
@@ -340,19 +403,25 @@ ZTEST(wirelink_application_runtime,
     zassert_equal(command->kd_bits, sequence + UINT32_C(0x4000));
     zassert_true(command->has_mode);
     zassert_equal(command->mode, MIT);
-    zassert_ok(wl_fifo_read_release(&joint_fifo.fifo, &view));
+    zassert_ok(
+        wl_fifo_read_release(&joint_fifo.instance.joint_command_fifo, &view));
   }
-  zassert_equal(wl_fifo_read_acquire(&joint_fifo.fifo, &view), WL_ERR_NO_DATA);
+  zassert_equal(
+      wl_fifo_read_acquire(&joint_fifo.instance.joint_command_fifo, &view),
+      WL_ERR_NO_DATA);
 
   /* A frame after the full-queue path proves its RX lease was released once. */
   result = send_joint_reliable(sender, receiver, 5U, 10U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_ok(wl_fifo_read_acquire(&joint_fifo.fifo, &view));
+  zassert_ok(
+      wl_fifo_read_acquire(&joint_fifo.instance.joint_command_fifo, &view));
   const joint_command_t *last = view.value;
   zassert_equal(last->position_bits, 5U);
-  zassert_ok(wl_fifo_read_release(&joint_fifo.fifo, &view));
+  zassert_ok(
+      wl_fifo_read_release(&joint_fifo.instance.joint_command_fifo, &view));
 
-  zassert_ok(wl_fifo_get_stats(&joint_fifo.fifo, &stats));
+  zassert_ok(
+      wl_fifo_get_stats(&joint_fifo.instance.joint_command_fifo, &stats));
   zassert_equal(stats.depth, 0U);
   zassert_equal(stats.high_watermark, JOINT_FIFO_CAPACITY);
   zassert_equal(stats.publishes, 4U);
@@ -378,45 +447,46 @@ static int32_t handle_home_request(void *user_data,
 }
 
 static void rpc_init(void) {
-  wl_rpc_client_config_t client_config;
-  wl_rpc_server_config_t server_config;
+  control_runtime_config_t client_config;
+  control_runtime_config_t server_config;
 
   memset(&rpc_client, 0, sizeof(rpc_client));
   memset(&rpc_server, 0, sizeof(rpc_server));
-  client_config = (wl_rpc_client_config_t){
-      .slots = rpc_client.slots,
-      .slot_count = ARRAY_SIZE(rpc_client.slots),
-      .response_storage = rpc_client.response_storage,
-      .response_storage_size = sizeof(rpc_client.response_storage),
-      .response_capacity_per_slot = sizeof(rpc_client.response_storage),
-      .next_operation_id = 1U,
-  };
-  server_config = (wl_rpc_server_config_t){
-      .pending_slots = rpc_server.pending,
-      .pending_slot_count = ARRAY_SIZE(rpc_server.pending),
-      .cache_slots = rpc_server.cache,
-      .cache_slot_count = ARRAY_SIZE(rpc_server.cache),
-      .response_storage = rpc_server.response_storage,
-      .response_storage_size = sizeof(rpc_server.response_storage),
-      .response_capacity_per_slot = sizeof(rpc_server.response_storage),
-      .cache_policy = WL_RPC_CACHE_REJECT_NEW,
-  };
-  zassert_equal(wl_rpc_client_init(&rpc_client.runtime, &client_config),
-                WL_RPC_OK);
-  zassert_equal(wl_rpc_server_init(&rpc_server.runtime, &server_config),
-                WL_RPC_OK);
+  client_config = retained_runtime_config(1U);
+  client_config.rpc_client_enabled = 1U;
+  client_config.rpc_client_slot_count = 1U;
+  client_config.rpc_client_response_capacity = 16U;
+  client_config.rpc_client_next_operation_id = 1U;
+  server_config = retained_runtime_config(1U);
+  server_config.rpc_server_enabled = 1U;
+  server_config.rpc_server_pending_slot_count = 1U;
+  server_config.rpc_server_cache_slot_count = 1U;
+  server_config.rpc_server_response_capacity = 32U;
+  server_config.rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
+  server_config.home_canonical_request_capacity = 32U;
+  server_config.home_request_handler = handle_home_request;
+  server_config.home_user_data = &rpc_server;
 
-  rpc_client.generated.rpc_client = &rpc_client.runtime;
-  rpc_client.generated.home.response_scratch = &rpc_client.response_scratch;
-  rpc_server.generated.rpc_server = &rpc_server.runtime;
-  rpc_server.generated.home.request_scratch = &rpc_server.request_scratch;
-  rpc_server.generated.home.canonical_request_scratch =
-      (control_encode_scratch_t){
-          .data = rpc_server.canonical_request,
-          .capacity = sizeof(rpc_server.canonical_request),
-      };
-  rpc_server.generated.home.request_handler = handle_home_request;
-  rpc_server.generated.home.user_data = &rpc_server;
+  (void)initialize_generated_runtime(&rpc_client.instance, &rpc_client.storage,
+                                     &client_config);
+  (void)initialize_generated_runtime(&rpc_server.instance, &rpc_server.storage,
+                                     &server_config);
+  zassert_equal(rpc_client.instance.runtime.rpc_client,
+                &rpc_client.instance.rpc_client);
+  zassert_equal(rpc_client.instance.runtime.home.response_scratch,
+                &rpc_client.instance.home_response_scratch);
+  zassert_equal(rpc_server.instance.runtime.rpc_server,
+                &rpc_server.instance.rpc_server);
+  zassert_equal(rpc_server.instance.runtime.home.request_scratch,
+                &rpc_server.instance.home_request_scratch);
+  zassert_not_null(
+      rpc_server.instance.runtime.home.canonical_request_scratch.data);
+  zassert_equal(
+      rpc_server.instance.runtime.home.canonical_request_scratch.capacity,
+      server_config.home_canonical_request_capacity);
+  zassert_equal(rpc_server.instance.runtime.home.request_handler,
+                handle_home_request);
+  zassert_equal(rpc_server.instance.runtime.home.user_data, &rpc_server);
 }
 
 static control_runtime_result_t
@@ -447,7 +517,7 @@ static control_runtime_result_t dispatch_home_request(struct endpoint *client,
    */
   deliver(server, client);
   result = control_runtime_dispatch_event(&server->ctx, &event,
-                                          &rpc_server.generated, now_ms);
+                                          &rpc_server.instance.runtime, now_ms);
   zassert_equal(result.message_id, HOME_REQUEST_MESSAGE_ID);
   zassert_equal(result.event_type, WL_EVT_RELIABLE_RX);
   return result;
@@ -465,8 +535,8 @@ static control_runtime_result_t send_request_copy(struct endpoint *client,
   zassert_equal(sent.domain, CONTROL_SEND_OK);
   zassert_not_equal(sent.handle, 0U);
   result = dispatch_home_request(client, server, now_ms);
-  terminal = finish_reliable_tx(client, &rpc_client.generated, now_ms + 1U,
-                                sent.handle);
+  terminal = finish_reliable_tx(client, &rpc_client.instance.runtime,
+                                now_ms + 1U, sent.handle);
   zassert_equal(terminal.domain, CONTROL_RUNTIME_NON_RX);
   zassert_equal(rpc_detail(&terminal)->rpc_result, WL_RPC_ERR_NOT_FOUND);
   return result;
@@ -486,7 +556,7 @@ static control_runtime_result_t receive_home_response(struct endpoint *server,
   zassert_equal(event.payload_len, expected_length);
   zassert_mem_equal(event.payload, expected, expected_length);
   result = control_runtime_dispatch_event(&client->ctx, &event,
-                                          &rpc_client.generated, now_ms);
+                                          &rpc_client.instance.runtime, now_ms);
 
   /* The generated dispatch must retain the response before releasing RX. */
   memset(client->rx_fallback, 0xA5, sizeof(client->rx_fallback));
@@ -498,7 +568,8 @@ static void finish_response_tx(struct endpoint *client, struct endpoint *server,
   control_runtime_result_t terminal;
 
   deliver(client, server);
-  terminal = finish_reliable_tx(server, &rpc_server.generated, now_ms, handle);
+  terminal =
+      finish_reliable_tx(server, &rpc_server.instance.runtime, now_ms, handle);
   zassert_equal(terminal.domain, CONTROL_RUNTIME_NON_RX);
 }
 
@@ -524,15 +595,15 @@ ZTEST(wirelink_application_runtime,
   home_request_clear(&request);
   request.has_joint_mask = true;
   request.joint_mask = 0x3FU;
-  result = control_home_client_start_direct(&client->ctx, &rpc_client.generated,
-                                            &request, 100U, 0U);
+  result = control_home_client_start_direct(
+      &client->ctx, &rpc_client.instance.runtime, &request, 100U, 0U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
   zassert_not_equal(rpc_detail(&result)->handle, 0U);
   zassert_not_equal(rpc_detail(&result)->operation_id, 0U);
   zassert_true(request.has_operation_id);
   zassert_equal(request.operation_id, rpc_detail(&result)->operation_id);
-  zassert_equal(wl_rpc_client_get(&rpc_client.runtime,
+  zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client,
                                   rpc_detail(&result)->operation_id,
                                   &client_result),
                 WL_RPC_OK);
@@ -551,17 +622,17 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(rpc_server.last_delivery, WL_DELIVERY_RELIABLE);
 
   /* Server application work is pending and the transport ACK is separate. */
-  zassert_equal(
-      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
-      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client, operation_id,
+                                  &client_result),
+                WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_LINK_PENDING);
-  terminal =
-      finish_reliable_tx(client, &rpc_client.generated, 2U, request_handle);
+  terminal = finish_reliable_tx(client, &rpc_client.instance.runtime, 2U,
+                                request_handle);
   zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&terminal)->rpc_result, WL_RPC_OK);
-  zassert_equal(
-      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
-      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client, operation_id,
+                                  &client_result),
+                WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_WAIT_RESPONSE);
   zassert_equal(client_result.link_delivery_confirmed, 1U);
 
@@ -580,13 +651,13 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(rpc_server.handler_calls, 1U);
 
   home_response_clear(&response);
-  result = control_home_server_complete(&server->ctx, &rpc_server.generated,
-                                        operation_id, &response,
-                                        (control_encode_scratch_t){
-                                            .data = encode_scratch,
-                                            .capacity = sizeof(encode_scratch),
-                                        },
-                                        7U);
+  result = control_home_server_complete(
+      &server->ctx, &rpc_server.instance.runtime, operation_id, &response,
+      (control_encode_scratch_t){
+          .data = encode_scratch,
+          .capacity = sizeof(encode_scratch),
+      },
+      7U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
   zassert_not_equal(rpc_detail(&result)->handle, 0U);
@@ -613,9 +684,9 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
   zassert_equal(rpc_detail(&result)->operation_id, operation_id);
   zassert_equal(rpc_detail(&result)->application_result, OPERATION_OK);
-  zassert_equal(
-      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
-      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client, operation_id,
+                                  &client_result),
+                WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_COMPLETED);
   zassert_equal(client_result.application_status, OPERATION_OK);
   zassert_equal(client_result.link_delivery_confirmed, 1U);
@@ -640,13 +711,14 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_INVALID_STATE);
   finish_response_tx(client, server, replay_handle, 13U);
-  zassert_equal(
-      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
-      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client, operation_id,
+                                  &client_result),
+                WL_RPC_OK);
   zassert_mem_equal(client_result.response_data, cached_response,
                     expected_length);
-  zassert_equal(wl_rpc_client_release(&rpc_client.runtime, operation_id),
-                WL_RPC_OK);
+  zassert_equal(
+      wl_rpc_client_release(&rpc_client.instance.rpc_client, operation_id),
+      WL_RPC_OK);
 }
 
 ZTEST(wirelink_application_runtime,
@@ -670,8 +742,8 @@ ZTEST(wirelink_application_runtime,
   home_request_clear(&request);
   request.has_joint_mask = true;
   request.joint_mask = 0x01U;
-  result = control_home_client_start_direct(&client->ctx, &rpc_client.generated,
-                                            &request, 100U, 20U);
+  result = control_home_client_start_direct(
+      &client->ctx, &rpc_client.instance.runtime, &request, 100U, 20U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   const uint32_t operation_id = rpc_detail(&result)->operation_id;
   const wl_tx_handle_t request_handle = rpc_detail(&result)->handle;
@@ -680,13 +752,13 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_NEW);
   zassert_equal(rpc_server.handler_calls, 1U);
-  terminal =
-      finish_reliable_tx(client, &rpc_client.generated, 22U, request_handle);
+  terminal = finish_reliable_tx(client, &rpc_client.instance.runtime, 22U,
+                                request_handle);
   zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
 
   home_response_clear(&response);
   result =
-      control_home_server_reject(&server->ctx, &rpc_server.generated,
+      control_home_server_reject(&server->ctx, &rpc_server.instance.runtime,
                                  operation_id, OPERATION_REJECTED, &response,
                                  (control_encode_scratch_t){
                                      .data = encode_scratch,
@@ -713,9 +785,9 @@ ZTEST(wirelink_application_runtime,
                                  expected_length, 24U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->application_result, OPERATION_REJECTED);
-  zassert_equal(
-      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
-      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client, operation_id,
+                                  &client_result),
+                WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_APPLICATION_ERROR);
   zassert_equal(client_result.application_status, OPERATION_REJECTED);
   zassert_equal(client_result.response_length, expected_length);
@@ -739,8 +811,9 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_INVALID_STATE);
   finish_response_tx(client, server, replay_handle, 29U);
-  zassert_equal(wl_rpc_client_release(&rpc_client.runtime, operation_id),
-                WL_RPC_OK);
+  zassert_equal(
+      wl_rpc_client_release(&rpc_client.instance.rpc_client, operation_id),
+      WL_RPC_OK);
 }
 
 ZTEST_SUITE(wirelink_application_runtime, NULL, NULL, NULL, NULL, NULL);
