@@ -1,0 +1,7 @@
+tests:
+  wirelink.bulk_sender.unit:
+    type: unit
+    tags:
+      - wirelink
+      - bulk
+      - sender
