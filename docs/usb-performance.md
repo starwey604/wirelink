@@ -4,7 +4,8 @@ This record compares three interrupt-driven ESP32-S3 Full-Speed USB paths with
 `CONFIG_UDC_DWC2_DMA=n`:
 
 1. `raw-bulk`: endpoint loopback, establishing the libusb + USB + UDC floor;
-2. `wirelink-bulk`: custom Bulk with COBS, CRC32C, Wirelink polling, and echo;
+2. `wirelink-bulk`: custom Bulk with the v1 `COBS_STREAM + NONE` product
+   profile, Wirelink polling, and echo;
 3. `cdc`: CDC ACM IRQ ingress with the same Wirelink profile and echo.
 
 All latency values are host-observed round-trip times. They are not mixed with
@@ -434,3 +435,83 @@ idle consumer iterations can save more work than another small callback-path
 micro-optimization. The proposed poll scheduling hint should therefore be
 measured against these call counts and the normal-image p99, rather than only
 against average callback duration.
+
+### 2026-08-31 compact-v1 and CRC-free product-profile verification
+
+The compact-v1 image at `e64b34c` was built against Zephyr
+`bd8c1538237` and flashed to the same ESP32-S3-N8R2. USB vendor Bulk used the
+v1 `COBS_STREAM + NONE` product profile, including the four-byte unreliable
+DATA header. The normal image occupied 137,380 bytes of flash, 41,292 bytes of
+IRAM, and 56,096 bytes of DRAM. The ESP32-S3 DWC2 path remained interrupt
+driven with `CONFIG_UDC_DWC2_DMA=n`.
+
+One complete normal-image matrix used 1,000 warm-ups and 10,000 measured
+sequential exchanges per payload size:
+
+| Payload (B) | Min (us) | p50 (us) | p95 (us) | p99 (us) | Max (us) | Mean (us) | Payload B/s |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 53.14 | 171.54 | 250.55 | 307.22 | 1,457.52 | 188.07 | 42,537.08 |
+| 32 | 5.09 | 219.50 | 287.46 | 356.20 | 1,333.77 | 224.48 | 142,550.76 |
+| 64 | 147.80 | 269.07 | 344.08 | 409.82 | 996.48 | 281.46 | 227,388.25 |
+| 120 | 325.55 | 392.43 | 460.22 | 532.72 | 1,429.08 | 401.90 | 298,583.34 |
+| 128 | 320.41 | 414.52 | 483.59 | 558.60 | 1,513.22 | 428.38 | 298,802.59 |
+| 256 | 628.64 | 734.08 | 801.03 | 868.93 | 1,790.70 | 739.56 | 346,153.41 |
+| 512 | 807.86 | 1,326.89 | 1,432.12 | 1,479.16 | 2,189.92 | 1,329.89 | 384,994.83 |
+
+The 120-byte control point was then repeated three times under the normal
+polling profile:
+
+| Run | p50 (us) | p95 (us) | p99 (us) | Max (us) | Mean (us) | Payload B/s |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 391.48 | 459.99 | 534.30 | 1,304.90 | 401.51 | 298,872.46 |
+| 2 | 390.87 | 457.22 | 524.83 | 934.62 | 400.22 | 299,836.29 |
+| 3 | 391.87 | 462.92 | 537.65 | 1,110.69 | 402.26 | 298,312.49 |
+
+Compared with the 2026-08-30 120-byte Wirelink Bulk result, the median p50
+fell from 485.81 us to 391.48 us (19.4%), the corresponding p99 fell from
+624.34 us to 534.30 us (14.4%), and sequential payload goodput rose from
+244,983.18 B/s to 298,872.46 B/s (22.0%). The p99 remains inside a 1 ms
+round-trip interval, while the observed maxima still require host-side jitter
+margin for a 1 kHz control loop.
+
+The host idle policies were also checked with the same 120-byte workload:
+
+| Idle/wake policy | p50 (us) | p99 (us) | Mean (us) | Payload B/s | Approx. host CPU |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Poll | 391.48 | 534.30 | 401.51 | 298,872.46 | 100% of one core |
+| Wait, all completions | 414.12 | 537.28 | 421.72 | 284,545.99 | 18% |
+| Wait, receive only | 414.12 | 538.68 | 422.12 | 284,277.07 | 15% |
+
+The wait profiles preserved the p99 result while substantially reducing host
+CPU consumption. `ReceiveOnly` used 11,008 wakeups, approximately half of the
+21,992 wakeups in the all-completions run.
+
+A fresh telemetry image completed another 11,000 exchanges and emitted a
+valid `wirelink_usb_cpu_v3` record. It reported 11,001 RX claims, 11,000 RX
+completions, 1,386,000 RX bytes, 241 RX pauses, 11,000 TX submissions and
+completions, and zero errors. The encoded 120-byte unreliable exchange was
+therefore 126 bytes on the USB link, down from 148 bytes in the earlier
+CRC32C/header profile. This removes 22 bytes, or 14.9%, from each transfer.
+
+| Measured region | Calls/exchange | Total cycles | Time/exchange (us) | Max (us) |
+| --- | ---: | ---: | ---: | ---: |
+| Adapter RX callback | -- | 37,116,598 | 14.059 | 60.575 |
+| Adapter TX callback | -- | 15,355,126 | 5.816 | 10.388 |
+| Adapter TX sink | -- | 84,652,610 | 32.065 | 62.292 |
+| Active adapter service | 1.979 | 143,365,538 | 54.305 | 78.896 |
+| `wl_poll` | 26.345 | 273,953,414 | 103.770 | 119.946 |
+| RX copy and release | 1.000 | 2,638,319 | 0.999 | 15.000 |
+| `wl_send_unreliable` | 1.000 | 177,460,009 | 67.220 | 177.054 |
+| Full USB service call | 26.345 | 213,491,747 | 80.868 | 74.492 |
+
+The four non-overlapping application windows cover approximately 252.857 us
+per exchange in the instrumented image. `wl_send_unreliable()` fell from
+71.329 us to 67.220 us per exchange, and the RX copy/release window fell from
+1.433 us to 0.999 us. The telemetry-image host result was 461.42 us p50,
+605.82 us p99, and 471.37 us mean; normal-image numbers remain authoritative
+for latency comparison.
+
+Across the full matrix, repeated control-point runs, idle-policy runs,
+telemetry run, and smoke checks, the board completed 145,200 exchanges without
+a timeout, payload mismatch, or adapter error. The normal non-telemetry image
+was restored and passed a final 1,100-exchange smoke test.
