@@ -162,6 +162,33 @@ static bool status_chunk_size_matches(const wl_bulk_sender_impl_t *impl,
   return status->accepted_chunk_size == impl->negotiated_chunk_size;
 }
 
+static bool proposed_chunk_size_valid(const wl_bulk_sender_impl_t *impl,
+                                      uint32_t chunk_size) {
+  if (chunk_size == 0U || chunk_size > impl->descriptor.requested_chunk_size) {
+    return false;
+  }
+#if SIZE_MAX < UINT32_MAX
+  if (chunk_size > SIZE_MAX) {
+    return false;
+  }
+#endif
+  return true;
+}
+
+static bool terminal_status_valid(const wl_bulk_sender_impl_t *impl,
+                                  const wl_bulk_status_t *status) {
+  if (status->next_offset > impl->descriptor.total_length) {
+    return false;
+  }
+  if (impl->negotiated_chunk_size != 0U) {
+    return status->accepted_chunk_size == impl->negotiated_chunk_size;
+  }
+  if (status->accepted_chunk_size == 0U) {
+    return impl->phase == WL_BULK_PHASE_ABORT;
+  }
+  return proposed_chunk_size_valid(impl, status->accepted_chunk_size);
+}
+
 static bool status_is_stale(const wl_bulk_sender_impl_t *impl,
                             const wl_bulk_status_t *status) {
   if (status->phase < impl->phase) {
@@ -400,6 +427,25 @@ wl_bulk_err_t wl_bulk_sender_on_status(wl_bulk_sender_t *sender,
   if (impl->state != WL_BULK_SENDER_WAIT_STATUS || impl->retry_wait != 0U) {
     return WL_BULK_ERR_INVALID_STATE;
   }
+  if (status->phase == WL_BULK_PHASE_ABORT &&
+      (status->code == WL_BULK_STATUS_ABORTED ||
+       status->code == WL_BULK_STATUS_TIMED_OUT)) {
+    if (!terminal_status_valid(impl, status)) {
+      protocol_failure(impl);
+      return WL_BULK_ERR_PROTOCOL;
+    }
+    increment(&impl->stats.statuses_received);
+    impl->last_status = status->code;
+    impl->next_offset = status->next_offset;
+    impl->wait_interval_ms = 0U;
+    if (status->code == WL_BULK_STATUS_ABORTED) {
+      impl->state = WL_BULK_SENDER_ABORTED;
+      increment(&impl->stats.aborted);
+    } else {
+      fail_sender(impl, status->code);
+    }
+    return WL_BULK_OK;
+  }
   if (status_is_stale(impl, status)) {
     return WL_BULK_ERR_NOT_FOUND;
   }
@@ -421,6 +467,28 @@ wl_bulk_err_t wl_bulk_sender_on_status(wl_bulk_sender_t *sender,
     return WL_BULK_OK;
   }
 
+  if (status->code == WL_BULK_STATUS_OUT_OF_ORDER) {
+    if (status->next_offset > impl->descriptor.total_length ||
+        (impl->phase == WL_BULK_PHASE_BEGIN &&
+         !proposed_chunk_size_valid(impl, status->accepted_chunk_size)) ||
+        (impl->phase == WL_BULK_PHASE_CHUNK &&
+         status->accepted_chunk_size != impl->negotiated_chunk_size) ||
+        (impl->phase != WL_BULK_PHASE_BEGIN &&
+         impl->phase != WL_BULK_PHASE_CHUNK)) {
+      protocol_failure(impl);
+      return WL_BULK_ERR_PROTOCOL;
+    }
+    if (impl->phase == WL_BULK_PHASE_BEGIN) {
+      impl->negotiated_chunk_size = status->accepted_chunk_size;
+    }
+    impl->next_offset = status->next_offset;
+    impl->chunk_acknowledged = 0U;
+    prepare_phase(impl, impl->next_offset == impl->descriptor.total_length
+                            ? WL_BULK_PHASE_END
+                            : WL_BULK_PHASE_CHUNK);
+    return WL_BULK_OK;
+  }
+
   if (status->code != WL_BULK_STATUS_OK) {
     if (status->code == WL_BULK_STATUS_ABORTED) {
       impl->state = WL_BULK_SENDER_ABORTED;
@@ -433,18 +501,11 @@ wl_bulk_err_t wl_bulk_sender_on_status(wl_bulk_sender_t *sender,
 
   switch (impl->phase) {
   case WL_BULK_PHASE_BEGIN:
-    if (status->accepted_chunk_size == 0U ||
-        status->accepted_chunk_size > impl->descriptor.requested_chunk_size ||
+    if (!proposed_chunk_size_valid(impl, status->accepted_chunk_size) ||
         status->next_offset > impl->descriptor.total_length) {
       protocol_failure(impl);
       return WL_BULK_ERR_PROTOCOL;
     }
-#if SIZE_MAX < UINT32_MAX
-    if (status->accepted_chunk_size > SIZE_MAX) {
-      protocol_failure(impl);
-      return WL_BULK_ERR_PROTOCOL;
-    }
-#endif
     impl->negotiated_chunk_size = status->accepted_chunk_size;
     impl->next_offset = status->next_offset;
     prepare_phase(impl, impl->next_offset == impl->descriptor.total_length
