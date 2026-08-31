@@ -1,0 +1,9 @@
+tests:
+  wirelink.fifo.command_flow:
+    type: unit
+    tags:
+      - wirelink
+      - fifo
+      - command
+      - pthread
+    timeout: 45
