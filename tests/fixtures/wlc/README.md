@@ -13,15 +13,19 @@ cargo run --manifest-path wlc/Cargo.toml -- \
 cargo run --manifest-path wlc/Cargo.toml -- \
   compile tests/fixtures/wlc/current/control.wl \
   --previous tests/fixtures/wlc/previous/control.wl \
+  --profile tests/fixtures/wlc/current/control.bind.wl \
   --out-dir tests/fixtures/wlc/generated/current
 ```
 
 Do not edit files below `generated/` by hand. Each revision contains a pure
 codec pair (`control.h/.c`) and optional Wirelink core bindings
-(`control_bindings.h/.c`). The current artifact drives the Astrial typed serial
-test and the application-runtime integration test. Both codec revisions are
-compiled independently by the Zephyr unit fixture to exercise forward/backward
-payload compatibility.
+(`control_bindings.h/.c`). The profiled current revision also contains the
+retained runtime pair (`control_runtime.h/.c`). It claims caller-owned LATEST or
+FIFO storage, decodes directly into the claimed slot, publishes only complete
+values, and releases each valid RX event. The current artifact drives the
+Astrial typed serial test and the application-runtime integration test. Both
+codec revisions are compiled independently by the Zephyr unit fixture to
+exercise forward/backward payload compatibility.
 
 The current revision adds two independent application patterns. `ArmMitCommand`
 models a LATEST control stream: thirty inline `float32` values use one packed
@@ -29,5 +33,7 @@ field and encode in 122 bytes when present. `HomeRequest`/`HomeResponse` model
 an RPC pair with an explicit application operation ID and result status.
 Zephyr tests verify IEEE bit preservation (including signed zero and a NaN
 payload), network byte order, scalar float encoding, strict packed length
-rejection, and the generated typed bindings. The previous revision
-intentionally lacks these additive messages.
+rejection, generated typed bindings, LATEST coalescing, and reliable FIFO
+ordering/full-queue behavior. The RPC portion deliberately keeps using the
+hand-written router until WLC emits the RPC runtime adapter. The previous
+revision intentionally lacks these additive messages.

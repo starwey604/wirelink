@@ -13,6 +13,7 @@ target_sources(app PRIVATE
   src/main.c
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
+  ${WIRELINK_ROOT}/src/fifo.c
   ${WIRELINK_ROOT}/src/frame.c
   ${WIRELINK_ROOT}/src/init.c
   ${WIRELINK_ROOT}/src/latest.c
@@ -25,6 +26,7 @@ target_sources(app PRIVATE
   ${WIRELINK_ROOT}/src/unit_rx.c
   ${WLC_GENERATED_DIR}/control.c
   ${WLC_GENERATED_DIR}/control_bindings.c
+  ${WLC_GENERATED_DIR}/control_runtime.c
 )
 
 target_include_directories(app PRIVATE

@@ -5,7 +5,8 @@
 
 #include <zephyr/ztest.h>
 
-#include "control_bindings.h"
+#include "control_runtime.h"
+#include "wirelink/fifo.h"
 #include "wirelink/latest.h"
 #include "wirelink/rpc.h"
 
@@ -13,6 +14,7 @@
 #define APP_UNIT_CAPACITY                                                      \
   (WL_FRAME_HEADER_SIZE + APP_MAX_PAYLOAD + WL_FRAME_MAX_CRC)
 #define APP_CONTROL_CAPACITY (WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
+#define JOINT_FIFO_CAPACITY 3U
 
 struct endpoint {
   wl_ctx_t ctx;
@@ -29,10 +31,13 @@ struct endpoint {
 struct latest_fixture {
   wl_latest_t mailbox;
   arm_mit_command_t slots[WL_LATEST_SLOT_COUNT];
-  control_router_t router;
-  wl_latest_write_claim_t active_claim;
-  uint8_t claim_active;
-  uint32_t handled;
+  control_runtime_t runtime;
+};
+
+struct joint_fifo_fixture {
+  wl_fifo_t fifo;
+  joint_command_t slots[JOINT_FIFO_CAPACITY];
+  control_runtime_t runtime;
 };
 
 struct rpc_client_fixture {
@@ -64,6 +69,7 @@ struct rpc_server_fixture {
 static struct endpoint endpoint_client;
 static struct endpoint endpoint_server;
 static struct latest_fixture latest_fixture;
+static struct joint_fifo_fixture joint_fifo;
 static struct rpc_client_fixture rpc_client;
 static struct rpc_server_fixture rpc_server;
 
@@ -144,47 +150,17 @@ static control_dispatch_result_t dispatch_next(struct endpoint *endpoint,
   return result;
 }
 
-static int32_t publish_arm_command(void *user_data,
-                                   const arm_mit_command_t *message,
-                                   wl_delivery_t delivery) {
-  struct latest_fixture *fixture = user_data;
-  int result;
-
-  if (delivery != WL_DELIVERY_UNRELIABLE || fixture->claim_active == 0U ||
-      message != fixture->active_claim.value) {
-    return -1;
-  }
-  result = wl_latest_write_publish(&fixture->mailbox, &fixture->active_claim);
-  if (result != WL_OK) {
-    (void)wl_latest_write_abort(&fixture->mailbox, &fixture->active_claim);
-    fixture->claim_active = 0U;
-    return -2;
-  }
-  fixture->claim_active = 0U;
-  ++fixture->handled;
-  return 0;
-}
-
 static void dispatch_latest(struct endpoint *endpoint, wl_time_ms_t now_ms) {
   const wl_event_t event = poll_event(endpoint, now_ms, WL_EVT_UNRELIABLE_RX);
-  control_dispatch_result_t result;
+  control_runtime_result_t result;
 
   zassert_equal(event.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
-  zassert_ok(wl_latest_write_claim(&latest_fixture.mailbox,
-                                   &latest_fixture.active_claim));
-  latest_fixture.claim_active = 1U;
-  latest_fixture.router.arm_mit_command.scratch =
-      latest_fixture.active_claim.value;
-
-  result =
-      control_dispatch_event(&endpoint->ctx, &event, &latest_fixture.router);
-  if (latest_fixture.claim_active != 0U) {
-    zassert_ok(wl_latest_write_abort(&latest_fixture.mailbox,
-                                     &latest_fixture.active_claim));
-    latest_fixture.claim_active = 0U;
-  }
-  zassert_equal(result.domain, CONTROL_DISPATCH_OK);
+  result = control_runtime_dispatch_event(&endpoint->ctx, &event,
+                                          &latest_fixture.runtime);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(result.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
+  zassert_equal(result.storage_result, WL_OK);
+  zassert_equal(result.codec_status, WL_CODEC_OK);
 }
 
 static void latest_init(void) {
@@ -205,10 +181,7 @@ static void latest_init(void) {
       .size = sizeof(latest_fixture.slots),
   };
   zassert_ok(wl_latest_init(&latest_fixture.mailbox, &config, &storage));
-  latest_fixture.router.arm_mit_command = (control_arm_mit_command_route_t){
-      .handler = publish_arm_command,
-      .user_data = &latest_fixture,
-  };
+  latest_fixture.runtime.arm_mit_command_latest = &latest_fixture.mailbox;
 }
 
 ZTEST(wirelink_application_runtime,
@@ -246,7 +219,6 @@ ZTEST(wirelink_application_runtime,
     dispatch_latest(receiver, sequence);
   }
 
-  zassert_equal(latest_fixture.handled, 3U);
   zassert_ok(wl_latest_read_acquire(&latest_fixture.mailbox, &view));
   zassert_equal(view.generation, 3U);
   zassert_equal(view.value_size, sizeof(arm_mit_command_t));
@@ -263,7 +235,136 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(stats.publishes, 3U);
   zassert_equal(stats.reads, 1U);
   zassert_equal(stats.coalesced, 2U);
-  zassert_equal(latest_fixture.router.counters.delivered, 3U);
+}
+
+static void joint_fifo_init(void) {
+  wl_fifo_config_t config;
+  wl_fifo_requirements_t requirements;
+  wl_fifo_storage_t storage;
+
+  memset(&joint_fifo, 0, sizeof(joint_fifo));
+  config = (wl_fifo_config_t){
+      .value_size = sizeof(joint_command_t),
+      .value_alignment = _Alignof(joint_command_t),
+      .capacity = JOINT_FIFO_CAPACITY,
+  };
+  zassert_ok(wl_fifo_requirements(&config, &requirements));
+  zassert_equal(requirements.slot_count, JOINT_FIFO_CAPACITY);
+  zassert_true(requirements.storage_size <= sizeof(joint_fifo.slots));
+  storage = (wl_fifo_storage_t){
+      .data = joint_fifo.slots,
+      .size = sizeof(joint_fifo.slots),
+  };
+  zassert_ok(wl_fifo_init(&joint_fifo.fifo, &config, &storage));
+  joint_fifo.runtime.joint_command_fifo = &joint_fifo.fifo;
+}
+
+static control_runtime_result_t send_joint_reliable(struct endpoint *sender,
+                                                    struct endpoint *receiver,
+                                                    uint32_t sequence,
+                                                    wl_time_ms_t now_ms) {
+  joint_command_t command;
+  control_send_result_t send_result;
+  control_runtime_result_t runtime_result;
+  wl_tx_result_t tx_result;
+  wl_event_t event;
+
+  joint_command_clear(&command);
+  command.has_position_bits = true;
+  command.position_bits = sequence;
+  command.has_velocity_bits = true;
+  command.velocity_bits = sequence + UINT32_C(0x1000);
+  command.has_torque_bits = true;
+  command.torque_bits = sequence + UINT32_C(0x2000);
+  command.has_kp_bits = true;
+  command.kp_bits = sequence + UINT32_C(0x3000);
+  command.has_kd_bits = true;
+  command.kd_bits = sequence + UINT32_C(0x4000);
+  command.has_mode = true;
+  command.mode = MIT;
+
+  send_result = control_joint_command_send_direct(&sender->ctx, &command,
+                                                  WL_DELIVERY_RELIABLE);
+  zassert_equal(send_result.domain, CONTROL_SEND_OK);
+  zassert_not_equal(send_result.handle, 0U);
+  deliver(sender, receiver);
+
+  event = poll_event(receiver, now_ms, WL_EVT_RELIABLE_RX);
+  zassert_equal(event.message_id, JOINT_COMMAND_MESSAGE_ID);
+  runtime_result = control_runtime_dispatch_event(&receiver->ctx, &event,
+                                                  &joint_fifo.runtime);
+  zassert_equal(runtime_result.message_id, JOINT_COMMAND_MESSAGE_ID);
+  zassert_equal(runtime_result.event_type, WL_EVT_RELIABLE_RX);
+
+  /* Dispatch owns and releases the RX lease; the link ACK is independent. */
+  deliver(receiver, sender);
+  event = poll_event(sender, now_ms + 1U, WL_EVT_TX_SUCCESS);
+  zassert_equal(event.handle, send_result.handle);
+  zassert_equal(wl_tx_take(&sender->ctx, event.handle, &tx_result), WL_OK);
+  zassert_equal(tx_result.state, WL_TX_STATE_SUCCESS);
+  return runtime_result;
+}
+
+ZTEST(wirelink_application_runtime,
+      test_generated_fifo_preserves_order_and_releases_full_event) {
+  struct endpoint *sender = &endpoint_client;
+  struct endpoint *receiver = &endpoint_server;
+  control_runtime_result_t result;
+  wl_fifo_view_t view;
+  wl_fifo_stats_t stats;
+
+  endpoint_init(sender, UINT64_C(0x5151));
+  endpoint_init(receiver, UINT64_C(0x5252));
+  joint_fifo_init();
+
+  for (uint32_t sequence = 1U; sequence <= JOINT_FIFO_CAPACITY; ++sequence) {
+    result = send_joint_reliable(sender, receiver, sequence, sequence * 2U);
+    zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+    zassert_equal(result.storage_result, WL_OK);
+    zassert_equal(result.codec_status, WL_CODEC_OK);
+  }
+
+  result = send_joint_reliable(sender, receiver, 4U, 8U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_STORAGE_ERROR);
+  zassert_equal(result.storage_result, WL_ERR_QUEUE_FULL);
+
+  for (uint32_t sequence = 1U; sequence <= JOINT_FIFO_CAPACITY; ++sequence) {
+    const joint_command_t *command;
+
+    zassert_ok(wl_fifo_read_acquire(&joint_fifo.fifo, &view));
+    zassert_equal(view.value_size, sizeof(joint_command_t));
+    command = view.value;
+    zassert_true(command->has_position_bits);
+    zassert_equal(command->position_bits, sequence);
+    zassert_true(command->has_velocity_bits);
+    zassert_equal(command->velocity_bits, sequence + UINT32_C(0x1000));
+    zassert_true(command->has_torque_bits);
+    zassert_equal(command->torque_bits, sequence + UINT32_C(0x2000));
+    zassert_true(command->has_kp_bits);
+    zassert_equal(command->kp_bits, sequence + UINT32_C(0x3000));
+    zassert_true(command->has_kd_bits);
+    zassert_equal(command->kd_bits, sequence + UINT32_C(0x4000));
+    zassert_true(command->has_mode);
+    zassert_equal(command->mode, MIT);
+    zassert_ok(wl_fifo_read_release(&joint_fifo.fifo, &view));
+  }
+  zassert_equal(wl_fifo_read_acquire(&joint_fifo.fifo, &view), WL_ERR_NO_DATA);
+
+  /* A frame after the full-queue path proves its RX lease was released once. */
+  result = send_joint_reliable(sender, receiver, 5U, 10U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_ok(wl_fifo_read_acquire(&joint_fifo.fifo, &view));
+  const joint_command_t *last = view.value;
+  zassert_equal(last->position_bits, 5U);
+  zassert_ok(wl_fifo_read_release(&joint_fifo.fifo, &view));
+
+  zassert_ok(wl_fifo_get_stats(&joint_fifo.fifo, &stats));
+  zassert_equal(stats.depth, 0U);
+  zassert_equal(stats.high_watermark, JOINT_FIFO_CAPACITY);
+  zassert_equal(stats.publishes, 4U);
+  zassert_equal(stats.consumes, 4U);
+  zassert_equal(stats.full_rejections, 1U);
+  zassert_equal(stats.errors, 0U);
 }
 
 static uint64_t home_request_fingerprint(const home_request_t *request) {

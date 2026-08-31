@@ -3,6 +3,7 @@ tests:
     tags:
       - wirelink
       - wlc
+      - fifo
       - latest
       - rpc
       - integration
