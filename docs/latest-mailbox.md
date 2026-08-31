@@ -53,36 +53,42 @@ Initialization and reset require external quiescence.  Apart from those
 operations the API is exactly SPSC: using multiple producers or consumers is
 outside the C memory model contract, even if calls happen not to overlap.
 
-### Decode directly into a mailbox slot
+### Decode a generated message directly into a mailbox slot
 
-A generated `LATEST` route does not need an intermediate decoded-message
-copy.  Its dispatcher can claim before decoding and use the typed claim as the
-decoder destination:
+A `LATEST` route using WLC-generated bindings does not need an intermediate
+decoded-message copy.  The application wrapper claims before dispatch, points
+the message route's typed scratch at that claim, and lets the typed handler
+publish it:
 
 ```c
 wl_latest_write_claim_t claim;
-int result = wl_latest_write_claim(route->mailbox, &claim);
-if (result == WL_OK) {
-    result = control_setpoint_decode(event->payload, event->payload_len,
-                                     claim.value);
-    if (result == WL_OK) {
-        result = control_setpoint_handle(claim.value, route->user_data);
+if (wl_latest_write_claim(&route->mailbox, &claim) == WL_OK) {
+    route->active_claim = &claim;
+    route->router.control_setpoint.scratch = claim.value;
+    control_dispatch_result_t dispatched =
+        control_dispatch_event(ctx, event, &route->router);
+
+    /* A successful handler published and cleared active_claim. */
+    if (route->active_claim != NULL) {
+        (void)wl_latest_write_abort(&route->mailbox, &claim);
+        route->active_claim = NULL;
     }
-    if (result == WL_OK) {
-        result = wl_latest_write_publish(route->mailbox, &claim);
-    } else {
-        (void)wl_latest_write_abort(route->mailbox, &claim);
-    }
+    handle_dispatch_result(dispatched);
 }
 ```
 
-The router, rather than application code, should own the claim lifecycle so
-every decoder/handler failure aborts exactly once and only successful handling
-publishes.  Fixed fields and inline fixed arrays are decoded directly into the
-mailbox slot, eliminating a decoded-message-to-mailbox copy.  A retained type
-must be self-contained: generated borrowed `bytes`/`string` pointers into the
-RX event are not eligible unless the route provides bounded backing storage
-and copies them before `wl_event_release()`.
+The typed handler verifies that its message is `active_claim->value`, publishes
+the claim, and clears `active_claim` before returning zero. The wrapper owns
+all remaining failure paths, so codec/missing-route/handler errors abort once
+after the dispatcher has released the RX event. Fixed fields and inline fixed
+arrays are decoded directly into the mailbox slot, eliminating a
+decoded-message-to-mailbox copy. The integration fixture under
+`tests/zephyr/integration/application_runtime` is the complete executable
+pattern.
+
+A retained type must be self-contained: generated borrowed `bytes`/`string`
+pointers into the RX event are not eligible unless the route provides bounded
+backing storage and copies them before `wl_event_release()`.
 
 ## Why non-atomic values are race-free
 

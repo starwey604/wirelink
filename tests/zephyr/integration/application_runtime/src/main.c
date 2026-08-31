@@ -29,8 +29,9 @@ struct endpoint {
 struct latest_fixture {
   wl_latest_t mailbox;
   arm_mit_command_t slots[WL_LATEST_SLOT_COUNT];
-  arm_mit_command_t decode_scratch;
   control_router_t router;
+  wl_latest_write_claim_t active_claim;
+  uint8_t claim_active;
   uint32_t handled;
 };
 
@@ -147,18 +148,43 @@ static int32_t publish_arm_command(void *user_data,
                                    const arm_mit_command_t *message,
                                    wl_delivery_t delivery) {
   struct latest_fixture *fixture = user_data;
-  wl_latest_write_claim_t claim;
+  int result;
 
-  if (delivery != WL_DELIVERY_UNRELIABLE ||
-      wl_latest_write_claim(&fixture->mailbox, &claim) != WL_OK) {
+  if (delivery != WL_DELIVERY_UNRELIABLE || fixture->claim_active == 0U ||
+      message != fixture->active_claim.value) {
     return -1;
   }
-  memcpy(claim.value, message, sizeof(*message));
-  if (wl_latest_write_publish(&fixture->mailbox, &claim) != WL_OK) {
+  result = wl_latest_write_publish(&fixture->mailbox, &fixture->active_claim);
+  if (result != WL_OK) {
+    (void)wl_latest_write_abort(&fixture->mailbox, &fixture->active_claim);
+    fixture->claim_active = 0U;
     return -2;
   }
+  fixture->claim_active = 0U;
   ++fixture->handled;
   return 0;
+}
+
+static void dispatch_latest(struct endpoint *endpoint, wl_time_ms_t now_ms) {
+  const wl_event_t event = poll_event(endpoint, now_ms, WL_EVT_UNRELIABLE_RX);
+  control_dispatch_result_t result;
+
+  zassert_equal(event.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
+  zassert_ok(wl_latest_write_claim(&latest_fixture.mailbox,
+                                   &latest_fixture.active_claim));
+  latest_fixture.claim_active = 1U;
+  latest_fixture.router.arm_mit_command.scratch =
+      latest_fixture.active_claim.value;
+
+  result =
+      control_dispatch_event(&endpoint->ctx, &event, &latest_fixture.router);
+  if (latest_fixture.claim_active != 0U) {
+    zassert_ok(wl_latest_write_abort(&latest_fixture.mailbox,
+                                     &latest_fixture.active_claim));
+    latest_fixture.claim_active = 0U;
+  }
+  zassert_equal(result.domain, CONTROL_DISPATCH_OK);
+  zassert_equal(result.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
 }
 
 static void latest_init(void) {
@@ -180,15 +206,13 @@ static void latest_init(void) {
   };
   zassert_ok(wl_latest_init(&latest_fixture.mailbox, &config, &storage));
   latest_fixture.router.arm_mit_command = (control_arm_mit_command_route_t){
-      .scratch = &latest_fixture.decode_scratch,
       .handler = publish_arm_command,
       .user_data = &latest_fixture,
   };
 }
 
 ZTEST(wirelink_application_runtime,
-      test_typed_latest_stream_coalesces_without_heap)
-{
+      test_typed_latest_stream_coalesces_without_heap) {
   struct endpoint *sender = &endpoint_client;
   struct endpoint *receiver = &endpoint_server;
   arm_mit_command_t command;
@@ -219,8 +243,7 @@ ZTEST(wirelink_application_runtime,
     zassert_true(send_result.payload_length > 120U);
     expect_local_unreliable_completion(sender, sequence);
     deliver(sender, receiver);
-    (void)dispatch_next(receiver, &latest_fixture.router, sequence,
-                        WL_EVT_UNRELIABLE_RX, ARM_MIT_COMMAND_MESSAGE_ID);
+    dispatch_latest(receiver, sequence);
   }
 
   zassert_equal(latest_fixture.handled, 3U);
@@ -378,8 +401,7 @@ static void send_unreliable_request(struct endpoint *client,
 }
 
 ZTEST(wirelink_application_runtime,
-      test_typed_rpc_separates_link_ack_and_application_completion)
-{
+      test_typed_rpc_separates_link_ack_and_application_completion) {
   struct endpoint *client = &endpoint_client;
   struct endpoint *server = &endpoint_server;
   home_request_t request;
