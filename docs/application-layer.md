@@ -1,8 +1,8 @@
 # Wirelink application-layer contract
 
 Status: **implemented baseline for typed routing, `LATEST`, `FIFO`, and RPC**.
-Cross-thread session executors and bulk object transfer remain design
-contracts.
+The sequential bulk-object contract below is frozen for its first runtime
+implementation. Cross-thread session executors remain a design contract.
 
 This document fixes the boundary between the frozen Wirelink v1 link protocol
 and the allocation-free application facilities built above it. It is not a
@@ -241,24 +241,79 @@ Sharing a physical stream therefore requires one explicit mechanism:
 The outer multiplexer owns resynchronization between channels. Its header and
 integrity policy are outside the Wirelink v1 header.
 
-## 8. Bulk transfer extension
+## 8. Sequential bulk transfer extension
 
 Objects larger than `WL_FRAME_MAX_PAYLOAD`, and objects that should not be
 assembled in RAM, use an application transfer extension. Increasing the core
-constant or adding fragment fields to compact v1 is not the design path.
+constant or adding fragment fields to compact v1 is not the design path. The
+extension is a standalone allocation-free state machine and does not append
+fields to `wl_config_t`, `wl_storage_t`, or `wl_event_t`.
 
-The initial transfer contract uses separately allocated message IDs for
-`Begin`, `Chunk`, `End`, and `Abort`. It carries a nonzero transfer ID, total
-object length, chunk offset, negotiated chunk size, and an object-level
-CRC32C or stronger product hash. The receiver writes each accepted chunk to a
-caller-provided `write(offset, span)` sink and commits only after final object
-verification.
+The first contract is single-peer, single-active-transfer, upload-direction,
+and strictly sequential:
 
-A correctness-first implementation may be sequential. A high-throughput
-USB/UDP implementation can later add a bounded window and cumulative or
-selective acknowledgement without changing the Wirelink frame header. Per-
-frame `NONE` on USB/UDP does not remove the need for end-to-end object
-verification across storage, restart, and resume.
+```text
+Begin -> Chunk x N -> End
+           ^          |
+           +-- Status-+
+Abort -------- Status
+```
+
+Five separately allocated application message IDs represent `Begin`,
+`Chunk`, `End`, `Abort`, and `Status`. Their semantic fields are:
+
+| Message | Required fields |
+| --- | --- |
+| `Begin` | nonzero `transfer_id`, `total_length`, requested chunk size, object CRC32C |
+| `Chunk` | `transfer_id`, absolute byte `offset`, borrowed `bytes` |
+| `End` | `transfer_id`, repeated total length and object CRC32C |
+| `Abort` | `transfer_id`, application reason |
+| `Status` | `transfer_id`, acknowledged phase, result, cumulative `next_offset`, accepted chunk size |
+
+`Status.next_offset` is the only application-level cumulative acknowledgement.
+A Wirelink ACK is produced before typed decode and persistent sink completion,
+so link success must never be interpreted as successful object storage or
+commit. A receiver emits `Status` only after the corresponding synchronous
+sink operation has returned. A lost `Status` is recovered by repeating the
+same application message; duplicate `Begin`, already-consumed `Chunk`, and
+terminal `End` must not repeat sink side effects.
+
+The receiver negotiates a chunk size no larger than its configured maximum and
+asks the caller-provided sink for a valid resume offset. It accepts only the
+exact next chunk. A chunk entirely below `next_offset` is an already-consumed
+duplicate and is acknowledged without writing it again; gaps, partial
+overlaps, integer overflow, and bytes beyond `total_length` are rejected. The
+final short chunk is allowed, while every earlier chunk and offset obey the
+declared sink alignment.
+
+Chunk bytes remain borrowed from the decoded `wl_event_t` and must be consumed
+synchronously by `write(offset, span)`. `BUSY` means that the sink consumed no
+bytes and changed no durable state. The transfer runtime never retains the
+span, never allocates an object-sized buffer, and owns only constant-size
+descriptor, offset, deadline, retry, status, and statistics state. A sender
+likewise exposes actions containing offsets and lengths; the application reads
+repeatable source bytes only while encoding that action into the final
+Wirelink TX claim.
+
+`End` calls the sink's final verification/commit exactly once. Verification
+must cover the bytes actually stored, including a resumed prefix. CRC32C is
+the interoperability baseline, but a product may verify a stronger digest or
+signature before returning success. This object-level check is distinct from
+per-frame integrity: the v1 USB vendor-bulk and UDP profiles remain
+`COBS_STREAM + WL_INTEGRITY_NONE`.
+
+The initial sender keeps one application message outstanding and retries on a
+bounded, wrap-safe Status deadline. `BUSY` uses a nonzero retry delay rather
+than a zero-delay poll loop. USB/UDP profiles should normally send `Chunk` and
+`Status` as unreliable DATA and use this application acknowledgement, avoiding
+two stop-and-wait layers. A serial profile may select reliable DATA, but still
+waits for `Status` before declaring sink success.
+
+The first implementation deliberately excludes multi-chunk windows, out-of-
+order reassembly, object-sized RAM staging, asynchronous retention of a Chunk
+span, download direction, and resume state that survives process or MCU
+restart. A later bounded window or persistent checkpoint format may extend the
+application messages without changing the Wirelink v1 frame header.
 
 ## 9. Required verification
 
