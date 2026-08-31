@@ -306,9 +306,29 @@ the corresponding TX completion is consumed by
 main-loop iteration, the window remains open. Consequently, the application
 counters exclude boot/enumeration polling and the 500 ms quiet period, while
 still including busy retries and the service call that closes each exchange.
-Counters accumulate across multiple traffic bursts until reboot. They are
-unsigned 32-bit values; use modulo-2^32 subtraction for snapshot deltas and
-reboot before formal runs when a fresh maximum is required.
+Counters accumulate across multiple traffic bursts until reboot. Every
+cumulative count, byte count, error count, and `_total_cycles` value in the CSV
+is emitted as an unsigned 64-bit decimal value. Each `_max_cycles` value and
+`cpu_hz` remain unsigned 32-bit values.
+
+The ISR hooks and USB adapter deliberately retain their lock-free 32-bit
+atomics and existing 32-bit public statistics API. The instrumented sample's
+main loop snapshots them at most 100 ms apart while it is scheduled. For each
+cumulative field it adds `(uint32_t)(current - previous)` to a private 64-bit
+accumulator, so 32-bit wraparounds across a complete run do not truncate the
+CSV. This modulo extension is exact provided an individual raw counter
+advances by less than 2^32 between snapshots. At 240 MHz, 100 ms is only 24
+million physical CPU cycles; USB byte and invocation counters have an even
+wider margin. Do not call `wl_zephyr_usb_bulk_reset_stats()` during a telemetry
+run because a reset is indistinguishable from a modulo wrap. The main-loop-only
+`wl_poll`, copy/release, send, and full-service counters are updated directly
+as 64-bit values and need no snapshot extension.
+
+Maximum fields do not accumulate: the sample retains the largest 32-bit
+maximum observed in any snapshot. An individual measured interval must remain
+shorter than one full hardware cycle-counter period for its elapsed value to
+be unambiguous; at 240 MHz that period is about 17.9 seconds. Reboot before a
+formal run when a fresh maximum is required.
 
 The regions deliberately describe execution intervals, not disjoint CPU
 ownership. In particular:

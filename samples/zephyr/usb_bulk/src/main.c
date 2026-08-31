@@ -22,6 +22,7 @@
 #define MAX_PAYLOAD 512U
 #define UNIT_STORAGE 576U
 #define RX_RING_STORAGE 2048U
+#define CPU_STATS_SNAPSHOT_PERIOD_MS 100
 
 static wl_ctx_t link;
 static wl_zephyr_usb_bulk_t usb_adapter;
@@ -33,10 +34,38 @@ static uint8_t rx_fallback[UNIT_STORAGE];
 
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
 typedef struct sample_cpu_region_stats {
-  uint32_t calls;
-  uint32_t total_cycles;
+  uint64_t calls;
+  uint64_t total_cycles;
   uint32_t max_cycles;
 } sample_cpu_region_stats_t;
+
+typedef struct sample_u32_accumulator {
+  uint64_t value;
+  uint32_t previous;
+} sample_u32_accumulator_t;
+
+typedef struct sample_cpu_region_accumulator {
+  sample_u32_accumulator_t calls;
+  sample_u32_accumulator_t total_cycles;
+  uint32_t max_cycles;
+} sample_cpu_region_accumulator_t;
+
+typedef struct sample_adapter_accumulator {
+  sample_u32_accumulator_t rx_claims;
+  sample_u32_accumulator_t rx_completions;
+  sample_u32_accumulator_t rx_bytes;
+  sample_u32_accumulator_t rx_pauses;
+  sample_u32_accumulator_t tx_submissions;
+  sample_u32_accumulator_t tx_completions;
+  sample_u32_accumulator_t rx_callback_cycles;
+  uint32_t rx_callback_max_cycles;
+  sample_u32_accumulator_t tx_callback_cycles;
+  uint32_t tx_callback_max_cycles;
+  sample_u32_accumulator_t tx_sink_cycles;
+  uint32_t tx_sink_max_cycles;
+  sample_cpu_region_accumulator_t active_service;
+  sample_u32_accumulator_t errors;
+} sample_adapter_accumulator_t;
 
 static atomic_t dwc2_isr_calls;
 static atomic_t dwc2_isr_cycles;
@@ -47,6 +76,10 @@ static atomic_t dwc2_thread_max_cycles;
 static atomic_t usbd_thread_calls;
 static atomic_t usbd_thread_cycles;
 static atomic_t usbd_thread_max_cycles;
+static sample_cpu_region_accumulator_t dwc2_isr_stats;
+static sample_cpu_region_accumulator_t dwc2_thread_stats;
+static sample_cpu_region_accumulator_t usbd_thread_stats;
+static sample_adapter_accumulator_t adapter_stats;
 static sample_cpu_region_stats_t wl_poll_stats;
 static sample_cpu_region_stats_t rx_event_copy_release_stats;
 static sample_cpu_region_stats_t wl_send_unreliable_stats;
@@ -101,50 +134,107 @@ static uint32_t adapter_cycle_count(void *user_data) {
   return wirelink_usb_cpu_cycle_count();
 }
 
-static void print_atomic_region(const char *name, const atomic_t *calls,
-                                const atomic_t *total,
-                                const atomic_t *maximum) {
-  printk(",%s_calls,%u,%s_total_cycles,%u,%s_max_cycles,%u", name,
-         (uint32_t)atomic_get(calls), name, (uint32_t)atomic_get(total), name,
-         (uint32_t)atomic_get(maximum));
+static void accumulate_u32(sample_u32_accumulator_t *accumulator,
+                           uint32_t current) {
+  accumulator->value += (uint32_t)(current - accumulator->previous);
+  accumulator->previous = current;
+}
+
+static void snapshot_region(sample_cpu_region_accumulator_t *accumulator,
+                            uint32_t calls, uint32_t total_cycles,
+                            uint32_t max_cycles) {
+  accumulate_u32(&accumulator->calls, calls);
+  accumulate_u32(&accumulator->total_cycles, total_cycles);
+  if (max_cycles > accumulator->max_cycles) {
+    accumulator->max_cycles = max_cycles;
+  }
+}
+
+static void snapshot_cpu_stats(void) {
+  wl_zephyr_usb_bulk_stats_t current;
+
+  snapshot_region(&dwc2_isr_stats, (uint32_t)atomic_get(&dwc2_isr_calls),
+                  (uint32_t)atomic_get(&dwc2_isr_cycles),
+                  (uint32_t)atomic_get(&dwc2_isr_max_cycles));
+  snapshot_region(&dwc2_thread_stats, (uint32_t)atomic_get(&dwc2_thread_calls),
+                  (uint32_t)atomic_get(&dwc2_thread_cycles),
+                  (uint32_t)atomic_get(&dwc2_thread_max_cycles));
+  snapshot_region(&usbd_thread_stats, (uint32_t)atomic_get(&usbd_thread_calls),
+                  (uint32_t)atomic_get(&usbd_thread_cycles),
+                  (uint32_t)atomic_get(&usbd_thread_max_cycles));
+
+  wl_zephyr_usb_bulk_get_stats(&usb_adapter, &current);
+  accumulate_u32(&adapter_stats.rx_claims, current.rx_claims);
+  accumulate_u32(&adapter_stats.rx_completions, current.rx_completions);
+  accumulate_u32(&adapter_stats.rx_bytes, current.rx_bytes);
+  accumulate_u32(&adapter_stats.rx_pauses, current.rx_pauses);
+  accumulate_u32(&adapter_stats.tx_submissions, current.tx_submissions);
+  accumulate_u32(&adapter_stats.tx_completions, current.tx_completions);
+  accumulate_u32(&adapter_stats.rx_callback_cycles, current.rx_callback_cycles);
+  if (current.rx_callback_max_cycles > adapter_stats.rx_callback_max_cycles) {
+    adapter_stats.rx_callback_max_cycles = current.rx_callback_max_cycles;
+  }
+  accumulate_u32(&adapter_stats.tx_callback_cycles, current.tx_callback_cycles);
+  if (current.tx_callback_max_cycles > adapter_stats.tx_callback_max_cycles) {
+    adapter_stats.tx_callback_max_cycles = current.tx_callback_max_cycles;
+  }
+  accumulate_u32(&adapter_stats.tx_sink_cycles, current.tx_sink_cycles);
+  if (current.tx_sink_max_cycles > adapter_stats.tx_sink_max_cycles) {
+    adapter_stats.tx_sink_max_cycles = current.tx_sink_max_cycles;
+  }
+  snapshot_region(&adapter_stats.active_service, current.active_service_calls,
+                  current.active_service_cycles,
+                  current.active_service_max_cycles);
+  accumulate_u32(&adapter_stats.errors, current.errors);
+}
+
+static void print_accumulated_region(
+    const char *name, const sample_cpu_region_accumulator_t *stats) {
+  printk(",%s_calls,%llu,%s_total_cycles,%llu,%s_max_cycles,%u", name,
+         (unsigned long long)stats->calls.value, name,
+         (unsigned long long)stats->total_cycles.value, name,
+         stats->max_cycles);
 }
 
 static void print_sample_region(const char *name,
                                 const sample_cpu_region_stats_t *stats) {
-  printk(",%s_calls,%u,%s_total_cycles,%u,%s_max_cycles,%u", name,
-         stats->calls, name, stats->total_cycles, name, stats->max_cycles);
+  printk(",%s_calls,%llu,%s_total_cycles,%llu,%s_max_cycles,%u", name,
+         (unsigned long long)stats->calls, name,
+         (unsigned long long)stats->total_cycles, name, stats->max_cycles);
 }
 
-static void print_cpu_stats(const wl_zephyr_usb_bulk_stats_t *stats) {
-  printk("wirelink_usb_cpu_v2,cpu_hz,%u,rx_claims,%u,rx_completions,%u,"
-         "rx_bytes,%u,rx_pauses,%u,tx_submissions,%u,tx_completions,%u",
-         (uint32_t)CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC, stats->rx_claims,
-         stats->rx_completions, stats->rx_bytes, stats->rx_pauses,
-         stats->tx_submissions, stats->tx_completions);
-  print_atomic_region("dwc2_isr", &dwc2_isr_calls, &dwc2_isr_cycles,
-                      &dwc2_isr_max_cycles);
-  print_atomic_region("dwc2_thread", &dwc2_thread_calls,
-                      &dwc2_thread_cycles, &dwc2_thread_max_cycles);
-  print_atomic_region("usbd_thread", &usbd_thread_calls,
-                      &usbd_thread_cycles, &usbd_thread_max_cycles);
-  printk(",adapter_rx_callback_total_cycles,%u,"
+static void print_cpu_stats(void) {
+  printk("wirelink_usb_cpu_v2,cpu_hz,%u,rx_claims,%llu,"
+         "rx_completions,%llu,rx_bytes,%llu,rx_pauses,%llu,"
+         "tx_submissions,%llu,tx_completions,%llu",
+         (uint32_t)CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC,
+         (unsigned long long)adapter_stats.rx_claims.value,
+         (unsigned long long)adapter_stats.rx_completions.value,
+         (unsigned long long)adapter_stats.rx_bytes.value,
+         (unsigned long long)adapter_stats.rx_pauses.value,
+         (unsigned long long)adapter_stats.tx_submissions.value,
+         (unsigned long long)adapter_stats.tx_completions.value);
+  print_accumulated_region("dwc2_isr", &dwc2_isr_stats);
+  print_accumulated_region("dwc2_thread", &dwc2_thread_stats);
+  print_accumulated_region("usbd_thread", &usbd_thread_stats);
+  printk(",adapter_rx_callback_total_cycles,%llu,"
          "adapter_rx_callback_max_cycles,%u,"
-         "adapter_tx_callback_total_cycles,%u,"
+         "adapter_tx_callback_total_cycles,%llu,"
          "adapter_tx_callback_max_cycles,%u,"
-         "adapter_tx_sink_total_cycles,%u,adapter_tx_sink_max_cycles,%u,"
-         "adapter_active_service_calls,%u,"
-         "adapter_active_service_total_cycles,%u,"
-         "adapter_active_service_max_cycles,%u",
-         stats->rx_callback_cycles, stats->rx_callback_max_cycles,
-         stats->tx_callback_cycles, stats->tx_callback_max_cycles,
-         stats->tx_sink_cycles, stats->tx_sink_max_cycles,
-         stats->active_service_calls, stats->active_service_cycles,
-         stats->active_service_max_cycles);
+         "adapter_tx_sink_total_cycles,%llu,adapter_tx_sink_max_cycles,%u",
+         (unsigned long long)adapter_stats.rx_callback_cycles.value,
+         adapter_stats.rx_callback_max_cycles,
+         (unsigned long long)adapter_stats.tx_callback_cycles.value,
+         adapter_stats.tx_callback_max_cycles,
+         (unsigned long long)adapter_stats.tx_sink_cycles.value,
+         adapter_stats.tx_sink_max_cycles);
+  print_accumulated_region("adapter_active_service",
+                           &adapter_stats.active_service);
   print_sample_region("wl_poll", &wl_poll_stats);
   print_sample_region("rx_event_copy_release", &rx_event_copy_release_stats);
   print_sample_region("wl_send_unreliable", &wl_send_unreliable_stats);
   print_sample_region("wl_zephyr_usb_bulk_service", &usb_service_stats);
-  printk(",errors,%u\n", stats->errors);
+  printk(",errors,%llu\n", (unsigned long long)adapter_stats.errors.value);
 }
 
 #define SAMPLE_CPU_START(name)                                               \
@@ -212,10 +302,10 @@ int main(void) {
   uint16_t pending_message_id = 0U;
   bool echo_pending = false;
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
-  int64_t next_stats_check = 0;
+  int64_t next_stats_snapshot = 0;
   int64_t last_activity = 0;
   uint32_t observed_completions = 0U;
-  uint32_t reported_completions = 0U;
+  uint64_t reported_completions = 0U;
   bool sample_window_active = false;
 #endif
   int result;
@@ -330,18 +420,16 @@ int main(void) {
       sample_window_active = false;
     }
 
-    if (k_uptime_get() >= next_stats_check) {
+    if (k_uptime_get() >= next_stats_snapshot) {
       const int64_t now = k_uptime_get();
 
-      next_stats_check = now + 100;
-      if (observed_completions != 0U &&
-          observed_completions != reported_completions &&
+      snapshot_cpu_stats();
+      next_stats_snapshot = now + CPU_STATS_SNAPSHOT_PERIOD_MS;
+      if (adapter_stats.tx_completions.value != 0U &&
+          adapter_stats.tx_completions.value != reported_completions &&
           now - last_activity >= 500) {
-        wl_zephyr_usb_bulk_stats_t stats;
-
-        wl_zephyr_usb_bulk_get_stats(&usb_adapter, &stats);
-        print_cpu_stats(&stats);
-        reported_completions = observed_completions;
+        print_cpu_stats();
+        reported_completions = adapter_stats.tx_completions.value;
       }
     }
 #endif
