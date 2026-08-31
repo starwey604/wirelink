@@ -28,28 +28,32 @@ _Static_assert(sizeof(wl_codec_status_t) == sizeof(int32_t),
                "public codec ABI must not depend on -fshort-enums");
 
 /*
- * The v1 layout baseline is architecture-specific. CI records the LP64 Linux
- * ABI explicitly; other targets still verify every fixed-width enum-like
- * public type above and exercise the installed package normally.
+ * The v1 layout baseline is architecture-specific. CI records the Linux
+ * x86-64 SysV ABI explicitly; other targets still verify every fixed-width
+ * enum-like public type above and exercise the installed package normally.
  */
-#if defined(__linux__) && UINTPTR_MAX == UINT64_MAX && SIZE_MAX == UINT64_MAX
+#if defined(__linux__) && defined(__x86_64__) && UINTPTR_MAX == UINT64_MAX && \
+    SIZE_MAX == UINT64_MAX
 _Static_assert(sizeof(wl_ctx_t) == 640U && _Alignof(wl_ctx_t) == 16U,
                "v1 context ABI changed");
 
-_Static_assert(sizeof(wl_span_t) == 16U &&
+_Static_assert(sizeof(wl_span_t) == 16U && _Alignof(wl_span_t) == 8U &&
                    offsetof(wl_span_t, data) == 0U &&
                    offsetof(wl_span_t, length) == 8U,
                "v1 span ABI changed");
 _Static_assert(sizeof(wl_codec_bytes_t) == 16U &&
+                   _Alignof(wl_codec_bytes_t) == 8U &&
                    offsetof(wl_codec_bytes_t, data) == 0U &&
                    offsetof(wl_codec_bytes_t, length) == 8U,
                "v1 codec bytes ABI changed");
 _Static_assert(sizeof(wl_codec_string_t) == 16U &&
+                   _Alignof(wl_codec_string_t) == 8U &&
                    offsetof(wl_codec_string_t, data) == 0U &&
                    offsetof(wl_codec_string_t, length) == 8U,
                "v1 codec string ABI changed");
 
 _Static_assert(sizeof(wl_frame_header_t) == 24U &&
+                   _Alignof(wl_frame_header_t) == 8U &&
                    offsetof(wl_frame_header_t, magic) == 0U &&
                    offsetof(wl_frame_header_t, version) == 2U &&
                    offsetof(wl_frame_header_t, header_length) == 3U &&
@@ -61,6 +65,7 @@ _Static_assert(sizeof(wl_frame_header_t) == 24U &&
                    offsetof(wl_frame_header_t, payload_length) == 22U,
                "v1 frame header ABI changed");
 _Static_assert(sizeof(wl_wire_packet_t) == 48U &&
+                   _Alignof(wl_wire_packet_t) == 8U &&
                    offsetof(wl_wire_packet_t, type) == 0U &&
                    offsetof(wl_wire_packet_t, integrity) == 4U &&
                    offsetof(wl_wire_packet_t, flags) == 8U &&
@@ -71,6 +76,7 @@ _Static_assert(sizeof(wl_wire_packet_t) == 48U &&
                    offsetof(wl_wire_packet_t, payload_len) == 40U,
                "v1 wire packet ABI changed");
 _Static_assert(sizeof(wl_frame_view_t) == 64U &&
+                   _Alignof(wl_frame_view_t) == 8U &&
                    offsetof(wl_frame_view_t, type) == 0U &&
                    offsetof(wl_frame_view_t, flags) == 4U &&
                    offsetof(wl_frame_view_t, message_id) == 6U &&
@@ -82,7 +88,7 @@ _Static_assert(sizeof(wl_frame_view_t) == 64U &&
                    offsetof(wl_frame_view_t, total_len) == 56U,
                "v1 frame view ABI changed");
 
-_Static_assert(sizeof(wl_config_t) == 40U &&
+_Static_assert(sizeof(wl_config_t) == 40U && _Alignof(wl_config_t) == 8U &&
                    offsetof(wl_config_t, max_payload_len) == 0U &&
                    offsetof(wl_config_t, envelope) == 4U &&
                    offsetof(wl_config_t, integrity) == 8U &&
@@ -91,7 +97,7 @@ _Static_assert(sizeof(wl_config_t) == 40U &&
                    offsetof(wl_config_t, ack_timeout_ms) == 28U &&
                    offsetof(wl_config_t, max_transmission_unit) == 32U,
                "v1 config ABI changed");
-_Static_assert(sizeof(wl_storage_t) == 80U &&
+_Static_assert(sizeof(wl_storage_t) == 80U && _Alignof(wl_storage_t) == 8U &&
                    offsetof(wl_storage_t, tx_payload) == 0U &&
                    offsetof(wl_storage_t, tx_payload_size) == 8U &&
                    offsetof(wl_storage_t, tx_unit) == 16U &&
@@ -104,13 +110,14 @@ _Static_assert(sizeof(wl_storage_t) == 80U &&
                    offsetof(wl_storage_t, rx_fallback_size) == 72U,
                "v1 storage ABI changed");
 _Static_assert(sizeof(wl_storage_requirements_t) == 40U &&
+                   _Alignof(wl_storage_requirements_t) == 8U &&
                    offsetof(wl_storage_requirements_t, tx_payload_size) == 0U &&
                    offsetof(wl_storage_requirements_t, tx_unit_size) == 8U &&
                    offsetof(wl_storage_requirements_t, control_unit_size) == 16U &&
                    offsetof(wl_storage_requirements_t, rx_fifo_size) == 24U &&
                    offsetof(wl_storage_requirements_t, rx_fallback_size) == 32U,
                "v1 storage requirements ABI changed");
-_Static_assert(sizeof(wl_event_t) == 40U &&
+_Static_assert(sizeof(wl_event_t) == 40U && _Alignof(wl_event_t) == 8U &&
                    offsetof(wl_event_t, type) == 0U &&
                    offsetof(wl_event_t, message_id) == 4U &&
                    offsetof(wl_event_t, payload) == 8U &&
@@ -120,11 +127,13 @@ _Static_assert(sizeof(wl_event_t) == 40U &&
                    offsetof(wl_event_t, lease) == 32U,
                "v1 event ABI changed");
 _Static_assert(sizeof(wl_tx_result_t) == 12U &&
+                   _Alignof(wl_tx_result_t) == 4U &&
                    offsetof(wl_tx_result_t, state) == 0U &&
                    offsetof(wl_tx_result_t, result) == 4U &&
                    offsetof(wl_tx_result_t, retries_used) == 8U,
                "v1 transaction result ABI changed");
 _Static_assert(sizeof(wl_rx_counters_t) == 20U &&
+                   _Alignof(wl_rx_counters_t) == 4U &&
                    offsetof(wl_rx_counters_t, malformed) == 0U &&
                    offsetof(wl_rx_counters_t, bad_integrity) == 4U &&
                    offsetof(wl_rx_counters_t, overflow) == 8U &&
@@ -132,6 +141,7 @@ _Static_assert(sizeof(wl_rx_counters_t) == 20U &&
                    offsetof(wl_rx_counters_t, unsupported) == 16U,
                "v1 RX counters ABI changed");
 _Static_assert(sizeof(wl_rx_dma_claim_t) == 24U &&
+                   _Alignof(wl_rx_dma_claim_t) == 8U &&
                    offsetof(wl_rx_dma_claim_t, span) == 0U &&
                    offsetof(wl_rx_dma_claim_t, token) == 16U,
                "v1 DMA claim ABI changed");
