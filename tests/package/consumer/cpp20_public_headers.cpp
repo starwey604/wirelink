@@ -18,6 +18,9 @@ static_assert(__cplusplus >= 202002L);
 static_assert(std::is_standard_layout_v<wl_codec_bytes_t>);
 static_assert(std::is_standard_layout_v<wl_frame_view_t>);
 static_assert(std::is_standard_layout_v<wl_event_t>);
+static_assert(std::is_standard_layout_v<wl_poll_hint_t>);
+static_assert(sizeof(wl_poll_hint_t) == 8U);
+static_assert(alignof(wl_poll_hint_t) == alignof(std::uint32_t));
 static_assert(sizeof(wl_codec_status_t) == sizeof(std::int32_t));
 static_assert(sizeof(wl_err_t) == sizeof(std::int32_t));
 
@@ -37,6 +40,16 @@ int main() {
   config.ack_timeout_ms = 10U;
 
   wl_storage_requirements_t requirements{};
+  wl_ctx_t context{};
+  std::uint8_t tx_payload[32]{};
+  std::uint8_t tx_unit[WL_FRAME_MAX_RAW_LEN]{};
+  std::uint8_t control_unit[WL_FRAME_MAX_RAW_LEN]{};
+  std::uint8_t rx_fallback[WL_FRAME_MAX_RAW_LEN]{};
+  wl_storage_t storage{
+      tx_payload, sizeof(tx_payload), tx_unit, sizeof(tx_unit),
+      control_unit, sizeof(control_unit), nullptr, 0U,
+      rx_fallback, sizeof(rx_fallback)};
+  wl_poll_hint_t poll_hint{};
   const bool cobs_ok =
       wl_cobs_encode(input, sizeof(input), encoded, sizeof(encoded),
                      &encoded_length) == WL_OK &&
@@ -49,7 +62,12 @@ int main() {
       wl_config_requirements(&config, &requirements) == WL_OK &&
       requirements.tx_payload_size == config.max_payload_len &&
       requirements.rx_fifo_size == 0U;
+  const bool hint_ok = wl_init(&context, &config, &storage) == WL_OK &&
+                       wl_poll_get_hint(&context, 0U, &poll_hint) == WL_OK &&
+                       poll_hint.work_pending == 0U &&
+                       poll_hint.next_deadline_ms ==
+                           WL_POLL_NO_DEADLINE_MS;
   const bool version_ok = WIRELINK_PROTOCOL_VERSION == WL_FRAME_VERSION;
 
-  return cobs_ok && crc_ok && config_ok && version_ok ? 0 : 1;
+  return cobs_ok && crc_ok && config_ok && hint_ok && version_ok ? 0 : 1;
 }

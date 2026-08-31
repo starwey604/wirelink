@@ -435,6 +435,20 @@ size_t wl_rx_ring_readable(const wl_rx_ring_state_t *state) {
   return readable_snapshot(backend, NULL);
 }
 
+int wl_rx_ring_consumer_overflow_pending(const wl_rx_ring_state_t *state) {
+  const wl_rx_bipbuf_state_t *backend;
+
+  if (state == NULL) {
+    return 0;
+  }
+  backend = rx_state_const(state);
+  if (backend->memory == NULL || backend->capacity == 0U) {
+    return 0;
+  }
+  return atomic_load_explicit(&backend->overflow_events,
+                              memory_order_acquire) != 0U;
+}
+
 wl_span_t wl_rx_ring_consumer_peek(wl_rx_ring_state_t *state) {
   wl_rx_bipbuf_state_t *backend;
   size_t read_cursor;

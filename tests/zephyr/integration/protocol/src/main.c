@@ -450,4 +450,61 @@ ZTEST(wirelink_protocol_integration, test_cobs_chunking_and_corruption)
   zassert_equal(wl_poll(&right->ctx, 1U, &event), WL_ERR_NO_DATA);
 }
 
+static void expect_endpoint_hint(const struct endpoint *endpoint,
+                                 wl_time_ms_t now_ms,
+                                 uint32_t work_pending,
+                                 uint32_t next_deadline_ms) {
+  wl_poll_hint_t hint = {0};
+
+  zassert_ok(wl_poll_get_hint(&endpoint->ctx, now_ms, &hint));
+  zassert_equal(hint.work_pending, work_pending);
+  zassert_equal(hint.next_deadline_ms, next_deadline_ms);
+}
+
+ZTEST(wirelink_protocol_integration,
+      test_hint_drives_cobs_retry_and_round_trip_without_idle_polling)
+{
+  struct endpoint *left = &endpoint_left;
+  struct endpoint *right = &endpoint_right;
+  const wl_time_ms_t start_ms = UINT32_MAX - 2U;
+  const wl_time_ms_t retry_ms = 2U;
+  const uint8_t payload[] = {0x01U, 0x00U, 0x02U};
+  wl_tx_handle_t handle = 0U;
+  wl_tx_result_t result = {0};
+  wl_event_t event = {0};
+
+  endpoint_init(left, WL_ENVELOPE_COBS_STREAM, WL_INTEGRITY_CRC16,
+                UINT64_C(0x808));
+  endpoint_init(right, WL_ENVELOPE_COBS_STREAM, WL_INTEGRITY_CRC16,
+                UINT64_C(0x909));
+  zassert_equal(wl_poll(&left->ctx, start_ms, &event), WL_ERR_NO_DATA);
+  zassert_ok(
+      wl_send_reliable(&left->ctx, 0x71U, payload, sizeof(payload), &handle));
+  drop_outbound(left);
+
+  expect_endpoint_hint(left, start_ms, 0U, left->config.ack_timeout_ms);
+  expect_endpoint_hint(left, 1U, 0U, 1U);
+  expect_endpoint_hint(left, retry_ms, 1U, 0U);
+  zassert_equal(wl_poll(&left->ctx, retry_ms, &event), WL_ERR_NO_DATA);
+  zassert_not_equal(left->outbound_len, 0U);
+
+  deliver(left, right);
+  expect_endpoint_hint(right, retry_ms, 1U, WL_POLL_NO_DEADLINE_MS);
+  zassert_ok(wl_poll(&right->ctx, retry_ms, &event));
+  zassert_equal(event.type, WL_EVT_RELIABLE_RX);
+  zassert_equal(event.message_id, 0x71U);
+  zassert_mem_equal(event.payload, payload, sizeof(payload));
+  wl_event_release(&right->ctx, &event);
+
+  deliver(right, left);
+  expect_endpoint_hint(left, retry_ms, 1U, left->config.ack_timeout_ms);
+  zassert_ok(wl_poll(&left->ctx, retry_ms, &event));
+  zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+  zassert_equal(event.handle, handle);
+  expect_endpoint_hint(left, retry_ms, 0U, WL_POLL_NO_DEADLINE_MS);
+  zassert_ok(wl_tx_take(&left->ctx, handle, &result));
+  zassert_equal(result.state, WL_TX_STATE_SUCCESS);
+  zassert_equal(result.retries_used, 1U);
+}
+
 ZTEST_SUITE(wirelink_protocol_integration, NULL, NULL, NULL, NULL, NULL);

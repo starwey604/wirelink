@@ -16,6 +16,7 @@ set(WIRELINK_CORE_SOURCES
   ${WIRELINK_ROOT}/src/init.c
   ${WIRELINK_ROOT}/src/protocol.c
   ${WIRELINK_ROOT}/src/rx_ring_bipbuf.c
+  ${WIRELINK_ROOT}/src/schedule.c
   ${WIRELINK_ROOT}/src/transport.c
   ${WIRELINK_ROOT}/src/types.c
 )

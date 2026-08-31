@@ -71,6 +71,18 @@ typedef struct {
   uint16_t retries_used;
 } wl_tx_result_t;
 
+/*
+ * Relative scheduling information for the single Wirelink consumer.
+ * work_pending is either zero or one.  next_deadline_ms is measured from the
+ * now_ms supplied to wl_poll_get_hint(), or WL_POLL_NO_DEADLINE_MS when the
+ * protocol has no active timed deadline.
+ */
+#define WL_POLL_NO_DEADLINE_MS UINT32_MAX
+typedef struct {
+  uint32_t work_pending;
+  uint32_t next_deadline_ms;
+} wl_poll_hint_t;
+
 typedef int32_t wl_sink_result_t;
 enum {
   WL_SINK_SENT = 0,
@@ -225,6 +237,8 @@ void wl_rx_note_overflow(wl_ctx_t *ctx);
 int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 
 int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event);
+int wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
+                     wl_poll_hint_t *out_hint);
 void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event);
 
 int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result);

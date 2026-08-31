@@ -14,6 +14,8 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 - Standardized pre-initialization errors, idle-event clearing, COBS-only
   recovery, ACK timeout bounds, and the single-slot `WL_SINK_BUSY` queueing
   contract.
+- Added a side-effect-free poll scheduling hint with wrap-safe relative ACK
+  deadlines, complete-RX detection, and non-spinning sink-backpressure rules.
 
 ### Performance and validation
 

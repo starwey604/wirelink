@@ -159,6 +159,23 @@ wl_span_t wl_rx_unit_consumer_peek(wl_ctx_t *ctx) {
   return result;
 }
 
+int wl_rx_unit_consumer_has_data(const wl_ctx_t *ctx) {
+  const wl_rx_unit_queue_state_t *queue;
+  uint32_t read;
+  uint32_t write;
+
+  if (ctx == NULL) {
+    return 0;
+  }
+  queue = &wl_ctx_impl_const(ctx)->rx_units;
+  if (queue->initialized == 0U) {
+    return 0;
+  }
+  read = atomic_load_explicit(&queue->read_cursor, memory_order_relaxed);
+  write = atomic_load_explicit(&queue->write_cursor, memory_order_acquire);
+  return read != write;
+}
+
 int wl_rx_unit_consumer_consume(wl_ctx_t *ctx) {
   wl_rx_unit_queue_state_t *queue = &wl_ctx_impl(ctx)->rx_units;
   uint32_t read;

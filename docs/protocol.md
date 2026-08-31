@@ -390,6 +390,38 @@ An `ack_timeout_ms` of zero disables the ACK timeout, so no timeout-driven
 retry or failure occurs. Non-zero configured intervals MUST be less than
 `2^31` milliseconds.
 
+#### 8.1.1 Consumer scheduling hint
+
+The C API exposes `wl_poll_get_hint(ctx, now_ms, &hint)` so a bare-metal loop,
+RTOS task, or host event loop can sleep without periodically calling
+`wl_poll()`. The query is side-effect free and reports two independent values:
+
+- `work_pending` is one when `wl_poll()` can make consumer-side progress
+  without another external I/O notification; and
+- `next_deadline_ms` is the relative delay until the next ACK/retry deadline,
+  or `WL_POLL_NO_DEADLINE_MS` when no timed deadline is active.
+
+A deadline that is already due has delay zero and is also immediate work.
+Relative-delay calculation uses the same unsigned subtraction as timeout
+processing, so it remains correct across the 32-bit millisecond wrap. The
+caller MUST pass values from the same monotonic clock domain to both the query
+and `wl_poll()`.
+
+The immediate bit covers queued events, complete COBS units, RX overflow
+recovery, committed native units, retries, and retry exhaustion. It does not
+claim that partial stream bytes form work: their adapter must wake the consumer
+when more bytes arrive. While an RX event is leased, later RX units are also
+not immediate until `wl_event_release()` makes their storage consumable.
+
+`WL_SINK_BUSY` means an attempted control or DATA submission is waiting for
+external transport progress. Such a queue does not continuously assert
+`work_pending`; otherwise an event loop would retry the same busy sink without
+bound. An adapter that can become writable asynchronously MUST wake the
+consumer on that activity. The consumer calls `wl_poll()` once after the wake,
+then obtains a new hint. TX completion follows the same pattern: the adapter
+wakes its consumer, forwards completion with `wl_tx_complete()`, and queries
+again. The core deliberately owns no scheduling or wait primitive.
+
 ### 8.2 Receiver acceptance and ACK
 
 After receiving a valid reliable DATA packet, the receiver MUST reserve stable

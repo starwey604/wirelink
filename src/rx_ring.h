@@ -31,6 +31,7 @@ int wl_rx_ring_dma_finish(wl_rx_ring_state_t *state,
 int wl_rx_ring_dma_abort(wl_rx_ring_state_t *state);
 
 size_t wl_rx_ring_readable(const wl_rx_ring_state_t *state);
+int wl_rx_ring_consumer_overflow_pending(const wl_rx_ring_state_t *state);
 wl_span_t wl_rx_ring_consumer_peek(wl_rx_ring_state_t *state);
 int wl_rx_ring_consumer_find(const wl_rx_ring_state_t *state, uint8_t value,
                              size_t *out_offset);

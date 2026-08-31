@@ -31,6 +31,11 @@ _Static_assert(sizeof(wl_sink_result_t) == sizeof(int32_t),
                "public sink ABI must not depend on -fshort-enums");
 _Static_assert(sizeof(wl_codec_status_t) == sizeof(int32_t),
                "public codec ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_poll_hint_t) == 8U &&
+                   _Alignof(wl_poll_hint_t) == _Alignof(uint32_t) &&
+                   offsetof(wl_poll_hint_t, work_pending) == 0U &&
+                   offsetof(wl_poll_hint_t, next_deadline_ms) == 4U,
+               "public poll hint ABI changed");
 
 /*
  * The v1 layout baseline is architecture-specific. CI records the Linux
@@ -164,6 +169,7 @@ int main(void) {
       .ack_timeout_ms = 10U,
   };
   wl_config_t observed = {0};
+  wl_poll_hint_t poll_hint = {0};
   wl_storage_requirements_t requirements = {0};
   uint8_t tx_payload[32];
   uint8_t tx_unit[WL_FRAME_MAX_RAW_LEN];
@@ -185,6 +191,9 @@ int main(void) {
       requirements.rx_fifo_size != 0U ||
       wl_init(&context, &config, &storage) != WL_OK ||
       wl_get_config(&context, &observed) != WL_OK ||
+      wl_poll_get_hint(&context, 0U, &poll_hint) != WL_OK ||
+      poll_hint.work_pending != 0U ||
+      poll_hint.next_deadline_ms != WL_POLL_NO_DEADLINE_MS ||
       observed.max_payload_len != config.max_payload_len ||
       observed.envelope != config.envelope ||
       observed.integrity != config.integrity ||

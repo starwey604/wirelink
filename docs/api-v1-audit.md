@@ -29,6 +29,7 @@ the 1.x line:
 - `wl_config_t`;
 - `wl_storage_t` and `wl_storage_requirements_t`;
 - `wl_event_t` and `wl_tx_result_t`;
+- `wl_poll_hint_t`;
 - `wl_rx_counters_t`, `wl_rx_dma_claim_t`, `wl_rx_unit_claim_t`,
   `wl_rx_unit_queue_config_t`, and `wl_tx_payload_claim_t`.
 
@@ -64,10 +65,10 @@ Session IDs continue to be provisioned by the application. Sequence
 exhaustion is not hidden by silently reusing a session: stop the adapter,
 choose a new nonzero session ID, and reinitialize the context.
 
-## Approved additive APIs before 1.0
+## Implemented additive APIs before 1.0
 
-Two additions are justified by the performance and scheduler contracts, but
-they must be implemented and validated before the 1.0 tag rather than added
+Two additions are justified by the performance and scheduler contracts. They
+are implemented and validated before the 1.0 tag rather than being added
 speculatively afterward.
 
 ### Borrowed TX payload construction
@@ -86,15 +87,26 @@ necessarily a distinct encoded byte stream.
 
 ### Poll scheduling hint
 
-An additive query may report whether consumer work is immediately pending and
-the wrap-safe delay until the next protocol deadline. `UINT32_MAX` can denote
-the absence of a timed deadline. Platform adapters remain responsible for
-waking the consumer on RX and TX completion; the core does not own a semaphore
-or an RTOS wait primitive.
+`wl_poll_get_hint()` fills the standalone, fixed-width `wl_poll_hint_t` without
+executing protocol work. `work_pending` is zero or one; `next_deadline_ms` is
+the wrap-safe relative delay from the supplied `now_ms`, with
+`WL_POLL_NO_DEADLINE_MS` (`UINT32_MAX`) denoting no timed protocol deadline.
+The fields are independent: queued RX can coexist with a future ACK deadline,
+and a due deadline reports both `work_pending = 1` and a zero delay.
 
-The query must account for reliable ACK timeout/retry and queued control/data
-work. It cannot turn `WL_SINK_BUSY` into an unbounded busy loop: an adapter
-that can become writable asynchronously must publish an activity notification.
+Immediate work includes an already queued event, a complete COBS unit, an RX
+overflow notification, a committed native unit, and a due ACK retry or retry-
+exhaustion transition. A leased RX event gates later RX work until release,
+but does not hide a TX event or deadline. Partial COBS input has no immediate
+work and relies on the producer's next activity notification.
+
+Queued control or DATA after `WL_SINK_BUSY`, and work blocked behind an
+in-flight unit, deliberately do not report immediate work. The next externally
+observed writable or I/O-completion activity wakes the consumer, which calls
+`wl_poll()` once before querying the hint again. This gives each wake one retry
+without turning backpressure into an unbounded zero-delay loop. Platform
+adapters remain responsible for RX, TX-completion, and writable notifications;
+the core owns no semaphore, file descriptor, or RTOS wait primitive.
 
 ## Release gates
 
@@ -109,8 +121,8 @@ Before changing the version to 1.0:
 
 1. exact compact-v1 conformance vectors must remain unchanged;
 2. normal and `-fshort-enums` installed-package consumers must compile;
-3. the borrowed TX and scheduling APIs must either ship with complete tests or
-   be explicitly deferred to a later additive 1.x release;
+3. the borrowed TX and scheduling APIs and their package ABI checks must remain
+   covered by the release test matrix;
 4. public headers must compile as strict C11 and C++20;
 5. unit, native simulation, QEMU, sanitizer, fuzz, and supported adapter tests
    must pass; and

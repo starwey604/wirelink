@@ -130,6 +130,54 @@ does not parse or run callbacks from the producer context. Malformed,
 integrity-failing, overflowed, duplicate, and unsupported packets are
 observable through the RX counter query rather than as application events.
 
+## Consumer scheduling contract
+
+`wl_poll_get_hint()` is the allocation-free bridge from the protocol state
+machine to a platform scheduler. Its `wl_poll_hint_t` contains two fixed-width
+fields: `work_pending` and `next_deadline_ms`. The latter is relative to the
+query's `now_ms`; `WL_POLL_NO_DEADLINE_MS` means the core has no timed work.
+The query neither updates `ctx->now_ms`, consumes RX storage, calls the sink,
+nor changes retry state.
+
+A consumer should drain available events, release each borrowed RX event, ask
+for a hint, and sleep only when `work_pending` is zero. The wait deadline is
+the minimum of `next_deadline_ms` and any application/adapter deadline:
+
+```c
+for (;;) {
+  wl_event_t event;
+  wl_poll_hint_t hint;
+  wl_time_ms_t now_ms = platform_now_ms();
+
+  while (wl_poll(&link, now_ms, &event) == WL_OK) {
+    handle_event(&event);
+    wl_event_release(&link, &event);
+    now_ms = platform_now_ms();
+  }
+  (void)wl_poll_get_hint(&link, now_ms, &hint);
+  if (hint.work_pending == 0U) {
+    adapter_wait_for_activity(hint.next_deadline_ms);
+  }
+}
+```
+
+Every RX publication, deferred TX completion, and asynchronous sink-writable
+transition must notify the platform wait primitive. After an external wake,
+the loop calls `wl_poll()` before consulting the next hint; that call services
+one pending control/DATA submission. If the sink returns `WL_SINK_BUSY` again,
+the new hint remains non-immediate and the loop sleeps for the next writable
+notification instead of spinning. An adapter without a writability callback
+must provide its own bounded periodic wake policy.
+
+For COBS ingress, the query scans only for a complete delimiter-terminated
+unit; a partial unit waits for the producer's next notification. RX overflow
+is immediate recovery work even when the ring contains no complete unit.
+Native packet slots use the unit queue's acquire cursor. Buffered RX behind a
+leased event is intentionally hidden until release, while pending TX events
+and ACK deadlines remain visible. The query belongs to the same single
+consumer as polling, release, TX completion, and adapter service; the SPSC
+producer must not call it from an ISR or DMA callback.
+
 ## Direct DMA ingress
 
 `wl_rx_dma_claim()`, `wl_rx_dma_publish()`, `wl_rx_dma_finish()`, and

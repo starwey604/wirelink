@@ -19,6 +19,7 @@ set(WIRELINK_SOURCES
   src/init.c
   src/protocol.c
   src/rx_ring_bipbuf.c
+  src/schedule.c
   src/transport.c
   src/types.c
   src/unit_rx.c
