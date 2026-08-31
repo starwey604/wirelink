@@ -1,6 +1,7 @@
 # Wirelink application-layer contract
 
-Status: **design baseline for the typed routing, session, and RPC extensions**.
+Status: **implemented baseline for typed routing, `LATEST`, and RPC**. FIFO,
+cross-thread command queues, and bulk object transfer remain design contracts.
 
 This document fixes the boundary between the frozen Wirelink v1 link protocol
 and the allocation-free application facilities built above it. It is not a
@@ -16,8 +17,8 @@ The application stack has four independent layers:
 2. the Wirelink core frames DATA, performs link retry and deduplication, and
    exposes a borrowed `wl_event_t`;
 3. WLC-generated bindings decode and route the application payload; and
-4. an optional session runtime supplies mailboxes, RPC correlation, and bulk
-   transfer state.
+4. optional application runtimes supply `LATEST` mailboxes and RPC
+   correlation; FIFO and bulk-transfer state can be added independently.
 
 A Wirelink ACK proves only that a valid reliable DATA packet reached stable
 event storage at the peer. For reliable DATA, `WL_EVT_TX_SUCCESS` therefore
@@ -81,20 +82,23 @@ the undecoded payload, cease to be valid at that point. A handler must copy or
 move the required data into caller-owned storage before returning. A handler
 must not recursively call the same router or Wirelink context.
 
-Every generated message descriptor selects one delivery policy:
+The schema does not bake scheduling or ownership policy into its wire format.
+The application wires each typed route to one delivery policy:
 
 | Policy | Storage and behavior | Intended use |
 | --- | --- | --- |
-| `DIRECT` | No retained message slot; run one callback in consumer context. | Commands consumed immediately. |
-| `LATEST` | Decode/copy into one caller-supplied snapshot and increment a generation counter; a newer value coalesces an unread older value. | Control setpoints and telemetry where freshness wins over history. |
+| `DIRECT` | Run the generated typed callback in consumer context without retaining the decoded value. | Commands consumed immediately. |
+| `LATEST` | Decode directly into a caller-supplied three-slot SPSC mailbox claim; a newer value coalesces an unread older value. | Control setpoints and telemetry where freshness wins over history. |
 | `FIFO` | Decode/copy into a caller-supplied bounded ring; full policy and drop counter are explicit. | Events for which order and multiplicity matter. |
-| `RPC` | Decode into or correlate with a fixed transaction/response slot. | Requests, responses, and application status. |
+| `RPC` | Route decoded operation metadata into fixed client/server slots. | Requests, responses, and application status. |
 
 `LATEST` is deliberately not a core RX behavior. Wirelink still validates and
 delivers accepted messages in order; coalescing occurs only after decode at the
-application boundary. Cross-thread snapshots require a C11-atomic generation
-protocol or a platform critical section. Volatile plus compiler barriers is
-not a supported synchronization scheme.
+application boundary. `wirelink/latest.h` uses a lock-free C11-atomic
+front/middle/back ownership exchange so a non-atomic typed value can be read
+without tearing. It reports `WL_ERR_NOT_SUPPORTED` when the required atomics
+are not lock-free. Volatile plus compiler barriers is not a supported
+synchronization scheme.
 
 Generated fixed arrays are copied into their inline destination arrays.
 Borrowed variable-length fields cannot be retained by `LATEST`, `FIFO`, or
@@ -103,14 +107,14 @@ copy policy.
 
 ## 4. RPC and application completion
 
-RPC is expressed by paired WLC messages and a generated service descriptor;
-it is not encoded in the Wirelink header. Every RPC request and response has a
-nonzero `uint32` operation ID. Zero is reserved for messages that are not
-correlated operations. The operation ID is unique among the caller's active
-slots for one peer context and is not reused until the old slot and any
-response-cache entry have expired.
+RPC is expressed by paired WLC messages and explicit application/runtime
+configuration; it is not encoded in the Wirelink header. Every RPC request and
+response carries a nonzero `uint32` operation ID. Zero is reserved for messages
+that are not correlated operations. The operation ID is unique among the
+caller's retained slots for one peer context and is not reused while the peer
+may still retain its response-cache entry.
 
-A service declaration fixes:
+A service binding fixes:
 
 - request and response message IDs;
 - whether the request and response use reliable or unreliable DATA;
@@ -131,14 +135,23 @@ FREE -> QUEUED -> LINK_PENDING -> WAIT_RESPONSE -> COMPLETED
 `LINK_PENDING` finishes when the Wirelink TX transaction finishes. A link
 success advances to `WAIT_RESPONSE`; it never manufactures an application
 success. An unreliable request may enter `WAIT_RESPONSE` after local TX
-completion, but its result explicitly lacks link-delivery confirmation.
+completion, but its result explicitly lacks link-delivery confirmation. An
+exact application response may arrive while the reliable request is still
+`LINK_PENDING`; it is accepted as stronger evidence of execution, completes
+the RPC with link confirmation unset, and leaves the independent core TX
+handle for the caller to cancel/drain and finally `wl_tx_take()`.
 
-The server handler returns one of three dispositions:
+`wl_rpc_server_begin()` classifies a request before the application handler
+runs:
 
-- `COMPLETE`: send a response/status now;
-- `PENDING`: retain only the operation metadata needed for a later explicit
-  completion call; or
-- `REJECTED`: send a declared application error without running the action.
+- `NEW` reserves bounded pending metadata and permits one execution;
+- `PENDING_DUPLICATE` suppresses re-execution;
+- `REPLAY` returns the cached response bytes; and
+- `CONFLICT` reports reuse of an operation ID by a different request identity.
+
+The application can complete or reject a `NEW` operation immediately, retain
+it for later asynchronous completion, or explicitly abandon its pending
+metadata.
 
 Cancellation is best effort. It stops local waiting and may send a generated
 cancel message, but cannot retract a request already delivered to the peer.
@@ -179,9 +192,10 @@ request, a router must not claim application acceptance merely because the
 link already acknowledged storage; it returns a declared busy/error response
 or applies the service's documented retry policy.
 
-Future APIs should provide standalone application requirement structures and
-query functions. They must not append fields to the frozen `wl_config_t`,
-`wl_storage_t`, or `wl_event_t` structures.
+Application facilities use standalone configuration/storage structures and,
+where computed alignment is needed, requirement queries. Future FIFO, command
+queue, and transfer APIs must follow the same pattern and must not append
+fields to the frozen `wl_config_t`, `wl_storage_t`, or `wl_event_t` structures.
 
 ## 6. Error and health domains
 

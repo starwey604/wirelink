@@ -6,6 +6,8 @@
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
 #include <wirelink/frame.h>
+#include <wirelink/latest.h>
+#include <wirelink/rpc.h>
 #include <wirelink/span.h>
 #include <wirelink/types.h>
 #include <wirelink/version.h>
@@ -31,6 +33,25 @@ _Static_assert(sizeof(wl_sink_result_t) == sizeof(int32_t),
                "public sink ABI must not depend on -fshort-enums");
 _Static_assert(sizeof(wl_codec_status_t) == sizeof(int32_t),
                "public codec ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_rpc_err_t) == sizeof(int32_t),
+               "public RPC ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_rpc_client_state_t) == sizeof(int32_t),
+               "public RPC state ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_rpc_cache_policy_t) == sizeof(int32_t),
+               "public RPC cache ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_rpc_server_disposition_t) == sizeof(int32_t),
+               "public RPC server ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_latest_t) == WL_LATEST_CONTEXT_STORAGE_SIZE,
+               "public LATEST context size changed");
+_Static_assert(sizeof(wl_rpc_client_t) == WL_RPC_CLIENT_STORAGE_SIZE &&
+                   sizeof(wl_rpc_client_slot_t) ==
+                       WL_RPC_CLIENT_SLOT_STORAGE_SIZE &&
+                   sizeof(wl_rpc_server_t) == WL_RPC_SERVER_STORAGE_SIZE &&
+                   sizeof(wl_rpc_server_pending_slot_t) ==
+                       WL_RPC_SERVER_PENDING_SLOT_STORAGE_SIZE &&
+                   sizeof(wl_rpc_server_cache_slot_t) ==
+                       WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE,
+               "public RPC opaque storage size changed");
 _Static_assert(sizeof(wl_poll_hint_t) == 8U &&
                    _Alignof(wl_poll_hint_t) == _Alignof(uint32_t) &&
                    offsetof(wl_poll_hint_t, work_pending) == 0U &&
@@ -185,6 +206,29 @@ int main(void) {
       .rx_fallback = rx_fallback,
       .rx_fallback_size = sizeof(rx_fallback),
   };
+  wl_latest_t latest = {0};
+  uint32_t latest_slots[WL_LATEST_SLOT_COUNT] = {0};
+  const wl_latest_config_t latest_config = {
+      .value_size = sizeof(latest_slots[0]),
+      .value_alignment = _Alignof(uint32_t),
+  };
+  const wl_latest_storage_t latest_storage = {
+      .data = latest_slots,
+      .size = sizeof(latest_slots),
+  };
+  wl_latest_write_claim_t latest_claim = {0};
+  wl_latest_view_t latest_view = {0};
+  wl_rpc_client_t rpc_client = {0};
+  wl_rpc_client_slot_t rpc_slots[1] = {0};
+  uint8_t rpc_responses[8] = {0};
+  const wl_rpc_client_config_t rpc_config = {
+      .slots = rpc_slots,
+      .slot_count = 1U,
+      .response_storage = rpc_responses,
+      .response_storage_size = sizeof(rpc_responses),
+      .response_capacity_per_slot = sizeof(rpc_responses),
+  };
+  uint32_t operation_id = 0U;
 
   if (WIRELINK_PROTOCOL_VERSION != WL_FRAME_VERSION ||
       wl_config_requirements(&config, &requirements) != WL_OK ||
@@ -200,7 +244,21 @@ int main(void) {
       observed.session_id != config.session_id ||
       observed.max_retries != config.max_retries ||
       observed.ack_timeout_ms != config.ack_timeout_ms ||
-      observed.max_transmission_unit != config.max_transmission_unit) {
+      observed.max_transmission_unit != config.max_transmission_unit ||
+      wl_latest_init(&latest, &latest_config, &latest_storage) != WL_OK ||
+      wl_latest_write_claim(&latest, &latest_claim) != WL_OK) {
+    return 1;
+  }
+
+  *(uint32_t *)latest_claim.value = UINT32_C(0x574c); /* "WL" */
+  if (wl_latest_write_publish(&latest, &latest_claim) != WL_OK ||
+      wl_latest_read_acquire(&latest, &latest_view) != WL_OK ||
+      *(const uint32_t *)latest_view.value != UINT32_C(0x574c) ||
+      wl_latest_read_release(&latest, &latest_view) != WL_OK ||
+      wl_rpc_client_init(&rpc_client, &rpc_config) != WL_RPC_OK ||
+      wl_rpc_client_begin(&rpc_client, 1U, 2U, 10U, 0U, &operation_id) !=
+          WL_RPC_OK ||
+      operation_id == 0U) {
     return 1;
   }
   return 0;

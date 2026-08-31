@@ -17,7 +17,9 @@ set(WIRELINK_SOURCES
   src/crc.c
   src/frame.c
   src/init.c
+  src/latest.c
   src/protocol.c
+  src/rpc.c
   src/rx_ring_bipbuf.c
   src/schedule.c
   src/transport.c
@@ -161,6 +163,8 @@ if(WIRELINK_INSTALL)
     include/wirelink/codec.h
     include/wirelink/crc.h
     include/wirelink/frame.h
+    include/wirelink/latest.h
+    include/wirelink/rpc.h
     include/wirelink/span.h
     include/wirelink/types.h
     include/wirelink/version.h

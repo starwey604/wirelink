@@ -6,6 +6,19 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### Typed application runtime
+
+- Added separately linkable WLC-generated typed routers, scratch send
+  wrappers, and a native-packet claim/encode/commit path; valid RX events are
+  released exactly once across success and every routing failure domain.
+- Added an allocation-free lock-free SPSC `LATEST` mailbox with three-slot
+  ownership transfer, stable borrowed reads, direct decode into write claims,
+  coalescing counters, and generation wrap coverage.
+- Added a caller-sized RPC client/server runtime that keeps link delivery
+  separate from application completion and supports asynchronous completion,
+  deadlines, cancellation, duplicate suppression, response replay, and
+  explicit cache policy.
+
 ### API and protocol hardening
 
 - Made every public enum-like type explicitly `int32_t`, recorded the Linux

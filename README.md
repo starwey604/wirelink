@@ -15,8 +15,10 @@ and remaining pre-1.0 API decisions are in
 
 Platform adapters currently cover Zephyr asynchronous UART DMA plus Astrial
 serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C
-codecs turn typed schemas into payloads while preserving borrowed `string` and
-`bytes` fields on decode.
+codecs and bindings turn typed schemas into payloads, route borrowed RX events,
+and submit typed messages. Allocation-free `LATEST` and RPC runtimes retain
+fresh control snapshots and correlate application completion above the frozen
+v1 link header.
 
 ## Build the core
 
@@ -131,13 +133,17 @@ checked-in generated C artifacts live under
 - allocation-free nested and repeated message encoding;
 - native IEEE `float32`/`float64` values and inline packed numeric arrays;
 - a 30-element binary32 control vector encoded in 122 payload bytes;
+- separately linkable typed dispatch and send bindings;
 - Wirelink transmission over the Astrial serial adapter;
 - in-place event decode with borrowed `string` and `bytes` fields; and
 - old/new decoder behavior plus deterministic malformed-input errors.
 
-The boundary for generated dispatch, latest-value delivery, application RPC,
-thread ownership, explicit stream multiplexing, and future bulk transfers is
-defined in
+The implemented generated-dispatch, latest-value, and application-RPC
+interfaces are described by
+[`docs/latest-mailbox.md`](docs/latest-mailbox.md) and
+[`docs/rpc-runtime.md`](docs/rpc-runtime.md). Their common boundary with thread
+ownership, explicit stream multiplexing, and future bulk transfers is defined
+in
 [`docs/application-layer.md`](docs/application-layer.md). A Wirelink ACK is a
 link-delivery result; application completion always uses an explicit typed
 response or status message.

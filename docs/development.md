@@ -16,9 +16,12 @@ Run its focused checks from the repository root with:
 cargo test --manifest-path wlc/Cargo.toml
 ```
 
-Generated headers expose allocation-free clear, encoded-size, encode, and
-decode functions. Generated sources compile as ISO C11 against
-`wirelink/codec.h`; no Rust runtime is present on the target.
+WLC emits a codec pair (`<module>.h/.c`) and an optional binding pair
+(`<module>_bindings.h/.c`). The codec exposes allocation-free clear,
+encoded-size, encode, and decode functions and depends only on
+`wirelink/codec.h`. The separately linkable binding translation unit adds
+typed routing, scratch sends, and native direct sends against the public core
+API. Both compile as ISO C11; no Rust runtime is present on the target.
 
 `wlc` uses `miette` for source-aware user diagnostics, `thiserror` for typed
 library errors, `clap` for its CLI, and `insta` for future reviewed codegen
@@ -391,11 +394,13 @@ top-level CMake.
 
 ## Application-layer extensions
 
-Typed routers and session runtimes are built above the core rather than into
-adapter callbacks. Their callback lifetime, latest-value, RPC, threading,
-multiplexing, and storage rules are frozen in
+Typed routers, the SPSC `LATEST` mailbox, and the RPC client/server runtime are
+built above the core rather than into adapter callbacks. Their callback
+lifetime, threading, multiplexing, and storage rules are frozen in
 [`application-layer.md`](application-layer.md). New implementations must keep
 the core's single-consumer state machine and borrowed-event ownership intact.
+FIFO delivery, cross-thread command queues, and bulk object transfer remain
+future application-layer modules, not fields in the v1 link header.
 
 ## Integration platform matrix
 

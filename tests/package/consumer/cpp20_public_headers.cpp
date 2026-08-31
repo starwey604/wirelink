@@ -5,6 +5,8 @@
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
 #include <wirelink/frame.h>
+#include <wirelink/latest.h>
+#include <wirelink/rpc.h>
 #include <wirelink/span.h>
 #include <wirelink/types.h>
 #include <wirelink/version.h>
@@ -18,11 +20,27 @@ static_assert(__cplusplus >= 202002L);
 static_assert(std::is_standard_layout_v<wl_codec_bytes_t>);
 static_assert(std::is_standard_layout_v<wl_frame_view_t>);
 static_assert(std::is_standard_layout_v<wl_event_t>);
+static_assert(std::is_standard_layout_v<wl_latest_t>);
+static_assert(std::is_standard_layout_v<wl_latest_view_t>);
+static_assert(std::is_standard_layout_v<wl_rpc_client_t>);
+static_assert(std::is_standard_layout_v<wl_rpc_client_result_t>);
 static_assert(std::is_standard_layout_v<wl_poll_hint_t>);
 static_assert(sizeof(wl_poll_hint_t) == 8U);
 static_assert(alignof(wl_poll_hint_t) == alignof(std::uint32_t));
 static_assert(sizeof(wl_codec_status_t) == sizeof(std::int32_t));
 static_assert(sizeof(wl_err_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_rpc_err_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_rpc_client_state_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_rpc_cache_policy_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_rpc_server_disposition_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_latest_t) == WL_LATEST_CONTEXT_STORAGE_SIZE);
+static_assert(sizeof(wl_rpc_client_t) == WL_RPC_CLIENT_STORAGE_SIZE);
+static_assert(sizeof(wl_rpc_client_slot_t) == WL_RPC_CLIENT_SLOT_STORAGE_SIZE);
+static_assert(sizeof(wl_rpc_server_t) == WL_RPC_SERVER_STORAGE_SIZE);
+static_assert(sizeof(wl_rpc_server_pending_slot_t) ==
+              WL_RPC_SERVER_PENDING_SLOT_STORAGE_SIZE);
+static_assert(sizeof(wl_rpc_server_cache_slot_t) ==
+              WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE);
 
 int main() {
   constexpr std::uint8_t input[] = {0x00U, 0x57U, 0x4CU};
