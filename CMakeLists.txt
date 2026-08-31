@@ -166,6 +166,7 @@ if(WIRELINK_INSTALL)
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
   install(FILES
+    include/wirelink/bulk.h
     include/wirelink/cobs.h
     include/wirelink/codec.h
     include/wirelink/crc.h
