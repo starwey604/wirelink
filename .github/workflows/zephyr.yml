@@ -46,3 +46,36 @@ jobs:
           -p qemu_x86_64
           --inline-logs
           --outdir twister-out
+
+  usb-bulk-esp32s3:
+    name: USB bulk sample (ESP32-S3 build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Wirelink
+        uses: actions/checkout@v4
+        with:
+          path: wirelink
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Zephyr workspace
+        uses: zephyrproject-rtos/action-zephyr-setup@v1
+        with:
+          app-path: wirelink
+          toolchains: xtensa-espressif_esp32s3_zephyr-elf
+          ccache-cache-key: usb-bulk-esp32s3
+
+      - name: Build normal and CPU telemetry samples
+        run: >-
+          west twister
+          -T wirelink/samples/zephyr/usb_bulk
+          -p esp32s3_devkitc/esp32s3/procpu
+          -s sample.wirelink.usb_bulk
+          -s sample.wirelink.usb_bulk.cpu_stats
+          --build-only
+          --inline-logs
+          --outdir twister-usb-bulk-out
