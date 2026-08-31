@@ -1,0 +1,89 @@
+# Allocation-free RPC runtime
+
+`wirelink/rpc.h` correlates application requests and responses without adding
+fields to the Wirelink v1 header. WLC-generated bindings still own the payload
+schema: they encode/decode the nonzero `uint32_t` operation ID, application
+status, request fingerprint, and service-specific payload.
+
+The runtime owns no heap memory and has no hidden locks. Client slots, server
+pending/cache slots, and bounded response byte storage are supplied by the
+caller. All calls belong to the same single consumer that owns its
+`wl_ctx_t`; generated handlers may route decoded responses into that consumer
+but must not call a context recursively.
+
+## Client lifecycle
+
+`wl_rpc_client_begin()` reserves a slot and starts its end-to-end deadline.
+The deadline covers time in `QUEUED`, `LINK_PENDING`, and `WAIT_RESPONSE`, not
+just response time. A timeout of zero disables deadline expiry. Every nonzero
+timeout must be less than `2^31` milliseconds so unsigned subtraction remains
+wrap-safe.
+
+`wl_rpc_client_get_deadline_hint()` and
+`wl_rpc_server_get_deadline_hint()` are side-effect-free. They return the
+nearest relative application deadline (`0` when due and `UINT32_MAX` when no
+deadline exists). The consumer can take the minimum of these values and the
+core `wl_poll_get_hint()` deadline before sleeping; only `poll()` advances RPC
+state or removes expired server entries.
+
+After encoding and sending a reliable request, bind its `wl_tx_handle_t` with
+`wl_rpc_client_bind_tx()` and route its terminal TX event through
+`wl_rpc_client_on_tx_event()`. `WL_EVT_TX_SUCCESS` enters `WAIT_RESPONSE` and
+sets `link_delivery_confirmed` to one. It does not complete the RPC. The caller
+must still call `wl_tx_take()` to release the terminal core transaction.
+
+For an unreliable request, or a send wrapper with no correlatable TX handle,
+call `wl_rpc_client_tx_completed()` after local submission succeeds. It enters
+`WAIT_RESPONSE` with `link_delivery_confirmed` zero. An exact response received
+in `LINK_PENDING` is also accepted because application completion is stronger
+evidence than ordering of a separate ACK/TX event. It completes the RPC while
+retaining the TX handle and leaves `link_delivery_confirmed` zero. A response
+in `QUEUED`, before any send has been bound or locally completed, is rejected.
+The caller must independently cancel or drain/take the remaining core TX.
+It must preserve or act on the retained handle before releasing the RPC slot.
+
+Responses require an exact operation ID and response message ID. Bytes are
+copied into that slot's fixed response segment and remain valid until
+`wl_rpc_client_release()`. A zero application status enters `COMPLETED`; a
+nonzero service status enters `APPLICATION_ERROR`. Oversize responses also
+enter `APPLICATION_ERROR`, with `runtime_error` set to
+`WL_RPC_ERR_RESPONSE_TOO_LARGE`.
+
+Cancellation only stops local waiting. Inspect the result before cancellation
+to obtain any bound TX handle and optionally call `wl_tx_cancel()`; products
+may also emit a generated cancel message. A late completion after cancellation
+is rejected. Terminal slots and their operation IDs remain retained until
+explicit release.
+
+Likewise, an RPC deadline does not release a bound core transaction. On
+`TIMED_OUT`, the caller should request `wl_tx_cancel()` if it is still active
+and must eventually call `wl_tx_take()` after the core transaction reaches a
+terminal state.
+
+Auto-generated IDs advance monotonically and skip locally retained slots.
+Callers that provide IDs explicitly must also avoid reuse while the peer may
+still hold a response-cache entry.
+
+## Server duplicate and replay policy
+
+`wl_rpc_server_begin()` compares all identity fields: operation ID, request and
+response message IDs, and the caller-produced canonical-request fingerprint.
+The fingerprint's collision quality is a product/schema responsibility.
+
+- `NEW` reserves pending metadata and permits handler execution.
+- `PENDING_DUPLICATE` suppresses re-execution of an identical active request.
+- `REPLAY` returns bounded cached response bytes for immediate re-encoding.
+- `CONFLICT` reports reuse of the operation ID with any different identity.
+
+`complete()` and `reject()` finish an asynchronous operation and cache the
+result. With `WL_RPC_CACHE_REJECT_NEW`, a full cache leaves the operation
+pending so the caller can retry completion after expiry or abandon it. With
+`WL_RPC_CACHE_EVICT_OLDEST`, completion replaces the oldest generation; age
+comparison remains valid across the generation counter wrap. A replay pointer
+is borrowed only until the next server mutation or poll that may expire or
+evict its slot.
+
+Pending timeout and cache TTL are independently wrap-safe. Zero disables each
+expiry. Eviction, expiry, or process restart ends replay protection, so this is
+not durable exactly-once execution; non-idempotent products need a persistent
+operation key or an idempotent handler.
