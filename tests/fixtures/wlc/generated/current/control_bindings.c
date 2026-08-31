@@ -148,6 +148,136 @@ control_dispatch_result_t control_dispatch_event(wl_ctx_t *ctx, const wl_event_t
       result.domain = CONTROL_DISPATCH_OK;
       control_count(&router->counters.delivered);
       break;
+    case BULK_BEGIN_MESSAGE_ID:
+      if (router == NULL || router->bulk_begin.handler == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_ROUTE;
+        if (router != NULL) control_count(&router->counters.missing_route);
+        break;
+      }
+      if (router->bulk_begin.scratch == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_SCRATCH;
+        control_count(&router->counters.missing_scratch);
+        break;
+      }
+      result.codec_status = bulk_begin_decode(event->payload, event->payload_len, router->bulk_begin.scratch);
+      if (result.codec_status != WL_CODEC_OK) {
+        result.domain = CONTROL_DISPATCH_CODEC_ERROR;
+        control_count(&router->counters.codec_failure);
+        break;
+      }
+      result.handler_result = router->bulk_begin.handler(router->bulk_begin.user_data, router->bulk_begin.scratch, event->type == WL_EVT_RELIABLE_RX ? WL_DELIVERY_RELIABLE : WL_DELIVERY_UNRELIABLE);
+      if (result.handler_result != 0) {
+        result.domain = CONTROL_DISPATCH_HANDLER_ERROR;
+        control_count(&router->counters.handler_failure);
+        break;
+      }
+      result.domain = CONTROL_DISPATCH_OK;
+      control_count(&router->counters.delivered);
+      break;
+    case BULK_CHUNK_MESSAGE_ID:
+      if (router == NULL || router->bulk_chunk.handler == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_ROUTE;
+        if (router != NULL) control_count(&router->counters.missing_route);
+        break;
+      }
+      if (router->bulk_chunk.scratch == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_SCRATCH;
+        control_count(&router->counters.missing_scratch);
+        break;
+      }
+      result.codec_status = bulk_chunk_decode(event->payload, event->payload_len, router->bulk_chunk.scratch);
+      if (result.codec_status != WL_CODEC_OK) {
+        result.domain = CONTROL_DISPATCH_CODEC_ERROR;
+        control_count(&router->counters.codec_failure);
+        break;
+      }
+      result.handler_result = router->bulk_chunk.handler(router->bulk_chunk.user_data, router->bulk_chunk.scratch, event->type == WL_EVT_RELIABLE_RX ? WL_DELIVERY_RELIABLE : WL_DELIVERY_UNRELIABLE);
+      if (result.handler_result != 0) {
+        result.domain = CONTROL_DISPATCH_HANDLER_ERROR;
+        control_count(&router->counters.handler_failure);
+        break;
+      }
+      result.domain = CONTROL_DISPATCH_OK;
+      control_count(&router->counters.delivered);
+      break;
+    case BULK_END_MESSAGE_ID:
+      if (router == NULL || router->bulk_end.handler == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_ROUTE;
+        if (router != NULL) control_count(&router->counters.missing_route);
+        break;
+      }
+      if (router->bulk_end.scratch == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_SCRATCH;
+        control_count(&router->counters.missing_scratch);
+        break;
+      }
+      result.codec_status = bulk_end_decode(event->payload, event->payload_len, router->bulk_end.scratch);
+      if (result.codec_status != WL_CODEC_OK) {
+        result.domain = CONTROL_DISPATCH_CODEC_ERROR;
+        control_count(&router->counters.codec_failure);
+        break;
+      }
+      result.handler_result = router->bulk_end.handler(router->bulk_end.user_data, router->bulk_end.scratch, event->type == WL_EVT_RELIABLE_RX ? WL_DELIVERY_RELIABLE : WL_DELIVERY_UNRELIABLE);
+      if (result.handler_result != 0) {
+        result.domain = CONTROL_DISPATCH_HANDLER_ERROR;
+        control_count(&router->counters.handler_failure);
+        break;
+      }
+      result.domain = CONTROL_DISPATCH_OK;
+      control_count(&router->counters.delivered);
+      break;
+    case BULK_ABORT_MESSAGE_ID:
+      if (router == NULL || router->bulk_abort.handler == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_ROUTE;
+        if (router != NULL) control_count(&router->counters.missing_route);
+        break;
+      }
+      if (router->bulk_abort.scratch == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_SCRATCH;
+        control_count(&router->counters.missing_scratch);
+        break;
+      }
+      result.codec_status = bulk_abort_decode(event->payload, event->payload_len, router->bulk_abort.scratch);
+      if (result.codec_status != WL_CODEC_OK) {
+        result.domain = CONTROL_DISPATCH_CODEC_ERROR;
+        control_count(&router->counters.codec_failure);
+        break;
+      }
+      result.handler_result = router->bulk_abort.handler(router->bulk_abort.user_data, router->bulk_abort.scratch, event->type == WL_EVT_RELIABLE_RX ? WL_DELIVERY_RELIABLE : WL_DELIVERY_UNRELIABLE);
+      if (result.handler_result != 0) {
+        result.domain = CONTROL_DISPATCH_HANDLER_ERROR;
+        control_count(&router->counters.handler_failure);
+        break;
+      }
+      result.domain = CONTROL_DISPATCH_OK;
+      control_count(&router->counters.delivered);
+      break;
+    case BULK_STATUS_MESSAGE_ID:
+      if (router == NULL || router->bulk_status.handler == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_ROUTE;
+        if (router != NULL) control_count(&router->counters.missing_route);
+        break;
+      }
+      if (router->bulk_status.scratch == NULL) {
+        result.domain = CONTROL_DISPATCH_MISSING_SCRATCH;
+        control_count(&router->counters.missing_scratch);
+        break;
+      }
+      result.codec_status = bulk_status_decode(event->payload, event->payload_len, router->bulk_status.scratch);
+      if (result.codec_status != WL_CODEC_OK) {
+        result.domain = CONTROL_DISPATCH_CODEC_ERROR;
+        control_count(&router->counters.codec_failure);
+        break;
+      }
+      result.handler_result = router->bulk_status.handler(router->bulk_status.user_data, router->bulk_status.scratch, event->type == WL_EVT_RELIABLE_RX ? WL_DELIVERY_RELIABLE : WL_DELIVERY_UNRELIABLE);
+      if (result.handler_result != 0) {
+        result.domain = CONTROL_DISPATCH_HANDLER_ERROR;
+        control_count(&router->counters.handler_failure);
+        break;
+      }
+      result.domain = CONTROL_DISPATCH_OK;
+      control_count(&router->counters.delivered);
+      break;
     default:
       result.domain = CONTROL_DISPATCH_UNKNOWN_MESSAGE;
       if (router != NULL) control_count(&router->counters.unknown_message);
@@ -343,6 +473,206 @@ control_send_result_t control_home_response_send_direct(wl_ctx_t *ctx, const hom
   result.core_result = wl_tx_payload_claim(ctx, HOME_RESPONSE_MESSAGE_ID, delivery, &claim);
   if (result.core_result != WL_OK) return result;
   result.codec_status = home_response_encode(message, claim.span.data, claim.span.length, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) {
+    result.domain = CONTROL_SEND_CODEC_ERROR;
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  if (result.core_result != WL_OK) {
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.domain = CONTROL_SEND_OK;
+  return result;
+}
+
+control_send_result_t control_bulk_begin_send_unreliable(wl_ctx_t *ctx, const bulk_begin_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_begin_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_unreliable(ctx, BULK_BEGIN_MESSAGE_ID, scratch.data, result.payload_length);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_begin_send_reliable(wl_ctx_t *ctx, const bulk_begin_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_begin_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_reliable(ctx, BULK_BEGIN_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_begin_send_direct(wl_ctx_t *ctx, const bulk_begin_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+  wl_tx_payload_claim_t claim = {0};
+  result.core_result = wl_tx_payload_claim(ctx, BULK_BEGIN_MESSAGE_ID, delivery, &claim);
+  if (result.core_result != WL_OK) return result;
+  result.codec_status = bulk_begin_encode(message, claim.span.data, claim.span.length, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) {
+    result.domain = CONTROL_SEND_CODEC_ERROR;
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  if (result.core_result != WL_OK) {
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.domain = CONTROL_SEND_OK;
+  return result;
+}
+
+control_send_result_t control_bulk_chunk_send_unreliable(wl_ctx_t *ctx, const bulk_chunk_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_chunk_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_unreliable(ctx, BULK_CHUNK_MESSAGE_ID, scratch.data, result.payload_length);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_chunk_send_reliable(wl_ctx_t *ctx, const bulk_chunk_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_chunk_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_reliable(ctx, BULK_CHUNK_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_chunk_send_direct(wl_ctx_t *ctx, const bulk_chunk_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+  wl_tx_payload_claim_t claim = {0};
+  result.core_result = wl_tx_payload_claim(ctx, BULK_CHUNK_MESSAGE_ID, delivery, &claim);
+  if (result.core_result != WL_OK) return result;
+  result.codec_status = bulk_chunk_encode(message, claim.span.data, claim.span.length, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) {
+    result.domain = CONTROL_SEND_CODEC_ERROR;
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  if (result.core_result != WL_OK) {
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.domain = CONTROL_SEND_OK;
+  return result;
+}
+
+control_send_result_t control_bulk_end_send_unreliable(wl_ctx_t *ctx, const bulk_end_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_end_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_unreliable(ctx, BULK_END_MESSAGE_ID, scratch.data, result.payload_length);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_end_send_reliable(wl_ctx_t *ctx, const bulk_end_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_end_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_reliable(ctx, BULK_END_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_end_send_direct(wl_ctx_t *ctx, const bulk_end_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+  wl_tx_payload_claim_t claim = {0};
+  result.core_result = wl_tx_payload_claim(ctx, BULK_END_MESSAGE_ID, delivery, &claim);
+  if (result.core_result != WL_OK) return result;
+  result.codec_status = bulk_end_encode(message, claim.span.data, claim.span.length, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) {
+    result.domain = CONTROL_SEND_CODEC_ERROR;
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  if (result.core_result != WL_OK) {
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.domain = CONTROL_SEND_OK;
+  return result;
+}
+
+control_send_result_t control_bulk_abort_send_unreliable(wl_ctx_t *ctx, const bulk_abort_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_abort_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_unreliable(ctx, BULK_ABORT_MESSAGE_ID, scratch.data, result.payload_length);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_abort_send_reliable(wl_ctx_t *ctx, const bulk_abort_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_abort_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_reliable(ctx, BULK_ABORT_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_abort_send_direct(wl_ctx_t *ctx, const bulk_abort_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+  wl_tx_payload_claim_t claim = {0};
+  result.core_result = wl_tx_payload_claim(ctx, BULK_ABORT_MESSAGE_ID, delivery, &claim);
+  if (result.core_result != WL_OK) return result;
+  result.codec_status = bulk_abort_encode(message, claim.span.data, claim.span.length, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) {
+    result.domain = CONTROL_SEND_CODEC_ERROR;
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  if (result.core_result != WL_OK) {
+    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    return result;
+  }
+  result.domain = CONTROL_SEND_OK;
+  return result;
+}
+
+control_send_result_t control_bulk_status_send_unreliable(wl_ctx_t *ctx, const bulk_status_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_status_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_unreliable(ctx, BULK_STATUS_MESSAGE_ID, scratch.data, result.payload_length);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_status_send_reliable(wl_ctx_t *ctx, const bulk_status_t *message, control_encode_scratch_t scratch) {
+  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
+  result.codec_status = bulk_status_encode(message, scratch.data, scratch.capacity, &result.payload_length);
+  if (result.codec_status != WL_CODEC_OK) return result;
+  result.core_called = 1U;
+  result.core_result = wl_send_reliable(ctx, BULK_STATUS_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
+  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
+  return result;
+}
+
+control_send_result_t control_bulk_status_send_direct(wl_ctx_t *ctx, const bulk_status_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+  wl_tx_payload_claim_t claim = {0};
+  result.core_result = wl_tx_payload_claim(ctx, BULK_STATUS_MESSAGE_ID, delivery, &claim);
+  if (result.core_result != WL_OK) return result;
+  result.codec_status = bulk_status_encode(message, claim.span.data, claim.span.length, &result.payload_length);
   if (result.codec_status != WL_CODEC_OK) {
     result.domain = CONTROL_SEND_CODEC_ERROR;
     result.abort_result = wl_tx_payload_abort(ctx, &claim);

@@ -95,12 +95,52 @@ typedef struct {
   void *user_data;
 } control_home_response_route_t;
 
+typedef int32_t (*control_bulk_begin_handler_fn)(void *user_data, const bulk_begin_t *message, wl_delivery_t delivery);
+typedef struct {
+  bulk_begin_t *scratch;
+  control_bulk_begin_handler_fn handler;
+  void *user_data;
+} control_bulk_begin_route_t;
+
+typedef int32_t (*control_bulk_chunk_handler_fn)(void *user_data, const bulk_chunk_t *message, wl_delivery_t delivery);
+typedef struct {
+  bulk_chunk_t *scratch;
+  control_bulk_chunk_handler_fn handler;
+  void *user_data;
+} control_bulk_chunk_route_t;
+
+typedef int32_t (*control_bulk_end_handler_fn)(void *user_data, const bulk_end_t *message, wl_delivery_t delivery);
+typedef struct {
+  bulk_end_t *scratch;
+  control_bulk_end_handler_fn handler;
+  void *user_data;
+} control_bulk_end_route_t;
+
+typedef int32_t (*control_bulk_abort_handler_fn)(void *user_data, const bulk_abort_t *message, wl_delivery_t delivery);
+typedef struct {
+  bulk_abort_t *scratch;
+  control_bulk_abort_handler_fn handler;
+  void *user_data;
+} control_bulk_abort_route_t;
+
+typedef int32_t (*control_bulk_status_handler_fn)(void *user_data, const bulk_status_t *message, wl_delivery_t delivery);
+typedef struct {
+  bulk_status_t *scratch;
+  control_bulk_status_handler_fn handler;
+  void *user_data;
+} control_bulk_status_route_t;
+
 typedef struct {
   control_joint_command_route_t joint_command;
   control_arm_command_route_t arm_command;
   control_arm_mit_command_route_t arm_mit_command;
   control_home_request_route_t home_request;
   control_home_response_route_t home_response;
+  control_bulk_begin_route_t bulk_begin;
+  control_bulk_chunk_route_t bulk_chunk;
+  control_bulk_end_route_t bulk_end;
+  control_bulk_abort_route_t bulk_abort;
+  control_bulk_status_route_t bulk_status;
   control_dispatch_counters_t counters;
 } control_router_t;
 
@@ -125,6 +165,26 @@ control_send_result_t control_home_request_send_direct(wl_ctx_t *ctx, const home
 control_send_result_t control_home_response_send_unreliable(wl_ctx_t *ctx, const home_response_t *message, control_encode_scratch_t scratch);
 control_send_result_t control_home_response_send_reliable(wl_ctx_t *ctx, const home_response_t *message, control_encode_scratch_t scratch);
 control_send_result_t control_home_response_send_direct(wl_ctx_t *ctx, const home_response_t *message, wl_delivery_t delivery);
+
+control_send_result_t control_bulk_begin_send_unreliable(wl_ctx_t *ctx, const bulk_begin_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_begin_send_reliable(wl_ctx_t *ctx, const bulk_begin_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_begin_send_direct(wl_ctx_t *ctx, const bulk_begin_t *message, wl_delivery_t delivery);
+
+control_send_result_t control_bulk_chunk_send_unreliable(wl_ctx_t *ctx, const bulk_chunk_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_chunk_send_reliable(wl_ctx_t *ctx, const bulk_chunk_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_chunk_send_direct(wl_ctx_t *ctx, const bulk_chunk_t *message, wl_delivery_t delivery);
+
+control_send_result_t control_bulk_end_send_unreliable(wl_ctx_t *ctx, const bulk_end_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_end_send_reliable(wl_ctx_t *ctx, const bulk_end_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_end_send_direct(wl_ctx_t *ctx, const bulk_end_t *message, wl_delivery_t delivery);
+
+control_send_result_t control_bulk_abort_send_unreliable(wl_ctx_t *ctx, const bulk_abort_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_abort_send_reliable(wl_ctx_t *ctx, const bulk_abort_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_abort_send_direct(wl_ctx_t *ctx, const bulk_abort_t *message, wl_delivery_t delivery);
+
+control_send_result_t control_bulk_status_send_unreliable(wl_ctx_t *ctx, const bulk_status_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_status_send_reliable(wl_ctx_t *ctx, const bulk_status_t *message, control_encode_scratch_t scratch);
+control_send_result_t control_bulk_status_send_direct(wl_ctx_t *ctx, const bulk_status_t *message, wl_delivery_t delivery);
 
 #ifdef __cplusplus
 }

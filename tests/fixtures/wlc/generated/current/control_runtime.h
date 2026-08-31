@@ -10,10 +10,12 @@
 extern "C" {
 #endif
 
-#define CONTROL_SCHEMA_IDENTITY UINT64_C(0x3E4D43CC60BB9E4E)
+#define CONTROL_SCHEMA_IDENTITY UINT64_C(0xDF068D2BF866427C)
 #define CONTROL_BINDING_PROFILE_IDENTITY UINT64_C(0x3BAB7A3869C4D89E)
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
+
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 2U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -33,12 +35,21 @@ enum {
   CONTROL_RUNTIME_INVALID_ARGUMENT
 };
 
+typedef uint8_t control_runtime_detail_kind_t;
+enum {
+  CONTROL_RUNTIME_DETAIL_NONE = 0,
+  CONTROL_RUNTIME_DETAIL_RETAINED = 1,
+  CONTROL_RUNTIME_DETAIL_RPC = 2
+};
+
 typedef struct {
-  control_runtime_domain_t domain;
-  uint16_t message_id;
-  wl_event_type_t event_type;
   wl_codec_status_t codec_status;
   int32_t storage_result;
+  int32_t abort_result;
+} control_runtime_retained_detail_t;
+
+typedef struct {
+  wl_codec_status_t codec_status;
   int32_t abort_result;
   wl_rpc_err_t rpc_result;
   int32_t core_result;
@@ -48,6 +59,23 @@ typedef struct {
   wl_tx_handle_t handle;
   size_t payload_length;
   wl_rpc_server_response_t server_response;
+} control_runtime_rpc_detail_t;
+
+typedef union {
+  control_runtime_retained_detail_t retained;
+  control_runtime_rpc_detail_t rpc;
+} control_runtime_detail_t;
+
+/* Inspect detail only through the member selected by detail_kind. domain
+ * classifies the outcome; zero-initialized unused detail fields retain their
+ * corresponding success values. */
+typedef struct {
+  control_runtime_domain_t domain;
+  wl_event_type_t event_type;
+  uint16_t message_id;
+  control_runtime_detail_kind_t detail_kind;
+  uint8_t _reserved;
+  control_runtime_detail_t detail;
 } control_runtime_result_t;
 
 /* The decoded request and borrowed fields are valid only for the callback.
@@ -70,6 +98,53 @@ typedef struct {
   wl_rpc_server_t *rpc_server;
   control_home_rpc_t home;
 } control_runtime_t;
+
+/* Static runtime assembly. requirements() validates every sizing field and
+ * reports the exact caller-owned byte storage needed by init(). Configuration
+ * and storage descriptors may be temporary; instance and storage must outlive
+ * all runtime activity and must not be copied after successful initialization. */
+typedef struct {
+  uint8_t _reserved;
+  uint32_t joint_command_fifo_capacity;
+  uint32_t arm_mit_command_latest_initial_generation;
+  uint8_t rpc_client_enabled;
+  uint16_t rpc_client_slot_count;
+  uint16_t rpc_client_response_capacity;
+  uint32_t rpc_client_next_operation_id;
+  uint8_t rpc_server_enabled;
+  uint16_t rpc_server_pending_slot_count;
+  uint16_t rpc_server_cache_slot_count;
+  uint16_t rpc_server_response_capacity;
+  uint32_t rpc_server_pending_timeout_ms;
+  uint32_t rpc_server_cache_ttl_ms;
+  wl_rpc_cache_policy_t rpc_server_cache_policy;
+  size_t home_canonical_request_capacity;
+  control_home_request_handler_fn home_request_handler;
+  void *home_user_data;
+} control_runtime_config_t;
+
+typedef struct {
+  size_t storage_size;
+  size_t storage_alignment;
+} control_runtime_requirements_t;
+
+typedef struct {
+  void *data;
+  size_t size;
+} control_runtime_storage_t;
+
+typedef struct {
+  control_runtime_t runtime;
+  wl_fifo_t joint_command_fifo;
+  wl_latest_t arm_mit_command_latest;
+  wl_rpc_client_t rpc_client;
+  wl_rpc_server_t rpc_server;
+  home_request_t home_request_scratch;
+  home_response_t home_response_scratch;
+} control_runtime_instance_t;
+
+int control_runtime_requirements(const control_runtime_config_t *config, control_runtime_requirements_t *out_requirements);
+int control_runtime_init(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage);
 
 /* Terminal consumer for RX events: with non-null ctx/event every RX
  * outcome releases the event exactly once. Do not chain another dispatcher

@@ -18,23 +18,32 @@ cargo run --manifest-path wlc/Cargo.toml -- \
 ```
 
 Do not edit files below `generated/` by hand. Each revision contains a pure
-codec pair (`control.h/.c`) and optional Wirelink core bindings
-(`control_bindings.h/.c`). The profiled current revision also contains the
-application runtime pair (`control_runtime.h/.c`). It claims caller-owned
+codec pair (`control.h/.c`), optional Wirelink core bindings
+(`control_bindings.h/.c`), and a reproducible `control_manifest.json` with its
+schema/profile identities, codegen ABI, and artifact digests. The profiled
+current revision also contains the application runtime pair
+(`control_runtime.h/.c`). It claims caller-owned
 LATEST or FIFO storage, decodes directly into the claimed slot, publishes only
 complete values, and releases each valid RX event. The current artifact drives
-the Astrial typed serial test and the application-runtime integration test. Both
-codec revisions are compiled independently by the Zephyr unit fixture to
-exercise forward/backward payload compatibility.
+the Astrial typed serial test, the application-runtime integration test, and
+the bulk-transfer integration test. Both codec revisions are compiled
+independently by the Zephyr unit fixture to exercise forward/backward payload
+compatibility.
 
-The current revision adds two independent application patterns. `ArmMitCommand`
-models a LATEST control stream: thirty inline `float32` values use one packed
-field and encode in 122 bytes when present. `HomeRequest`/`HomeResponse` model
-an RPC pair with an explicit application operation ID and result status.
+The current revision adds three independent application patterns.
+`ArmMitCommand` models a LATEST control stream: thirty inline `float32` values
+use one packed field and encode in 122 bytes when present.
+`HomeRequest`/`HomeResponse` model an RPC pair with an explicit application
+operation ID and result status. `BulkBegin`, `BulkChunk`, `BulkEnd`,
+`BulkAbort`, and `BulkStatus` are the additive messages used by Wirelink's
+sequential bulk runtime. IDs, chunk sizes, and object CRC32C values use
+`fixed32`; lengths and absolute offsets use `fixed64`; and Chunk data remains a
+borrowed `bytes` view that a synchronous route must consume before the RX event
+is released. Bulk messages deliberately have no retained profile entry.
 Zephyr tests verify IEEE bit preservation (including signed zero and a NaN
 payload), network byte order, scalar float encoding, strict packed length
 rejection, generated typed bindings, LATEST coalescing, and reliable FIFO
 ordering/full-queue behavior. The generated RPC runtime owns operation/handle
 correlation, canonical request deduplication, exact cached response replay, and
 response retention across RX release. The previous revision intentionally
-lacks these additive messages.
+lacks these additive messages and application patterns.

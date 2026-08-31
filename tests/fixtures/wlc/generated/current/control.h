@@ -22,6 +22,11 @@ typedef struct arm_command arm_command_t;
 typedef struct arm_mit_command arm_mit_command_t;
 typedef struct home_request home_request_t;
 typedef struct home_response home_response_t;
+typedef struct bulk_begin bulk_begin_t;
+typedef struct bulk_chunk bulk_chunk_t;
+typedef struct bulk_end bulk_end_t;
+typedef struct bulk_abort bulk_abort_t;
+typedef struct bulk_status bulk_status_t;
 
 typedef int32_t joint_mode_t;
 #define DISABLED INT32_C(0)
@@ -30,6 +35,24 @@ typedef int32_t joint_mode_t;
 typedef int32_t operation_status_t;
 #define OPERATION_OK INT32_C(0)
 #define OPERATION_REJECTED INT32_C(1)
+
+typedef int32_t control_bulk_phase_t;
+#define CONTROL_BULK_PHASE_NONE INT32_C(0)
+#define CONTROL_BULK_PHASE_BEGIN INT32_C(1)
+#define CONTROL_BULK_PHASE_CHUNK INT32_C(2)
+#define CONTROL_BULK_PHASE_END INT32_C(3)
+#define CONTROL_BULK_PHASE_ABORT INT32_C(4)
+
+typedef int32_t control_bulk_status_code_t;
+#define CONTROL_BULK_STATUS_OK INT32_C(0)
+#define CONTROL_BULK_STATUS_BUSY INT32_C(1)
+#define CONTROL_BULK_STATUS_OUT_OF_ORDER INT32_C(2)
+#define CONTROL_BULK_STATUS_CONFLICT INT32_C(3)
+#define CONTROL_BULK_STATUS_INVALID INT32_C(4)
+#define CONTROL_BULK_STATUS_WRITE_FAILED INT32_C(5)
+#define CONTROL_BULK_STATUS_INTEGRITY_FAILED INT32_C(6)
+#define CONTROL_BULK_STATUS_ABORTED INT32_C(7)
+#define CONTROL_BULK_STATUS_TIMED_OUT INT32_C(8)
 
 struct joint_command {
   bool has_position_bits;
@@ -83,6 +106,55 @@ struct home_response {
   operation_status_t status;
 };
 
+struct bulk_begin {
+  bool has_transfer_id;
+  uint32_t transfer_id;
+  bool has_total_length;
+  uint64_t total_length;
+  bool has_requested_chunk_size;
+  uint32_t requested_chunk_size;
+  bool has_object_crc32c;
+  uint32_t object_crc32c;
+};
+
+struct bulk_chunk {
+  bool has_transfer_id;
+  uint32_t transfer_id;
+  bool has_offset;
+  uint64_t offset;
+  bool has_data;
+  wl_codec_bytes_t data;
+};
+
+struct bulk_end {
+  bool has_transfer_id;
+  uint32_t transfer_id;
+  bool has_total_length;
+  uint64_t total_length;
+  bool has_object_crc32c;
+  uint32_t object_crc32c;
+};
+
+struct bulk_abort {
+  bool has_transfer_id;
+  uint32_t transfer_id;
+  bool has_reason;
+  int32_t reason;
+};
+
+struct bulk_status {
+  bool has_transfer_id;
+  uint32_t transfer_id;
+  bool has_phase;
+  control_bulk_phase_t phase;
+  bool has_code;
+  control_bulk_status_code_t code;
+  bool has_next_offset;
+  uint64_t next_offset;
+  bool has_accepted_chunk_size;
+  uint32_t accepted_chunk_size;
+};
+
 #define JOINT_COMMAND_MESSAGE_ID 2U
 void joint_command_clear(joint_command_t *value);
 size_t joint_command_encoded_size(const joint_command_t *value);
@@ -112,6 +184,36 @@ void home_response_clear(home_response_t *value);
 size_t home_response_encoded_size(const home_response_t *value);
 wl_codec_status_t home_response_encode(const home_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t home_response_decode(const uint8_t *input, size_t input_length, home_response_t *out);
+
+#define BULK_BEGIN_MESSAGE_ID 32U
+void bulk_begin_clear(bulk_begin_t *value);
+size_t bulk_begin_encoded_size(const bulk_begin_t *value);
+wl_codec_status_t bulk_begin_encode(const bulk_begin_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t bulk_begin_decode(const uint8_t *input, size_t input_length, bulk_begin_t *out);
+
+#define BULK_CHUNK_MESSAGE_ID 33U
+void bulk_chunk_clear(bulk_chunk_t *value);
+size_t bulk_chunk_encoded_size(const bulk_chunk_t *value);
+wl_codec_status_t bulk_chunk_encode(const bulk_chunk_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t bulk_chunk_decode(const uint8_t *input, size_t input_length, bulk_chunk_t *out);
+
+#define BULK_END_MESSAGE_ID 34U
+void bulk_end_clear(bulk_end_t *value);
+size_t bulk_end_encoded_size(const bulk_end_t *value);
+wl_codec_status_t bulk_end_encode(const bulk_end_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t bulk_end_decode(const uint8_t *input, size_t input_length, bulk_end_t *out);
+
+#define BULK_ABORT_MESSAGE_ID 35U
+void bulk_abort_clear(bulk_abort_t *value);
+size_t bulk_abort_encoded_size(const bulk_abort_t *value);
+wl_codec_status_t bulk_abort_encode(const bulk_abort_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t bulk_abort_decode(const uint8_t *input, size_t input_length, bulk_abort_t *out);
+
+#define BULK_STATUS_MESSAGE_ID 36U
+void bulk_status_clear(bulk_status_t *value);
+size_t bulk_status_encoded_size(const bulk_status_t *value);
+wl_codec_status_t bulk_status_encode(const bulk_status_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t bulk_status_decode(const uint8_t *input, size_t input_length, bulk_status_t *out);
 
 #ifdef __cplusplus
 }

@@ -70,6 +70,18 @@ static struct joint_fifo_fixture joint_fifo;
 static struct rpc_client_fixture rpc_client;
 static struct rpc_server_fixture rpc_server;
 
+static const control_runtime_retained_detail_t *
+retained_detail(const control_runtime_result_t *result) {
+  zassert_equal(result->detail_kind, CONTROL_RUNTIME_DETAIL_RETAINED);
+  return &result->detail.retained;
+}
+
+static const control_runtime_rpc_detail_t *
+rpc_detail(const control_runtime_result_t *result) {
+  zassert_equal(result->detail_kind, CONTROL_RUNTIME_DETAIL_RPC);
+  return &result->detail.rpc;
+}
+
 static wl_sink_result_t memory_sink(void *user_data, wl_io_token_t token,
                                     const uint8_t *data, size_t length) {
   struct endpoint *endpoint = user_data;
@@ -141,8 +153,8 @@ static void dispatch_latest(struct endpoint *endpoint, wl_time_ms_t now_ms) {
                                           &latest_fixture.runtime, now_ms);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(result.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
-  zassert_equal(result.storage_result, WL_OK);
-  zassert_equal(result.codec_status, WL_CODEC_OK);
+  zassert_equal(retained_detail(&result)->storage_result, WL_OK);
+  zassert_equal(retained_detail(&result)->codec_status, WL_CODEC_OK);
 }
 
 static void latest_init(void) {
@@ -302,13 +314,13 @@ ZTEST(wirelink_application_runtime,
   for (uint32_t sequence = 1U; sequence <= JOINT_FIFO_CAPACITY; ++sequence) {
     result = send_joint_reliable(sender, receiver, sequence, sequence * 2U);
     zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-    zassert_equal(result.storage_result, WL_OK);
-    zassert_equal(result.codec_status, WL_CODEC_OK);
+    zassert_equal(retained_detail(&result)->storage_result, WL_OK);
+    zassert_equal(retained_detail(&result)->codec_status, WL_CODEC_OK);
   }
 
   result = send_joint_reliable(sender, receiver, 4U, 8U);
   zassert_equal(result.domain, CONTROL_RUNTIME_STORAGE_ERROR);
-  zassert_equal(result.storage_result, WL_ERR_QUEUE_FULL);
+  zassert_equal(retained_detail(&result)->storage_result, WL_ERR_QUEUE_FULL);
 
   for (uint32_t sequence = 1U; sequence <= JOINT_FIFO_CAPACITY; ++sequence) {
     const joint_command_t *command;
@@ -456,7 +468,7 @@ static control_runtime_result_t send_request_copy(struct endpoint *client,
   terminal = finish_reliable_tx(client, &rpc_client.generated, now_ms + 1U,
                                 sent.handle);
   zassert_equal(terminal.domain, CONTROL_RUNTIME_NON_RX);
-  zassert_equal(terminal.rpc_result, WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(rpc_detail(&terminal)->rpc_result, WL_RPC_ERR_NOT_FOUND);
   return result;
 }
 
@@ -515,23 +527,24 @@ ZTEST(wirelink_application_runtime,
   result = control_home_client_start_direct(&client->ctx, &rpc_client.generated,
                                             &request, 100U, 0U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_result, WL_RPC_OK);
-  zassert_not_equal(result.handle, 0U);
-  zassert_not_equal(result.operation_id, 0U);
+  zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
+  zassert_not_equal(rpc_detail(&result)->handle, 0U);
+  zassert_not_equal(rpc_detail(&result)->operation_id, 0U);
   zassert_true(request.has_operation_id);
-  zassert_equal(request.operation_id, result.operation_id);
-  zassert_equal(wl_rpc_client_get(&rpc_client.runtime, result.operation_id,
+  zassert_equal(request.operation_id, rpc_detail(&result)->operation_id);
+  zassert_equal(wl_rpc_client_get(&rpc_client.runtime,
+                                  rpc_detail(&result)->operation_id,
                                   &client_result),
                 WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_LINK_PENDING);
-  zassert_equal(client_result.tx_handle, result.handle);
+  zassert_equal(client_result.tx_handle, rpc_detail(&result)->handle);
 
-  const wl_tx_handle_t request_handle = result.handle;
-  const uint32_t operation_id = result.operation_id;
+  const wl_tx_handle_t request_handle = rpc_detail(&result)->handle;
+  const uint32_t operation_id = rpc_detail(&result)->operation_id;
   result = dispatch_home_request(client, server, 1U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_NEW);
-  zassert_equal(result.operation_id, operation_id);
+  zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_NEW);
+  zassert_equal(rpc_detail(&result)->operation_id, operation_id);
   zassert_equal(rpc_server.handler_calls, 1U);
   zassert_equal(rpc_server.last_operation_id, operation_id);
   zassert_equal(rpc_server.last_joint_mask, request.joint_mask);
@@ -545,7 +558,7 @@ ZTEST(wirelink_application_runtime,
   terminal =
       finish_reliable_tx(client, &rpc_client.generated, 2U, request_handle);
   zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(terminal.rpc_result, WL_RPC_OK);
+  zassert_equal(rpc_detail(&terminal)->rpc_result, WL_RPC_OK);
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
       WL_RPC_OK);
@@ -554,15 +567,16 @@ ZTEST(wirelink_application_runtime,
 
   result = send_request_copy(client, server, &request, 3U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_PENDING_DUPLICATE);
+  zassert_equal(rpc_detail(&result)->rpc_disposition,
+                WL_RPC_SERVER_PENDING_DUPLICATE);
   zassert_equal(rpc_server.handler_calls, 1U);
 
   conflict = request;
   conflict.joint_mask ^= 1U;
   result = send_request_copy(client, server, &conflict, 5U);
   zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
-  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_CONFLICT);
-  zassert_equal(result.rpc_result, WL_RPC_ERR_OPERATION_CONFLICT);
+  zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_CONFLICT);
+  zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_OPERATION_CONFLICT);
   zassert_equal(rpc_server.handler_calls, 1U);
 
   home_response_clear(&response);
@@ -574,8 +588,8 @@ ZTEST(wirelink_application_runtime,
                                         },
                                         7U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_result, WL_RPC_OK);
-  zassert_not_equal(result.handle, 0U);
+  zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
+  zassert_not_equal(rpc_detail(&result)->handle, 0U);
   zassert_true(response.has_operation_id);
   zassert_equal(response.operation_id, operation_id);
   zassert_true(response.has_status);
@@ -584,20 +598,21 @@ ZTEST(wirelink_application_runtime,
                                      sizeof(expected_response),
                                      &expected_length),
                 WL_CODEC_OK);
-  zassert_equal(result.payload_length, expected_length);
-  zassert_equal(result.server_response.response_length, expected_length);
-  zassert_mem_equal(result.server_response.response_data, expected_response,
-                    expected_length);
-  memcpy(cached_response, result.server_response.response_data,
+  zassert_equal(rpc_detail(&result)->payload_length, expected_length);
+  zassert_equal(rpc_detail(&result)->server_response.response_length,
+                expected_length);
+  zassert_mem_equal(rpc_detail(&result)->server_response.response_data,
+                    expected_response, expected_length);
+  memcpy(cached_response, rpc_detail(&result)->server_response.response_data,
          expected_length);
 
-  const wl_tx_handle_t response_handle = result.handle;
+  const wl_tx_handle_t response_handle = rpc_detail(&result)->handle;
   result = receive_home_response(server, client, cached_response,
                                  expected_length, 8U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_result, WL_RPC_OK);
-  zassert_equal(result.operation_id, operation_id);
-  zassert_equal(result.application_result, OPERATION_OK);
+  zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
+  zassert_equal(rpc_detail(&result)->operation_id, operation_id);
+  zassert_equal(rpc_detail(&result)->application_result, OPERATION_OK);
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
       WL_RPC_OK);
@@ -611,18 +626,19 @@ ZTEST(wirelink_application_runtime,
 
   result = send_request_copy(client, server, &request, 10U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_REPLAY);
-  zassert_equal(result.application_result, OPERATION_OK);
-  zassert_equal(result.server_response.response_length, expected_length);
-  zassert_mem_equal(result.server_response.response_data, cached_response,
-                    expected_length);
+  zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(rpc_detail(&result)->application_result, OPERATION_OK);
+  zassert_equal(rpc_detail(&result)->server_response.response_length,
+                expected_length);
+  zassert_mem_equal(rpc_detail(&result)->server_response.response_data,
+                    cached_response, expected_length);
   zassert_equal(rpc_server.handler_calls, 1U);
 
-  const wl_tx_handle_t replay_handle = result.handle;
+  const wl_tx_handle_t replay_handle = rpc_detail(&result)->handle;
   result = receive_home_response(server, client, cached_response,
                                  expected_length, 12U);
   zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
-  zassert_equal(result.rpc_result, WL_RPC_ERR_INVALID_STATE);
+  zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_INVALID_STATE);
   finish_response_tx(client, server, replay_handle, 13U);
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
@@ -657,12 +673,12 @@ ZTEST(wirelink_application_runtime,
   result = control_home_client_start_direct(&client->ctx, &rpc_client.generated,
                                             &request, 100U, 20U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  const uint32_t operation_id = result.operation_id;
-  const wl_tx_handle_t request_handle = result.handle;
+  const uint32_t operation_id = rpc_detail(&result)->operation_id;
+  const wl_tx_handle_t request_handle = rpc_detail(&result)->handle;
 
   result = dispatch_home_request(client, server, 21U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_NEW);
+  zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_NEW);
   zassert_equal(rpc_server.handler_calls, 1U);
   terminal =
       finish_reliable_tx(client, &rpc_client.generated, 22U, request_handle);
@@ -678,24 +694,25 @@ ZTEST(wirelink_application_runtime,
                                  },
                                  23U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.application_result, OPERATION_REJECTED);
+  zassert_equal(rpc_detail(&result)->application_result, OPERATION_REJECTED);
   zassert_equal(response.operation_id, operation_id);
   zassert_equal(response.status, OPERATION_REJECTED);
   zassert_equal(home_response_encode(&response, expected_response,
                                      sizeof(expected_response),
                                      &expected_length),
                 WL_CODEC_OK);
-  zassert_equal(result.server_response.response_length, expected_length);
-  zassert_mem_equal(result.server_response.response_data, expected_response,
-                    expected_length);
-  memcpy(cached_response, result.server_response.response_data,
+  zassert_equal(rpc_detail(&result)->server_response.response_length,
+                expected_length);
+  zassert_mem_equal(rpc_detail(&result)->server_response.response_data,
+                    expected_response, expected_length);
+  memcpy(cached_response, rpc_detail(&result)->server_response.response_data,
          expected_length);
 
-  const wl_tx_handle_t response_handle = result.handle;
+  const wl_tx_handle_t response_handle = rpc_detail(&result)->handle;
   result = receive_home_response(server, client, cached_response,
                                  expected_length, 24U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.application_result, OPERATION_REJECTED);
+  zassert_equal(rpc_detail(&result)->application_result, OPERATION_REJECTED);
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
       WL_RPC_OK);
@@ -708,18 +725,19 @@ ZTEST(wirelink_application_runtime,
 
   result = send_request_copy(client, server, &request, 26U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
-  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_REPLAY);
-  zassert_equal(result.application_result, OPERATION_REJECTED);
-  zassert_equal(result.server_response.response_length, expected_length);
-  zassert_mem_equal(result.server_response.response_data, cached_response,
-                    expected_length);
+  zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(rpc_detail(&result)->application_result, OPERATION_REJECTED);
+  zassert_equal(rpc_detail(&result)->server_response.response_length,
+                expected_length);
+  zassert_mem_equal(rpc_detail(&result)->server_response.response_data,
+                    cached_response, expected_length);
   zassert_equal(rpc_server.handler_calls, 1U);
 
-  const wl_tx_handle_t replay_handle = result.handle;
+  const wl_tx_handle_t replay_handle = rpc_detail(&result)->handle;
   result = receive_home_response(server, client, cached_response,
                                  expected_length, 28U);
   zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
-  zassert_equal(result.rpc_result, WL_RPC_ERR_INVALID_STATE);
+  zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_INVALID_STATE);
   finish_response_tx(client, server, replay_handle, 29U);
   zassert_equal(wl_rpc_client_release(&rpc_client.runtime, operation_id),
                 WL_RPC_OK);

@@ -491,6 +491,11 @@ static const wlc_desc_t arm_command_desc;
 static const wlc_desc_t arm_mit_command_desc;
 static const wlc_desc_t home_request_desc;
 static const wlc_desc_t home_response_desc;
+static const wlc_desc_t bulk_begin_desc;
+static const wlc_desc_t bulk_chunk_desc;
+static const wlc_desc_t bulk_end_desc;
+static const wlc_desc_t bulk_abort_desc;
+static const wlc_desc_t bulk_status_desc;
 
 static const wlc_field_t joint_command_fields[] = {
   { 1U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, position_bits), offsetof(joint_command_t, has_position_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
@@ -530,6 +535,43 @@ static const wlc_field_t home_response_fields[] = {
 };
 static const wlc_desc_t home_response_desc = { home_response_fields, sizeof(home_response_fields) / sizeof(home_response_fields[0]) };
 
+static const wlc_field_t bulk_begin_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_begin_t, transfer_id), offsetof(bulk_begin_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F64, offsetof(bulk_begin_t, total_length), offsetof(bulk_begin_t, has_total_length), 0, 0, sizeof(uint64_t), 0U, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_begin_t, requested_chunk_size), offsetof(bulk_begin_t, has_requested_chunk_size), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 4U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_begin_t, object_crc32c), offsetof(bulk_begin_t, has_object_crc32c), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t bulk_begin_desc = { bulk_begin_fields, sizeof(bulk_begin_fields) / sizeof(bulk_begin_fields[0]) };
+
+static const wlc_field_t bulk_chunk_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_chunk_t, transfer_id), offsetof(bulk_chunk_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F64, offsetof(bulk_chunk_t, offset), offsetof(bulk_chunk_t, has_offset), 0, 0, sizeof(uint64_t), 0U, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_BYTES, offsetof(bulk_chunk_t, data), offsetof(bulk_chunk_t, has_data), 0, 0, sizeof(wl_codec_bytes_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t bulk_chunk_desc = { bulk_chunk_fields, sizeof(bulk_chunk_fields) / sizeof(bulk_chunk_fields[0]) };
+
+static const wlc_field_t bulk_end_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_end_t, transfer_id), offsetof(bulk_end_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F64, offsetof(bulk_end_t, total_length), offsetof(bulk_end_t, has_total_length), 0, 0, sizeof(uint64_t), 0U, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_end_t, object_crc32c), offsetof(bulk_end_t, has_object_crc32c), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t bulk_end_desc = { bulk_end_fields, sizeof(bulk_end_fields) / sizeof(bulk_end_fields[0]) };
+
+static const wlc_field_t bulk_abort_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_abort_t, transfer_id), offsetof(bulk_abort_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_I32, offsetof(bulk_abort_t, reason), offsetof(bulk_abort_t, has_reason), 0, 0, sizeof(int32_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t bulk_abort_desc = { bulk_abort_fields, sizeof(bulk_abort_fields) / sizeof(bulk_abort_fields[0]) };
+
+static const wlc_field_t bulk_status_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_status_t, transfer_id), offsetof(bulk_status_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_ENUM, offsetof(bulk_status_t, phase), offsetof(bulk_status_t, has_phase), 0, 0, sizeof(control_bulk_phase_t), 0U, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_ENUM, offsetof(bulk_status_t, code), offsetof(bulk_status_t, has_code), 0, 0, sizeof(control_bulk_status_code_t), 0U, 0, 0ULL, NULL, NULL },
+  { 4U, WLC_OPTIONAL, WLC_F64, offsetof(bulk_status_t, next_offset), offsetof(bulk_status_t, has_next_offset), 0, 0, sizeof(uint64_t), 0U, 0, 0ULL, NULL, NULL },
+  { 5U, WLC_OPTIONAL, WLC_F32, offsetof(bulk_status_t, accepted_chunk_size), offsetof(bulk_status_t, has_accepted_chunk_size), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t bulk_status_desc = { bulk_status_fields, sizeof(bulk_status_fields) / sizeof(bulk_status_fields[0]) };
+
 void joint_command_clear(joint_command_t *value) { if (value != NULL) wlc_clear(&joint_command_desc, value); }
 size_t joint_command_encoded_size(const joint_command_t *value) { size_t size; return wlc_measure(&joint_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t joint_command_encode(const joint_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&joint_command_desc, value, out, cap, length); }
@@ -554,4 +596,29 @@ void home_response_clear(home_response_t *value) { if (value != NULL) wlc_clear(
 size_t home_response_encoded_size(const home_response_t *value) { size_t size; return wlc_measure(&home_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t home_response_encode(const home_response_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&home_response_desc, value, out, cap, length); }
 wl_codec_status_t home_response_decode(const uint8_t *input, size_t length, home_response_t *out) { return wlc_decode(&home_response_desc, input, length, out); }
+
+void bulk_begin_clear(bulk_begin_t *value) { if (value != NULL) wlc_clear(&bulk_begin_desc, value); }
+size_t bulk_begin_encoded_size(const bulk_begin_t *value) { size_t size; return wlc_measure(&bulk_begin_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t bulk_begin_encode(const bulk_begin_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_begin_desc, value, out, cap, length); }
+wl_codec_status_t bulk_begin_decode(const uint8_t *input, size_t length, bulk_begin_t *out) { return wlc_decode(&bulk_begin_desc, input, length, out); }
+
+void bulk_chunk_clear(bulk_chunk_t *value) { if (value != NULL) wlc_clear(&bulk_chunk_desc, value); }
+size_t bulk_chunk_encoded_size(const bulk_chunk_t *value) { size_t size; return wlc_measure(&bulk_chunk_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t bulk_chunk_encode(const bulk_chunk_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_chunk_desc, value, out, cap, length); }
+wl_codec_status_t bulk_chunk_decode(const uint8_t *input, size_t length, bulk_chunk_t *out) { return wlc_decode(&bulk_chunk_desc, input, length, out); }
+
+void bulk_end_clear(bulk_end_t *value) { if (value != NULL) wlc_clear(&bulk_end_desc, value); }
+size_t bulk_end_encoded_size(const bulk_end_t *value) { size_t size; return wlc_measure(&bulk_end_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t bulk_end_encode(const bulk_end_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_end_desc, value, out, cap, length); }
+wl_codec_status_t bulk_end_decode(const uint8_t *input, size_t length, bulk_end_t *out) { return wlc_decode(&bulk_end_desc, input, length, out); }
+
+void bulk_abort_clear(bulk_abort_t *value) { if (value != NULL) wlc_clear(&bulk_abort_desc, value); }
+size_t bulk_abort_encoded_size(const bulk_abort_t *value) { size_t size; return wlc_measure(&bulk_abort_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t bulk_abort_encode(const bulk_abort_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_abort_desc, value, out, cap, length); }
+wl_codec_status_t bulk_abort_decode(const uint8_t *input, size_t length, bulk_abort_t *out) { return wlc_decode(&bulk_abort_desc, input, length, out); }
+
+void bulk_status_clear(bulk_status_t *value) { if (value != NULL) wlc_clear(&bulk_status_desc, value); }
+size_t bulk_status_encoded_size(const bulk_status_t *value) { size_t size; return wlc_measure(&bulk_status_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t bulk_status_encode(const bulk_status_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_status_desc, value, out, cap, length); }
+wl_codec_status_t bulk_status_decode(const uint8_t *input, size_t length, bulk_status_t *out) { return wlc_decode(&bulk_status_desc, input, length, out); }
 
