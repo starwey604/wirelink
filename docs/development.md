@@ -96,6 +96,12 @@ the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
 callback remains valid until its matching `wl_tx_complete()`. ACK/control
 units use their own buffer and are submitted before a queued application unit.
 
+For `NATIVE_PACKET`, `wl_tx_payload_claim()` exposes the payload region inside
+the final TX unit. After the caller fills it, `wl_tx_payload_commit()` writes
+the header and integrity trailer around those bytes without staging the
+payload. The claim is single-owner, and reliable retransmission keeps the same
+unit borrowed until the transaction reaches a terminal state.
+
 COBS stream bytes enter a single-producer/single-consumer RX ring. The producer
 side (`wl_feed_bytes()` or `wl_rx_reserve()`/`wl_rx_commit()`) only publishes
 bytes; COBS decoding, frame validation, ACK scheduling, and event creation run

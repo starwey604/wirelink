@@ -103,6 +103,8 @@ int wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
   wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
   wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
   wl_ctx_impl(ctx)->tx_payload.length = 0U;
+  wl_ctx_impl(ctx)->tx_payload.data = wl_ctx_impl(ctx)->storage.tx_payload;
+  wl_ctx_impl(ctx)->tx_payload_direct = 0U;
   return WL_OK;
 }
 

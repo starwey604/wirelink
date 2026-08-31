@@ -61,6 +61,12 @@ typedef struct {
   int tx_result_code;
   uint16_t tx_last_message_id;
   uint8_t tx_last_flags;
+  uint8_t tx_payload_direct;
+  uint8_t tx_claim_active;
+  uint8_t tx_claim_reliable;
+  uint16_t tx_claim_message_id;
+  uint32_t tx_claim_token;
+  wl_span_t tx_claim_payload;
 
   uint64_t session_id;
   uint32_t rx_sequence;

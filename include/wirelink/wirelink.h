@@ -153,6 +153,18 @@ typedef struct wl_rx_unit_claim {
   uint32_t token;
 } wl_rx_unit_claim_t;
 
+typedef int32_t wl_delivery_t;
+enum {
+  WL_DELIVERY_UNRELIABLE = 0,
+  WL_DELIVERY_RELIABLE = 1,
+};
+
+/* Native-packet TX payload written directly into the final unit buffer. */
+typedef struct wl_tx_payload_claim {
+  wl_span_t span;
+  uint32_t token;
+} wl_tx_payload_claim_t;
+
 int wl_config_requirements(const wl_config_t *config,
                            wl_storage_requirements_t *out_requirements);
 /* Config and the storage descriptor are copied; pointed-to buffers are not. */
@@ -166,6 +178,14 @@ int wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payloa
                        size_t payload_len);
 int wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
                      size_t payload_len, wl_tx_handle_t *out_handle);
+int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
+                        wl_delivery_t delivery,
+                        wl_tx_payload_claim_t *out_claim);
+int wl_tx_payload_commit(wl_ctx_t *ctx,
+                         const wl_tx_payload_claim_t *claim,
+                         size_t payload_len, wl_tx_handle_t *out_handle);
+int wl_tx_payload_abort(wl_ctx_t *ctx,
+                        const wl_tx_payload_claim_t *claim);
 
 int wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle,
                  wl_tx_state_t *out_state);
