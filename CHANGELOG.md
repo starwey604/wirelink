@@ -14,6 +14,8 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 - Added an allocation-free lock-free SPSC `LATEST` mailbox with three-slot
   ownership transfer, stable borrowed reads, direct decode into write claims,
   coalescing counters, and generation wrap coverage.
+- Added an allocation-free lock-free SPSC `FIFO` with caller-sized storage,
+  stable borrowed reads, reject-new backpressure, and lifecycle statistics.
 - Added a caller-sized RPC client/server runtime that keeps link delivery
   separate from application completion and supports asynchronous completion,
   deadlines, cancellation, duplicate suppression, response replay, and

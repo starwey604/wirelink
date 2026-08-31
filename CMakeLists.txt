@@ -15,6 +15,7 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 set(WIRELINK_SOURCES
   src/cobs.c
   src/crc.c
+  src/fifo.c
   src/frame.c
   src/init.c
   src/latest.c
@@ -162,6 +163,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/cobs.h
     include/wirelink/codec.h
     include/wirelink/crc.h
+    include/wirelink/fifo.h
     include/wirelink/frame.h
     include/wirelink/latest.h
     include/wirelink/rpc.h

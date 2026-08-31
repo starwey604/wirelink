@@ -394,13 +394,14 @@ top-level CMake.
 
 ## Application-layer extensions
 
-Typed routers, the SPSC `LATEST` mailbox, and the RPC client/server runtime are
-built above the core rather than into adapter callbacks. Their callback
-lifetime, threading, multiplexing, and storage rules are frozen in
+Typed routers, the SPSC `LATEST` mailbox, the ordered SPSC `FIFO`, and the RPC
+client/server runtime are built above the core rather than into adapter
+callbacks. Their callback lifetime, threading, multiplexing, and storage rules
+are frozen in
 [`application-layer.md`](application-layer.md). New implementations must keep
 the core's single-consumer state machine and borrowed-event ownership intact.
-FIFO delivery, cross-thread command queues, and bulk object transfer remain
-future application-layer modules, not fields in the v1 link header.
+Cross-thread session executors and bulk object transfer remain future
+application-layer modules, not fields in the v1 link header.
 
 ## Integration platform matrix
 

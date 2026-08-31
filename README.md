@@ -16,9 +16,9 @@ and remaining pre-1.0 API decisions are in
 Platform adapters currently cover Zephyr asynchronous UART DMA plus Astrial
 serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C
 codecs and bindings turn typed schemas into payloads, route borrowed RX events,
-and submit typed messages. Allocation-free `LATEST` and RPC runtimes retain
-fresh control snapshots and correlate application completion above the frozen
-v1 link header.
+and submit typed messages. Allocation-free `LATEST`, ordered SPSC `FIFO`, and
+RPC runtimes retain application state and correlate completion above the
+frozen v1 link header.
 
 ## Build the core
 
@@ -138,9 +138,10 @@ checked-in generated C artifacts live under
 - in-place event decode with borrowed `string` and `bytes` fields; and
 - old/new decoder behavior plus deterministic malformed-input errors.
 
-The implemented generated-dispatch, latest-value, and application-RPC
-interfaces are described by
-[`docs/latest-mailbox.md`](docs/latest-mailbox.md) and
+The implemented generated-dispatch, latest-value, ordered FIFO, and
+application-RPC interfaces are described by
+[`docs/latest-mailbox.md`](docs/latest-mailbox.md),
+[`docs/fifo.md`](docs/fifo.md), and
 [`docs/rpc-runtime.md`](docs/rpc-runtime.md). Their common boundary with thread
 ownership, explicit stream multiplexing, and future bulk transfers is defined
 in

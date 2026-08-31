@@ -1,7 +1,8 @@
 # Wirelink application-layer contract
 
-Status: **implemented baseline for typed routing, `LATEST`, and RPC**. FIFO,
-cross-thread command queues, and bulk object transfer remain design contracts.
+Status: **implemented baseline for typed routing, `LATEST`, `FIFO`, and RPC**.
+Cross-thread session executors and bulk object transfer remain design
+contracts.
 
 This document fixes the boundary between the frozen Wirelink v1 link protocol
 and the allocation-free application facilities built above it. It is not a
@@ -17,8 +18,8 @@ The application stack has four independent layers:
 2. the Wirelink core frames DATA, performs link retry and deduplication, and
    exposes a borrowed `wl_event_t`;
 3. WLC-generated bindings decode and route the application payload; and
-4. optional application runtimes supply `LATEST` mailboxes and RPC
-   correlation; FIFO and bulk-transfer state can be added independently.
+4. optional application runtimes supply `LATEST` mailboxes, ordered `FIFO`
+   queues, and RPC correlation; bulk-transfer state can be added independently.
 
 A Wirelink ACK proves only that a valid reliable DATA packet reached stable
 event storage at the peer. For reliable DATA, `WL_EVT_TX_SUCCESS` therefore
@@ -89,7 +90,7 @@ The application wires each typed route to one delivery policy:
 | --- | --- | --- |
 | `DIRECT` | Run the generated typed callback in consumer context without retaining the decoded value. | Commands consumed immediately. |
 | `LATEST` | Decode directly into a caller-supplied three-slot SPSC mailbox claim; a newer value coalesces an unread older value. | Control setpoints and telemetry where freshness wins over history. |
-| `FIFO` | Decode/copy into a caller-supplied bounded ring; full policy and drop counter are explicit. | Events for which order and multiplicity matter. |
+| `FIFO` | Decode directly into a caller-supplied bounded SPSC ring; full rejects the new value and increments an explicit counter. | Events for which order and multiplicity matter. |
 | `RPC` | Route decoded operation metadata into fixed client/server slots. | Requests, responses, and application status. |
 
 `LATEST` is deliberately not a core RX behavior. Wirelink still validates and
@@ -99,6 +100,12 @@ front/middle/back ownership exchange so a non-atomic typed value can be read
 without tearing. It reports `WL_ERR_NOT_SUPPORTED` when the required atomics
 are not lock-free. Volatile plus compiler barriers is not a supported
 synchronization scheme.
+
+`wirelink/fifo.h` uses release-published and release-reclaimed wrapped cursors
+over caller-owned fixed-size slots. Its consumer borrows the oldest value until
+explicit release, so the producer cannot overwrite either unread or borrowed
+data. A full queue rejects the new value; applications that prefer coalescing
+must select `LATEST` instead.
 
 Generated fixed arrays are copied into their inline destination arrays.
 Borrowed variable-length fields cannot be retained by `LATEST`, `FIFO`, or
