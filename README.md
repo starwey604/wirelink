@@ -184,3 +184,9 @@ ctest --test-dir build/fuzz --output-on-failure
 The conformance Ztest compares all envelope/integrity combinations against
 exact v1 bytes. CI runs it together with the full unit/integration matrix on
 native simulation and three QEMU architectures.
+
+The optional allocation-free runtime microbenchmarks are documented in
+[`docs/fifo-performance.md`](docs/fifo-performance.md) and
+[`docs/bulk-performance.md`](docs/bulk-performance.md). The bulk benchmark
+compares the complete sequential action/Status state machine against a matched
+raw sink baseline and keeps its CPU/latency instrumentation reproducible.
