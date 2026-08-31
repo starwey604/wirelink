@@ -20,10 +20,16 @@ extern "C" {
 typedef struct joint_command joint_command_t;
 typedef struct arm_command arm_command_t;
 typedef struct arm_mit_command arm_mit_command_t;
+typedef struct home_request home_request_t;
+typedef struct home_response home_response_t;
 
 typedef int32_t joint_mode_t;
 #define DISABLED INT32_C(0)
 #define MIT INT32_C(1)
+
+typedef int32_t operation_status_t;
+#define OPERATION_OK INT32_C(0)
+#define OPERATION_REJECTED INT32_C(1)
 
 struct joint_command {
   bool has_position_bits;
@@ -63,6 +69,20 @@ struct arm_mit_command {
   float dt_s;
 };
 
+struct home_request {
+  bool has_operation_id;
+  uint32_t operation_id;
+  bool has_joint_mask;
+  uint32_t joint_mask;
+};
+
+struct home_response {
+  bool has_operation_id;
+  uint32_t operation_id;
+  bool has_status;
+  operation_status_t status;
+};
+
 #define JOINT_COMMAND_MESSAGE_ID 2U
 void joint_command_clear(joint_command_t *value);
 size_t joint_command_encoded_size(const joint_command_t *value);
@@ -80,6 +100,18 @@ void arm_mit_command_clear(arm_mit_command_t *value);
 size_t arm_mit_command_encoded_size(const arm_mit_command_t *value);
 wl_codec_status_t arm_mit_command_encode(const arm_mit_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t arm_mit_command_decode(const uint8_t *input, size_t input_length, arm_mit_command_t *out);
+
+#define HOME_REQUEST_MESSAGE_ID 18U
+void home_request_clear(home_request_t *value);
+size_t home_request_encoded_size(const home_request_t *value);
+wl_codec_status_t home_request_encode(const home_request_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t home_request_decode(const uint8_t *input, size_t input_length, home_request_t *out);
+
+#define HOME_RESPONSE_MESSAGE_ID 19U
+void home_response_clear(home_response_t *value);
+size_t home_response_encoded_size(const home_response_t *value);
+wl_codec_status_t home_response_encode(const home_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t home_response_decode(const uint8_t *input, size_t input_length, home_response_t *out);
 
 #ifdef __cplusplus
 }

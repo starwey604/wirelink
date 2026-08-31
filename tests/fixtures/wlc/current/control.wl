@@ -1,8 +1,13 @@
-version 2;
+version 3;
 
 enum JointMode = 1 {
   DISABLED = 0;
   MIT = 1;
+}
+
+enum OperationStatus = 3 {
+  OPERATION_OK = 0;
+  OPERATION_REJECTED = 1;
 }
 
 message JointCommand = 2 {
@@ -26,4 +31,14 @@ message ArmMitCommand = 17 {
   packed float32 controls[30] = 1;
   optional uint64 sequence = 2;
   optional float32 dt_s = 3;
+}
+
+message HomeRequest = 18 {
+  optional uint32 operation_id = 1;
+  optional uint32 joint_mask = 2;
+}
+
+message HomeResponse = 19 {
+  optional uint32 operation_id = 1;
+  optional OperationStatus status = 2;
 }

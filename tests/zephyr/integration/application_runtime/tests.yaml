@@ -1,0 +1,19 @@
+tests:
+  wirelink.application_runtime.integration:
+    tags:
+      - wirelink
+      - wlc
+      - latest
+      - rpc
+      - integration
+    harness: ztest
+    integration_platforms:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64
+    platform_allow:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64

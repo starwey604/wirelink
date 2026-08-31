@@ -16,12 +16,18 @@ cargo run --manifest-path wlc/Cargo.toml -- \
   --out-dir tests/fixtures/wlc/generated/current
 ```
 
-Do not edit files below `generated/` by hand. The current artifact drives the
-Astrial typed serial test. Both revisions are compiled independently by the
-Zephyr unit fixture to exercise forward/backward payload compatibility.
+Do not edit files below `generated/` by hand. Each revision contains a pure
+codec pair (`control.h/.c`) and optional Wirelink core bindings
+(`control_bindings.h/.c`). The current artifact drives the Astrial typed serial
+test and the application-runtime integration test. Both codec revisions are
+compiled independently by the Zephyr unit fixture to exercise forward/backward
+payload compatibility.
 
-The current revision also adds `ArmMitCommand`: thirty inline `float32`
-control values use one packed field and encode in 122 bytes when present.
+The current revision adds two independent application patterns. `ArmMitCommand`
+models a LATEST control stream: thirty inline `float32` values use one packed
+field and encode in 122 bytes when present. `HomeRequest`/`HomeResponse` model
+an RPC pair with an explicit application operation ID and result status.
 Zephyr tests verify IEEE bit preservation (including signed zero and a NaN
-payload), network byte order, scalar float encoding, and strict packed length
-rejection. The previous revision intentionally lacks this additive message.
+payload), network byte order, scalar float encoding, strict packed length
+rejection, and the generated typed bindings. The previous revision
+intentionally lacks these additive messages.

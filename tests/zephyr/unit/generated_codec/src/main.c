@@ -26,7 +26,7 @@ static void prepare_decode(arm_command_t *command, joint_command_t *joints,
 
 ZTEST(wirelink_generated_codec, test_schema_evolution_payload)
 {
-  /* Sequence existed in v1; field 5 was added compatibly in v2. */
+  /* Sequence existed in v1; field 5 was added compatibly after v1. */
   const uint8_t current_payload[] = {0x10U, 0x07U, 0x28U, 0x01U};
   arm_command_t decoded;
   joint_command_t joints[1];
@@ -180,6 +180,48 @@ ZTEST(wirelink_generated_codec, test_dense_float_control_is_compact_and_bit_exac
   zassert_equal(arm_mit_command_decode(malformed_length,
                                        sizeof(malformed_length), &decoded),
                 WL_CODEC_ERR_MALFORMED);
+}
+
+ZTEST(wirelink_generated_codec, test_rpc_messages_carry_operation_identity)
+{
+  static const uint8_t expected[] = {0x08U, 0xA3U, 0x02U, 0x10U, 0x3FU};
+  home_request_t request;
+  home_request_t decoded;
+  home_response_t response;
+  uint8_t payload[16];
+  size_t payload_length = 0U;
+
+  home_request_clear(&request);
+  request.has_operation_id = true;
+  request.operation_id = 0x123U;
+  request.has_joint_mask = true;
+  request.joint_mask = 0x3FU;
+  zassert_equal(home_request_encode(&request, payload, sizeof(payload),
+                                    &payload_length),
+                WL_CODEC_OK);
+  zassert_equal(payload_length, sizeof(expected));
+  zassert_mem_equal(payload, expected, sizeof(expected));
+  zassert_equal(home_request_decode(payload, payload_length, &decoded),
+                WL_CODEC_OK);
+  zassert_true(decoded.has_operation_id);
+  zassert_equal(decoded.operation_id, request.operation_id);
+  zassert_true(decoded.has_joint_mask);
+  zassert_equal(decoded.joint_mask, request.joint_mask);
+
+  home_response_clear(&response);
+  response.has_operation_id = true;
+  response.operation_id = request.operation_id;
+  response.has_status = true;
+  response.status = OPERATION_REJECTED;
+  zassert_equal(home_response_encode(&response, payload, sizeof(payload),
+                                     &payload_length),
+                WL_CODEC_OK);
+  zassert_equal(home_response_decode(payload, payload_length, &response),
+                WL_CODEC_OK);
+  zassert_true(response.has_operation_id);
+  zassert_equal(response.operation_id, request.operation_id);
+  zassert_true(response.has_status);
+  zassert_equal(response.status, OPERATION_REJECTED);
 }
 #endif
 

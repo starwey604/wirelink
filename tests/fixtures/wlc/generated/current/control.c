@@ -489,6 +489,8 @@ static wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *in,
 static const wlc_desc_t joint_command_desc;
 static const wlc_desc_t arm_command_desc;
 static const wlc_desc_t arm_mit_command_desc;
+static const wlc_desc_t home_request_desc;
+static const wlc_desc_t home_response_desc;
 
 static const wlc_field_t joint_command_fields[] = {
   { 1U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, position_bits), offsetof(joint_command_t, has_position_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
@@ -516,6 +518,18 @@ static const wlc_field_t arm_mit_command_fields[] = {
 };
 static const wlc_desc_t arm_mit_command_desc = { arm_mit_command_fields, sizeof(arm_mit_command_fields) / sizeof(arm_mit_command_fields[0]) };
 
+static const wlc_field_t home_request_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_U32, offsetof(home_request_t, operation_id), offsetof(home_request_t, has_operation_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_U32, offsetof(home_request_t, joint_mask), offsetof(home_request_t, has_joint_mask), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t home_request_desc = { home_request_fields, sizeof(home_request_fields) / sizeof(home_request_fields[0]) };
+
+static const wlc_field_t home_response_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_U32, offsetof(home_response_t, operation_id), offsetof(home_response_t, has_operation_id), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_ENUM, offsetof(home_response_t, status), offsetof(home_response_t, has_status), 0, 0, sizeof(operation_status_t), 0U, 0, 0ULL, NULL, NULL },
+};
+static const wlc_desc_t home_response_desc = { home_response_fields, sizeof(home_response_fields) / sizeof(home_response_fields[0]) };
+
 void joint_command_clear(joint_command_t *value) { if (value != NULL) wlc_clear(&joint_command_desc, value); }
 size_t joint_command_encoded_size(const joint_command_t *value) { size_t size; return wlc_measure(&joint_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t joint_command_encode(const joint_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&joint_command_desc, value, out, cap, length); }
@@ -530,4 +544,14 @@ void arm_mit_command_clear(arm_mit_command_t *value) { if (value != NULL) wlc_cl
 size_t arm_mit_command_encoded_size(const arm_mit_command_t *value) { size_t size; return wlc_measure(&arm_mit_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t arm_mit_command_encode(const arm_mit_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&arm_mit_command_desc, value, out, cap, length); }
 wl_codec_status_t arm_mit_command_decode(const uint8_t *input, size_t length, arm_mit_command_t *out) { return wlc_decode(&arm_mit_command_desc, input, length, out); }
+
+void home_request_clear(home_request_t *value) { if (value != NULL) wlc_clear(&home_request_desc, value); }
+size_t home_request_encoded_size(const home_request_t *value) { size_t size; return wlc_measure(&home_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t home_request_encode(const home_request_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&home_request_desc, value, out, cap, length); }
+wl_codec_status_t home_request_decode(const uint8_t *input, size_t length, home_request_t *out) { return wlc_decode(&home_request_desc, input, length, out); }
+
+void home_response_clear(home_response_t *value) { if (value != NULL) wlc_clear(&home_response_desc, value); }
+size_t home_response_encoded_size(const home_response_t *value) { size_t size; return wlc_measure(&home_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t home_response_encode(const home_response_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&home_response_desc, value, out, cap, length); }
+wl_codec_status_t home_response_decode(const uint8_t *input, size_t length, home_response_t *out) { return wlc_decode(&home_response_desc, input, length, out); }
 
