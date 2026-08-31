@@ -20,10 +20,10 @@ cargo run --manifest-path wlc/Cargo.toml -- \
 Do not edit files below `generated/` by hand. Each revision contains a pure
 codec pair (`control.h/.c`) and optional Wirelink core bindings
 (`control_bindings.h/.c`). The profiled current revision also contains the
-retained runtime pair (`control_runtime.h/.c`). It claims caller-owned LATEST or
-FIFO storage, decodes directly into the claimed slot, publishes only complete
-values, and releases each valid RX event. The current artifact drives the
-Astrial typed serial test and the application-runtime integration test. Both
+application runtime pair (`control_runtime.h/.c`). It claims caller-owned
+LATEST or FIFO storage, decodes directly into the claimed slot, publishes only
+complete values, and releases each valid RX event. The current artifact drives
+the Astrial typed serial test and the application-runtime integration test. Both
 codec revisions are compiled independently by the Zephyr unit fixture to
 exercise forward/backward payload compatibility.
 
@@ -34,6 +34,7 @@ an RPC pair with an explicit application operation ID and result status.
 Zephyr tests verify IEEE bit preservation (including signed zero and a NaN
 payload), network byte order, scalar float encoding, strict packed length
 rejection, generated typed bindings, LATEST coalescing, and reliable FIFO
-ordering/full-queue behavior. The RPC portion deliberately keeps using the
-hand-written router until WLC emits the RPC runtime adapter. The previous
-revision intentionally lacks these additive messages.
+ordering/full-queue behavior. The generated RPC runtime owns operation/handle
+correlation, canonical request deduplication, exact cached response replay, and
+response retention across RX release. The previous revision intentionally
+lacks these additive messages.

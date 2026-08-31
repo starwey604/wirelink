@@ -44,9 +44,8 @@ struct rpc_client_fixture {
   wl_rpc_client_t runtime;
   wl_rpc_client_slot_t slots[1];
   uint8_t response_storage[16];
-  home_response_t decode_scratch;
-  control_router_t router;
-  uint32_t responses_handled;
+  home_response_t response_scratch;
+  control_runtime_t generated;
 };
 
 struct rpc_server_fixture {
@@ -54,16 +53,14 @@ struct rpc_server_fixture {
   wl_rpc_server_pending_slot_t pending[1];
   wl_rpc_server_cache_slot_t cache[1];
   uint8_t response_storage[32];
-  home_request_t decode_scratch;
-  control_router_t router;
-  wl_time_ms_t now_ms;
-  wl_rpc_server_disposition_t last_disposition;
-  wl_rpc_server_response_t last_replay;
-  uint32_t requests_handled;
-  uint32_t executions;
-  uint32_t pending_duplicates;
-  uint32_t replays;
-  uint32_t reliable_requests;
+  uint8_t canonical_request[32];
+  home_request_t request_scratch;
+  control_runtime_t generated;
+  uint32_t handler_calls;
+  uint32_t last_operation_id;
+  uint32_t last_joint_mask;
+  wl_delivery_t last_delivery;
+  int32_t handler_result;
 };
 
 static struct endpoint endpoint_client;
@@ -135,28 +132,13 @@ static void expect_local_unreliable_completion(struct endpoint *endpoint,
   zassert_equal(event.handle, 0U);
 }
 
-static control_dispatch_result_t dispatch_next(struct endpoint *endpoint,
-                                               control_router_t *router,
-                                               wl_time_ms_t now_ms,
-                                               wl_event_type_t expected_type,
-                                               uint16_t expected_message_id) {
-  const wl_event_t event = poll_event(endpoint, now_ms, expected_type);
-  control_dispatch_result_t result;
-
-  zassert_equal(event.message_id, expected_message_id);
-  result = control_dispatch_event(&endpoint->ctx, &event, router);
-  zassert_equal(result.domain, CONTROL_DISPATCH_OK);
-  zassert_equal(result.message_id, expected_message_id);
-  return result;
-}
-
 static void dispatch_latest(struct endpoint *endpoint, wl_time_ms_t now_ms) {
   const wl_event_t event = poll_event(endpoint, now_ms, WL_EVT_UNRELIABLE_RX);
   control_runtime_result_t result;
 
   zassert_equal(event.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
   result = control_runtime_dispatch_event(&endpoint->ctx, &event,
-                                          &latest_fixture.runtime);
+                                          &latest_fixture.runtime, now_ms);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(result.message_id, ARM_MIT_COMMAND_MESSAGE_ID);
   zassert_equal(result.storage_result, WL_OK);
@@ -292,7 +274,7 @@ static control_runtime_result_t send_joint_reliable(struct endpoint *sender,
   event = poll_event(receiver, now_ms, WL_EVT_RELIABLE_RX);
   zassert_equal(event.message_id, JOINT_COMMAND_MESSAGE_ID);
   runtime_result = control_runtime_dispatch_event(&receiver->ctx, &event,
-                                                  &joint_fifo.runtime);
+                                                  &joint_fifo.runtime, now_ms);
   zassert_equal(runtime_result.message_id, JOINT_COMMAND_MESSAGE_ID);
   zassert_equal(runtime_result.event_type, WL_EVT_RELIABLE_RX);
 
@@ -367,80 +349,20 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(stats.errors, 0U);
 }
 
-static uint64_t home_request_fingerprint(const home_request_t *request) {
-  uint64_t fingerprint = UINT64_C(1469598103934665603);
-
-  fingerprint ^= request->operation_id;
-  fingerprint *= UINT64_C(1099511628211);
-  fingerprint ^= request->joint_mask;
-  fingerprint *= UINT64_C(1099511628211);
-  return fingerprint;
-}
-
-static int32_t route_home_request(void *user_data,
-                                  const home_request_t *message,
-                                  wl_delivery_t delivery) {
+static int32_t handle_home_request(void *user_data,
+                                   const home_request_t *message,
+                                   wl_delivery_t delivery) {
   struct rpc_server_fixture *fixture = user_data;
-  wl_rpc_request_identity_t identity;
-  wl_rpc_server_response_t replay;
-  wl_rpc_server_disposition_t disposition;
-  wl_rpc_err_t error;
 
   if (!message->has_operation_id || message->operation_id == 0U ||
-      !message->has_joint_mask) {
-    return WL_RPC_ERR_INVALID_ARG;
+      !message->has_joint_mask || delivery != WL_DELIVERY_RELIABLE) {
+    return -1;
   }
-  identity = (wl_rpc_request_identity_t){
-      .operation_id = message->operation_id,
-      .request_message_id = HOME_REQUEST_MESSAGE_ID,
-      .response_message_id = HOME_RESPONSE_MESSAGE_ID,
-      .request_fingerprint = home_request_fingerprint(message),
-  };
-  error = wl_rpc_server_begin(&fixture->runtime, &identity, fixture->now_ms,
-                              &disposition, &replay);
-  if (error != WL_RPC_OK) {
-    return error;
-  }
-
-  ++fixture->requests_handled;
-  fixture->last_disposition = disposition;
-  fixture->last_replay = replay;
-  if (delivery == WL_DELIVERY_RELIABLE) {
-    ++fixture->reliable_requests;
-  }
-  switch (disposition) {
-  case WL_RPC_SERVER_NEW:
-    ++fixture->executions;
-    break;
-  case WL_RPC_SERVER_PENDING_DUPLICATE:
-    ++fixture->pending_duplicates;
-    break;
-  case WL_RPC_SERVER_REPLAY:
-    ++fixture->replays;
-    break;
-  default:
-    return WL_RPC_ERR_OPERATION_CONFLICT;
-  }
-  return 0;
-}
-
-static int32_t route_home_response(void *user_data,
-                                   const home_response_t *message,
-                                   wl_delivery_t delivery) {
-  struct rpc_client_fixture *fixture = user_data;
-  wl_rpc_err_t error;
-
-  if (delivery != WL_DELIVERY_RELIABLE || !message->has_operation_id ||
-      message->operation_id == 0U || !message->has_status) {
-    return WL_RPC_ERR_INVALID_ARG;
-  }
-  error = wl_rpc_client_on_response(&fixture->runtime, HOME_RESPONSE_MESSAGE_ID,
-                                    message->operation_id, message->status,
-                                    NULL, 0U);
-  if (error == WL_RPC_OK) {
-    ++fixture->responses_handled;
-  }
-  return error;
+  ++fixture->handler_calls;
+  fixture->last_operation_id = message->operation_id;
+  fixture->last_joint_mask = message->joint_mask;
+  fixture->last_delivery = delivery;
+  return fixture->handler_result;
 }
 
 static void rpc_init(void) {
@@ -472,166 +394,333 @@ static void rpc_init(void) {
   zassert_equal(wl_rpc_server_init(&rpc_server.runtime, &server_config),
                 WL_RPC_OK);
 
-  rpc_client.router.home_response = (control_home_response_route_t){
-      .scratch = &rpc_client.decode_scratch,
-      .handler = route_home_response,
-      .user_data = &rpc_client,
-  };
-  rpc_server.router.home_request = (control_home_request_route_t){
-      .scratch = &rpc_server.decode_scratch,
-      .handler = route_home_request,
-      .user_data = &rpc_server,
-  };
+  rpc_client.generated.rpc_client = &rpc_client.runtime;
+  rpc_client.generated.home.response_scratch = &rpc_client.response_scratch;
+  rpc_server.generated.rpc_server = &rpc_server.runtime;
+  rpc_server.generated.home.request_scratch = &rpc_server.request_scratch;
+  rpc_server.generated.home.canonical_request_scratch =
+      (control_encode_scratch_t){
+          .data = rpc_server.canonical_request,
+          .capacity = sizeof(rpc_server.canonical_request),
+      };
+  rpc_server.generated.home.request_handler = handle_home_request;
+  rpc_server.generated.home.user_data = &rpc_server;
 }
 
-static void send_unreliable_request(struct endpoint *client,
-                                    struct endpoint *server,
-                                    const home_request_t *request,
-                                    wl_time_ms_t now_ms,
-                                    wl_rpc_server_disposition_t expected) {
-  const control_send_result_t send_result = control_home_request_send_direct(
-      &client->ctx, request, WL_DELIVERY_UNRELIABLE);
+static control_runtime_result_t
+finish_reliable_tx(struct endpoint *endpoint, control_runtime_t *runtime,
+                   wl_time_ms_t now_ms, wl_tx_handle_t expected_handle) {
+  const wl_event_t event = poll_event(endpoint, now_ms, WL_EVT_TX_SUCCESS);
+  control_runtime_result_t result;
+  wl_tx_result_t tx_result;
 
-  zassert_equal(send_result.domain, CONTROL_SEND_OK);
-  expect_local_unreliable_completion(client, now_ms);
+  zassert_equal(event.handle, expected_handle);
+  result =
+      control_runtime_dispatch_event(&endpoint->ctx, &event, runtime, now_ms);
+  zassert_equal(wl_tx_take(&endpoint->ctx, event.handle, &tx_result), WL_OK);
+  zassert_equal(tx_result.state, WL_TX_STATE_SUCCESS);
+  return result;
+}
+
+static control_runtime_result_t dispatch_home_request(struct endpoint *client,
+                                                      struct endpoint *server,
+                                                      wl_time_ms_t now_ms) {
+  wl_event_t event;
+  control_runtime_result_t result;
+
   deliver(client, server);
-  rpc_server.now_ms = now_ms;
-  (void)dispatch_next(server, &rpc_server.router, now_ms, WL_EVT_UNRELIABLE_RX,
-                      HOME_REQUEST_MESSAGE_ID);
-  zassert_equal(rpc_server.last_disposition, expected);
+  event = poll_event(server, now_ms, WL_EVT_RELIABLE_RX);
+  zassert_equal(event.message_id, HOME_REQUEST_MESSAGE_ID);
+  /* Drain the link ACK so a REPLAY may submit its cached response immediately.
+   */
+  deliver(server, client);
+  result = control_runtime_dispatch_event(&server->ctx, &event,
+                                          &rpc_server.generated, now_ms);
+  zassert_equal(result.message_id, HOME_REQUEST_MESSAGE_ID);
+  zassert_equal(result.event_type, WL_EVT_RELIABLE_RX);
+  return result;
+}
+
+static control_runtime_result_t send_request_copy(struct endpoint *client,
+                                                  struct endpoint *server,
+                                                  const home_request_t *request,
+                                                  wl_time_ms_t now_ms) {
+  const control_send_result_t sent = control_home_request_send_direct(
+      &client->ctx, request, WL_DELIVERY_RELIABLE);
+  control_runtime_result_t result;
+  control_runtime_result_t terminal;
+
+  zassert_equal(sent.domain, CONTROL_SEND_OK);
+  zassert_not_equal(sent.handle, 0U);
+  result = dispatch_home_request(client, server, now_ms);
+  terminal = finish_reliable_tx(client, &rpc_client.generated, now_ms + 1U,
+                                sent.handle);
+  zassert_equal(terminal.domain, CONTROL_RUNTIME_NON_RX);
+  zassert_equal(terminal.rpc_result, WL_RPC_ERR_NOT_FOUND);
+  return result;
+}
+
+static control_runtime_result_t receive_home_response(struct endpoint *server,
+                                                      struct endpoint *client,
+                                                      const uint8_t *expected,
+                                                      size_t expected_length,
+                                                      wl_time_ms_t now_ms) {
+  wl_event_t event;
+  control_runtime_result_t result;
+
+  deliver(server, client);
+  event = poll_event(client, now_ms, WL_EVT_RELIABLE_RX);
+  zassert_equal(event.message_id, HOME_RESPONSE_MESSAGE_ID);
+  zassert_equal(event.payload_len, expected_length);
+  zassert_mem_equal(event.payload, expected, expected_length);
+  result = control_runtime_dispatch_event(&client->ctx, &event,
+                                          &rpc_client.generated, now_ms);
+
+  /* The generated dispatch must retain the response before releasing RX. */
+  memset(client->rx_fallback, 0xA5, sizeof(client->rx_fallback));
+  return result;
+}
+
+static void finish_response_tx(struct endpoint *client, struct endpoint *server,
+                               wl_tx_handle_t handle, wl_time_ms_t now_ms) {
+  control_runtime_result_t terminal;
+
+  deliver(client, server);
+  terminal = finish_reliable_tx(server, &rpc_server.generated, now_ms, handle);
+  zassert_equal(terminal.domain, CONTROL_RUNTIME_NON_RX);
 }
 
 ZTEST(wirelink_application_runtime,
-      test_typed_rpc_separates_link_ack_and_application_completion) {
+      test_generated_rpc_correlates_and_deduplicates_complete) {
   struct endpoint *client = &endpoint_client;
   struct endpoint *server = &endpoint_server;
   home_request_t request;
+  home_request_t conflict;
   home_response_t response;
-  home_response_t replay_decoded;
-  control_send_result_t send_result;
+  control_runtime_result_t result;
+  control_runtime_result_t terminal;
   wl_rpc_client_result_t client_result;
-  wl_rpc_server_response_t completed;
-  wl_tx_result_t tx_result;
-  uint8_t cached_payload[16];
-  size_t cached_payload_length = 0U;
-  uint32_t operation_id = 0U;
+  uint8_t encode_scratch[16];
+  uint8_t cached_response[16];
+  uint8_t expected_response[16];
+  size_t expected_length = 0U;
 
   endpoint_init(client, UINT64_C(0x3333));
   endpoint_init(server, UINT64_C(0x4444));
   rpc_init();
 
-  zassert_equal(
-      wl_rpc_client_begin(&rpc_client.runtime, HOME_REQUEST_MESSAGE_ID,
-                          HOME_RESPONSE_MESSAGE_ID, 100U, 0U, &operation_id),
-      WL_RPC_OK);
-  zassert_not_equal(operation_id, 0U);
   home_request_clear(&request);
-  request.has_operation_id = true;
-  request.operation_id = operation_id;
   request.has_joint_mask = true;
   request.joint_mask = 0x3FU;
-
-  send_result = control_home_request_send_direct(&client->ctx, &request,
-                                                 WL_DELIVERY_RELIABLE);
-  zassert_equal(send_result.domain, CONTROL_SEND_OK);
-  zassert_not_equal(send_result.handle, 0U);
-  zassert_equal(wl_rpc_client_bind_tx(&rpc_client.runtime, operation_id,
-                                      send_result.handle),
+  result = control_home_client_start_direct(&client->ctx, &rpc_client.generated,
+                                            &request, 100U, 0U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_result, WL_RPC_OK);
+  zassert_not_equal(result.handle, 0U);
+  zassert_not_equal(result.operation_id, 0U);
+  zassert_true(request.has_operation_id);
+  zassert_equal(request.operation_id, result.operation_id);
+  zassert_equal(wl_rpc_client_get(&rpc_client.runtime, result.operation_id,
+                                  &client_result),
                 WL_RPC_OK);
-  zassert_equal(
-      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
-      WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_LINK_PENDING);
+  zassert_equal(client_result.tx_handle, result.handle);
 
-  deliver(client, server);
-  rpc_server.now_ms = 1U;
-  (void)dispatch_next(server, &rpc_server.router, 1U, WL_EVT_RELIABLE_RX,
-                      HOME_REQUEST_MESSAGE_ID);
-  zassert_equal(rpc_server.last_disposition, WL_RPC_SERVER_NEW);
-  zassert_equal(rpc_server.executions, 1U);
-  zassert_equal(rpc_server.reliable_requests, 1U);
+  const wl_tx_handle_t request_handle = result.handle;
+  const uint32_t operation_id = result.operation_id;
+  result = dispatch_home_request(client, server, 1U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_NEW);
+  zassert_equal(result.operation_id, operation_id);
+  zassert_equal(rpc_server.handler_calls, 1U);
+  zassert_equal(rpc_server.last_operation_id, operation_id);
+  zassert_equal(rpc_server.last_joint_mask, request.joint_mask);
+  zassert_equal(rpc_server.last_delivery, WL_DELIVERY_RELIABLE);
 
   /* Server application work is pending and the transport ACK is separate. */
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
       WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_LINK_PENDING);
-  deliver(server, client);
-  const wl_event_t request_tx = poll_event(client, 2U, WL_EVT_TX_SUCCESS);
-  zassert_equal(request_tx.handle, send_result.handle);
-  zassert_equal(wl_rpc_client_on_tx_event(&rpc_client.runtime, &request_tx),
-                WL_RPC_OK);
-  zassert_equal(wl_tx_take(&client->ctx, request_tx.handle, &tx_result), WL_OK);
-  zassert_equal(tx_result.state, WL_TX_STATE_SUCCESS);
+  terminal =
+      finish_reliable_tx(client, &rpc_client.generated, 2U, request_handle);
+  zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(terminal.rpc_result, WL_RPC_OK);
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
       WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_WAIT_RESPONSE);
   zassert_equal(client_result.link_delivery_confirmed, 1U);
 
-  /* A new link packet with the same operation remains one application job. */
-  send_unreliable_request(client, server, &request, 3U,
-                          WL_RPC_SERVER_PENDING_DUPLICATE);
-  zassert_equal(rpc_server.executions, 1U);
-  zassert_equal(rpc_server.pending_duplicates, 1U);
+  result = send_request_copy(client, server, &request, 3U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_PENDING_DUPLICATE);
+  zassert_equal(rpc_server.handler_calls, 1U);
+
+  conflict = request;
+  conflict.joint_mask ^= 1U;
+  result = send_request_copy(client, server, &conflict, 5U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
+  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_CONFLICT);
+  zassert_equal(result.rpc_result, WL_RPC_ERR_OPERATION_CONFLICT);
+  zassert_equal(rpc_server.handler_calls, 1U);
 
   home_response_clear(&response);
-  response.has_operation_id = true;
-  response.operation_id = operation_id;
-  response.has_status = true;
-  response.status = OPERATION_OK;
-  zassert_equal(home_response_encode(&response, cached_payload,
-                                     sizeof(cached_payload),
-                                     &cached_payload_length),
+  result = control_home_server_complete(&server->ctx, &rpc_server.generated,
+                                        operation_id, &response,
+                                        (control_encode_scratch_t){
+                                            .data = encode_scratch,
+                                            .capacity = sizeof(encode_scratch),
+                                        },
+                                        7U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_result, WL_RPC_OK);
+  zassert_not_equal(result.handle, 0U);
+  zassert_true(response.has_operation_id);
+  zassert_equal(response.operation_id, operation_id);
+  zassert_true(response.has_status);
+  zassert_equal(response.status, OPERATION_OK);
+  zassert_equal(home_response_encode(&response, expected_response,
+                                     sizeof(expected_response),
+                                     &expected_length),
                 WL_CODEC_OK);
-  zassert_equal(wl_rpc_server_complete(&rpc_server.runtime, operation_id,
-                                       OPERATION_OK, cached_payload,
-                                       cached_payload_length, 4U, &completed),
-                WL_RPC_OK);
-  zassert_equal(completed.identity.operation_id, operation_id);
-  zassert_equal(completed.response_length, cached_payload_length);
-  zassert_mem_equal(completed.response_data, cached_payload,
-                    cached_payload_length);
+  zassert_equal(result.payload_length, expected_length);
+  zassert_equal(result.server_response.response_length, expected_length);
+  zassert_mem_equal(result.server_response.response_data, expected_response,
+                    expected_length);
+  memcpy(cached_response, result.server_response.response_data,
+         expected_length);
 
-  send_result = control_home_response_send_direct(&server->ctx, &response,
-                                                  WL_DELIVERY_RELIABLE);
-  zassert_equal(send_result.domain, CONTROL_SEND_OK);
-  zassert_equal(send_result.payload_length, cached_payload_length);
-  deliver(server, client);
-  (void)dispatch_next(client, &rpc_client.router, 5U, WL_EVT_RELIABLE_RX,
-                      HOME_RESPONSE_MESSAGE_ID);
-  zassert_equal(rpc_client.responses_handled, 1U);
+  const wl_tx_handle_t response_handle = result.handle;
+  result = receive_home_response(server, client, cached_response,
+                                 expected_length, 8U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_result, WL_RPC_OK);
+  zassert_equal(result.operation_id, operation_id);
+  zassert_equal(result.application_result, OPERATION_OK);
   zassert_equal(
       wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
       WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_COMPLETED);
   zassert_equal(client_result.application_status, OPERATION_OK);
   zassert_equal(client_result.link_delivery_confirmed, 1U);
+  zassert_equal(client_result.response_length, expected_length);
+  zassert_mem_equal(client_result.response_data, cached_response,
+                    expected_length);
+  finish_response_tx(client, server, response_handle, 9U);
 
-  deliver(client, server);
-  const wl_event_t response_tx = poll_event(server, 6U, WL_EVT_TX_SUCCESS);
-  zassert_equal(response_tx.handle, send_result.handle);
-  zassert_equal(wl_tx_take(&server->ctx, response_tx.handle, &tx_result),
-                WL_OK);
+  result = send_request_copy(client, server, &request, 10U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(result.application_result, OPERATION_OK);
+  zassert_equal(result.server_response.response_length, expected_length);
+  zassert_mem_equal(result.server_response.response_data, cached_response,
+                    expected_length);
+  zassert_equal(rpc_server.handler_calls, 1U);
 
-  send_unreliable_request(client, server, &request, 7U, WL_RPC_SERVER_REPLAY);
-  zassert_equal(rpc_server.executions, 1U);
-  zassert_equal(rpc_server.replays, 1U);
-  zassert_equal(rpc_server.last_replay.application_status, OPERATION_OK);
-  zassert_equal(rpc_server.last_replay.response_length, cached_payload_length);
-  zassert_mem_equal(rpc_server.last_replay.response_data, cached_payload,
-                    cached_payload_length);
-  zassert_equal(home_response_decode(rpc_server.last_replay.response_data,
-                                     rpc_server.last_replay.response_length,
-                                     &replay_decoded),
+  const wl_tx_handle_t replay_handle = result.handle;
+  result = receive_home_response(server, client, cached_response,
+                                 expected_length, 12U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
+  zassert_equal(result.rpc_result, WL_RPC_ERR_INVALID_STATE);
+  finish_response_tx(client, server, replay_handle, 13U);
+  zassert_equal(
+      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
+      WL_RPC_OK);
+  zassert_mem_equal(client_result.response_data, cached_response,
+                    expected_length);
+  zassert_equal(wl_rpc_client_release(&rpc_client.runtime, operation_id),
+                WL_RPC_OK);
+}
+
+ZTEST(wirelink_application_runtime,
+      test_generated_rpc_reject_retains_and_replays_exact_bytes) {
+  struct endpoint *client = &endpoint_client;
+  struct endpoint *server = &endpoint_server;
+  home_request_t request;
+  home_response_t response;
+  control_runtime_result_t result;
+  control_runtime_result_t terminal;
+  wl_rpc_client_result_t client_result;
+  uint8_t encode_scratch[16];
+  uint8_t cached_response[16];
+  uint8_t expected_response[16];
+  size_t expected_length = 0U;
+
+  endpoint_init(client, UINT64_C(0x7777));
+  endpoint_init(server, UINT64_C(0x8888));
+  rpc_init();
+
+  home_request_clear(&request);
+  request.has_joint_mask = true;
+  request.joint_mask = 0x01U;
+  result = control_home_client_start_direct(&client->ctx, &rpc_client.generated,
+                                            &request, 100U, 20U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  const uint32_t operation_id = result.operation_id;
+  const wl_tx_handle_t request_handle = result.handle;
+
+  result = dispatch_home_request(client, server, 21U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_NEW);
+  zassert_equal(rpc_server.handler_calls, 1U);
+  terminal =
+      finish_reliable_tx(client, &rpc_client.generated, 22U, request_handle);
+  zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
+
+  home_response_clear(&response);
+  result =
+      control_home_server_reject(&server->ctx, &rpc_server.generated,
+                                 operation_id, OPERATION_REJECTED, &response,
+                                 (control_encode_scratch_t){
+                                     .data = encode_scratch,
+                                     .capacity = sizeof(encode_scratch),
+                                 },
+                                 23U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.application_result, OPERATION_REJECTED);
+  zassert_equal(response.operation_id, operation_id);
+  zassert_equal(response.status, OPERATION_REJECTED);
+  zassert_equal(home_response_encode(&response, expected_response,
+                                     sizeof(expected_response),
+                                     &expected_length),
                 WL_CODEC_OK);
-  zassert_true(replay_decoded.has_operation_id);
-  zassert_equal(replay_decoded.operation_id, operation_id);
-  zassert_true(replay_decoded.has_status);
-  zassert_equal(replay_decoded.status, OPERATION_OK);
+  zassert_equal(result.server_response.response_length, expected_length);
+  zassert_mem_equal(result.server_response.response_data, expected_response,
+                    expected_length);
+  memcpy(cached_response, result.server_response.response_data,
+         expected_length);
 
-  zassert_equal(rpc_server.router.counters.delivered, 3U);
-  zassert_equal(rpc_client.router.counters.delivered, 1U);
+  const wl_tx_handle_t response_handle = result.handle;
+  result = receive_home_response(server, client, cached_response,
+                                 expected_length, 24U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.application_result, OPERATION_REJECTED);
+  zassert_equal(
+      wl_rpc_client_get(&rpc_client.runtime, operation_id, &client_result),
+      WL_RPC_OK);
+  zassert_equal(client_result.state, WL_RPC_CLIENT_APPLICATION_ERROR);
+  zassert_equal(client_result.application_status, OPERATION_REJECTED);
+  zassert_equal(client_result.response_length, expected_length);
+  zassert_mem_equal(client_result.response_data, cached_response,
+                    expected_length);
+  finish_response_tx(client, server, response_handle, 25U);
+
+  result = send_request_copy(client, server, &request, 26U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(result.rpc_disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(result.application_result, OPERATION_REJECTED);
+  zassert_equal(result.server_response.response_length, expected_length);
+  zassert_mem_equal(result.server_response.response_data, cached_response,
+                    expected_length);
+  zassert_equal(rpc_server.handler_calls, 1U);
+
+  const wl_tx_handle_t replay_handle = result.handle;
+  result = receive_home_response(server, client, cached_response,
+                                 expected_length, 28U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
+  zassert_equal(result.rpc_result, WL_RPC_ERR_INVALID_STATE);
+  finish_response_tx(client, server, replay_handle, 29U);
   zassert_equal(wl_rpc_client_release(&rpc_client.runtime, operation_id),
                 WL_RPC_OK);
 }
