@@ -21,6 +21,7 @@ set(WIRELINK_SOURCES
   src/rx_ring_bipbuf.c
   src/transport.c
   src/types.c
+  src/unit_rx.c
 )
 
 add_library(wirelink ${WIRELINK_SOURCES})

@@ -23,7 +23,7 @@ typedef uint32_t wl_io_token_t;
  * a static object or on the stack, but must not inspect its private bytes.
  * The size and alignment are stable for the Wirelink v1 ABI.
  */
-#define WL_CONTEXT_STORAGE_SIZE 640U
+#define WL_CONTEXT_STORAGE_SIZE 896U
 typedef union wl_ctx {
   max_align_t align;
   uint8_t private_bytes[WL_CONTEXT_STORAGE_SIZE];
@@ -124,6 +124,7 @@ typedef struct {
 
 /* At most two UART/DMA buffers may be owned by a direct RX producer. */
 #define WL_RX_DMA_MAX_CLAIMS 2U
+#define WL_RX_UNIT_QUEUE_MAX_SLOTS 8U
 
 /*
  * A direct-DMA claim owns a contiguous range in the RX ring. Its span is
@@ -134,6 +135,23 @@ typedef struct wl_rx_dma_claim {
   wl_span_t span;
   uint32_t token;
 } wl_rx_dma_claim_t;
+
+/*
+ * Packet transports may let their single producer write directly into a
+ * fixed-slot SPSC queue. A committed unit is parsed by wl_poll(); an RX event
+ * borrows its slot until wl_event_release().
+ */
+typedef struct wl_rx_unit_queue_config {
+  uint8_t *storage;
+  size_t storage_size;
+  size_t unit_size;
+  uint8_t slot_count;
+} wl_rx_unit_queue_config_t;
+
+typedef struct wl_rx_unit_claim {
+  wl_span_t span;
+  uint32_t token;
+} wl_rx_unit_claim_t;
 
 int wl_config_requirements(const wl_config_t *config,
                            wl_storage_requirements_t *out_requirements);
@@ -176,6 +194,13 @@ int wl_rx_dma_publish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim,
                       size_t offset, size_t length);
 int wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim);
 int wl_rx_dma_abort(wl_ctx_t *ctx);
+int wl_rx_unit_queue_init(wl_ctx_t *ctx,
+                          const wl_rx_unit_queue_config_t *config);
+int wl_rx_unit_claim(wl_ctx_t *ctx, size_t maximum_length,
+                     wl_rx_unit_claim_t *out_claim);
+int wl_rx_unit_commit(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim,
+                      size_t length);
+int wl_rx_unit_abort(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim);
 void wl_rx_note_overflow(wl_ctx_t *ctx);
 int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 

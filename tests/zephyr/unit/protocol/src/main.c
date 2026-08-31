@@ -799,4 +799,77 @@ ZTEST(wirelink_protocol_unit, test_ack_timeout_across_uint32_time_wrap)
   zassert_equal(result.retries_used, 1U);
 }
 
+ZTEST(wirelink_protocol_unit, test_native_unit_queue_borrows_slots_until_release)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  uint8_t unit_slots[2][128];
+  struct test_sink_capture cap = {0};
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+  wl_event_t event = {0};
+  wl_rx_unit_claim_t first = {0};
+  wl_rx_unit_claim_t second = {0};
+  wl_rx_unit_claim_t third = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = UINT64_C(0x554e495451554555),
+  };
+  const wl_rx_unit_queue_config_t queue_config = {
+    .storage = &unit_slots[0][0],
+    .storage_size = sizeof(unit_slots),
+    .unit_size = sizeof(unit_slots[0]),
+    .slot_count = 2U,
+  };
+  const uint8_t first_payload[] = {1U, 2U, 3U};
+  const uint8_t second_payload[] = {4U, 5U};
+  wl_wire_packet_t packet = {
+    .type = WL_PACKET_DATA,
+    .integrity = WL_INTEGRITY_NONE,
+    .message_id = 0x31U,
+    .session_id = cfg.session_id,
+    .payload = first_payload,
+    .payload_len = sizeof(first_payload),
+  };
+  size_t encoded_len = 0U;
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_rx_unit_queue_init(&ctx, &queue_config));
+  zassert_ok(wl_rx_unit_claim(&ctx, sizeof(unit_slots[0]), &first));
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET,
+                             first.span.data, first.span.length, &encoded_len));
+  zassert_ok(wl_rx_unit_commit(&ctx, &first, encoded_len));
+
+  packet.message_id = 0x32U;
+  packet.payload = second_payload;
+  packet.payload_len = sizeof(second_payload);
+  zassert_ok(wl_rx_unit_claim(&ctx, sizeof(unit_slots[0]), &second));
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET,
+                             second.span.data, second.span.length,
+                             &encoded_len));
+  zassert_ok(wl_rx_unit_commit(&ctx, &second, encoded_len));
+  zassert_equal(wl_rx_unit_claim(&ctx, sizeof(unit_slots[0]), &third),
+                WL_ERR_WOULD_BLOCK);
+
+  zassert_ok(wl_poll(&ctx, 0U, &event));
+  zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
+  zassert_equal(event.message_id, 0x31U);
+  zassert_mem_equal(event.payload, first_payload, sizeof(first_payload));
+  zassert_true(event.payload >= first.span.data &&
+               event.payload < first.span.data + first.span.length);
+  zassert_equal(wl_rx_unit_claim(&ctx, sizeof(unit_slots[0]), &third),
+                WL_ERR_WOULD_BLOCK);
+
+  wl_event_release(&ctx, &event);
+  zassert_ok(wl_rx_unit_claim(&ctx, sizeof(unit_slots[0]), &third));
+  zassert_ok(wl_rx_unit_abort(&ctx, &third));
+  zassert_ok(wl_poll(&ctx, 1U, &event));
+  zassert_equal(event.message_id, 0x32U);
+  zassert_mem_equal(event.payload, second_payload, sizeof(second_payload));
+  wl_event_release(&ctx, &event);
+}
+
 ZTEST_SUITE(wirelink_protocol_unit, NULL, NULL, NULL, NULL, NULL);

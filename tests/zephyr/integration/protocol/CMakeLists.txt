@@ -17,6 +17,7 @@ target_sources(app PRIVATE
   ${WIRELINK_ROOT}/src/rx_ring_bipbuf.c
   ${WIRELINK_ROOT}/src/transport.c
   ${WIRELINK_ROOT}/src/types.c
+  ${WIRELINK_ROOT}/src/unit_rx.c
 )
 
 target_include_directories(app PRIVATE ${WIRELINK_ROOT}/include)

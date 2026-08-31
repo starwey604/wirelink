@@ -11,6 +11,7 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/rx_ring_bipbuf.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/transport.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/types.c
+  ${ZEPHYR_CURRENT_MODULE_DIR}/src/unit_rx.c
 )
 
 if(CONFIG_WIRELINK AND NOT CONFIG_ASAN AND NOT CONFIG_UBSAN)

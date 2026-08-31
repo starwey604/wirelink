@@ -39,7 +39,7 @@ _Static_assert(sizeof(wl_codec_status_t) == sizeof(int32_t),
  */
 #if defined(__linux__) && defined(__x86_64__) && UINTPTR_MAX == UINT64_MAX && \
     SIZE_MAX == UINT64_MAX
-_Static_assert(sizeof(wl_ctx_t) == 640U && _Alignof(wl_ctx_t) == 16U,
+_Static_assert(sizeof(wl_ctx_t) == 896U && _Alignof(wl_ctx_t) == 16U,
                "v1 context ABI changed");
 
 _Static_assert(sizeof(wl_span_t) == 16U && _Alignof(wl_span_t) == 8U &&

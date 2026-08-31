@@ -6,6 +6,7 @@
 
 #include "context.h"
 #include "rx_ring.h"
+#include "unit_rx.h"
 
 int wl_set_sink(wl_ctx_t *ctx, wl_sink_fn sink, void *user_data) {
   if (ctx == NULL) {
@@ -144,8 +145,12 @@ void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event) {
       event->lease == wl_ctx_impl(ctx)->rx_event_generation) {
     wl_ctx_impl(ctx)->rx_event_leased = 0U;
     if (wl_ctx_impl(ctx)->rx_pending_consume != 0U) {
-      (void)wl_rx_ring_consumer_consume(&wl_ctx_impl(ctx)->rx_ring,
-                                        wl_ctx_impl(ctx)->rx_pending_consume);
+      if (wl_ctx_impl(ctx)->rx_candidate_source == WL_RX_SOURCE_UNIT) {
+        (void)wl_rx_unit_consumer_consume(ctx);
+      } else {
+        (void)wl_rx_ring_consumer_consume(&wl_ctx_impl(ctx)->rx_ring,
+                                          wl_ctx_impl(ctx)->rx_pending_consume);
+      }
       wl_ctx_impl(ctx)->rx_pending_consume = 0U;
     }
     wl_ctx_impl(ctx)->rx_candidate_source = 0U;

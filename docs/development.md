@@ -105,6 +105,14 @@ copied once into the caller-supplied fallback buffer. Native packet and bus
 units also use that fallback buffer to make their synchronous input lifetime
 explicit.
 
+Packet adapters with a true unit boundary can instead configure
+`wl_rx_unit_queue_init()`. Its fixed slots form an atomic SPSC handoff: an ISR,
+DMA completion, or socket producer only calls `wl_rx_unit_claim()` and
+`wl_rx_unit_commit()`, while `wl_poll()` validates and dispatches the unit.
+Event payloads borrow the slot in place and keep it outside the producer's free
+set until `wl_event_release()`. A full queue is explicit backpressure;
+reliable traffic recovers through the existing retry path.
+
 An RX event remains leased until `wl_event_release()`. A ring-backed event
 freezes its physical frame bytes until release, and no subsequent DATA event is
 produced while any RX event is leased. The SPSC contract permits exactly one

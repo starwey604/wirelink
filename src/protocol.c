@@ -8,12 +8,7 @@
 
 #include "context.h"
 #include "rx_ring.h"
-
-enum {
-  WL_RX_SOURCE_NONE = 0,
-  WL_RX_SOURCE_RING,
-  WL_RX_SOURCE_FALLBACK,
-};
+#include "unit_rx.h"
 
 static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
@@ -21,6 +16,7 @@ static int wl_handle_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying);
 static int wl_submit_control(wl_ctx_t *ctx);
 static void wl_process_rx_stream(wl_ctx_t *ctx);
+static void wl_process_rx_units(wl_ctx_t *ctx);
 static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
                                  uint8_t reliable);
 
@@ -794,6 +790,32 @@ static void wl_process_rx_stream(wl_ctx_t *ctx) {
   }
 }
 
+static void wl_process_rx_units(wl_ctx_t *ctx) {
+  while (wl_ctx_impl(ctx)->has_event == 0U &&
+         wl_ctx_impl(ctx)->rx_event_leased == 0U) {
+    wl_span_t unit = wl_rx_unit_consumer_peek(ctx);
+    int ret;
+
+    if (unit.data == NULL || unit.length == 0U) {
+      return;
+    }
+    wl_ctx_impl(ctx)->rx_candidate_source = WL_RX_SOURCE_UNIT;
+    ret = wl_feed_unit_raw(ctx, unit.data, unit.length);
+    if (wl_ctx_impl(ctx)->has_event != 0U &&
+        (wl_ctx_impl(ctx)->event.type == WL_EVT_UNRELIABLE_RX ||
+         wl_ctx_impl(ctx)->event.type == WL_EVT_RELIABLE_RX)) {
+      wl_ctx_impl(ctx)->rx_pending_consume = 1U;
+      return;
+    }
+    (void)wl_rx_unit_consumer_consume(ctx);
+    wl_ctx_impl(ctx)->rx_candidate_source = WL_RX_SOURCE_NONE;
+    if (wl_ctx_impl(ctx)->has_event != 0U) {
+      return;
+    }
+    (void)ret;
+  }
+}
+
 int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
   if (ctx == NULL || out_event == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -844,6 +866,11 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
       wl_ctx_impl(ctx)->initialized != 0U &&
       wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
     wl_process_rx_stream(ctx);
+  }
+  if (wl_ctx_impl(ctx)->has_event == 0U &&
+      wl_ctx_impl(ctx)->rx_event_leased == 0U &&
+      wl_ctx_impl(ctx)->rx_units.initialized != 0U) {
+    wl_process_rx_units(ctx);
   }
 
   if (!wl_ctx_impl(ctx)->has_event) {

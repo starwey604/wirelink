@@ -4,13 +4,36 @@
 #define WIRELINK_SRC_CONTEXT_H_
 
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdint.h>
 
 #include "wirelink/rx_ring_state.h"
 #include "wirelink/wirelink.h"
 
+enum {
+  WL_RX_SOURCE_NONE = 0,
+  WL_RX_SOURCE_RING,
+  WL_RX_SOURCE_FALLBACK,
+  WL_RX_SOURCE_UNIT,
+};
+
+typedef struct {
+  uint8_t *storage;
+  size_t storage_size;
+  size_t unit_size;
+  size_t lengths[WL_RX_UNIT_QUEUE_MAX_SLOTS];
+  _Atomic uint32_t write_cursor;
+  _Atomic uint32_t read_cursor;
+  uint32_t claim_cursor;
+  uint32_t claim_token;
+  uint8_t slot_count;
+  uint8_t claim_active;
+  uint8_t initialized;
+} wl_rx_unit_queue_state_t;
+
 typedef struct {
   wl_rx_ring_state_t rx_ring;
+  wl_rx_unit_queue_state_t rx_units;
 
   wl_config_t config;
   wl_storage_t storage;
