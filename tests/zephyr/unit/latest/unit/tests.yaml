@@ -1,0 +1,7 @@
+tests:
+  wirelink.latest.unit:
+    type: unit
+    tags:
+      - wirelink
+      - latest
+      - spsc
