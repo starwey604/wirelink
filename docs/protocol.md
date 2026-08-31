@@ -103,21 +103,19 @@ cannot fit the configured storage or transport MTU.
 | --- | --- | --- | --- |
 | UART, RS-232, RS-485 | `COBS_STREAM` | `CRC32C` | Arbitrary byte chunks, insertion/deletion, and line noise require delimiter resync and an integrity check. CRC-16 is acceptable for very small constrained frames. |
 | USB CDC ACM | `COBS_STREAM` | `CRC32C` recommended; `NONE` permitted | CDC exposes a byte stream; USB transfer boundaries are not application-message boundaries. USB CRC is hop-local. |
-| USB bulk with preserved application transfers | `NATIVE_PACKET` | `CRC32C` recommended; `NONE` permitted | Native mode is valid only when the adapter preserves exactly one Wirelink unit per submitted transfer. |
-| UDP/IPv6 | `NATIVE_PACKET` | `CRC32C` recommended for industrial use; `NONE` permitted | IPv6 requires a UDP checksum, but CRC32C gives a stronger and explicitly Wirelink end-to-end check. Keep units below the path MTU. |
-| UDP/IPv4 | `NATIVE_PACKET` | `CRC32C` recommended | UDP checksum may legally be absent in IPv4. `NONE` is valid only when the deployment requires and verifies UDP checksums or accepts that risk. |
+| USB vendor bulk (v1 product profile) | `COBS_STREAM` | `NONE` | The terminating delimiter is transported with each application unit. USB already supplies link integrity and retry, so this profile avoids a redundant Wirelink CRC. |
+| UDP/IPv6 (v1 product profile) | `COBS_STREAM` | `NONE` | One complete delimiter-terminated unit is carried per datagram. IPv6 requires the UDP checksum; keep the unit below the path MTU. |
+| UDP/IPv4 (v1 product profile) | `COBS_STREAM` | `NONE` | One complete delimiter-terminated unit is carried per datagram. Deployments MUST enable and verify the UDP checksum. |
 | Raw SPI | `BUS_LENGTH_16` or `NATIVE_PACKET` | `CRC32C` | SPI has no standard integrity protection or universal transaction framing. |
 | I2C/I3C | `NATIVE_PACKET` or `BUS_LENGTH_16` | `CRC32C` | I2C ACK/NACK acknowledges bytes/addresses; it is not a payload integrity code. SMBus PEC may justify a deployment-specific profile, although its CRC-8 is weaker. |
 | CAN/CAN FD through ISO-TP | `NATIVE_PACKET` | `NONE` permitted; `CRC32C` optional | ISO-TP or the adapter performs segmentation. CAN already has per-frame CRC, but it is not an authenticated end-to-end check. |
 | TCP, Unix stream, pipe | `COBS_STREAM` | `NONE` permitted; `CRC32C` optional | These are byte streams. Wirelink ARQ may be unnecessary but can still represent peer acceptance rather than only transport delivery. |
 
-USB link CRC, Ethernet frame CRC, CAN CRC, and similar hardware checks protect
-individual hops or frames. They do not authenticate data and may not cover
-software, DMA, gateway, or storage corruption across the complete application
-path. Four bytes of CRC32C are therefore the default recommendation for
-industrial control even on USB and UDP. `NONE` exists for deployments where
-the underlying end-to-end integrity guarantee and overhead tradeoff have been
-explicitly evaluated.
+The v1 USB vendor-bulk and UDP profiles use `NONE` to avoid duplicating the USB
+link integrity or UDP checksum in both CPU work and packet size. UDP/IPv4
+products using this profile MUST keep UDP checksums enabled. UART, raw buses,
+or gateways whose complete path lacks an integrity check continue to use a
+Wirelink CRC. None of these checks authenticate a peer or payload.
 
 UART parity is not a replacement for a packet CRC. It detects only a subset of
 errors in individual characters and does not protect packet length, ordering,

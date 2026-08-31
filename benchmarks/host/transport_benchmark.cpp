@@ -231,7 +231,7 @@ struct LinkFixture
         const wl_config_t config{
             .max_payload_len = MaxPayload,
             .envelope = WL_ENVELOPE_COBS_STREAM,
-            .integrity = WL_INTEGRITY_CRC32C,
+            .integrity = WL_INTEGRITY_NONE,
             .session_id = UINT64_C(0x484f535442454e43),
             .max_retries = 2,
             .ack_timeout_ms = 20,

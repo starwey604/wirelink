@@ -236,6 +236,12 @@ publishes only direct-claim and atomic-mailbox state. The consumer loop calls
 completion. Exact-multiple IN units request a ZLP so host reads terminate
 without a timeout.
 
+The v1 USB vendor-bulk and UDP product profiles use
+`COBS_STREAM + WL_INTEGRITY_NONE`. Each USB application transfer or UDP
+datagram carries complete delimiter-terminated units. This keeps the same v1
+framing on both transports while removing redundant Wirelink CRC work;
+UDP/IPv4 deployments must keep UDP checksums enabled.
+
 `adapters/zephyr/uart_irq/` is the generic interrupt-driven fallback used by
 the CDC ACM comparison. Its callback drains the UART FIFO straight into a
 producer reservation and fills TX from Wirelink's borrowed unit; it performs
