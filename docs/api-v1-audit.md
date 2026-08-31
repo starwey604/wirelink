@@ -95,6 +95,13 @@ that can become writable asynchronously must publish an activity notification.
 
 ## Release gates
 
+The installed-package checks now compile the public surface as strict C11,
+strict C++20, and C11 with `-fshort-enums`. Regular GCC and Clang builds also
+enforce a 256-byte fixed-frame ceiling on the frame and protocol translation
+units, covering `wl_frame_encode()` and `wl_poll()` without applying the guard
+to sanitizer-instrumented builds. The ESP32-S3 USB sample's normal and CPU
+telemetry configurations are part of the Zephyr build-only CI matrix.
+
 Before changing the version to 1.0:
 
 1. exact v1 conformance vectors must remain unchanged;

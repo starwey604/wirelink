@@ -252,9 +252,11 @@ checkout and production firmware remain unmodified.
 
 After removing the hooks, both the normal and `cpu_stats.conf` ESP32-S3 sample
 images built successfully against a clean Zephyr checkout. The complete
-Twister matrix also passed 21/21 configurations and 105/105 test cases.
+Twister matrix also passed 22/22 executed configurations and 133/133 test
+cases; three additional configurations were rejected by static platform
+filters.
 
-### CPU telemetry procedure and CSV v2
+### CPU telemetry procedure and CSV v3
 
 The optional telemetry image can be built against an unmodified Zephyr tree:
 
@@ -267,14 +269,14 @@ west build -p always -b esp32s3_devkitc/esp32s3/procpu \
 Run the same sequential `wirelink-bulk` host command used for the latency
 profile. After the final TX completion has been quiet for 500 ms, the device
 emits one logical CSV line. Its first field is the schema identifier
-`wirelink_usb_cpu_v2`; every remaining pair of fields is a key followed by its
+`wirelink_usb_cpu_v3`; every remaining pair of fields is a key followed by its
 value. The line can therefore be parsed without depending on field order:
 
 ```python
 import csv
 
 fields = next(csv.reader([line]))
-assert fields[0] == "wirelink_usb_cpu_v2"
+assert fields[0] == "wirelink_usb_cpu_v3"
 assert len(fields) % 2 == 1
 record = dict(zip(fields[1::2], fields[2::2], strict=True))
 ```
@@ -296,7 +298,7 @@ region prefixes add `_calls`, `_total_cycles`, and `_max_cycles` keys:
 
 The adapter also reports total and maximum cycles for
 `adapter_rx_callback`, `adapter_tx_callback`, and `adapter_tx_sink`. Those
-paths predate the v2 schema and do not expose exact invocation counters, so v2
+paths do not expose exact invocation counters, so v3
 does not synthesize call counts for them.
 
 An echo activity window opens when `wl_poll()` returns a reliable or
@@ -310,6 +312,10 @@ Counters accumulate across multiple traffic bursts until reboot. Every
 cumulative count, byte count, error count, and `_total_cycles` value in the CSV
 is emitted as an unsigned 64-bit decimal value. Each `_max_cycles` value and
 `cpu_hz` remain unsigned 32-bit values.
+
+This width change is why the schema is v3 rather than v2. A typed consumer must
+parse v3 cumulative fields as 64-bit values; it must not silently reuse a
+32-bit v2 record model.
 
 The ISR hooks and USB adapter deliberately retain their lock-free 32-bit
 atomics and existing 32-bit public statistics API. The instrumented sample's
@@ -353,19 +359,24 @@ perturb the instrumented firmware slightly. Use this image for attribution;
 use the normal image for the retained host-latency numbers.
 
 `CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS` remains disabled in `prj.conf`. In a
-normal image, the sample measurement state, cycle reads, completion polling,
-and counter updates are all removed at preprocessing time, and the adapter's
-cycle-counter callback remains null.
+normal image, the sample's 64-bit extension state, cycle reads, completion
+polling, and sample counter updates are all removed at preprocessing time, and
+the adapter's cycle-counter callback remains null. The adapter's existing
+operational atomics and null-callback checks are baseline transport work; the
+claim here is zero incremental cost for the optional sample instrumentation,
+not zero cost for every adapter statistic.
 
-### 2026-08-31 clean-tree CSV v2 verification
+### 2026-08-31 clean-tree CSV v3 verification
 
-The final v2 image was built from `3b04516` against an unmodified Zephyr
+The final v3 image was built from `e5121eb` against an unmodified Zephyr
 `bd8c1538237` checkout and exercised on the same ESP32-S3-N8R2, native USB
 port, and 240 MHz configuration. The host used Astrial `4ec4dc3`. Both the
 normal and telemetry images built without warnings. The normal ELF contained
-neither telemetry symbols nor the `wirelink_usb_cpu_v2` string, and its
-Xtensa `wl_frame_encode()` entry reserved 96 bytes of stack instead of the
-previous 2,128-byte stack frame dominated by a raw-frame temporary.
+neither telemetry symbols nor the `wirelink_usb_cpu_v3` string, and its
+Xtensa entries reserved 96 bytes for `wl_frame_encode()` and 48 bytes for
+`wl_poll()`. The encoder previously reserved a 2,128-byte stack frame dominated
+by a raw-frame temporary. Both translation units now have a 256-byte compiler
+frame ceiling in the normal Zephyr build.
 
 Three normal-image polling runs used a 120-byte payload, 1,000 warm-ups, and
 10,000 measured exchanges:
@@ -381,33 +392,41 @@ completed without a timeout, payload mismatch, or adapter error. Its 707.43 us
 p99 remains inside a 1 ms round-trip interval; the 1.99--3.17 ms observed
 maximum range still requires host-side jitter margin.
 
-One fresh telemetry-image run then completed 11,000 total exchanges. It
-reported 11,001 RX claims, 11,000 RX completions, 1,628,000 RX bytes, 338 RX
+After enabling both stack gates, a final normal-image run with the same
+parameters completed another 11,000 exchanges without failure: 478.33 us p50,
+571.50 us p99, 1,393.91 us maximum, 487.31 us mean, and 246,249.32 payload
+bytes/s. This is a post-gate regression check rather than a replacement for
+the three-run profile.
+
+One fresh v3 telemetry-image run then completed 11,000 total exchanges. It
+reported 11,001 RX claims, 11,000 RX completions, 1,628,000 RX bytes, 336 RX
 pauses, 11,000 TX submissions and completions, and zero adapter errors. The
 optional clean-tree DWC2/USBD hook fields were zero, as expected. The host RTT
-for this instrumented run was 508.19 us p50, 675.64 us p99, and 520.49 us mean;
+for this instrumented run was 497.55 us p50, 734.61 us p99, and 505.35 us mean;
 these latency values are a verification aid and do not replace the normal
 image results above.
 
 | Measured region | Calls/exchange | Total cycles | Mean/call (us) | Time/exchange (us) | Max (us) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Adapter RX callback | -- | 31,570,406 | -- | 11.958 | 59.679 |
+| Adapter RX callback | -- | 28,837,067 | -- | 10.923 | 57.604 |
 | Adapter TX callback | -- | 11,369,698 | -- | 4.307 | 8.896 |
-| Adapter TX sink | -- | 69,475,476 | -- | 26.316 | 62.683 |
-| Active adapter service | 1.973 | 83,541,026 | 16.042 | 31.644 | 69.908 |
-| `wl_poll` | 35.161 | 281,991,244 | 3.038 | 106.815 | 184.892 |
-| RX copy and release | 1.000 | 3,785,741 | 1.434 | 1.434 | 9.454 |
-| `wl_send_unreliable` | 1.000 | 191,795,192 | 72.650 | 72.650 | 186.958 |
-| Full USB service call | 35.161 | 170,899,390 | 1.841 | 64.735 | 72.808 |
+| Adapter TX sink | -- | 67,161,318 | -- | 25.440 | 74.921 |
+| Active adapter service | 1.970 | 89,777,898 | 17.262 | 34.007 | 74.513 |
+| `wl_poll` | 35.782 | 279,740,792 | 2.961 | 105.962 | 184.875 |
+| RX copy and release | 1.000 | 3,784,269 | 1.433 | 1.433 | 9.454 |
+| `wl_send_unreliable` | 1.000 | 188,307,570 | 71.329 | 71.329 | 198.275 |
+| Full USB service call | 35.782 | 173,921,735 | 1.841 | 65.879 | 65.808 |
 
 The RX copy row's mean per call and time per exchange are identical because
 there is one copy/release per exchange. The four non-overlapping
 application-level measurement windows (`wl_poll`, copy/release, send, and full
 service) cover
-245.633 us per exchange, or 47.2% of the instrumented run's mean RTT. This is
-not a CPU-utilization measurement: interrupt preemption is included in an
-outer interval, while loop bookkeeping and `k_yield()` are outside the named
-regions.
+244.604 us per device exchange across the 1,000 warm-ups and 10,000 measured
+exchanges. For scale, that is 48.4% of the host's 505.35 us measured-sample
+mean, but the populations differ because the host excludes warm-ups. The ratio
+is therefore an approximate cross-window comparison, not an exact coverage or
+CPU-utilization measurement: interrupt preemption is included in an outer
+interval, while loop bookkeeping and `k_yield()` are outside the named regions.
 
 The clearest remaining device-CPU opportunity is scheduling. A sequential
 exchange currently executes about 35 poll and full-service calls, so avoiding
