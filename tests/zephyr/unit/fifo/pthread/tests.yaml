@@ -1,0 +1,9 @@
+tests:
+  wirelink.fifo.pthread:
+    type: unit
+    tags:
+      - wirelink
+      - fifo
+      - spsc
+      - pthread
+    timeout: 45
