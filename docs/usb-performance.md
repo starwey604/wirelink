@@ -356,3 +356,62 @@ use the normal image for the retained host-latency numbers.
 normal image, the sample measurement state, cycle reads, completion polling,
 and counter updates are all removed at preprocessing time, and the adapter's
 cycle-counter callback remains null.
+
+### 2026-08-31 clean-tree CSV v2 verification
+
+The final v2 image was built from `3b04516` against an unmodified Zephyr
+`bd8c1538237` checkout and exercised on the same ESP32-S3-N8R2, native USB
+port, and 240 MHz configuration. The host used Astrial `4ec4dc3`. Both the
+normal and telemetry images built without warnings. The normal ELF contained
+neither telemetry symbols nor the `wirelink_usb_cpu_v2` string, and its
+Xtensa `wl_frame_encode()` entry reserved 96 bytes of stack instead of the
+previous 2,128-byte stack frame dominated by a raw-frame temporary.
+
+Three normal-image polling runs used a 120-byte payload, 1,000 warm-ups, and
+10,000 measured exchanges:
+
+| Run | p50 (us) | p95 (us) | p99 (us) | Max (us) | Mean (us) | Payload B/s |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 510.73 | 581.26 | 707.43 | 2,074.96 | 511.37 | 234,663.42 |
+| 2 | 512.58 | 599.05 | 728.12 | 3,173.03 | 519.77 | 230,870.23 |
+| 3 | 498.53 | 555.73 | 680.37 | 1,985.15 | 500.54 | 239,740.77 |
+
+Run 1 is the median run by p50. All 33,000 exchanges, including warm-ups,
+completed without a timeout, payload mismatch, or adapter error. Its 707.43 us
+p99 remains inside a 1 ms round-trip interval; the 1.99--3.17 ms observed
+maximum range still requires host-side jitter margin.
+
+One fresh telemetry-image run then completed 11,000 total exchanges. It
+reported 11,001 RX claims, 11,000 RX completions, 1,628,000 RX bytes, 338 RX
+pauses, 11,000 TX submissions and completions, and zero adapter errors. The
+optional clean-tree DWC2/USBD hook fields were zero, as expected. The host RTT
+for this instrumented run was 508.19 us p50, 675.64 us p99, and 520.49 us mean;
+these latency values are a verification aid and do not replace the normal
+image results above.
+
+| Measured region | Calls/exchange | Total cycles | Mean/call (us) | Time/exchange (us) | Max (us) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Adapter RX callback | -- | 31,570,406 | -- | 11.958 | 59.679 |
+| Adapter TX callback | -- | 11,369,698 | -- | 4.307 | 8.896 |
+| Adapter TX sink | -- | 69,475,476 | -- | 26.316 | 62.683 |
+| Active adapter service | 1.973 | 83,541,026 | 16.042 | 31.644 | 69.908 |
+| `wl_poll` | 35.161 | 281,991,244 | 3.038 | 106.815 | 184.892 |
+| RX copy and release | 1.000 | 3,785,741 | 1.434 | 1.434 | 9.454 |
+| `wl_send_unreliable` | 1.000 | 191,795,192 | 72.650 | 72.650 | 186.958 |
+| Full USB service call | 35.161 | 170,899,390 | 1.841 | 64.735 | 72.808 |
+
+The RX copy row's mean per call and time per exchange are identical because
+there is one copy/release per exchange. The four non-overlapping
+application-level measurement windows (`wl_poll`, copy/release, send, and full
+service) cover
+245.633 us per exchange, or 47.2% of the instrumented run's mean RTT. This is
+not a CPU-utilization measurement: interrupt preemption is included in an
+outer interval, while loop bookkeeping and `k_yield()` are outside the named
+regions.
+
+The clearest remaining device-CPU opportunity is scheduling. A sequential
+exchange currently executes about 35 poll and full-service calls, so avoiding
+idle consumer iterations can save more work than another small callback-path
+micro-optimization. The proposed poll scheduling hint should therefore be
+measured against these call counts and the normal-image p99, rather than only
+against average callback duration.
