@@ -17,6 +17,7 @@ endfunction()
 wirelink_add_fuzzer(wirelink_fuzz_cobs cobs_decode.c)
 wirelink_add_fuzzer(wirelink_fuzz_frame frame_decode.c)
 wirelink_add_fuzzer(wirelink_fuzz_protocol protocol_stream.c)
+wirelink_add_fuzzer(wirelink_fuzz_bulk_state bulk_state.c)
 wirelink_add_fuzzer(wirelink_fuzz_generated_codec
   generated_codec.c
   ${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures/wlc/generated/current/control.c)
