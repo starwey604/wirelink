@@ -65,6 +65,9 @@ ZTEST(wirelink_api_lifecycle, test_context_apis_reject_before_init) {
   zassert_equal(wl_rx_reserve(&ctx, &span), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_rx_commit(&ctx, 0U), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_rx_dma_claim(&ctx, 1U, &claim), WL_ERR_NOT_INITIALIZED);
+  zassert_equal(wl_rx_dma_publish(&ctx, &claim, 0U, 0U),
+                WL_ERR_NOT_INITIALIZED);
+  zassert_equal(wl_rx_dma_finish(&ctx, &claim), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_rx_dma_abort(&ctx), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_feed_recover_reset(&ctx), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_poll(&ctx, 0U, &event), WL_ERR_NOT_INITIALIZED);
@@ -73,7 +76,7 @@ ZTEST(wirelink_api_lifecycle, test_context_apis_reject_before_init) {
   wl_event_release(&ctx, &event);
 }
 
-ZTEST(wirelink_api_lifecycle, test_profile_domains_reject_out_of_range) {
+ZTEST(wirelink_api_lifecycle, test_profile_domains_and_timeout_bounds) {
   wl_config_t config = {
       .max_payload_len = 32U,
       .envelope = WL_ENVELOPE_NATIVE_PACKET,
@@ -93,6 +96,17 @@ ZTEST(wirelink_api_lifecycle, test_profile_domains_reject_out_of_range) {
   zassert_equal(wl_config_requirements(&config, &requirements),
                 WL_ERR_INVALID_ARG);
   config.integrity = WL_INTEGRITY_CRC32C + 1;
+  zassert_equal(wl_config_requirements(&config, &requirements),
+                WL_ERR_INVALID_ARG);
+  config.integrity = WL_INTEGRITY_CRC32C;
+  config.ack_timeout_ms = 0U;
+  zassert_ok(wl_config_requirements(&config, &requirements));
+  config.ack_timeout_ms = UINT32_C(0x7FFFFFFF);
+  zassert_ok(wl_config_requirements(&config, &requirements));
+  config.ack_timeout_ms = UINT32_C(0x80000000);
+  zassert_equal(wl_config_requirements(&config, &requirements),
+                WL_ERR_INVALID_ARG);
+  config.ack_timeout_ms = UINT32_MAX;
   zassert_equal(wl_config_requirements(&config, &requirements),
                 WL_ERR_INVALID_ARG);
 }

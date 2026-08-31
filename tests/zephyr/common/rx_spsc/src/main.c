@@ -500,13 +500,13 @@ static void spsc_producer_entry(void *arg1, void *arg2, void *arg3) {
       atomic_store_explicit(&state->error,
                             ret != WL_OK ? ret : WL_ERR_INVALID_STATE,
                             memory_order_relaxed);
-      atomic_store_explicit(&state->done, 1U, memory_order_relaxed);
+      atomic_store_explicit(&state->done, 1U, memory_order_release);
       return;
     }
     atomic_store_explicit(&state->produced, sequence + 1U,
                           memory_order_relaxed);
   }
-  atomic_store_explicit(&state->done, 1U, memory_order_relaxed);
+  atomic_store_explicit(&state->done, 1U, memory_order_release);
 }
 
 ZTEST(wirelink_rx_spsc, test_threaded_sustained_producer_consumer_stress) {
@@ -534,12 +534,17 @@ ZTEST(wirelink_rx_spsc, test_threaded_sustained_producer_consumer_stress) {
     do {
       ret = wl_poll(&fixture.ctx, expected, &event);
       if (ret == WL_ERR_NO_DATA) {
-        zassert_equal(
-            atomic_load_explicit(&state.error, memory_order_relaxed), WL_OK,
-            "producer failed at frame %u", expected);
-        zassert_false(
-            atomic_load_explicit(&state.done, memory_order_relaxed) != 0U,
-            "producer stopped before frame %u became visible", expected);
+        const unsigned int producer_done =
+            atomic_load_explicit(&state.done, memory_order_acquire);
+
+        if (producer_done != 0U) {
+          zassert_equal(
+              atomic_load_explicit(&state.error, memory_order_relaxed), WL_OK,
+              "producer failed at frame %u", expected);
+        }
+        zassert_false(producer_done != 0U,
+                      "producer stopped before frame %u became visible",
+                      expected);
         k_yield();
       }
     } while (ret == WL_ERR_NO_DATA);

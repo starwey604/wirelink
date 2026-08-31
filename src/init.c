@@ -46,6 +46,9 @@ int wl_config_requirements(const wl_config_t *config,
   if (config->session_id == 0ULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (config->ack_timeout_ms >= UINT32_C(0x80000000)) {
+    return WL_ERR_INVALID_ARG;
+  }
   unit = wl_max_unit_size(config);
   control = wl_frame_encode_overhead(config->envelope, config->integrity);
   if (unit == 0U || control == 0U ||

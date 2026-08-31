@@ -359,9 +359,11 @@ IDLE -> SENDING -> WAITING_ACK -> SUCCESS
 - `CANCELLED`: the application cancelled it.
 
 A sink submission that reports temporary busy does not consume a transmission
-attempt. `wl_send_reliable()` returns `WL_ERR_WOULD_BLOCK` in that case and
-keeps the context in `WL_TX_STATE_IDLE` until the next caller-controlled
-attempt.
+attempt. The core retains that single application unit in its TX slot, reports
+success from `wl_send_unreliable()` or `wl_send_reliable()`, and retries the
+submission from a later `wl_poll()`. While the unit is queued, another
+application send returns `WL_ERR_BUSY`. `WL_SINK_BUSY` therefore means
+temporary adapter backpressure, not that the caller must resubmit the message.
 
 An asynchronous attempt starts its ACK/retry timing only after the adapter
 reports successful local completion. A synchronous sink starts timing when its
@@ -374,7 +376,9 @@ comparisons MUST remain correct across unsigned 32-bit millisecond wrap:
 (uint32_t)(now_ms - started_at) >= interval_ms
 ```
 
-Configured intervals MUST be less than `2^31` milliseconds.
+An `ack_timeout_ms` of zero disables the ACK timeout, so no timeout-driven
+retry or failure occurs. Non-zero configured intervals MUST be less than
+`2^31` milliseconds.
 
 ### 8.2 Receiver acceptance and ACK
 
@@ -574,7 +578,8 @@ Recommended local error mapping for protocol constraints:
 - `WL_ERR_BAD_FRAME`: 零 `session_id`、非法 `packet_type`、未知/保留 `flags`、ACK 的
   `message_id != 0` 或 `payload_length != 0` 等；
 - `WL_ERR_PAYLOAD_TOO_LONG`: 已解码长度或运行时 payload 超过 `max_payload_len`；
-- `WL_ERR_WOULD_BLOCK`/`WL_ERR_BUSY`: 发送路径 busy、重试拥塞、或者等待 ACK 的可靠事务上再次发起发送；
+- `WL_ERR_WOULD_BLOCK`/`WL_ERR_BUSY`: 当单槽 TX 单元已排队、正在本地发送、
+  或等待 ACK 时又发起发送；
 - `WL_ERR_QUEUE_FULL`: 已有待处理事件时无法接受新的接收事件（包括可恢复可靠 DATA）。
 
 ## 13. Security considerations

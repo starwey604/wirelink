@@ -106,7 +106,7 @@ ZTEST(wirelink_protocol_unit, test_init_copies_configuration)
   zassert_ok(wl_send_unreliable(&ctx, 1U, NULL, 0U));
 }
 
-ZTEST(wirelink_protocol_unit, test_busy_on_send_is_would_block)
+ZTEST(wirelink_protocol_unit, test_busy_send_queues_for_poll_retry)
 {
   wl_ctx_t ctx = {0};
   uint8_t rx_mem[256];
@@ -159,7 +159,7 @@ ZTEST(wirelink_protocol_unit, test_busy_send_clears_queue_when_retry_starts)
   zassert_equal(wl_ctx_impl(&ctx)->tx_inflight, 1U);
 }
 
-ZTEST(wirelink_protocol_unit, test_reliable_send_busy_does_not_occupy_tx_slot)
+ZTEST(wirelink_protocol_unit, test_reliable_busy_send_occupies_tx_slot)
 {
   wl_ctx_t ctx = {0};
   uint8_t rx_mem[256];
