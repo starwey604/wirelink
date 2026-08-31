@@ -73,6 +73,8 @@ option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER
   "Build the optional Astrial USB bulk adapter" OFF)
 option(WIRELINK_BUILD_HOST_BENCHMARKS
   "Build host USB Bulk and CDC latency benchmarks" OFF)
+option(WIRELINK_BUILD_FIFO_BENCHMARK
+  "Build the host SPSC FIFO and command-flow benchmark" OFF)
 option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_EXAMPLES
@@ -135,6 +137,10 @@ endif()
 
 if(WIRELINK_BUILD_HOST_BENCHMARKS)
   add_subdirectory(benchmarks/host)
+endif()
+
+if(WIRELINK_BUILD_FIFO_BENCHMARK)
+  add_subdirectory(benchmarks/fifo)
 endif()
 
 if(WIRELINK_BUILD_FUZZERS)
