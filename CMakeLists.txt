@@ -13,6 +13,8 @@ set(CMAKE_C_EXTENSIONS OFF)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 set(WIRELINK_SOURCES
+  src/bulk_receiver.c
+  src/bulk_sender.c
   src/cobs.c
   src/crc.c
   src/fifo.c
@@ -55,11 +57,21 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         -Werror=frame-larger-than=256)
       set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
         -Werror=frame-larger-than=256)
+      set_property(SOURCE src/bulk_receiver.c APPEND PROPERTY COMPILE_OPTIONS
+        -Werror=frame-larger-than=256)
+      set_property(SOURCE src/bulk_sender.c APPEND PROPERTY COMPILE_OPTIONS
+        -Werror=frame-larger-than=256)
     else()
       set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
         -Wframe-larger-than=256
         -Werror=frame-larger-than)
       set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+      set_property(SOURCE src/bulk_receiver.c APPEND PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+      set_property(SOURCE src/bulk_sender.c APPEND PROPERTY COMPILE_OPTIONS
         -Wframe-larger-than=256
         -Werror=frame-larger-than)
     endif()

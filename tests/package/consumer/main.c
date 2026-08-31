@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <wirelink/bulk.h>
 #include <wirelink/cobs.h>
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
@@ -42,6 +43,16 @@ _Static_assert(sizeof(wl_rpc_cache_policy_t) == sizeof(int32_t),
                "public RPC cache ABI must not depend on -fshort-enums");
 _Static_assert(sizeof(wl_rpc_server_disposition_t) == sizeof(int32_t),
                "public RPC server ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_bulk_err_t) == sizeof(int32_t) &&
+                   sizeof(wl_bulk_phase_t) == sizeof(int32_t) &&
+                   sizeof(wl_bulk_status_code_t) == sizeof(int32_t) &&
+                   sizeof(wl_bulk_sink_result_t) == sizeof(int32_t) &&
+                   sizeof(wl_bulk_receiver_state_t) == sizeof(int32_t) &&
+                   sizeof(wl_bulk_sender_state_t) == sizeof(int32_t),
+               "public Bulk ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_bulk_receiver_t) == WL_BULK_RECEIVER_STORAGE_SIZE &&
+                   sizeof(wl_bulk_sender_t) == WL_BULK_SENDER_STORAGE_SIZE,
+               "public Bulk opaque storage size changed");
 _Static_assert(sizeof(wl_fifo_t) == WL_FIFO_CONTEXT_STORAGE_SIZE,
                "public FIFO context size changed");
 _Static_assert(sizeof(wl_latest_t) == WL_LATEST_CONTEXT_STORAGE_SIZE,

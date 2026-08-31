@@ -3,6 +3,8 @@
 zephyr_library_named(wirelink)
 
 zephyr_library_sources_ifdef(CONFIG_WIRELINK
+  ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_receiver.c
+  ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_sender.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/cobs.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/crc.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/fifo.c
@@ -24,12 +26,24 @@ if(CONFIG_WIRELINK AND NOT CONFIG_ASAN AND NOT CONFIG_UBSAN)
       PROPERTY COMPILE_OPTIONS -Werror=frame-larger-than=256)
     set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/protocol.c APPEND
       PROPERTY COMPILE_OPTIONS -Werror=frame-larger-than=256)
+    set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_receiver.c APPEND
+      PROPERTY COMPILE_OPTIONS -Werror=frame-larger-than=256)
+    set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_sender.c APPEND
+      PROPERTY COMPILE_OPTIONS -Werror=frame-larger-than=256)
   elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")
     set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/frame.c APPEND
       PROPERTY COMPILE_OPTIONS
         -Wframe-larger-than=256
         -Werror=frame-larger-than)
     set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/protocol.c APPEND
+      PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+    set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_receiver.c APPEND
+      PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+    set_property(SOURCE ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_sender.c APPEND
       PROPERTY COMPILE_OPTIONS
         -Wframe-larger-than=256
         -Werror=frame-larger-than)
