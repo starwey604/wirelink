@@ -1,0 +1,55 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+/* Keep this list aligned with the public headers installed by Wirelink. */
+#include <wirelink/cobs.h>
+#include <wirelink/codec.h>
+#include <wirelink/crc.h>
+#include <wirelink/frame.h>
+#include <wirelink/span.h>
+#include <wirelink/types.h>
+#include <wirelink/version.h>
+#include <wirelink/wirelink.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <type_traits>
+
+static_assert(__cplusplus >= 202002L);
+static_assert(std::is_standard_layout_v<wl_codec_bytes_t>);
+static_assert(std::is_standard_layout_v<wl_frame_view_t>);
+static_assert(std::is_standard_layout_v<wl_event_t>);
+static_assert(sizeof(wl_codec_status_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_err_t) == sizeof(std::int32_t));
+
+int main() {
+  constexpr std::uint8_t input[] = {0x00U, 0x57U, 0x4CU};
+  std::uint8_t encoded[sizeof(input) + 2U]{};
+  std::uint8_t decoded[sizeof(input)]{};
+  std::size_t encoded_length = 0U;
+  std::size_t decoded_length = 0U;
+
+  wl_config_t config{};
+  config.max_payload_len = 32U;
+  config.envelope = WL_ENVELOPE_NATIVE_PACKET;
+  config.integrity = WL_INTEGRITY_CRC32C;
+  config.session_id = UINT64_C(0x12345678);
+  config.max_retries = 1U;
+  config.ack_timeout_ms = 10U;
+
+  wl_storage_requirements_t requirements{};
+  const bool cobs_ok =
+      wl_cobs_encode(input, sizeof(input), encoded, sizeof(encoded),
+                     &encoded_length) == WL_OK &&
+      wl_cobs_decode(encoded, encoded_length, decoded, sizeof(decoded),
+                     &decoded_length) == WL_OK &&
+      decoded_length == sizeof(input);
+  const bool crc_ok = wl_crc16_ccitt_false(input, sizeof(input)) != 0U &&
+                      wl_crc32c(input, sizeof(input)) != 0U;
+  const bool config_ok =
+      wl_config_requirements(&config, &requirements) == WL_OK &&
+      requirements.tx_payload_size == config.max_payload_len &&
+      requirements.rx_fifo_size == 0U;
+  const bool version_ok = WIRELINK_PROTOCOL_VERSION == WL_FRAME_VERSION;
+
+  return cobs_ok && crc_ok && config_ok && version_ok ? 0 : 1;
+}
