@@ -338,6 +338,14 @@ added only when `WIRELINK_BUILD_ASTRIAL_ADAPTER=ON`. The Zephyr UART/DMA sample
 is a standalone Zephyr application and therefore is built with `west`, not by
 top-level CMake.
 
+## Application-layer extensions
+
+Typed routers and session runtimes are built above the core rather than into
+adapter callbacks. Their callback lifetime, latest-value, RPC, threading,
+multiplexing, and storage rules are frozen in
+[`application-layer.md`](application-layer.md). New implementations must keep
+the core's single-consumer state machine and borrowed-event ownership intact.
+
 ## Integration platform matrix
 
 Use `native_sim` as the default runnable integration target: it is fast and is

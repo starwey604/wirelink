@@ -133,6 +133,13 @@ checked-in generated C artifacts live under
 - in-place event decode with borrowed `string` and `bytes` fields; and
 - old/new decoder behavior plus deterministic malformed-input errors.
 
+The boundary for generated dispatch, latest-value delivery, application RPC,
+thread ownership, explicit stream multiplexing, and future bulk transfers is
+defined in
+[`docs/application-layer.md`](docs/application-layer.md). A Wirelink ACK is a
+link-delivery result; application completion always uses an explicit typed
+response or status message.
+
 ## Zephyr tests
 
 The cross-platform UDP adapter is enabled with

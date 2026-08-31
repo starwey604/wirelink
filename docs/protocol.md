@@ -73,6 +73,12 @@ guarantee exactly-once execution across power loss, state loss, or session-ID
 collision. Safety-critical commands SHOULD be idempotent or carry a persistent
 application operation ID.
 
+Typed routing, latest-value mailboxes, request/response correlation, and bulk
+object transfer are application-layer facilities. Their common ownership and
+semantic contract is defined in
+[`docs/application-layer.md`](application-layer.md); none adds fields to the
+v1 packet header.
+
 ## 4. Link profile
 
 Both peers MUST be configured with a compatible link profile before exchanging
