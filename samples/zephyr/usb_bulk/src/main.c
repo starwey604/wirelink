@@ -204,7 +204,7 @@ static void print_sample_region(const char *name,
 }
 
 static void print_cpu_stats(void) {
-  printk("wirelink_usb_cpu_v2,cpu_hz,%u,rx_claims,%llu,"
+  printk("wirelink_usb_cpu_v3,cpu_hz,%u,rx_claims,%llu,"
          "rx_completions,%llu,rx_bytes,%llu,rx_pauses,%llu,"
          "tx_submissions,%llu,tx_completions,%llu",
          (uint32_t)CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC,
