@@ -19,12 +19,13 @@ The canonical DATA input is:
 
 The suite freezes that DATA packet for all nine envelope/integrity
 combinations, plus reliable DATA, ACK in every envelope, and an empty DATA
-packet. CRC16 is stored big-endian as `7C EE`; CRC32C is stored big-endian as
-`A2 40 30 89` for the canonical unreliable DATA frame.
+packet. CRC16 is stored big-endian as `79 23`; CRC32C is stored big-endian as
+`A5 72 DB FA` for the canonical unreliable DATA frame.
 
-The rejection vectors freeze error classification for bad magic, unsupported
-version, reserved flags, inconsistent payload length, corrupted CRC, and a
-truncated frame. NACK remains reserved and unsupported in v1.
+The rejection vectors freeze error classification for a bad marker,
+unsupported version, a nonzero reserved byte, a reserved kind, corrupted CRC,
+and a CRC-detected truncated frame. NACK remains reserved and unsupported in
+v1.
 
 WLC payload compatibility vectors are maintained separately under
 [`tests/fixtures/wlc`](../tests/fixtures/wlc); they validate the payload layer

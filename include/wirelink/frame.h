@@ -13,19 +13,25 @@
 extern "C" {
 #endif
 
-#define WL_MAGIC0 0x57U
-#define WL_MAGIC1 0x4CU
-#define WL_FRAME_VERSION 1
-#define WL_FRAME_HEADER_SIZE 22U
+#define WL_FRAME_MARKER 0xA0U
+#define WL_FRAME_MARKER_MASK 0xF0U
+#define WL_FRAME_VERSION 1U
+#define WL_FRAME_VERSION_SHIFT 2U
+#define WL_FRAME_VERSION_MASK 0x0CU
+#define WL_FRAME_KIND_MASK 0x03U
+#define WL_FRAME_PREFIX                                                     \
+  (WL_FRAME_MARKER | (WL_FRAME_VERSION << WL_FRAME_VERSION_SHIFT))
+#define WL_FRAME_BASE_HEADER_SIZE 4U
+#define WL_FRAME_RELIABLE_HEADER_SIZE 16U
+/* Worst-case header size, used by storage requirement helpers. */
+#define WL_FRAME_HEADER_SIZE WL_FRAME_RELIABLE_HEADER_SIZE
 #define WL_FRAME_MAX_PAYLOAD 2048U
 #define WL_FRAME_MAX_CRC 4U
 #define WL_FRAME_MAX_RAW_LEN (WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_PAYLOAD + WL_FRAME_MAX_CRC)
 
-/*
- * max COBS expansion = raw + raw/254 + 1 delimiter
- * for 2054 => 2074 + 9 + 1 = 2084
- */
-#define WL_FRAME_MAX_COBS_LEN 2084U
+/* COBS output plus the terminating zero delimiter. */
+#define WL_FRAME_MAX_COBS_LEN                                                \
+  (WL_FRAME_MAX_RAW_LEN + (WL_FRAME_MAX_RAW_LEN / 254U) + 2U)
 
 typedef int32_t wl_envelope_type_t;
 enum {
@@ -59,7 +65,8 @@ enum {
 };
 
 typedef struct {
-  uint8_t magic[2];
+  uint8_t marker_version_kind;
+  uint8_t reserved;
   uint8_t version;
   uint8_t header_length;
   uint8_t packet_type;
@@ -97,6 +104,7 @@ typedef struct {
 #define WL_PACKET_MAX_PAYLOAD WL_FRAME_MAX_PAYLOAD
 
 size_t wl_frame_overhead(wl_integrity_t integrity);
+size_t wl_frame_packet_header_size(wl_packet_type_t type, uint8_t flags);
 size_t wl_frame_encode_overhead(wl_envelope_type_t envelope, wl_integrity_t integrity);
 size_t wl_frame_raw_size(size_t payload_len, wl_integrity_t integrity);
 

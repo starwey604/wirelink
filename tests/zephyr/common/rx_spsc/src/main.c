@@ -188,8 +188,9 @@ ZTEST(wirelink_rx_spsc, test_wrapped_frame_uses_fallback) {
   init_fixture(&fixture);
   first_len =
       encode_data(&fixture, 0U, 0x301U, 1U, NULL, 0U, first, sizeof(first));
-  wrapped_len = encode_data(&fixture, 0U, 0x302U, 2U, payload, sizeof(payload),
-                            wrapped, sizeof(wrapped));
+  wrapped_len = encode_data(&fixture, WL_PACKET_FLAG_RELIABLE, 0x302U, 2U,
+                            payload, sizeof(payload), wrapped,
+                            sizeof(wrapped));
   capacity = usable_rx_capacity(&fixture);
   zassert_equal(wrapped_len, capacity,
                 "maximum test frame must fill the usable ring");

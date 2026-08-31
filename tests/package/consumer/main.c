@@ -59,7 +59,8 @@ _Static_assert(sizeof(wl_codec_string_t) == 16U &&
 
 _Static_assert(sizeof(wl_frame_header_t) == 24U &&
                    _Alignof(wl_frame_header_t) == 8U &&
-                   offsetof(wl_frame_header_t, magic) == 0U &&
+                   offsetof(wl_frame_header_t, marker_version_kind) == 0U &&
+                   offsetof(wl_frame_header_t, reserved) == 1U &&
                    offsetof(wl_frame_header_t, version) == 2U &&
                    offsetof(wl_frame_header_t, header_length) == 3U &&
                    offsetof(wl_frame_header_t, packet_type) == 4U &&

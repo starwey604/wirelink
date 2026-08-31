@@ -127,47 +127,46 @@ All multibyte integer fields use network byte order (most significant byte
 first). Implementations MUST encode fields individually and MUST NOT transmit a
 C structure representation.
 
-### 5.1 V1 base header
+### 5.1 V1 compact header
 
 ```text
  Offset  Size  Field
- ------  ----  --------------------------------------------
- 0       2     magic              bytes 0x57, 0x4c ("WL")
- 2       1     version            0x01
- 3       1     header_length      22 for v1
- 4       1     packet_type
- 5       1     flags
- 6       8     session_id
- 14      4     sequence
- 18      2     message_id
- 20      2     payload_length
- 22      ...   header extensions, if header_length > 22
- ...      ...  payload
- ...      0/2/4 integrity trailer selected by the link profile
+ ------  ----  -------------------------------------------------
+ 0       1     marker/version/kind  0b1010_vv_kk; vv=01 for v1
+ 1       1     reserved             zero in v1
+ 2       2     message_id           network byte order
+ 4       8     session_id           reliable DATA and ACK only
+ 12      4     sequence             reliable DATA and ACK only
+ 4/16    ...   payload
+ ...     0/2/4 integrity trailer selected by the link profile
 ```
 
-The decoded packet length MUST equal:
+The upper nibble of byte 0 is the marker `0xA`; bits 3-2 carry the version and
+bits 1-0 carry the packet kind:
 
-```text
-header_length + payload_length + integrity_trailer_length
-```
+| Kind | Meaning | Header bytes |
+| ---: | --- | ---: |
+| `0` | Unreliable DATA | 4 |
+| `1` | Reliable DATA | 16 |
+| `2` | ACK | 16 |
+| `3` | Reserved | — |
 
-V1 senders MUST emit `header_length = 22`. Until header extensions are
-specified, V1 receivers MUST reject other header lengths rather than guessing
-their semantics.
+Payload length is inferred from the decoded transmission-unit boundary after
+subtracting the kind-selected header and configured integrity trailer. It is
+not repeated in the packet. Byte 1 is reserved for a future header variant and
+MUST be zero in v1.
 
-`session_id` zero is reserved and MUST NOT be transmitted. `message_id` zero is
-reserved for protocol control packets.
+`session_id` zero is reserved in reliable DATA and ACK. Unreliable DATA omits
+both session and sequence. `message_id` zero is reserved for protocol control
+packets.
 
-### 5.2 Packet types
+### 5.2 Logical packet types
 
 | Value | Name | Meaning |
 | ---: | --- | --- |
-| `0x01` | `DATA` | Carries an application message. |
+| `0x01` | `DATA` | Carries an application message; kind selects reliability. |
 | `0x02` | `ACK` | Acknowledges one reliable DATA packet. |
-| `0x03` | `NACK` | Reserved for a future negative acknowledgement definition. |
-| `0x04`-`0x7f` | — | Reserved for future standard packet types. |
-| `0x80`-`0xff` | — | Reserved for experimental/private use; disabled by default. |
+| `0x03` | `NACK` | Reserved in the API; no v1 packet kind is assigned. |
 
 Unknown standard packet types MUST be discarded. A receiver MUST NOT send an
 ACK for an unknown packet type.
@@ -179,20 +178,25 @@ ACK for an unknown packet type.
 | 0 | `RELIABLE` | DATA requires ACK and duplicate suppression. |
 | 1-7 | — | Reserved; MUST be zero in v1. |
 
-A receiver MUST reject a packet with unsupported nonzero reserved flag bits.
-Integrity is deliberately not selected by these flags.
+The flag is represented by the DATA kind rather than a separate wire byte. A
+receiver rejects reserved kinds and a nonzero reserved byte. Integrity remains
+a profile property rather than a per-packet flag.
 
 ### 5.4 DATA packets
 
-For DATA:
+For reliable DATA:
 
 - `session_id` identifies the sender's current session;
 - `sequence` identifies this DATA packet within that session;
 - `message_id` MUST be nonzero;
-- `payload_length` is the exact application payload length; and
-- `RELIABLE` selects reliable or fire-and-forget behavior.
+- payload length comes from the transmission-unit boundary; and
+- kind `1` selects reliable behavior.
 
-Sequence numbers are assigned monotonically to DATA packets. A sender MUST NOT
+Unreliable DATA uses kind `0`, omits `session_id` and `sequence`, and therefore
+has a four-byte aligned payload start. It is fire-and-forget and does not
+participate in duplicate suppression.
+
+Sequence numbers are assigned monotonically to reliable DATA packets. A sender MUST NOT
 reuse `(session_id, sequence)`. Before a 32-bit sequence wraps, it MUST start a
 new nonzero session ID or stop sending and report exhaustion.
 
@@ -208,8 +212,7 @@ For ACK:
 - `session_id` and `sequence` copy the corresponding fields of the DATA being
   acknowledged;
 - `message_id` MUST be zero;
-- `payload_length` MUST be zero;
-- `flags` MUST be zero; and
+- no payload bytes may follow the 16-byte header; and
 - the configured integrity trailer applies exactly as it does to DATA.
 
 Because a context represents one peer, the ACK does not carry a separate ACK
@@ -219,14 +222,16 @@ integrity check. Unmatched and duplicate ACKs are silently ignored and counted.
 
 ## 6. Integrity trailers
 
-The integrity calculation covers every decoded packet byte from `magic`
+The integrity calculation covers every decoded packet byte from the compact
+marker/version/kind byte
 through the final payload byte. The trailer itself and any transport envelope
 bytes are excluded. The transmitted trailer is in network byte order.
 
 ### 6.1 NONE
 
-No integrity trailer is appended. The receiver still validates magic, version,
-type, flags, header length, payload length, and exact transmission-unit length.
+No integrity trailer is appended. The receiver still validates marker,
+version, kind, the reserved byte, message ID, kind-selected header fields, and
+the transport-supplied transmission-unit boundary.
 
 `NONE` MUST NOT be used on raw UART, RS-232, RS-485, SPI, or I2C unless another
 layer supplies an explicitly assessed integrity check for the complete
@@ -299,8 +304,9 @@ that job.
 sink submission MUST map to exactly one datagram or preserved transport
 transaction, and one unit-feed call MUST contain exactly one packet.
 
-The receiver MUST reject trailing bytes, concatenated packets, and truncated
-packets. UDP adapters MUST preserve datagram boundaries and MUST NOT concatenate
+Every byte after the kind-selected header belongs to the payload (apart from a
+configured integrity trailer), so the adapter's unit boundary is authoritative.
+UDP adapters MUST preserve datagram boundaries and MUST NOT concatenate
 datagrams merely because one socket read returned several internal buffers.
 
 For UDP, a conservative default `max_transmission_unit` of 1200 bytes avoids IP
@@ -328,10 +334,10 @@ unit-feed API. This envelope is not a self-resynchronizing unbounded byte-stream
 format. A continuous SPI stream without reliable chip-select/slot boundaries
 SHOULD use `COBS_STREAM` instead.
 
-The length prefix is checked against the base header's payload length and the
-actual transaction size. When CRC is enabled, a corrupted prefix cannot make a
-corrupt packet valid, but adapters MUST apply bounds before using the prefix to
-copy or clock data.
+The length prefix supplies the packet boundary from which payload length is
+derived. When CRC is enabled, a corrupted prefix cannot make a corrupt packet
+valid, but adapters MUST apply bounds before using the prefix to copy or clock
+data.
 
 ## 8. Reliable transaction behavior
 
@@ -573,8 +579,8 @@ corruption.
 
 Recommended local error mapping for protocol constraints:
 
-- `WL_ERR_BAD_FRAME`: 零 `session_id`、非法 `packet_type`、未知/保留 `flags`、ACK 的
-  `message_id != 0` 或 `payload_length != 0` 等；
+- `WL_ERR_BAD_FRAME`: 可靠包的零 `session_id`、非法 marker/kind、非零保留字节、
+  ACK 的 `message_id != 0` 或带 payload 等；
 - `WL_ERR_PAYLOAD_TOO_LONG`: 已解码长度或运行时 payload 超过 `max_payload_len`；
 - `WL_ERR_WOULD_BLOCK`/`WL_ERR_BUSY`: 当单槽 TX 单元已排队、正在本地发送、
   或等待 ACK 时又发起发送；

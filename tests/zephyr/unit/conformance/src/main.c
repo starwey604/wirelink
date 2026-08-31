@@ -72,8 +72,14 @@ ZTEST(wirelink_conformance, test_v1_encode_and_decode_vectors)
     zassert_equal(decoded.type, vector->type);
     zassert_equal(decoded.flags, vector->flags);
     zassert_equal(decoded.message_id, vector->message_id);
-    zassert_equal(decoded.session_id, vector->session_id);
-    zassert_equal(decoded.sequence, vector->sequence);
+    if (vector->type == WL_PACKET_ACK ||
+        (vector->flags & WL_PACKET_FLAG_RELIABLE) != 0U) {
+      zassert_equal(decoded.session_id, vector->session_id);
+      zassert_equal(decoded.sequence, vector->sequence);
+    } else {
+      zassert_equal(decoded.session_id, 0U);
+      zassert_equal(decoded.sequence, 0U);
+    }
     zassert_equal(decoded.payload.length, vector->payload_len);
     if (vector->payload_len != 0U) {
       zassert_mem_equal(decoded.payload.data, vector->payload,
@@ -88,25 +94,26 @@ ZTEST(wirelink_conformance, test_v1_rejection_vectors)
   wl_frame_view_t decoded = {0};
 
   memcpy(frame, wl_v1_data_native_crc32c, sizeof(frame));
-  frame[0] ^= 0x01U;
+  frame[0] ^= 0x10U;
   zassert_equal(wl_frame_decode(frame, sizeof(frame), WL_INTEGRITY_CRC32C,
                                 &decoded),
                 WL_ERR_BAD_FRAME);
 
   memcpy(frame, wl_v1_data_native_crc32c, sizeof(frame));
-  frame[2] = 2U;
+  frame[0] = (uint8_t)((frame[0] & ~WL_FRAME_VERSION_MASK) |
+                       (2U << WL_FRAME_VERSION_SHIFT));
   zassert_equal(wl_frame_decode(frame, sizeof(frame), WL_INTEGRITY_CRC32C,
                                 &decoded),
                 WL_ERR_PROTOCOL_VERSION);
 
   memcpy(frame, wl_v1_data_native_crc32c, sizeof(frame));
-  frame[5] = 0x80U;
+  frame[1] = 1U;
   zassert_equal(wl_frame_decode(frame, sizeof(frame), WL_INTEGRITY_CRC32C,
                                 &decoded),
                 WL_ERR_BAD_FRAME);
 
   memcpy(frame, wl_v1_data_native_crc32c, sizeof(frame));
-  frame[21] = 6U;
+  frame[0] = (uint8_t)(WL_FRAME_PREFIX | 2U);
   zassert_equal(wl_frame_decode(frame, sizeof(frame), WL_INTEGRITY_CRC32C,
                                 &decoded),
                 WL_ERR_BAD_FRAME);
@@ -120,7 +127,7 @@ ZTEST(wirelink_conformance, test_v1_rejection_vectors)
   zassert_equal(wl_frame_decode(wl_v1_data_native_crc32c,
                                 sizeof(wl_v1_data_native_crc32c) - 1U,
                                 WL_INTEGRITY_CRC32C, &decoded),
-                WL_ERR_BAD_FRAME);
+                WL_ERR_CRC);
 }
 
 ZTEST_SUITE(wirelink_conformance, NULL, NULL, NULL, NULL, NULL);

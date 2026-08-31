@@ -523,7 +523,7 @@ ZTEST(wirelink_protocol_unit, test_rejects_receive_reserved_flags)
   size_t wire_len = 0U;
   zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, wire,
                             sizeof(wire), &wire_len));
-  wire[5] |= WL_PACKET_FLAG_RESERVED_MASK;
+  wire[1] = 1U;
 
   zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_BAD_FRAME);
   zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
@@ -568,7 +568,7 @@ ZTEST(wirelink_protocol_unit, test_rejects_receive_nack_and_payload_overflow)
   zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_PAYLOAD_TOO_LONG);
   zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
 
-  wire[4] = WL_PACKET_NACK;
+  wire[0] = (uint8_t)(WL_FRAME_PREFIX | WL_FRAME_KIND_MASK);
   zassert_equal(wl_feed_unit(&ctx, wire, wire_len), WL_ERR_NOT_SUPPORTED);
   zassert_equal(wl_poll(&ctx, 2U, &event), WL_ERR_NO_DATA);
 }
@@ -898,13 +898,13 @@ ZTEST(wirelink_protocol_unit, test_native_direct_tx_claim_uses_final_unit)
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
   zassert_ok(wl_tx_payload_claim(&ctx, 0x70U, WL_DELIVERY_UNRELIABLE,
                                   &claim));
-  zassert_equal_ptr(claim.span.data, tx_mem + WL_FRAME_HEADER_SIZE);
+  zassert_equal_ptr(claim.span.data, tx_mem + WL_FRAME_BASE_HEADER_SIZE);
   zassert_equal(claim.span.length, cfg.max_payload_len);
   memcpy(claim.span.data, payload, sizeof(payload));
   zassert_ok(wl_tx_payload_commit(&ctx, &claim, sizeof(payload), NULL));
   zassert_equal_ptr(cap.last_data, tx_mem);
-  zassert_equal(cap.last_len, WL_FRAME_HEADER_SIZE + sizeof(payload));
-  zassert_mem_equal(cap.last_data + WL_FRAME_HEADER_SIZE, payload,
+  zassert_equal(cap.last_len, WL_FRAME_BASE_HEADER_SIZE + sizeof(payload));
+  zassert_mem_equal(cap.last_data + WL_FRAME_BASE_HEADER_SIZE, payload,
                     sizeof(payload));
   zassert_equal(wl_tx_payload_abort(&ctx, &claim), WL_ERR_NOT_FOUND);
 

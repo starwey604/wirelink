@@ -430,15 +430,11 @@ int wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payloa
   if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->tx_sequence == UINT32_MAX) {
-    return WL_ERR_INVALID_STATE;
-  }
-
   memset(&pkt, 0, sizeof(pkt));
   pkt.type = WL_PACKET_DATA;
   pkt.flags = 0U;
   pkt.message_id = message_id;
-  pkt.sequence = wl_ctx_impl(ctx)->tx_sequence++;
+  pkt.sequence = 0U;
   pkt.payload = payload;
   pkt.payload_len = payload_len;
 
@@ -502,7 +498,12 @@ int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
     return WL_ERR_BUSY;
   }
 
-  payload = wl_ctx_impl(ctx)->storage.tx_unit + WL_FRAME_HEADER_SIZE;
+  payload = wl_ctx_impl(ctx)->storage.tx_unit +
+            wl_frame_packet_header_size(
+                WL_PACKET_DATA,
+                delivery == WL_DELIVERY_RELIABLE
+                    ? WL_PACKET_FLAG_RELIABLE
+                    : 0U);
   ++wl_ctx_impl(ctx)->tx_claim_token;
   if (wl_ctx_impl(ctx)->tx_claim_token == 0U) {
     ++wl_ctx_impl(ctx)->tx_claim_token;
@@ -545,7 +546,7 @@ int wl_tx_payload_commit(wl_ctx_t *ctx,
       (reliable != 0U && out_handle == NULL)) {
     return WL_ERR_INVALID_ARG;
   }
-  if (wl_ctx_impl(ctx)->tx_sequence == UINT32_MAX) {
+  if (reliable != 0U && wl_ctx_impl(ctx)->tx_sequence == UINT32_MAX) {
     return WL_ERR_INVALID_STATE;
   }
 
@@ -554,7 +555,7 @@ int wl_tx_payload_commit(wl_ctx_t *ctx,
   packet.flags = reliable != 0U ? WL_PACKET_FLAG_RELIABLE : 0U;
   packet.message_id = wl_ctx_impl(ctx)->tx_claim_message_id;
   packet.session_id = wl_ctx_impl(ctx)->session_id;
-  packet.sequence = wl_ctx_impl(ctx)->tx_sequence++;
+  packet.sequence = reliable != 0U ? wl_ctx_impl(ctx)->tx_sequence++ : 0U;
   packet.payload = claim->span.data;
   packet.payload_len = payload_len;
   wl_ctx_impl(ctx)->tx_claim_active = 0U;

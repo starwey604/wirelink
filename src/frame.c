@@ -59,26 +59,49 @@ typedef struct {
   uint8_t code;
 } wl_cobs_encode_state_t;
 
-static void frame_write_header(const wl_wire_packet_t *packet,
-                               uint8_t header[WL_FRAME_HEADER_SIZE]) {
-  header[0] = WL_MAGIC0;
-  header[1] = WL_MAGIC1;
-  header[2] = WL_FRAME_VERSION;
-  header[3] = WL_FRAME_HEADER_SIZE;
-  header[4] = (uint8_t)packet->type;
-  header[5] = packet->flags;
-  write_u64_be(&header[6], (uint64_t)packet->session_id);
-  write_u32_be(&header[14], packet->sequence);
-  write_u16_be(&header[18], packet->message_id);
-  write_u16_be(&header[20], (uint16_t)packet->payload_len);
+static uint8_t frame_packet_kind(const wl_wire_packet_t *packet) {
+  if (packet->type == WL_PACKET_ACK) {
+    return 2U;
+  }
+  return (packet->flags & WL_PACKET_FLAG_RELIABLE) != 0U ? 1U : 0U;
+}
+
+size_t wl_frame_packet_header_size(wl_packet_type_t type, uint8_t flags) {
+  if (type == WL_PACKET_ACK && flags == 0U) {
+    return WL_FRAME_RELIABLE_HEADER_SIZE;
+  }
+  if (type != WL_PACKET_DATA ||
+      (flags & (uint8_t)~WL_PACKET_FLAG_RELIABLE) != 0U) {
+    return 0U;
+  }
+  return (flags & WL_PACKET_FLAG_RELIABLE) != 0U
+             ? WL_FRAME_RELIABLE_HEADER_SIZE
+             : WL_FRAME_BASE_HEADER_SIZE;
+}
+
+static size_t frame_write_header(const wl_wire_packet_t *packet,
+                                 uint8_t header[WL_FRAME_HEADER_SIZE]) {
+  const size_t header_len =
+      wl_frame_packet_header_size(packet->type, packet->flags);
+
+  memset(header, 0, WL_FRAME_HEADER_SIZE);
+  header[0] = (uint8_t)(WL_FRAME_PREFIX | frame_packet_kind(packet));
+  header[1] = 0U;
+  write_u16_be(&header[2], packet->message_id);
+  if (header_len == WL_FRAME_RELIABLE_HEADER_SIZE) {
+    write_u64_be(&header[4], (uint64_t)packet->session_id);
+    write_u32_be(&header[12], packet->sequence);
+  }
+  return header_len;
 }
 
 static size_t frame_write_integrity(const wl_wire_packet_t *packet,
                                     const uint8_t *header,
+                                    size_t header_len,
                                     uint8_t integrity[WL_FRAME_MAX_CRC]) {
   if (packet->integrity == WL_INTEGRITY_CRC16) {
     uint16_t state = wl_crc16_ccitt_false_update(
-        0xFFFFu, header, WL_FRAME_HEADER_SIZE);
+        0xFFFFu, header, header_len);
     state = wl_crc16_ccitt_false_update(state, packet->payload,
                                         packet->payload_len);
     write_u16_be(integrity, state);
@@ -87,7 +110,7 @@ static size_t frame_write_integrity(const wl_wire_packet_t *packet,
 
   if (packet->integrity == WL_INTEGRITY_CRC32C) {
     uint32_t state =
-        wl_crc32c_update(0xFFFFFFFFu, header, WL_FRAME_HEADER_SIZE);
+        wl_crc32c_update(0xFFFFFFFFu, header, header_len);
     state = wl_crc32c_update(state, packet->payload, packet->payload_len);
     write_u32_be(integrity, state ^ 0xFFFFFFFFu);
     return 4U;
@@ -115,13 +138,14 @@ static void cobs_count_span(wl_cobs_count_state_t *state, const uint8_t *data,
 }
 
 static size_t frame_cobs_encoded_size(const uint8_t *header,
+                                      size_t header_len,
                                       const uint8_t *payload,
                                       size_t payload_len,
                                       const uint8_t *integrity,
                                       size_t integrity_len) {
   wl_cobs_count_state_t state = {.encoded_len = 1U, .code = 1U};
 
-  cobs_count_span(&state, header, WL_FRAME_HEADER_SIZE);
+  cobs_count_span(&state, header, header_len);
   cobs_count_span(&state, payload, payload_len);
   cobs_count_span(&state, integrity, integrity_len);
   return state.encoded_len;
@@ -148,13 +172,14 @@ static void cobs_encode_span(wl_cobs_encode_state_t *state,
 }
 
 static size_t frame_cobs_encode(const uint8_t *header,
+                                size_t header_len,
                                 const uint8_t *payload, size_t payload_len,
                                 const uint8_t *integrity,
                                 size_t integrity_len, uint8_t *out) {
   wl_cobs_encode_state_t state = {
       .out = out, .write_index = 1U, .code_index = 0U, .code = 1U};
 
-  cobs_encode_span(&state, header, WL_FRAME_HEADER_SIZE);
+  cobs_encode_span(&state, header, header_len);
   cobs_encode_span(&state, payload, payload_len);
   cobs_encode_span(&state, integrity, integrity_len);
   state.out[state.code_index] = state.code;
@@ -191,16 +216,17 @@ static int frame_integrity_is_valid(wl_integrity_t integrity) {
 }
 
 static void frame_write_raw(const uint8_t *header,
+                            size_t header_len,
                             const wl_wire_packet_t *packet,
                             const uint8_t *integrity, size_t integrity_len,
                             uint8_t *out) {
   /* Moving the payload first also preserves supported overlapping inputs. */
   if (packet->payload_len != 0U) {
-    memmove(out + WL_FRAME_HEADER_SIZE, packet->payload, packet->payload_len);
+    memmove(out + header_len, packet->payload, packet->payload_len);
   }
-  memcpy(out, header, WL_FRAME_HEADER_SIZE);
+  memcpy(out, header, header_len);
   if (integrity_len != 0U) {
-    memcpy(out + WL_FRAME_HEADER_SIZE + packet->payload_len, integrity,
+    memcpy(out + header_len + packet->payload_len, integrity,
            integrity_len);
   }
 }
@@ -255,19 +281,13 @@ wl_err_t wl_frame_validate_header(const wl_frame_header_t *hdr) {
     return WL_ERR_INVALID_ARG;
   }
 
-  if (hdr->magic[0] != WL_MAGIC0 || hdr->magic[1] != WL_MAGIC1) {
+  if ((hdr->marker_version_kind & WL_FRAME_MARKER_MASK) != WL_FRAME_MARKER ||
+      hdr->reserved != 0U) {
     return WL_ERR_BAD_FRAME;
   }
   if (hdr->version != WL_FRAME_VERSION) {
     return WL_ERR_PROTOCOL_VERSION;
   }
-  if (hdr->header_length != WL_FRAME_HEADER_SIZE) {
-    return WL_ERR_BAD_FRAME;
-  }
-  if (hdr->session_id == 0ULL) {
-    return WL_ERR_BAD_FRAME;
-  }
-
   if (hdr->payload_length > WL_PACKET_MAX_PAYLOAD) {
     return WL_ERR_FRAME_TOO_LONG;
   }
@@ -280,9 +300,20 @@ wl_err_t wl_frame_validate_header(const wl_frame_header_t *hdr) {
     if (hdr->flags & ~WL_PACKET_FLAG_RELIABLE) {
       return WL_ERR_BAD_FRAME;
     }
+    if ((hdr->flags & WL_PACKET_FLAG_RELIABLE) != 0U) {
+      if (hdr->header_length != WL_FRAME_RELIABLE_HEADER_SIZE ||
+          hdr->session_id == 0ULL) {
+        return WL_ERR_BAD_FRAME;
+      }
+    } else if (hdr->header_length != WL_FRAME_BASE_HEADER_SIZE ||
+               hdr->session_id != 0ULL || hdr->sequence != 0U) {
+      return WL_ERR_BAD_FRAME;
+    }
     break;
   case WL_PACKET_ACK:
-    if (hdr->message_id != 0U || hdr->payload_length != 0U || hdr->flags != 0U) {
+    if (hdr->message_id != 0U || hdr->payload_length != 0U || hdr->flags != 0U ||
+        hdr->header_length != WL_FRAME_RELIABLE_HEADER_SIZE ||
+        hdr->session_id == 0ULL) {
       return WL_ERR_BAD_FRAME;
     }
     break;
@@ -301,6 +332,7 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
   uint8_t integrity[WL_FRAME_MAX_CRC];
   size_t raw_len = 0;
   size_t crc_len;
+  size_t header_len;
 
   if (out_len == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -314,9 +346,6 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
       !frame_integrity_is_valid(packet->integrity)) {
     return WL_ERR_INVALID_ARG;
   }
-  if (packet->session_id == 0ULL) {
-    return WL_ERR_INVALID_ARG;
-  }
   if (packet->type == WL_PACKET_DATA) {
     if (packet->message_id == 0U) {
       return WL_ERR_INVALID_ARG;
@@ -324,9 +353,16 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
     if (packet->flags & ~WL_PACKET_FLAG_RELIABLE) {
       return WL_ERR_INVALID_ARG;
     }
+    if ((packet->flags & WL_PACKET_FLAG_RELIABLE) != 0U &&
+        packet->session_id == 0ULL) {
+      return WL_ERR_INVALID_ARG;
+    }
   } else if (packet->type == WL_PACKET_ACK) {
     if (packet->message_id != 0U || packet->payload_len != 0U ||
         packet->flags != 0U) {
+      return WL_ERR_INVALID_ARG;
+    }
+    if (packet->session_id == 0ULL) {
       return WL_ERR_INVALID_ARG;
     }
   } else {
@@ -336,19 +372,21 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
 
-  raw_len = wl_frame_raw_size(packet->payload_len, packet->integrity);
+  header_len = wl_frame_packet_header_size(packet->type, packet->flags);
+  raw_len = header_len + packet->payload_len +
+            wl_crc_size_bytes((uint8_t)packet->integrity);
   if (raw_len == 0 || raw_len > WL_FRAME_MAX_RAW_LEN) {
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
 
-  frame_write_header(packet, header);
-  crc_len = frame_write_integrity(packet, header, integrity);
+  (void)frame_write_header(packet, header);
+  crc_len = frame_write_integrity(packet, header, header_len, integrity);
 
   switch (envelope) {
   case WL_ENVELOPE_COBS_STREAM: {
     const uint8_t *payload = packet->payload;
     size_t cobs_len = frame_cobs_encoded_size(
-        header, payload, packet->payload_len, integrity, crc_len);
+        header, header_len, payload, packet->payload_len, integrity, crc_len);
     if (out_cap < cobs_len + 1U) {
       return WL_ERR_BUF_TOO_SMALL;
     }
@@ -361,10 +399,10 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
        * its logical raw-frame offset leaves enough lead for safe forward
        * encoding, while keeping the normal non-aliased path copy-free.
        */
-      payload = out + (cobs_len - raw_len) + WL_FRAME_HEADER_SIZE;
+      payload = out + (cobs_len - raw_len) + header_len;
       memmove((uint8_t *)payload, packet->payload, packet->payload_len);
     }
-    cobs_len = frame_cobs_encode(header, payload, packet->payload_len,
+    cobs_len = frame_cobs_encode(header, header_len, payload, packet->payload_len,
                                  integrity, crc_len, out);
     out[cobs_len] = 0U;
     *out_len = cobs_len + 1U;
@@ -380,7 +418,7 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
     if (out == NULL) {
       return WL_ERR_INVALID_ARG;
     }
-    frame_write_raw(header, packet, integrity, crc_len, out + 2U);
+    frame_write_raw(header, header_len, packet, integrity, crc_len, out + 2U);
     write_u16_be(out, (uint16_t)raw_len);
     *out_len = raw_len + 2U;
     return WL_OK;
@@ -392,7 +430,7 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
     if (out == NULL) {
       return WL_ERR_INVALID_ARG;
     }
-    frame_write_raw(header, packet, integrity, crc_len, out);
+    frame_write_raw(header, header_len, packet, integrity, crc_len, out);
     *out_len = raw_len;
     return WL_OK;
   }
@@ -400,9 +438,11 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
 
 int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
                    wl_frame_view_t *out_view) {
-  wl_frame_header_t hdr;
-  size_t expected;
+  wl_frame_header_t hdr = {0};
+  size_t header_len;
+  size_t payload_len;
   size_t crc_len;
+  uint8_t kind;
   uint16_t expected_crc16;
   uint16_t check_crc16;
   uint32_t expected_crc32;
@@ -415,50 +455,69 @@ int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
     return WL_ERR_INVALID_ARG;
   }
 
-  if (in_len < WL_FRAME_HEADER_SIZE) {
+  crc_len = wl_crc_size_bytes((uint8_t)integrity);
+  if (in_len < WL_FRAME_BASE_HEADER_SIZE + crc_len) {
     return WL_ERR_BAD_FRAME;
   }
 
-  hdr.magic[0] = in[0];
-  hdr.magic[1] = in[1];
-  hdr.version = in[2];
-  hdr.header_length = in[3];
-  hdr.packet_type = in[4];
-  hdr.flags = in[5];
-  hdr.session_id = read_u64_be(in + 6);
-  hdr.sequence = read_u32_be(in + 14);
-  hdr.message_id = read_u16_be(in + 18);
-  hdr.payload_length = read_u16_be(in + 20);
+  hdr.marker_version_kind = in[0];
+  hdr.reserved = in[1];
+  if ((in[0] & WL_FRAME_MARKER_MASK) != WL_FRAME_MARKER) {
+    return WL_ERR_BAD_FRAME;
+  }
+  hdr.version = (in[0] & WL_FRAME_VERSION_MASK) >> WL_FRAME_VERSION_SHIFT;
+  if (hdr.version != WL_FRAME_VERSION) {
+    return WL_ERR_PROTOCOL_VERSION;
+  }
+  kind = in[0] & WL_FRAME_KIND_MASK;
+  switch (kind) {
+  case 0U:
+    hdr.packet_type = WL_PACKET_DATA;
+    hdr.flags = 0U;
+    header_len = WL_FRAME_BASE_HEADER_SIZE;
+    break;
+  case 1U:
+    hdr.packet_type = WL_PACKET_DATA;
+    hdr.flags = WL_PACKET_FLAG_RELIABLE;
+    header_len = WL_FRAME_RELIABLE_HEADER_SIZE;
+    break;
+  case 2U:
+    hdr.packet_type = WL_PACKET_ACK;
+    hdr.flags = 0U;
+    header_len = WL_FRAME_RELIABLE_HEADER_SIZE;
+    break;
+  default:
+    return WL_ERR_NOT_SUPPORTED;
+  }
+  if (in_len < header_len + crc_len) {
+    return WL_ERR_BAD_FRAME;
+  }
+  payload_len = in_len - header_len - crc_len;
+  if (payload_len > WL_PACKET_MAX_PAYLOAD) {
+    return WL_ERR_FRAME_TOO_LONG;
+  }
+  hdr.header_length = (uint8_t)header_len;
+  hdr.message_id = read_u16_be(in + 2U);
+  hdr.payload_length = (uint16_t)payload_len;
+  if (header_len == WL_FRAME_RELIABLE_HEADER_SIZE) {
+    hdr.session_id = read_u64_be(in + 4U);
+    hdr.sequence = read_u32_be(in + 12U);
+  }
 
   wl_err_t e = wl_frame_validate_header(&hdr);
   if (e != WL_OK) {
     return e;
   }
 
-  crc_len = wl_crc_size_bytes((uint8_t)integrity);
-  expected = wl_frame_raw_size(hdr.payload_length, integrity);
-  if (expected == 0 || expected > WL_FRAME_MAX_RAW_LEN) {
-    return WL_ERR_FRAME_TOO_LONG;
-  }
-  if (expected != in_len) {
-    return WL_ERR_BAD_FRAME;
-  }
-
   if (crc_len == 2) {
-    expected_crc16 = (uint16_t)((in[WL_FRAME_HEADER_SIZE + hdr.payload_length] << 8u) |
-                               in[WL_FRAME_HEADER_SIZE + hdr.payload_length + 1u]);
-    check_crc16 = wl_crc16_ccitt_false(in, WL_FRAME_HEADER_SIZE + hdr.payload_length);
+    expected_crc16 = read_u16_be(in + header_len + payload_len);
+    check_crc16 = wl_crc16_ccitt_false(in, header_len + payload_len);
     if (expected_crc16 != check_crc16) {
       return WL_ERR_CRC;
     }
   } else if (crc_len == 4) {
-    expected_crc32 = ((uint32_t)in[WL_FRAME_HEADER_SIZE + hdr.payload_length] << 24u) |
-                     ((uint32_t)in[WL_FRAME_HEADER_SIZE + hdr.payload_length + 1u] <<
-                      16u) |
-                     ((uint32_t)in[WL_FRAME_HEADER_SIZE + hdr.payload_length + 2u]
-                      << 8u) |
-                     (uint32_t)in[WL_FRAME_HEADER_SIZE + hdr.payload_length + 3u];
-    check_crc32 = wl_crc32c(in, WL_FRAME_HEADER_SIZE + hdr.payload_length);
+    expected_crc32 = read_u32_be(in + header_len + payload_len);
+    check_crc32 = wl_crc32c(in, header_len + payload_len);
     if (expected_crc32 != check_crc32) {
       return WL_ERR_CRC;
     }
@@ -470,13 +529,13 @@ int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
   out_view->session_id = hdr.session_id;
   out_view->sequence = hdr.sequence;
   out_view->integrity = integrity;
-  out_view->payload.data = (uint8_t *)(in + WL_FRAME_HEADER_SIZE);
+  out_view->payload.data = (uint8_t *)(in + header_len);
   out_view->payload.length = hdr.payload_length;
   out_view->integrity_bytes.data =
-      (crc_len != 0U) ? (uint8_t *)(in + WL_FRAME_HEADER_SIZE + hdr.payload_length)
+      (crc_len != 0U) ? (uint8_t *)(in + header_len + payload_len)
                      : NULL;
   out_view->integrity_bytes.length = crc_len;
-  out_view->total_len = expected;
+  out_view->total_len = in_len;
 
   return WL_OK;
 }

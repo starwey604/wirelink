@@ -35,14 +35,15 @@ ZTEST(wirelink_frame_unit, test_encode_decode_roundtrip_crc32c)
 
   zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
                             sizeof(encoded), &encoded_len));
-  zassert_equal(packet.payload_len + WL_FRAME_HEADER_SIZE + 4U, encoded_len);
+  zassert_equal(packet.payload_len + WL_FRAME_BASE_HEADER_SIZE + 4U,
+                encoded_len);
 
   zassert_ok(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_CRC32C, &view));
   zassert_equal(view.type, WL_PACKET_DATA);
   zassert_equal(view.flags, packet.flags);
   zassert_equal(view.message_id, packet.message_id);
-  zassert_equal(view.session_id, packet.session_id);
-  zassert_equal(view.sequence, packet.sequence);
+  zassert_equal(view.session_id, 0U);
+  zassert_equal(view.sequence, 0U);
   zassert_mem_equal(view.payload.data, payload, sizeof(payload));
 }
 
@@ -55,7 +56,7 @@ ZTEST(wirelink_frame_unit, test_reject_invalid_session_and_flags)
 
   wl_wire_packet_t packet = {0};
   packet.type = WL_PACKET_DATA;
-  packet.flags = 0;
+  packet.flags = WL_PACKET_FLAG_RELIABLE;
   packet.message_id = 1U;
   packet.session_id = 1ULL;
   packet.sequence = 1U;
@@ -66,11 +67,11 @@ ZTEST(wirelink_frame_unit, test_reject_invalid_session_and_flags)
   zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
                             sizeof(encoded), &encoded_len));
 
-  memset(encoded + 6U, 0, sizeof(uint64_t));
+  memset(encoded + 4U, 0, sizeof(uint64_t));
   zassert_equal(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_NONE, &view),
                 WL_ERR_BAD_FRAME);
 
-  encoded[5] = 0x80;
+  encoded[1] = 0x80;
   zassert_equal(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_NONE, &view),
                 WL_ERR_BAD_FRAME);
 }
@@ -82,7 +83,7 @@ ZTEST(wirelink_frame_unit, test_encode_rejects_zero_session)
   size_t encoded_len = 0;
 
   packet.type = WL_PACKET_DATA;
-  packet.flags = 0U;
+  packet.flags = WL_PACKET_FLAG_RELIABLE;
   packet.message_id = 1U;
   packet.session_id = 0ULL;
   packet.sequence = 1U;
@@ -114,7 +115,7 @@ ZTEST(wirelink_frame_unit, test_nack_packet_is_rejected)
   zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
                             sizeof(encoded), &encoded_len));
 
-  encoded[4] = WL_PACKET_NACK;
+  encoded[0] = (uint8_t)(WL_FRAME_PREFIX | WL_FRAME_KIND_MASK);
   zassert_equal(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_NONE, &view),
                 WL_ERR_NOT_SUPPORTED);
 }
@@ -139,7 +140,7 @@ ZTEST(wirelink_frame_unit, test_crc16_tamper_detection)
   zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
                             sizeof(encoded), &encoded_len));
 
-  encoded[WL_FRAME_HEADER_SIZE + 1U] ^= 0xFFU;
+  encoded[WL_FRAME_BASE_HEADER_SIZE + 1U] ^= 0xFFU;
   zassert_equal(wl_frame_decode(encoded, encoded_len, WL_INTEGRITY_CRC16, &view),
                 WL_ERR_CRC);
 }

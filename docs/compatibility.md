@@ -6,7 +6,7 @@ different rates.
 
 ## Wire protocol
 
-Protocol v1 is identified by the base-header version byte `0x01`. Its field
+Protocol v1 is identified by version bits `01` in the compact prefix byte. Its field
 assignments, byte order, envelopes, integrity trailers, ACK behavior, and
 decoder rejection rules are normative in [`protocol.md`](protocol.md) and
 frozen by [`conformance-v1.md`](conformance-v1.md).
@@ -16,7 +16,10 @@ transmission unit in the conformance fixture. A change that alters emitted
 bytes or makes an existing valid v1 packet invalid requires a new protocol
 version and a documented transition strategy. New packet or flag meanings
 must use currently reserved assignments; v1 peers continue to reject
-unsupported standard meanings. NACK remains reserved.
+unsupported standard meanings. NACK remains reserved. The vectors were
+replaced during the pre-release `0.9.x` design window when the compact header
+became the v1 baseline; no released compatibility was claimed for the
+discarded 22-byte draft header.
 
 Link profiles are not negotiated in v1. Peers must agree out of band on the
 envelope, integrity mode, MTU, and payload limit.

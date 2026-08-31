@@ -3,14 +3,15 @@
 Status: completed against the `0.9.0` release candidate on 2026-08-31.
 
 This audit fixes the C source and binary surface that may be carried into the
-1.x line. It does not reopen the v1 wire format: transmission units remain
-frozen by `conformance-v1.md`.
+1.x line. It was refreshed after the final pre-release compact-v1 and
+zero-copy RX/TX iteration; transmission units are now frozen by
+`conformance-v1.md`.
 
 ## Retained ABI boundary
 
 The installed core surface remains the `Wirelink::wirelink` target and the
 headers explicitly listed by the top-level install rule. `wl_ctx_t` stays an
-opaque 640-byte, `max_align_t`-aligned object. The implementation may consume
+opaque 896-byte, `max_align_t`-aligned object. The implementation may consume
 more of that reserved storage during 1.x, but neither its public size nor its
 alignment may change.
 
@@ -28,7 +29,8 @@ the 1.x line:
 - `wl_config_t`;
 - `wl_storage_t` and `wl_storage_requirements_t`;
 - `wl_event_t` and `wl_tx_result_t`;
-- `wl_rx_counters_t` and `wl_rx_dma_claim_t`.
+- `wl_rx_counters_t`, `wl_rx_dma_claim_t`, `wl_rx_unit_claim_t`,
+  `wl_rx_unit_queue_config_t`, and `wl_tx_payload_claim_t`.
 
 New capabilities must therefore use additive functions and new standalone
 types rather than appending fields to existing structures. Multiple TX slots,
@@ -70,14 +72,15 @@ speculatively afterward.
 
 ### Borrowed TX payload construction
 
-A claim/commit/abort family may expose the existing caller-supplied
-`tx_payload` storage so a WLC encoder writes directly into it. The claim is
+A claim/commit/abort family exposes the payload region in the final native TX
+unit so a WLC encoder writes directly into it. The claim is
 consumer-owned, at most one may exist, ordinary send calls must reject an
 active claim, and a failed commit must leave either a retryable claim or a
 fully aborted claim—never ambiguous ownership. Reliable retransmission still
 uses Wirelink's stable encoded TX unit.
 
-This API removes the generated-code temporary-to-Wirelink copy. It does not
+This API removes both the generated-code temporary-to-Wirelink copy and the
+native payload staging copy. It does not
 promise that COBS framing itself can borrow application bytes; COBS output is
 necessarily a distinct encoded byte stream.
 
@@ -104,7 +107,7 @@ telemetry configurations are part of the Zephyr build-only CI matrix.
 
 Before changing the version to 1.0:
 
-1. exact v1 conformance vectors must remain unchanged;
+1. exact compact-v1 conformance vectors must remain unchanged;
 2. normal and `-fshort-enums` installed-package consumers must compile;
 3. the borrowed TX and scheduling APIs must either ship with complete tests or
    be explicitly deferred to a later additive 1.x release;
