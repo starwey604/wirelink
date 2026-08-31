@@ -107,4 +107,80 @@ ZTEST(wirelink_generated_codec, test_decode_errors_are_deterministic)
                 WL_CODEC_ERR_MALFORMED);
 }
 
+#if defined(WLC_SCHEMA_CURRENT)
+static void set_float_bits(float *value, uint32_t bits) {
+  memcpy(value, &bits, sizeof(bits));
+}
+
+static uint32_t get_float_bits(const float *value) {
+  uint32_t bits;
+
+  memcpy(&bits, value, sizeof(bits));
+  return bits;
+}
+
+ZTEST(wirelink_generated_codec, test_dense_float_control_is_compact_and_bit_exact)
+{
+  static const uint32_t first_bits[] = {
+      UINT32_C(0x00000000), /* +0 */
+      UINT32_C(0x80000000), /* -0 */
+      UINT32_C(0x7FC12345), /* quiet NaN with a non-canonical payload */
+      UINT32_C(0x3F800000), /* 1.0 */
+  };
+  static const uint8_t positive_zero_bytes[] = {0x00U, 0x00U, 0x00U, 0x00U};
+  static const uint8_t negative_zero_bytes[] = {0x80U, 0x00U, 0x00U, 0x00U};
+  static const uint8_t nan_bytes[] = {0x7FU, 0xC1U, 0x23U, 0x45U};
+  const uint8_t malformed_length[] = {0x0AU, 0x04U, 0U, 0U, 0U, 0U};
+  arm_mit_command_t command = {0};
+  arm_mit_command_t decoded = {0};
+  uint8_t payload[160];
+  size_t payload_length = 0U;
+
+  arm_mit_command_clear(&command);
+  command.has_controls = true;
+  for (size_t i = 0U; i < ARRAY_SIZE(command.controls); ++i) {
+    const uint32_t bits =
+        i < ARRAY_SIZE(first_bits) ? first_bits[i]
+                                   : UINT32_C(0x3F000000) + (uint32_t)i;
+    set_float_bits(&command.controls[i], bits);
+  }
+
+  /* One key, one 120-byte length, and thirty binary32 values. */
+  zassert_equal(arm_mit_command_encoded_size(&command), 122U);
+  zassert_ok(arm_mit_command_encode(&command, payload, sizeof(payload),
+                                    &payload_length));
+  zassert_equal(payload_length, 122U);
+  zassert_equal(payload[0], 0x0AU);
+  zassert_equal(payload[1], 0x78U);
+  zassert_mem_equal(&payload[2], positive_zero_bytes,
+                    sizeof(positive_zero_bytes));
+  zassert_mem_equal(&payload[6], negative_zero_bytes,
+                    sizeof(negative_zero_bytes));
+  zassert_mem_equal(&payload[10], nan_bytes, sizeof(nan_bytes));
+
+  zassert_ok(
+      arm_mit_command_decode(payload, payload_length, &decoded));
+  zassert_true(decoded.has_controls);
+  zassert_mem_equal(decoded.controls, command.controls,
+                    sizeof(command.controls));
+  zassert_equal(get_float_bits(&decoded.controls[0]), first_bits[0]);
+  zassert_equal(get_float_bits(&decoded.controls[1]), first_bits[1]);
+  zassert_equal(get_float_bits(&decoded.controls[2]), first_bits[2]);
+
+  command.has_dt_s = true;
+  set_float_bits(&command.dt_s, UINT32_C(0xBA83126F));
+  zassert_ok(arm_mit_command_encode(&command, payload, sizeof(payload),
+                                    &payload_length));
+  zassert_equal(payload_length, 127U);
+  zassert_ok(
+      arm_mit_command_decode(payload, payload_length, &decoded));
+  zassert_true(decoded.has_dt_s);
+  zassert_equal(get_float_bits(&decoded.dt_s), UINT32_C(0xBA83126F));
+
+  zassert_equal(arm_mit_command_decode(malformed_length,
+                                       sizeof(malformed_length), &decoded),
+                WL_CODEC_ERR_MALFORMED);
+}
+#endif
+
 ZTEST_SUITE(wirelink_generated_codec, NULL, NULL, NULL, NULL, NULL);

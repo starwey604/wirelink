@@ -5,8 +5,10 @@
 The Rust compiler is developed in the adjacent `wlc/` worktree. It owns the
 versioned `.wl` grammar, AST, source-located validation, semantic model,
 compatibility checks, and deterministic C generator. The supported baseline
-constructs are `message`, `enum`, `optional`, `repeated`, and `default`; see
-`docs/schema-v1.md` for the normative v1 contract.
+constructs are `message`, `enum`, `optional`, `repeated`, fixed-count `packed`,
+and `default`; see `docs/schema-v1.md` for the normative v1 contract. Native
+`float32`/`float64` and packed fixed-width numeric arrays provide dense control
+payloads without heap allocation or per-element tags.
 
 Run its focused checks from the repository root with:
 
@@ -32,9 +34,10 @@ declaration IDs require top-level `reserved N;`, while deleted fields require
 the same declaration inside their message. Reserved IDs are permanent.
 
 The baseline treats a field's number, name, resolved type, and cardinality as
-wire identity. Reordering source declarations or fields is semantically inert.
-`wlc validate --previous` and `wlc compile --previous` expose compatibility
-checking at the CLI boundary before generation.
+wire identity. For a packed array, cardinality includes the exact element
+count. Reordering source declarations or fields is semantically inert. `wlc
+validate --previous` and `wlc compile --previous` expose compatibility checking
+at the CLI boundary before generation.
 
 ## Persistent testing decision
 

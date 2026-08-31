@@ -5,6 +5,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <wirelink/codec.h>
+#include <float.h>
+
+#if defined(__cplusplus)
+static_assert(sizeof(float) == 4 && FLT_RADIX == 2 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128 && FLT_MIN_EXP == -125, "WLC float32 requires IEEE-754 binary32");
+#else
+_Static_assert(sizeof(float) == 4 && FLT_RADIX == 2 && FLT_MANT_DIG == 24 && FLT_MAX_EXP == 128 && FLT_MIN_EXP == -125, "WLC float32 requires IEEE-754 binary32");
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,6 +19,7 @@ extern "C" {
 
 typedef struct joint_command joint_command_t;
 typedef struct arm_command arm_command_t;
+typedef struct arm_mit_command arm_mit_command_t;
 
 typedef int32_t joint_mode_t;
 #define DISABLED INT32_C(0)
@@ -46,6 +54,15 @@ struct arm_command {
   bool enabled;
 };
 
+struct arm_mit_command {
+  bool has_controls;
+  float controls[30];
+  bool has_sequence;
+  uint64_t sequence;
+  bool has_dt_s;
+  float dt_s;
+};
+
 #define JOINT_COMMAND_MESSAGE_ID 2U
 void joint_command_clear(joint_command_t *value);
 size_t joint_command_encoded_size(const joint_command_t *value);
@@ -57,6 +74,12 @@ void arm_command_clear(arm_command_t *value);
 size_t arm_command_encoded_size(const arm_command_t *value);
 wl_codec_status_t arm_command_encode(const arm_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t arm_command_decode(const uint8_t *input, size_t input_length, arm_command_t *out);
+
+#define ARM_MIT_COMMAND_MESSAGE_ID 17U
+void arm_mit_command_clear(arm_mit_command_t *value);
+size_t arm_mit_command_encoded_size(const arm_mit_command_t *value);
+wl_codec_status_t arm_mit_command_encode(const arm_mit_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
+wl_codec_status_t arm_mit_command_decode(const uint8_t *input, size_t input_length, arm_mit_command_t *out);
 
 #ifdef __cplusplus
 }

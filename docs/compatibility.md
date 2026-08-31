@@ -67,6 +67,8 @@ The protocol treats payload bytes as opaque and dispatches them by
 version. Compatible schema evolution follows [`schema-v1.md`](schema-v1.md):
 numeric IDs are permanent, removed IDs are reserved, field wire identity is
 stable, unknown fields are skipped, and additive optional fields are allowed.
+For fixed-count packed numeric fields, the element type, array length, and
+packed cardinality are all wire identity and cannot change compatibly.
 
 Schema compatibility must be checked before code generation with the previous
 schema supplied to WLC. The fixtures under `tests/fixtures/wlc/` are the

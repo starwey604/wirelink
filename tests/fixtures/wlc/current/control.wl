@@ -21,3 +21,9 @@ message ArmCommand = 16 {
   optional bytes extension = 4;
   optional bool enabled = 5 [default = true];
 }
+
+message ArmMitCommand = 17 {
+  packed float32 controls[30] = 1;
+  optional uint64 sequence = 2;
+  optional float32 dt_s = 3;
+}

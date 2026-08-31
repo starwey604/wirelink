@@ -129,6 +129,8 @@ checked-in generated C artifacts live under
 
 - schema compatibility validation before generation;
 - allocation-free nested and repeated message encoding;
+- native IEEE `float32`/`float64` values and inline packed numeric arrays;
+- a 30-element binary32 control vector encoded in 122 payload bytes;
 - Wirelink transmission over the Astrial serial adapter;
 - in-place event decode with borrowed `string` and `bytes` fields; and
 - old/new decoder behavior plus deterministic malformed-input errors.

@@ -1,6 +1,6 @@
 # WLC schema and payload format v1
 
-Status: **frozen for the first WLC code generator**.
+Status: **frozen pre-1.0 baseline, including dense numeric fields**.
 
 This document defines the application-payload format carried by a Wirelink
 `DATA` packet. It is deliberately separate from the Wirelink packet header,
@@ -12,20 +12,27 @@ implements retransmission or treats a link ACK as an application result.
 The existing `.wl` grammar is retained:
 
 ```text
-schema      = "version" positive-integer ";" item+
-item        = declaration | reservation
-declaration = message | enum
-reservation = "reserved" positive-integer ";"
-message     = "message" identifier "=" positive-integer "{" (field | reservation)* "}"
-field       = ("optional" | "repeated") type identifier "="
-              positive-integer ("[" "default" "=" literal "]")? ";"
-enum        = "enum" identifier "=" positive-integer "{" enum-item* "}"
+schema         = "version" positive-integer ";" item+
+item           = declaration | reservation
+declaration    = message | enum
+reservation    = "reserved" positive-integer ";"
+message        = "message" identifier "=" positive-integer
+                 "{" (field | reservation)* "}"
+field          = optional-field | repeated-field | packed-field
+optional-field = "optional" type identifier "=" positive-integer
+                 ("[" "default" "=" literal "]")? ";"
+repeated-field = "repeated" type identifier "=" positive-integer ";"
+packed-field   = "packed" packed-type identifier "[" positive-integer "]"
+                 "=" positive-integer ";"
+packed-type    = "float32" | "float64" | "fixed32" | "fixed64"
+enum           = "enum" identifier "=" positive-integer "{" enum-item* "}"
 ```
 
-There are no implicit IDs, `required` fields, maps, `oneof`, services, packed
-fields, extensions, or schema-level reliability annotations in v1. Reliability
-is selected when the application calls `wl_send_reliable()` or
-`wl_send_unreliable()`.
+There are no implicit IDs, `required` fields, maps, `oneof`, services,
+extensions, or schema-level reliability annotations in v1. Reliability is
+selected when the application calls `wl_send_reliable()` or
+`wl_send_unreliable()`. A packed field is a fixed-count numeric array, not a
+general repeated-field encoding.
 
 `version` is the schema revision used by WLC compatibility checking. It is not
 the Wirelink packet version and is not serialized in a payload. A first schema
@@ -41,8 +48,9 @@ for messages only.
 Fields retain the current nonzero 16-bit, message-local number allocation.
 Removed messages, enums, fields, and enum values remain reserved forever. A
 message name, declaration ID, field number, field type, or cardinality cannot
-change compatibly. Defaults are local decode behaviour and are not a wire
-change.
+change compatibly. A packed array's exact element count is part of its
+cardinality and wire identity. Defaults are local decode behaviour and are not
+a wire change.
 
 ### 1.1 Built-in types
 
@@ -54,6 +62,7 @@ The generator's v1 built-in set is:
 | `uint32`, `uint64` | `uint32_t`, `uint64_t` | unsigned LEB128 varint |
 | `int32`, `int64` | `int32_t`, `int64_t` | ZigZag, then unsigned LEB128 |
 | `fixed32`, `fixed64` | `uint32_t`, `uint64_t` | 4/8 bytes, big-endian |
+| `float32`, `float64` | `float`, `double` | IEEE-754 binary32/binary64 bits as 4/8 bytes, big-endian |
 | `bytes` | `wl_codec_bytes_t` | length-delimited bytes |
 | `string` | `wl_codec_string_t` | length-delimited, valid UTF-8 |
 
@@ -68,9 +77,18 @@ message graphs are rejected. The compiler also rejects a nested-message depth
 greater than eight; this makes generated recursive decode stack use bounded and
 reviewable.
 
-`bytes` has no default. A `string` default is a UTF-8 source literal. Numeric,
-boolean, and enum defaults must fit their declared type; an enum default must
-name an existing numeric enum value. Repeated fields never have defaults.
+Generated headers statically require the target C implementation to use
+4-byte IEEE binary32 `float` and 8-byte IEEE binary64 `double` when the
+corresponding type appears. Encoding and decoding move their object bits with
+`memcpy`; there is no numeric conversion or aliasing cast. Signed zero,
+infinities, and NaN payload bits therefore round-trip exactly.
+
+`bytes` has no default. A `string` default is a UTF-8 source literal. Integer,
+boolean, fixed-width integer, and enum defaults must fit their declared type;
+an enum default must name an existing numeric enum value. Explicit float
+defaults are not accepted until the grammar defines a canonical,
+locale-independent float literal; an absent float clears to positive zero.
+Repeated and packed fields never have defaults.
 
 ## 2. Wire format
 
@@ -93,11 +111,11 @@ key = (field_number << 3) | wire_type
 | 2 | length-delimited | unsigned-LEB128 length followed by that many bytes |
 | 5 | fixed32 | exactly 4 big-endian bytes |
 
-`bool`, all variable integers, and enums use type 0; `fixed64` uses type 1;
-`bytes`, `string`, and nested messages use type 2; and `fixed32` uses type 5.
-Length values must fit the remaining payload and `size_t`; malformed, truncated,
-overlong, or overflowing varints are decode errors. Wire types 3, 4, and 6--7
-are invalid.
+`bool`, all variable integers, and enums use type 0; `fixed64` and `float64`
+use type 1; `bytes`, `string`, nested messages, and packed arrays use type 2;
+and `fixed32` and `float32` use type 5. Length values must fit the remaining
+payload and `size_t`; malformed, truncated, overlong, or overflowing varints
+are decode errors. Wire types 3, 4, and 6--7 are invalid.
 
 Signed values use the exact mappings below before unsigned LEB128 encoding:
 
@@ -111,17 +129,25 @@ behaviour. Fixed-width values are network byte order to match Wirelink's packet
 header convention.
 
 The encoder emits fields in ascending field-number order. A decoder accepts
-known fields in any order but rejects a duplicate `optional` field and a known
-field whose wire type does not match its declaration. A `repeated` field is
-represented by one complete tag/body pair per element; packed repeated numeric
-encoding is not part of v1. Unknown fields using a permitted wire type are
-skipped and discarded. This is the forward-compatibility mechanism; unknown
-data is not retained if an application decodes and re-encodes a message.
+known fields in any order but rejects a duplicate `optional` or `packed` field
+and a known field whose wire type does not match its declaration. A `repeated`
+field is represented by one complete tag/body pair per element.
 
-An absent optional field leaves `has_<field>` false and its value initialized to
-the schema default (or the type's zero/empty value). A present field equal to
-its default is still emitted and leaves `has_<field>` true. This preserves
-presence without requiring a separate on-wire marker.
+A packed field is one optional length-delimited occurrence. Its body is
+exactly `count * 4` or `count * 8` bytes, containing fixed-width elements in
+array order and network byte order, without per-element tags. A decoder rejects
+any other body length, including a length divisible by the element width but
+different from the declared count. This exact shape is what allows generated
+C to use bounded inline storage.
+
+Unknown fields using a permitted wire type are skipped and discarded. This is
+the forward-compatibility mechanism; unknown data is not retained if an
+application decodes and re-encodes a message.
+
+An absent optional or packed field leaves `has_<field>` false and its value
+initialized to the schema default (or the type's zero/empty value). A present
+field equal to its default is still emitted and leaves `has_<field>` true. This
+preserves presence without requiring a separate on-wire marker.
 
 ## 3. Generated C contract
 
@@ -190,6 +216,21 @@ decode error the output is unspecified and must be cleared or decoded again
 before use. Encoding validates all pointer/length/count combinations and never
 retains an input pointer after it returns.
 
+A packed field instead generates an inline fixed array and a presence flag:
+
+```c
+bool has_controls;
+float controls[30];
+```
+
+It has no runtime count, capacity, pointer, or allocation failure. `*_clear()`
+sets the presence flag false and clears the complete array to zero. When
+present, `packed float32 controls[30] = 1;` occupies 122 payload bytes: the
+one-byte field key, the one-byte length `120`, and 120 element bytes. This
+dense representation is intended for fixed-shape control vectors, matrices,
+and similar numeric payloads where an ordinary repeated field's per-element
+tag is unnecessary.
+
 The first generator emits codec functions only. It does not emit convenience
 `wl_send_*` wrappers, RPC/request-response bindings, or response correlation;
 an application encodes into its own payload buffer and passes that buffer to
@@ -224,20 +265,35 @@ message TelemetryBatch = 18 {
   optional string source = 2 [default = "board"];
   optional uint64 timestamp_us = 3;
 }
+
+message ArmMitCommand = 19 {
+  packed float32 controls[30] = 1;
+  optional uint64 sequence = 2;
+  optional float32 dt_s = 3;
+}
 ```
 
 `MotorCommand` maps to Wirelink `message_id` 16. A reliable command is an
 application choice (`wl_send_reliable()`); it is not represented in the
 schema. `TelemetryBatch.samples` requires an application-provided static array
 of `sensor_sample_t` before decode, while `source` borrows the event payload.
+`ArmMitCommand.controls` is stored inline and, when present, always carries
+exactly thirty binary32 values.
 
-## 5. Required generator gates
+## 5. Required generator and release gates
 
-Before generated output is accepted as v1, WLC must add semantic checks for the
-new built-ins, default ranges/UTF-8, enum `int32_t` range, and bounded acyclic
-message nesting. Golden tests must cover canonical field order, all scalar
-boundaries, empty and maximum-length length-delimited fields, unknown-field
-skipping, optional duplicate rejection, repeated-capacity failure, nested
-messages, malformed keys/lengths, UTF-8 rejection, and schema evolution with
-reserved IDs. Cross-version tests must prove that an older decoder skips an
-added field and that a newer decoder accepts an absent older field.
+WLC semantic analysis and generated-C tests are release gates for the built-in
+types, default ranges and UTF-8, enum `int32_t` range, and bounded acyclic
+message nesting. Golden tests cover canonical field order, scalar boundaries,
+empty and maximum-length length-delimited fields, unknown-field skipping,
+optional duplicate rejection, repeated-capacity failure, nested messages,
+malformed keys and lengths, UTF-8 rejection, and schema evolution with
+reserved IDs. Cross-version tests prove that an older decoder skips an added
+field and that a newer decoder accepts an absent older field.
+
+Dense numeric coverage additionally requires bit-exact `float32` and
+`float64` golden vectors for positive and negative zero, infinities, and a NaN
+with a non-canonical payload; generated C11 compilation and execution; packed
+length, duplicate, wire-type, and truncation rejection; packed compatibility
+checks for type, count, and cardinality; and a checked 30-element binary32
+control vector whose encoded field size remains 122 bytes.

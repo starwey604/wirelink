@@ -19,3 +19,9 @@ cargo run --manifest-path wlc/Cargo.toml -- \
 Do not edit files below `generated/` by hand. The current artifact drives the
 Astrial typed serial test. Both revisions are compiled independently by the
 Zephyr unit fixture to exercise forward/backward payload compatibility.
+
+The current revision also adds `ArmMitCommand`: thirty inline `float32`
+control values use one packed field and encode in 122 bytes when present.
+Zephyr tests verify IEEE bit preservation (including signed zero and a NaN
+payload), network byte order, scalar float encoding, and strict packed length
+rejection. The previous revision intentionally lacks this additive message.
