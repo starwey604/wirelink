@@ -27,6 +27,7 @@ struct UsbBulkAdapterConfig
 {
     UsbBulkConfig usb;
     std::size_t maximum_read_size{512};
+    std::uint8_t unit_queue_slots{4};
     UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
 };
 

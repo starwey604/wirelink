@@ -69,12 +69,16 @@ option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER
   "Build the optional Astrial USB bulk adapter" OFF)
 option(WIRELINK_BUILD_HOST_BENCHMARKS
   "Build host USB Bulk and CDC latency benchmarks" OFF)
+option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
+  "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_INSTALL
   "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
+set(WIRELINK_ASIO_INCLUDE_DIR "" CACHE PATH
+  "Directory containing standalone Asio's asio.hpp")
 
 if(WIRELINK_BUILD_HOST_BENCHMARKS)
   set(WIRELINK_BUILD_ASTRIAL_ADAPTER ON)
@@ -118,6 +122,11 @@ if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
       "WIRELINK_BUILD_ASTRIAL_USB_ADAPTER requires the Astrial USB target")
   endif()
   add_subdirectory(adapters/astrial_usb)
+endif()
+
+if(WIRELINK_BUILD_ASIO_UDP_ADAPTER)
+  enable_language(CXX)
+  add_subdirectory(adapters/asio_udp)
 endif()
 
 if(WIRELINK_BUILD_HOST_BENCHMARKS)

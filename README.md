@@ -135,6 +135,11 @@ checked-in generated C artifacts live under
 
 ## Zephyr tests
 
+The cross-platform UDP adapter is enabled with
+`WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON` and a standalone Asio include directory in
+`WIRELINK_ASIO_INCLUDE_DIR`. It hides platform sockets behind a C++20 API and
+uses the v1 `COBS_STREAM + NONE` product profile.
+
 From an initialized Zephyr workspace:
 
 ```sh

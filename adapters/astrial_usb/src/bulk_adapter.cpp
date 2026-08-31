@@ -7,6 +7,7 @@
 #include <semaphore>
 #include <span>
 #include <utility>
+#include <vector>
 
 namespace wirelink::astrial
 {
@@ -35,7 +36,12 @@ public:
         }
 
         wl_rx_dma_claim_t next{};
-        const int result = wl_rx_dma_claim(&link, maximum_read_size, &next);
+        wl_rx_unit_claim_t next_unit{};
+        const int result = native_unit_mode
+                               ? wl_rx_unit_claim(&link, maximum_read_size,
+                                                  &next_unit)
+                               : wl_rx_dma_claim(&link, maximum_read_size,
+                                                 &next);
         if (result != WL_OK)
         {
             rx_pauses.fetch_add(1, std::memory_order_relaxed);
@@ -47,7 +53,7 @@ public:
         // before Wirelink gets a chance to wrap the ring. Pause until the
         // consumer drains the ring, allowing the next claim to normalize at
         // physical offset zero.
-        if (next.span.length < maximum_read_size)
+        if (!native_unit_mode && next.span.length < maximum_read_size)
         {
             if (wl_rx_dma_finish(&link, &next) != WL_OK)
             {
@@ -60,23 +66,32 @@ public:
         }
 
         claim = next;
+        unit_claim = next_unit;
         claim_active = true;
         rx_paused.store(false, std::memory_order_release);
         rx_claims.fetch_add(1, std::memory_order_relaxed);
-        return {{claim.span.data, claim.span.length}, claim.token};
+        const auto& active = native_unit_mode ? unit_claim.span : claim.span;
+        return {{active.data, active.length},
+                native_unit_mode ? unit_claim.token : claim.token};
     }
 
     void complete_rx(const std::error_code& error, UsbBorrowedBuffer buffer,
                      std::size_t length)
     {
-        if (!claim_active || buffer.token != claim.token ||
-            buffer.bytes.data() != claim.span.data || length > claim.span.length)
+        const auto& active = native_unit_mode ? unit_claim.span : claim.span;
+        const auto active_token = native_unit_mode ? unit_claim.token : claim.token;
+        if (!claim_active || buffer.token != active_token ||
+            buffer.bytes.data() != active.data || length > active.length)
         {
             if (claim_active)
             {
-                (void)wl_rx_dma_abort(&link);
+                if (native_unit_mode)
+                    (void)wl_rx_unit_abort(&link, &unit_claim);
+                else
+                    (void)wl_rx_dma_abort(&link);
                 claim_active = false;
                 claim = {};
+                unit_claim = {};
             }
             errors.fetch_add(1, std::memory_order_relaxed);
             notify_activity();
@@ -84,24 +99,33 @@ public:
         }
 
         bool failed = false;
-        if (length > 0 && wl_rx_dma_publish(&link, &claim, 0, length) != WL_OK)
+        if (native_unit_mode)
+            failed = error || length == 0 ||
+                     wl_rx_unit_commit(&link, &unit_claim, length) != WL_OK;
+        else
         {
-            failed = true;
-        }
-        if (!failed && wl_rx_dma_finish(&link, &claim) != WL_OK)
-        {
-            failed = true;
+            if (length > 0 && wl_rx_dma_publish(&link, &claim, 0, length) != WL_OK)
+                failed = true;
+            if (!failed && wl_rx_dma_finish(&link, &claim) != WL_OK)
+                failed = true;
         }
 
-        claim_active = false;
-        claim = {};
         if (failed)
         {
-            (void)wl_rx_dma_abort(&link);
+            if (native_unit_mode)
+                (void)wl_rx_unit_abort(&link, &unit_claim);
+            else
+                (void)wl_rx_dma_abort(&link);
+            claim_active = false;
+            claim = {};
+            unit_claim = {};
             errors.fetch_add(1, std::memory_order_relaxed);
             notify_activity();
             return;
         }
+        claim_active = false;
+        claim = {};
+        unit_claim = {};
         rx_bytes.fetch_add(length, std::memory_order_relaxed);
         if (error && !stopping.load(std::memory_order_acquire) &&
             error != make_error_code(UsbError::TransferCancelled))
@@ -164,7 +188,10 @@ public:
     std::atomic<bool> stopping{false};
     std::atomic<bool> rx_paused{false};
     bool claim_active{};
+    bool native_unit_mode{};
     wl_rx_dma_claim_t claim{};
+    wl_rx_unit_claim_t unit_claim{};
+    std::vector<std::uint8_t> unit_storage;
     std::atomic<bool> tx_active{false};
     std::atomic<TxCompletion> tx_completion{TxCompletion::None};
     std::counting_semaphore<INT_MAX> activity{0};
@@ -198,7 +225,10 @@ UsbBulkAdapter::~UsbBulkAdapter()
     (void)service();
     if (m_impl->claim_active)
     {
-        (void)wl_rx_dma_abort(&m_impl->link);
+        if (m_impl->native_unit_mode)
+            (void)wl_rx_unit_abort(&m_impl->link, &m_impl->unit_claim);
+        else
+            (void)wl_rx_dma_abort(&m_impl->link);
         m_impl->claim_active = false;
     }
     (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
@@ -210,8 +240,10 @@ UsbBulkAdapter::open(wl_ctx_t& link, const UsbBulkAdapterConfig& config)
 {
     wl_config_t link_config{};
     if (wl_get_config(&link, &link_config) != WL_OK ||
-        link_config.envelope != WL_ENVELOPE_COBS_STREAM ||
-        config.maximum_read_size == 0)
+        (link_config.envelope != WL_ENVELOPE_COBS_STREAM &&
+         link_config.envelope != WL_ENVELOPE_NATIVE_PACKET) ||
+        config.maximum_read_size == 0 || config.unit_queue_slots < 2 ||
+        config.unit_queue_slots > WL_RX_UNIT_QUEUE_MAX_SLOTS)
     {
         return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));
     }
@@ -226,6 +258,20 @@ UsbBulkAdapter::open(wl_ctx_t& link, const UsbBulkAdapterConfig& config)
     auto adapter = std::unique_ptr<UsbBulkAdapter>(new UsbBulkAdapter(
         link, std::move(opened.value()), config.maximum_read_size,
         config.wake_policy));
+    if (link_config.envelope == WL_ENVELOPE_NATIVE_PACKET)
+    {
+        adapter->m_impl->native_unit_mode = true;
+        adapter->m_impl->unit_storage.resize(config.maximum_read_size *
+                                             config.unit_queue_slots);
+        const wl_rx_unit_queue_config_t queue_config{
+            .storage = adapter->m_impl->unit_storage.data(),
+            .storage_size = adapter->m_impl->unit_storage.size(),
+            .unit_size = config.maximum_read_size,
+            .slot_count = config.unit_queue_slots,
+        };
+        if (wl_rx_unit_queue_init(&link, &queue_config) != WL_OK)
+            return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));
+    }
     if (adapter->start() != WL_OK)
     {
         return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));

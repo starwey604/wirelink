@@ -244,6 +244,12 @@ publishes only direct-claim and atomic-mailbox state. The consumer loop calls
 completion. Exact-multiple IN units request a ZLP so host reads terminate
 without a timeout.
 
+Both USB Bulk adapters also accept `NATIVE_PACKET`. In that mode their receive
+buffers are Wirelink unit-queue slots rather than byte-ring claims, so the
+controller writes a complete unit directly into storage later borrowed by the
+event. Astrial owns four slots by default; the allocation-free Zephyr adapter
+requires the application to supply the slot array in its configuration.
+
 The v1 USB vendor-bulk and UDP product profiles use
 `COBS_STREAM + WL_INTEGRITY_NONE`. Each USB application transfer or UDP
 datagram carries complete delimiter-terminated units. This keeps the same v1
@@ -330,6 +336,11 @@ top-level CMake.
 
 Use `native_sim` as the default runnable integration target: it is fast and is
 the appropriate host environment for virtual transport pairs and UDP tests.
+`adapters/asio_udp/` is the cross-platform v1 UDP path. It exposes no POSIX
+file descriptors: the caller binds an address, selects a validated peer, and
+calls `service()` from the Wirelink consumer loop. The socket is non-blocking,
+one complete `COBS_STREAM + NONE` unit is sent per datagram, and RX writes
+directly into a ring claim.
 For build-and-run coverage on emulated CPU architectures, use this initial
 matrix:
 

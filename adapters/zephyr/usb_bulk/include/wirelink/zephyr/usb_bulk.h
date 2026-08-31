@@ -24,6 +24,10 @@ typedef uint32_t (*wl_zephyr_usb_bulk_cycle_count_fn)(void *user_data);
 typedef struct wl_zephyr_usb_bulk_config {
   wl_ctx_t *link;
   size_t maximum_rx_size;
+  /* Required only for WL_ENVELOPE_NATIVE_PACKET zero-copy RX. */
+  uint8_t *unit_queue_storage;
+  size_t unit_queue_storage_size;
+  uint8_t unit_queue_slots;
   /* Optional thread/ISR-safe cycle counter used only for instrumentation. */
   void *cycle_counter_user_data;
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
@@ -57,7 +61,9 @@ typedef struct wl_zephyr_usb_bulk {
   void *cycle_counter_user_data;
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
   wl_rx_dma_claim_t rx_claim;
+  wl_rx_unit_claim_t rx_unit_claim;
   wl_io_token_t tx_token;
+  bool native_unit_mode;
   atomic_t flags;
   atomic_t tx_completion;
   atomic_t rx_claims;
