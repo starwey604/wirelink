@@ -43,13 +43,18 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_DEBUG} ${CMAKE_C_FLAGS_RELEASE} "
     "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${CMAKE_C_FLAGS_MINSIZEREL}")
   if(NOT WIRELINK_BUILD_FUZZERS AND NOT _wirelink_c_flags MATCHES "-fsanitize")
-    # wl_frame_encode() runs on small embedded stacks. Keep its fixed frame
-    # comfortably below the public frame payload limit that it processes.
+    # wl_frame_encode() and wl_poll() run on small embedded stacks. Keep their
+    # translation units' fixed frames within a predictable hot-path budget.
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
       set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
         -Werror=frame-larger-than=256)
+      set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
+        -Werror=frame-larger-than=256)
     else()
       set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
+        -Wframe-larger-than=256
+        -Werror=frame-larger-than)
+      set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
         -Wframe-larger-than=256
         -Werror=frame-larger-than)
     endif()
