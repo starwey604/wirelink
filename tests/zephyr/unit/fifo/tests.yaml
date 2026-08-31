@@ -1,0 +1,7 @@
+tests:
+  wirelink.fifo.unit:
+    type: unit
+    tags:
+      - wirelink
+      - fifo
+      - spsc

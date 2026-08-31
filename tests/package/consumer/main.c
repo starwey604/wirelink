@@ -5,6 +5,7 @@
 #include <wirelink/cobs.h>
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
+#include <wirelink/fifo.h>
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
 #include <wirelink/rpc.h>
@@ -41,6 +42,8 @@ _Static_assert(sizeof(wl_rpc_cache_policy_t) == sizeof(int32_t),
                "public RPC cache ABI must not depend on -fshort-enums");
 _Static_assert(sizeof(wl_rpc_server_disposition_t) == sizeof(int32_t),
                "public RPC server ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_fifo_t) == WL_FIFO_CONTEXT_STORAGE_SIZE,
+               "public FIFO context size changed");
 _Static_assert(sizeof(wl_latest_t) == WL_LATEST_CONTEXT_STORAGE_SIZE,
                "public LATEST context size changed");
 _Static_assert(sizeof(wl_rpc_client_t) == WL_RPC_CLIENT_STORAGE_SIZE &&
@@ -218,6 +221,19 @@ int main(void) {
   };
   wl_latest_write_claim_t latest_claim = {0};
   wl_latest_view_t latest_view = {0};
+  wl_fifo_t fifo = {0};
+  uint32_t fifo_slots[2] = {0};
+  const wl_fifo_config_t fifo_config = {
+      .value_size = sizeof(fifo_slots[0]),
+      .value_alignment = _Alignof(uint32_t),
+      .capacity = 2U,
+  };
+  const wl_fifo_storage_t fifo_storage = {
+      .data = fifo_slots,
+      .size = sizeof(fifo_slots),
+  };
+  wl_fifo_write_claim_t fifo_claim = {0};
+  wl_fifo_view_t fifo_view = {0};
   wl_rpc_client_t rpc_client = {0};
   wl_rpc_client_slot_t rpc_slots[1] = {0};
   uint8_t rpc_responses[8] = {0};
@@ -246,15 +262,22 @@ int main(void) {
       observed.ack_timeout_ms != config.ack_timeout_ms ||
       observed.max_transmission_unit != config.max_transmission_unit ||
       wl_latest_init(&latest, &latest_config, &latest_storage) != WL_OK ||
-      wl_latest_write_claim(&latest, &latest_claim) != WL_OK) {
+      wl_latest_write_claim(&latest, &latest_claim) != WL_OK ||
+      wl_fifo_init(&fifo, &fifo_config, &fifo_storage) != WL_OK ||
+      wl_fifo_write_claim(&fifo, &fifo_claim) != WL_OK) {
     return 1;
   }
 
-  *(uint32_t *)latest_claim.value = UINT32_C(0x574c); /* "WL" */
+  *(uint32_t *)latest_claim.value = UINT32_C(0x574c);   /* "WL" */
+  *(uint32_t *)fifo_claim.value = UINT32_C(0x4649464f); /* "FIFO" */
   if (wl_latest_write_publish(&latest, &latest_claim) != WL_OK ||
       wl_latest_read_acquire(&latest, &latest_view) != WL_OK ||
       *(const uint32_t *)latest_view.value != UINT32_C(0x574c) ||
       wl_latest_read_release(&latest, &latest_view) != WL_OK ||
+      wl_fifo_write_publish(&fifo, &fifo_claim) != WL_OK ||
+      wl_fifo_read_acquire(&fifo, &fifo_view) != WL_OK ||
+      *(const uint32_t *)fifo_view.value != UINT32_C(0x4649464f) ||
+      wl_fifo_read_release(&fifo, &fifo_view) != WL_OK ||
       wl_rpc_client_init(&rpc_client, &rpc_config) != WL_RPC_OK ||
       wl_rpc_client_begin(&rpc_client, 1U, 2U, 10U, 0U, &operation_id) !=
           WL_RPC_OK ||

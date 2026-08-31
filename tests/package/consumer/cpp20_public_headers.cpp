@@ -4,6 +4,7 @@
 #include <wirelink/cobs.h>
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
+#include <wirelink/fifo.h>
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
 #include <wirelink/rpc.h>
@@ -20,6 +21,8 @@ static_assert(__cplusplus >= 202002L);
 static_assert(std::is_standard_layout_v<wl_codec_bytes_t>);
 static_assert(std::is_standard_layout_v<wl_frame_view_t>);
 static_assert(std::is_standard_layout_v<wl_event_t>);
+static_assert(std::is_standard_layout_v<wl_fifo_t>);
+static_assert(std::is_standard_layout_v<wl_fifo_view_t>);
 static_assert(std::is_standard_layout_v<wl_latest_t>);
 static_assert(std::is_standard_layout_v<wl_latest_view_t>);
 static_assert(std::is_standard_layout_v<wl_rpc_client_t>);
@@ -33,6 +36,7 @@ static_assert(sizeof(wl_rpc_err_t) == sizeof(std::int32_t));
 static_assert(sizeof(wl_rpc_client_state_t) == sizeof(std::int32_t));
 static_assert(sizeof(wl_rpc_cache_policy_t) == sizeof(std::int32_t));
 static_assert(sizeof(wl_rpc_server_disposition_t) == sizeof(std::int32_t));
+static_assert(sizeof(wl_fifo_t) == WL_FIFO_CONTEXT_STORAGE_SIZE);
 static_assert(sizeof(wl_latest_t) == WL_LATEST_CONTEXT_STORAGE_SIZE);
 static_assert(sizeof(wl_rpc_client_t) == WL_RPC_CLIENT_STORAGE_SIZE);
 static_assert(sizeof(wl_rpc_client_slot_t) == WL_RPC_CLIENT_SLOT_STORAGE_SIZE);
