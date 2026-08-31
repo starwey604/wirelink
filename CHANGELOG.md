@@ -4,6 +4,28 @@ All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for the release-candidate
 line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
+## Unreleased
+
+### API and protocol hardening
+
+- Made every public enum-like type explicitly `int32_t`, recorded the Linux
+  x86-64 v1 structure layout, and added an installed-package
+  `-fshort-enums` CI gate.
+- Standardized pre-initialization errors, idle-event clearing, COBS-only
+  recovery, ACK timeout bounds, and the single-slot `WL_SINK_BUSY` queueing
+  contract.
+
+### Performance and validation
+
+- Replaced the frame encoder's maximum-sized raw stack buffer with direct and
+  span-streamed encoding while preserving exact v1 bytes and overlapping input
+  support; the ESP32-S3 stack frame fell from 2,128 to 96 bytes.
+- Added 64-bit, wrap-safe USB sample CPU attribution without instrumenting the
+  normal image, and retained ESP32-S3 RTT and cycle measurements.
+- Expanded deterministic ARQ fault injection, cancellation/time-wrap cases,
+  threaded SPSC/backpressure stress, API lifecycle tests, and USB sample build
+  coverage.
+
 ## 0.9.0 - 2026-08-30
 
 First release candidate for the Wirelink v1 protocol and C API.
