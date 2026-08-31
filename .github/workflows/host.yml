@@ -46,6 +46,40 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
+  short-enum-abi:
+    name: Installed ABI (-fshort-enums consumer)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out Wirelink
+        uses: actions/checkout@v4
+
+      - name: Configure normal library
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build normal library
+        run: cmake --build build --config Release --parallel
+
+      - name: Install normal library
+        run: >-
+          cmake --install build --config Release
+          --prefix ${{ github.workspace }}/install
+
+      - name: Configure short-enum package consumer
+        run: >-
+          cmake -S tests/package/consumer -B consumer-build
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_FLAGS=-fshort-enums
+
+      - name: Build short-enum package consumer
+        run: cmake --build consumer-build --config Release --parallel
+
+      - name: Test short-enum package consumer
+        run: >-
+          ctest --test-dir consumer-build --build-config Release
+          --output-on-failure
+
   astrial:
     name: Astrial adapter (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
