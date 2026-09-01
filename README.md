@@ -47,6 +47,28 @@ A relocatable `wirelink.pc` file is installed for pkg-config consumers. The
 optional Astrial adapter remains source-integrated because Astrial does not yet
 publish an installed CMake package target.
 
+The installed package also exposes `wirelink_wlc_generate()` for build-time
+schema compilation. WLC is always a host executable, including during a
+cross-build; pass its path explicitly or place it on the host `PATH`:
+
+```cmake
+find_package(Wirelink 0.9 CONFIG REQUIRED)
+
+wirelink_wlc_generate(
+  TARGET fci_arm_protocol
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/schema/fci_arm.wl"
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/schema/host.bind.wl"
+  WLC_EXECUTABLE "${WLC_EXECUTABLE}")
+
+target_link_libraries(my_application PRIVATE fci_arm_protocol)
+```
+
+Generated sources are written below the build directory and regenerate when
+the schema, profile, compatibility predecessor, or WLC executable changes.
+`WIRELINK_WLC_EXECUTABLE` may be set once at project scope instead of passing
+`WLC_EXECUTABLE` to every call. Automatic discovery uses the host search path
+rather than the cross-compilation sysroot.
+
 ## Build the desktop serial adapter
 
 ```sh

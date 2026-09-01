@@ -11,6 +11,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(WirelinkWlc)
 
 set(WIRELINK_SOURCES
   src/bulk_receiver.c
@@ -220,6 +221,7 @@ if(WIRELINK_INSTALL)
   install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
+    cmake/WirelinkWlc.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
