@@ -60,6 +60,7 @@ struct Options
     std::size_t iterations{2000};
     std::size_t object_bytes{DefaultObjectBytes};
     std::size_t object_chunk{DefaultObjectChunk};
+    uint32_t transfer_id_base{};
     std::chrono::milliseconds timeout{1000};
     std::chrono::microseconds spin{50};
 };
@@ -70,6 +71,13 @@ uint64_t parse_number(std::string_view value)
     const auto parsed = std::stoull(std::string(value), &used, 0);
     if (used != value.size()) throw std::runtime_error("invalid numeric argument");
     return parsed;
+}
+
+std::size_t parse_size(std::string_view value)
+{
+    const auto parsed = parse_number(value);
+    if (parsed > SIZE_MAX) throw std::runtime_error("size value is out of range");
+    return static_cast<std::size_t>(parsed);
 }
 
 Options parse_options(int argc, char** argv)
@@ -83,6 +91,7 @@ Options parse_options(int argc, char** argv)
     bool warmup_set{};
     bool timeout_set{};
     bool idle_set{};
+    bool transfer_id_base_set{};
     for (int index = 2; index < argc; index += 2)
     {
         if (index + 1 >= argc) throw std::runtime_error("option has no value");
@@ -91,19 +100,27 @@ Options parse_options(int argc, char** argv)
         if (key == "--vid") options.vendor_id = static_cast<uint16_t>(parse_number(value));
         else if (key == "--pid") options.product_id = static_cast<uint16_t>(parse_number(value));
         else if (key == "--port") options.port = value;
-        else if (key == "--payload") options.payload_size = parse_number(value);
+        else if (key == "--payload") options.payload_size = parse_size(value);
         else if (key == "--warmup")
         {
-            options.warmup = parse_number(value);
+            options.warmup = parse_size(value);
             warmup_set = true;
         }
         else if (key == "--iterations")
         {
-            options.iterations = parse_number(value);
+            options.iterations = parse_size(value);
             iterations_set = true;
         }
-        else if (key == "--bytes") options.object_bytes = parse_number(value);
-        else if (key == "--chunk") options.object_chunk = parse_number(value);
+        else if (key == "--bytes") options.object_bytes = parse_size(value);
+        else if (key == "--chunk") options.object_chunk = parse_size(value);
+        else if (key == "--transfer-id-base")
+        {
+            const auto parsed = parse_number(value);
+            if (parsed == 0 || parsed > UINT32_MAX)
+                throw std::runtime_error("transfer ID base must be 1..UINT32_MAX");
+            options.transfer_id_base = static_cast<uint32_t>(parsed);
+            transfer_id_base_set = true;
+        }
         else if (key == "--timeout-ms")
         {
             options.timeout = std::chrono::milliseconds(parse_number(value));
@@ -127,12 +144,28 @@ Options parse_options(int argc, char** argv)
         if (!idle_set) options.idle_mode = "hybrid";
         if (options.object_bytes == 0 || options.object_bytes > MaxObjectBytes ||
             options.object_chunk == 0 || options.object_chunk > DefaultObjectChunk ||
-            options.iterations == 0)
+            options.iterations == 0 || options.iterations > UINT32_MAX ||
+            options.warmup > UINT32_MAX - options.iterations)
         {
             throw std::runtime_error(
                 "object bytes must be 1..64 MiB, chunk must be 1..2016, and "
-                "iterations must be nonzero");
+                "the warm-up plus iteration count must be 1..UINT32_MAX");
         }
+        if (options.transfer_id_base == 0)
+        {
+            uint64_t seed = static_cast<uint64_t>(
+                std::chrono::system_clock::now().time_since_epoch().count());
+            seed ^= seed >> 33;
+            seed *= UINT64_C(0xff51afd7ed558ccd);
+            seed ^= seed >> 33;
+            options.transfer_id_base = static_cast<uint32_t>(seed);
+            if (options.transfer_id_base == 0) options.transfer_id_base = 1;
+        }
+    }
+    else if (transfer_id_base_set)
+    {
+        throw std::runtime_error(
+            "transfer ID base is only valid in wirelink-object mode");
     }
     else if (options.payload_size < sizeof(uint32_t) ||
              options.payload_size > EchoMaxPayload || options.iterations == 0)
@@ -178,6 +211,12 @@ std::vector<uint8_t> make_object(std::size_t size)
     for (std::size_t index = 0; index < object.size(); ++index)
         object[index] = static_cast<uint8_t>(index) ^ UINT8_C(0xa5);
     return object;
+}
+
+uint32_t transfer_id_at(uint32_t base, std::size_t index)
+{
+    const uint64_t ordinal = static_cast<uint64_t>(base - 1U) + index;
+    return static_cast<uint32_t>(ordinal % UINT32_MAX) + 1U;
 }
 
 double percentile(const std::vector<double>& sorted, double fraction)
@@ -612,7 +651,7 @@ void run_wirelink_object(const Options& options)
             .max_retries = 10,
         };
         const wl_bulk_descriptor_t descriptor{
-            .transfer_id = static_cast<uint32_t>(UINT32_C(0x4f420001) + iteration),
+            .transfer_id = transfer_id_at(options.transfer_id_base, iteration),
             .total_length = object.size(),
             .requested_chunk_size = static_cast<uint32_t>(options.object_chunk),
             .object_crc32c = object_crc32c,
@@ -653,6 +692,15 @@ void run_wirelink_object(const Options& options)
                     event.message_id == BULK_STATUS_MESSAGE_ID)
                 {
                     const auto status = decode_bulk_status(event);
+                    if (status.phase == WL_BULK_PHASE_BEGIN &&
+                        status.code == WL_BULK_STATUS_OK &&
+                        status.next_offset != 0)
+                    {
+                        wl_event_release(&fixture.link, &event);
+                        throw std::runtime_error(
+                            "peer retained this transfer ID; choose a fresh "
+                            "--transfer-id-base");
+                    }
                     const auto status_result =
                         wl_bulk_sender_on_status(&sender, &status, now_ms());
                     if (status_result == WL_BULK_OK)
@@ -771,6 +819,7 @@ void run_wirelink_object(const Options& options)
               << " wake=" << options.wake_policy
               << " object_bytes=" << options.object_bytes
               << " chunk=" << options.object_chunk
+              << " transfer_id_base=" << options.transfer_id_base
               << " transfers=" << options.iterations << "\n"
               << "object_us min=" << transfer_us.front()
               << " p50=" << percentile(transfer_us, 0.50)
