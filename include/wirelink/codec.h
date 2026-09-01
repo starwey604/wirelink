@@ -33,6 +33,8 @@ enum {
     WL_CODEC_ERR_DUPLICATE_FIELD,
     WL_CODEC_ERR_UTF8,
     WL_CODEC_ERR_INVALID_VALUE,
+    /** A schema-required field was absent while encoding or decoding. */
+    WL_CODEC_ERR_MISSING_REQUIRED_FIELD,
 };
 
 #ifdef __cplusplus

@@ -175,8 +175,14 @@ enum {
   WL_CODEC_ERR_DUPLICATE_FIELD,
   WL_CODEC_ERR_UTF8,
   WL_CODEC_ERR_INVALID_VALUE,
+  WL_CODEC_ERR_MISSING_REQUIRED_FIELD,
 };
 ```
+
+`WL_CODEC_ERR_MISSING_REQUIRED_FIELD` is reserved for schema cardinality
+validation. It is distinct from malformed wire bytes and from a present field
+whose value is outside its permitted domain. Existing optional-only generated
+code never returns it.
 
 For every message `MotorStatus`, WLC generates:
 
