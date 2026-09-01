@@ -9,8 +9,12 @@ enum {
   WLC_REPEATED,
   WLC_PACKED,
   WLC_BOOL,
+  WLC_U8,
+  WLC_U16,
   WLC_U32,
   WLC_U64,
+  WLC_I8,
+  WLC_I16,
   WLC_I32,
   WLC_I64,
   WLC_F32,
@@ -131,8 +135,12 @@ static wl_codec_status_t wlc_body(const wlc_field_t *f, const void *p,
       *n = 1U;
       return WL_CODEC_OK;
     }
+    case WLC_U8: *n = wlc_vsize(*(const uint8_t *)p); return WL_CODEC_OK;
+    case WLC_U16: *n = wlc_vsize(*(const uint16_t *)p); return WL_CODEC_OK;
     case WLC_U32: *n = wlc_vsize(*(const uint32_t *)p); return WL_CODEC_OK;
     case WLC_U64: *n = wlc_vsize(*(const uint64_t *)p); return WL_CODEC_OK;
+    case WLC_I8: *n = wlc_vsize(wlc_z32(*(const int8_t *)p)); return WL_CODEC_OK;
+    case WLC_I16: *n = wlc_vsize(wlc_z32(*(const int16_t *)p)); return WL_CODEC_OK;
     case WLC_I32:
     case WLC_ENUM: *n = wlc_vsize(wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
     case WLC_I64: *n = wlc_vsize(wlc_z64(*(const int64_t *)p)); return WL_CODEC_OK;
@@ -240,9 +248,13 @@ static void wlc_clear(const wlc_desc_t *d, void *value) {
       continue;
     }
     if (f->kind == WLC_BOOL) *(bool *)p = f->unsigned_default != 0U;
+    else if (f->kind == WLC_I8) *(int8_t *)p = (int8_t)f->signed_default;
+    else if (f->kind == WLC_I16) *(int16_t *)p = (int16_t)f->signed_default;
     else if (f->kind == WLC_I32 || f->kind == WLC_ENUM)
       *(int32_t *)p = (int32_t)f->signed_default;
     else if (f->kind == WLC_I64) *(int64_t *)p = f->signed_default;
+    else if (f->kind == WLC_U8) *(uint8_t *)p = (uint8_t)f->unsigned_default;
+    else if (f->kind == WLC_U16) *(uint16_t *)p = (uint16_t)f->unsigned_default;
     else if (f->kind == WLC_U32 || f->kind == WLC_F32)
       *(uint32_t *)p = (uint32_t)f->unsigned_default;
     else if (f->kind == WLC_U64 || f->kind == WLC_F64)
@@ -271,8 +283,12 @@ static wl_codec_status_t wlc_emit_value(const wlc_field_t *f, const void *p,
                                         uint8_t **out) {
   switch (f->kind) {
     case WLC_BOOL: wlc_putv(out, *(const bool *)p); return WL_CODEC_OK;
+    case WLC_U8: wlc_putv(out, *(const uint8_t *)p); return WL_CODEC_OK;
+    case WLC_U16: wlc_putv(out, *(const uint16_t *)p); return WL_CODEC_OK;
     case WLC_U32: wlc_putv(out, *(const uint32_t *)p); return WL_CODEC_OK;
     case WLC_U64: wlc_putv(out, *(const uint64_t *)p); return WL_CODEC_OK;
+    case WLC_I8: wlc_putv(out, wlc_z32(*(const int8_t *)p)); return WL_CODEC_OK;
+    case WLC_I16: wlc_putv(out, wlc_z32(*(const int16_t *)p)); return WL_CODEC_OK;
     case WLC_I32:
     case WLC_ENUM: wlc_putv(out, wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
     case WLC_I64: wlc_putv(out, wlc_z64(*(const int64_t *)p)); return WL_CODEC_OK;
@@ -416,11 +432,23 @@ static wl_codec_status_t wlc_read_value(const wlc_field_t *f, const uint8_t *in,
   if (f->kind == WLC_BOOL) {
     if (v > 1U) return WL_CODEC_ERR_INVALID_VALUE;
     *(bool *)out = v != 0U;
+  } else if (f->kind == WLC_U8) {
+    if (v > UINT8_MAX) return WL_CODEC_ERR_OVERFLOW;
+    *(uint8_t *)out = (uint8_t)v;
+  } else if (f->kind == WLC_U16) {
+    if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
+    *(uint16_t *)out = (uint16_t)v;
   } else if (f->kind == WLC_U32) {
     if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
     *(uint32_t *)out = (uint32_t)v;
   } else if (f->kind == WLC_U64) *(uint64_t *)out = v;
-  else if (f->kind == WLC_I32 || f->kind == WLC_ENUM) {
+  else if (f->kind == WLC_I8) {
+    if (v > UINT8_MAX) return WL_CODEC_ERR_OVERFLOW;
+    *(int8_t *)out = (int8_t)wlc_uz32((uint32_t)v);
+  } else if (f->kind == WLC_I16) {
+    if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
+    *(int16_t *)out = (int16_t)wlc_uz32((uint32_t)v);
+  } else if (f->kind == WLC_I32 || f->kind == WLC_ENUM) {
     if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
     *(int32_t *)out = wlc_uz32((uint32_t)v);
   } else if (f->kind == WLC_I64) *(int64_t *)out = wlc_uz64(v);
