@@ -9,4 +9,14 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_usb_bulk)
 
 include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
-target_sources(app PRIVATE src/main.c)
+set(WIRELINK_WLC_GENERATED_DIR
+  "${WIRELINK_ROOT}/tests/fixtures/wlc/generated/current")
+
+target_sources(app PRIVATE
+  src/main.c
+  ${WIRELINK_WLC_GENERATED_DIR}/control.c
+)
+target_include_directories(app PRIVATE
+  ${WIRELINK_WLC_GENERATED_DIR}
+  ${WIRELINK_ROOT}/src
+)

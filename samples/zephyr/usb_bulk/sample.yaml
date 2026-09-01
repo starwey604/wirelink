@@ -2,7 +2,7 @@
 
 sample:
   name: Wirelink USB vendor bulk endpoint
-  description: Full-duplex Wirelink endpoint over an interrupt-driven USB class
+  description: Wirelink echo and sequential object receiver over an interrupt-driven USB class
 tests:
   sample.wirelink.usb_bulk:
     build_only: true
