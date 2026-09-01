@@ -81,6 +81,19 @@ static wl_bulk_sender_result_t get_result(void) {
   return result;
 }
 
+static void complete_abort(uint64_t next_offset, uint32_t accepted_chunk_size,
+                           int32_t reason, wl_time_ms_t now_ms) {
+  wl_bulk_status_t status;
+
+  zassert_equal(wl_bulk_sender_request_abort(&sender, reason), WL_BULK_OK);
+  (void)submit_action(WL_BULK_PHASE_ABORT, next_offset, 0U, now_ms);
+  status = make_status(WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED,
+                       next_offset, accepted_chunk_size);
+  zassert_equal(wl_bulk_sender_on_status(&sender, &status, now_ms + 1U),
+                WL_BULK_OK);
+  zassert_equal(get_result().state, WL_BULK_SENDER_ABORTED);
+}
+
 ZTEST(wirelink_bulk_sender, test_init_validation_and_action_tokens) {
   wl_bulk_sender_t uninitialized = {0};
   wl_bulk_sender_config_t config = {
@@ -92,6 +105,7 @@ ZTEST(wirelink_bulk_sender, test_init_validation_and_action_tokens) {
   wl_bulk_sender_action_t first;
   wl_bulk_sender_action_t second;
   wl_bulk_sender_action_t changed;
+  wl_bulk_status_t status;
   wl_bulk_sender_result_t result;
   wl_bulk_sender_stats_t stats;
   wl_bulk_deadline_hint_t hint;
@@ -154,6 +168,7 @@ ZTEST(wirelink_bulk_sender, test_init_validation_and_action_tokens) {
   zassert_equal(result.state, WL_BULK_SENDER_READY);
   zassert_equal(result.status, WL_BULK_STATUS_OK);
   zassert_equal(result.next_offset, 0U);
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
   first = acquire_action(WL_BULK_PHASE_BEGIN, 0U, 0U);
   zassert_equal(first.descriptor.total_length, default_descriptor.total_length);
   zassert_equal(first.descriptor.requested_chunk_size,
@@ -184,11 +199,19 @@ ZTEST(wirelink_bulk_sender, test_init_validation_and_action_tokens) {
   zassert_equal(wl_bulk_sender_get_stats(&sender, &stats), WL_BULK_OK);
   zassert_equal(stats.starts, 1U);
   zassert_equal(stats.actions_submitted, 1U);
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  status = make_status(WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_INVALID, 0U, 0U);
+  zassert_equal(wl_bulk_sender_on_status(&sender, &status, 6U), WL_BULK_OK);
+  zassert_equal(get_result().state, WL_BULK_SENDER_FAILED);
+  complete_abort(0U, 0U, 91, 7U);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(get_result().state, WL_BULK_SENDER_IDLE);
   zassert_equal(wl_bulk_sender_get_stats(&sender, &stats), WL_BULK_OK);
   zassert_equal(stats.starts, 1U);
-  zassert_equal(stats.actions_submitted, 1U);
+  zassert_equal(stats.actions_submitted, 2U);
+  zassert_equal(stats.statuses_received, 2U);
+  zassert_equal(stats.failed, 1U);
+  zassert_equal(stats.aborted, 1U);
 }
 
 ZTEST(wirelink_bulk_sender, test_resume_chunks_stale_status_and_completion) {
@@ -365,6 +388,8 @@ ZTEST(wirelink_bulk_sender, test_progress_and_negotiation_are_validated) {
                 WL_BULK_ERR_PROTOCOL);
   zassert_equal(get_result().state, WL_BULK_SENDER_FAILED);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  complete_abort(0U, 0U, 1, 2U);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -372,6 +397,8 @@ ZTEST(wirelink_bulk_sender, test_progress_and_negotiation_are_validated) {
   zassert_equal(wl_bulk_sender_on_status(&sender, &status, 1U),
                 WL_BULK_ERR_PROTOCOL);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  complete_abort(0U, 0U, 2, 2U);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -382,6 +409,8 @@ ZTEST(wirelink_bulk_sender, test_progress_and_negotiation_are_validated) {
   zassert_equal(wl_bulk_sender_on_status(&sender, &status, 3U),
                 WL_BULK_ERR_PROTOCOL);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  complete_abort(0U, 4U, 3, 4U);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -419,6 +448,11 @@ ZTEST(wirelink_bulk_sender, test_out_of_order_status_resynchronizes_progress) {
   zassert_equal(get_result().next_offset, 8U);
   zassert_equal(wl_bulk_sender_action_defer(&sender, &action), WL_BULK_OK);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  zassert_equal(wl_bulk_sender_request_abort(&sender, 1), WL_BULK_OK);
+  (void)submit_action(WL_BULK_PHASE_ABORT, 8U, 0U, 4U);
+  status = make_status(WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED, 8U, 4U);
+  zassert_equal(wl_bulk_sender_on_status(&sender, &status, 5U), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -431,6 +465,11 @@ ZTEST(wirelink_bulk_sender, test_out_of_order_status_resynchronizes_progress) {
   action = acquire_action(WL_BULK_PHASE_CHUNK, 0U, 4U);
   zassert_equal(wl_bulk_sender_action_defer(&sender, &action), WL_BULK_OK);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  zassert_equal(wl_bulk_sender_request_abort(&sender, 2), WL_BULK_OK);
+  (void)submit_action(WL_BULK_PHASE_ABORT, 0U, 0U, 4U);
+  status = make_status(WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED, 0U, 4U);
+  zassert_equal(wl_bulk_sender_on_status(&sender, &status, 5U), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -439,6 +478,8 @@ ZTEST(wirelink_bulk_sender, test_out_of_order_status_resynchronizes_progress) {
   zassert_equal(wl_bulk_sender_on_status(&sender, &status, 1U),
                 WL_BULK_ERR_PROTOCOL);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  complete_abort(0U, 0U, 3, 2U);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -539,6 +580,8 @@ ZTEST(wirelink_bulk_sender, test_remote_failure_and_future_phase_are_terminal) {
   zassert_equal(get_result().state, WL_BULK_SENDER_FAILED);
   zassert_equal(get_result().status, WL_BULK_STATUS_WRITE_FAILED);
 
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+  complete_abort(0U, 0U, 1, 2U);
   zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
   zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
   (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
@@ -550,6 +593,33 @@ ZTEST(wirelink_bulk_sender, test_remote_failure_and_future_phase_are_terminal) {
   zassert_equal(wl_bulk_sender_get_stats(&sender, &stats), WL_BULK_OK);
   zassert_equal(stats.failed, 2U);
   zassert_equal(stats.protocol_errors, 1U);
+}
+
+ZTEST(wirelink_bulk_sender,
+      test_failed_transfer_requires_abort_attempt_before_force_reset) {
+  wl_bulk_sender_result_t result;
+  wl_bulk_sender_stats_t stats;
+
+  init_sender(10U, 2U, 0U);
+  zassert_equal(wl_bulk_sender_start(&sender, &default_descriptor), WL_BULK_OK);
+  (void)submit_action(WL_BULK_PHASE_BEGIN, 0U, 0U, 0U);
+  zassert_equal(wl_bulk_sender_poll(&sender, 10U), WL_BULK_OK);
+  result = get_result();
+  zassert_equal(result.state, WL_BULK_SENDER_FAILED);
+  zassert_equal(result.status, WL_BULK_STATUS_TIMED_OUT);
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_ERR_BUSY);
+
+  zassert_equal(wl_bulk_sender_request_abort(&sender, 7), WL_BULK_OK);
+  (void)submit_action(WL_BULK_PHASE_ABORT, 0U, 0U, 11U);
+  zassert_equal(wl_bulk_sender_poll(&sender, 21U), WL_BULK_OK);
+  result = get_result();
+  zassert_equal(result.state, WL_BULK_SENDER_FAILED);
+  zassert_equal(result.status, WL_BULK_STATUS_TIMED_OUT);
+  zassert_equal(wl_bulk_sender_request_abort(&sender, 8),
+                WL_BULK_ERR_INVALID_STATE);
+  zassert_equal(wl_bulk_sender_reset(&sender), WL_BULK_OK);
+  zassert_equal(wl_bulk_sender_get_stats(&sender, &stats), WL_BULK_OK);
+  zassert_equal(stats.failed, 2U);
 }
 
 ZTEST_SUITE(wirelink_bulk_sender, NULL, NULL, NULL, NULL, NULL);

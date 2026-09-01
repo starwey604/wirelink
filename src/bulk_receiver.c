@@ -193,6 +193,39 @@ static void enter_failure(wl_bulk_receiver_impl_t *impl, wl_bulk_phase_t phase,
   impl->terminal_code = code;
 }
 
+static void release_sink(wl_bulk_receiver_impl_t *impl, int32_t reason) {
+  if (impl->sink_active) {
+    impl->config.sink.abort(impl->config.sink.user_data,
+                            impl->descriptor.transfer_id, reason);
+    impl->sink_active = false;
+  }
+}
+
+static void clear_session(wl_bulk_receiver_impl_t *impl, int32_t reason) {
+  release_sink(impl, reason);
+  impl->descriptor = (wl_bulk_descriptor_t){0};
+  impl->next_offset = 0U;
+  impl->last_activity_ms = 0U;
+  impl->accepted_chunk_size = 0U;
+  impl->state = WL_BULK_RECEIVER_IDLE;
+  impl->terminal_code = WL_BULK_STATUS_OK;
+  impl->terminal_phase = WL_BULK_PHASE_NONE;
+}
+
+static void retain_abort_tombstone(wl_bulk_receiver_impl_t *impl,
+                                   uint32_t transfer_id,
+                                   wl_time_ms_t now_ms) {
+  clear_session(impl, WL_BULK_ERR_INVALID_STATE);
+  impl->descriptor.transfer_id = transfer_id;
+  impl->last_activity_ms = now_ms;
+  impl->state = WL_BULK_RECEIVER_ABORTED;
+  impl->terminal_phase = WL_BULK_PHASE_ABORT;
+  impl->terminal_code = WL_BULK_STATUS_ABORTED;
+  counter_increment(&impl->stats.aborts);
+  retain_status(impl, transfer_id, WL_BULK_PHASE_ABORT,
+                WL_BULK_STATUS_ABORTED, 0U, 0U);
+}
+
 static uint64_t active_next_offset(const wl_bulk_receiver_impl_t *impl) {
   return impl->state == WL_BULK_RECEIVER_IDLE ? 0U : impl->next_offset;
 }
@@ -299,22 +332,10 @@ wl_bulk_err_t wl_bulk_receiver_reset(wl_bulk_receiver_t *receiver) {
     return WL_BULK_ERR_BUSY;
   }
 
-  if (impl->sink_active) {
-    impl->config.sink.abort(impl->config.sink.user_data,
-                            impl->descriptor.transfer_id,
-                            WL_BULK_ERR_INVALID_STATE);
-  }
-  impl->descriptor = (wl_bulk_descriptor_t){0};
+  clear_session(impl, WL_BULK_ERR_INVALID_STATE);
   impl->pending_status = (wl_bulk_status_t){0};
-  impl->next_offset = 0U;
-  impl->last_activity_ms = 0U;
-  impl->accepted_chunk_size = 0U;
-  impl->state = WL_BULK_RECEIVER_IDLE;
-  impl->terminal_code = WL_BULK_STATUS_OK;
-  impl->terminal_phase = WL_BULK_PHASE_NONE;
   impl->status_pending = false;
   impl->status_acquired = false;
-  impl->sink_active = false;
   return WL_BULK_OK;
 }
 
@@ -345,6 +366,9 @@ wl_bulk_err_t wl_bulk_receiver_on_begin(wl_bulk_receiver_t *receiver,
 
   if (impl->state != WL_BULK_RECEIVER_IDLE) {
     if (descriptor_equal(&impl->descriptor, descriptor)) {
+      if (impl->state == WL_BULK_RECEIVER_RECEIVING) {
+        impl->last_activity_ms = now_ms;
+      }
       counter_increment(&impl->stats.duplicate_messages);
       retain_status(impl, descriptor->transfer_id, WL_BULK_PHASE_BEGIN,
                     terminal_status_code(impl), impl->next_offset,
@@ -357,6 +381,12 @@ wl_bulk_err_t wl_bulk_receiver_on_begin(wl_bulk_receiver_t *receiver,
                              WL_BULK_STATUS_CONFLICT, impl->next_offset,
                              impl->accepted_chunk_size);
     }
+    /*
+     * The old terminal record remains authoritative until the new sink
+     * actually accepts or rejects Begin. In particular, BUSY must not erase
+     * an Abort tombstone and allow a delayed old Begin to resurrect.
+     */
+    release_sink(impl, WL_BULK_ERR_INVALID_STATE);
   }
 
   sink_result = impl->config.sink.begin(impl->config.sink.user_data, descriptor,
@@ -584,9 +614,11 @@ wl_bulk_err_t wl_bulk_receiver_on_abort(wl_bulk_receiver_t *receiver,
                            WL_BULK_STATUS_INVALID, active_next_offset(impl),
                            active_chunk_size(impl));
   }
-  if (impl->state == WL_BULK_RECEIVER_IDLE) {
-    return reject_protocol(impl, transfer_id, WL_BULK_PHASE_ABORT,
-                           WL_BULK_STATUS_OUT_OF_ORDER, 0U, 0U);
+  if (impl->state == WL_BULK_RECEIVER_IDLE ||
+      (impl->state != WL_BULK_RECEIVER_RECEIVING &&
+       transfer_id != impl->descriptor.transfer_id)) {
+    retain_abort_tombstone(impl, transfer_id, now_ms);
+    return WL_BULK_OK;
   }
   if (transfer_id != impl->descriptor.transfer_id) {
     return reject_protocol(impl, transfer_id, WL_BULK_PHASE_ABORT,

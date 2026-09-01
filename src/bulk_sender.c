@@ -243,7 +243,9 @@ wl_bulk_err_t wl_bulk_sender_reset(wl_bulk_sender_t *sender) {
                           : WL_BULK_ERR_NOT_INITIALIZED;
   }
   impl = sender_impl(sender);
-  if (impl->action_acquired != 0U) {
+  if (impl->action_acquired != 0U || sender_active(impl) ||
+      (impl->state == WL_BULK_SENDER_FAILED &&
+       impl->phase != WL_BULK_PHASE_ABORT)) {
     return WL_BULK_ERR_BUSY;
   }
   memset(&impl->descriptor, 0, sizeof(impl->descriptor));
@@ -306,7 +308,8 @@ wl_bulk_err_t wl_bulk_sender_request_abort(wl_bulk_sender_t *sender,
                           : WL_BULK_ERR_NOT_INITIALIZED;
   }
   impl = sender_impl(sender);
-  if (!sender_active(impl) || impl->phase == WL_BULK_PHASE_ABORT) {
+  if ((!sender_active(impl) && impl->state != WL_BULK_SENDER_FAILED) ||
+      impl->phase == WL_BULK_PHASE_ABORT) {
     return WL_BULK_ERR_INVALID_STATE;
   }
   if (impl->action_acquired != 0U) {
@@ -442,6 +445,7 @@ wl_bulk_err_t wl_bulk_sender_on_status(wl_bulk_sender_t *sender,
       impl->state = WL_BULK_SENDER_ABORTED;
       increment(&impl->stats.aborted);
     } else {
+      impl->phase = WL_BULK_PHASE_ABORT;
       fail_sender(impl, status->code);
     }
     return WL_BULK_OK;

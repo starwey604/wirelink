@@ -51,6 +51,7 @@ enum {
 };
 
 typedef struct wl_bulk_descriptor {
+  /* Fresh and nonzero for each logical transfer while peer history may live. */
   uint32_t transfer_id;
   uint64_t total_length;
   uint32_t requested_chunk_size;
@@ -144,7 +145,10 @@ typedef struct wl_bulk_receiver_stats {
 wl_bulk_err_t wl_bulk_receiver_init(wl_bulk_receiver_t *receiver,
                                     const wl_bulk_receiver_config_t *config);
 
-/* reset is externally serialized and requires no acquired Status view. */
+/*
+ * reset is externally serialized and requires no acquired Status view. An
+ * active sink is aborted before its receiver state is discarded.
+ */
 wl_bulk_err_t wl_bulk_receiver_reset(wl_bulk_receiver_t *receiver);
 
 wl_bulk_err_t wl_bulk_receiver_on_begin(wl_bulk_receiver_t *receiver,
@@ -253,6 +257,11 @@ typedef struct wl_bulk_sender_result {
 
 wl_bulk_err_t wl_bulk_sender_init(wl_bulk_sender_t *sender,
                                   const wl_bulk_sender_config_t *config);
+/*
+ * Active senders and non-Abort failures return BUSY. Request Abort and reach a
+ * terminal state first. A failed Abort has already exhausted bounded cleanup
+ * retries and may be reset as an explicit force-abandon operation.
+ */
 wl_bulk_err_t wl_bulk_sender_reset(wl_bulk_sender_t *sender);
 wl_bulk_err_t wl_bulk_sender_start(wl_bulk_sender_t *sender,
                                    const wl_bulk_descriptor_t *descriptor);

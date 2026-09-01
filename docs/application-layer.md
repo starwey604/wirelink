@@ -302,12 +302,31 @@ signature before returning success. This object-level check is distinct from
 per-frame integrity: the v1 USB vendor-bulk and UDP profiles remain
 `COBS_STREAM + WL_INTEGRITY_NONE`.
 
+Cancellation is retained as a transfer-ID tombstone even when `Abort` arrives
+before its delayed `Begin`. A later `Begin` for that same ID is rejected, while
+a different ID may replace the tombstone after its Status has been released.
+Replacing a failed receiver session first calls the old sink's `abort`, so the
+runtime never transfers sink ownership by merely overwriting its descriptor.
+If the replacement sink returns `BUSY`, the old terminal record remains in
+place and continues to reject delayed traffic from that transfer.
+
 The initial sender keeps one application message outstanding and retries on a
 bounded, wrap-safe Status deadline. `BUSY` uses a nonzero retry delay rather
 than a zero-delay poll loop. USB/UDP profiles should normally send `Chunk` and
 `Status` as unreliable DATA and use this application acknowledgement, avoiding
 two stop-and-wait layers. A serial profile may select reliable DATA, but still
 waits for `Status` before declaring sink success.
+
+Sender reset is restricted to idle, completed, aborted, or failed-Abort states.
+An active sender or a sender that failed in `Begin`, `Chunk`, or `End` must
+request `Abort` and run its bounded retry policy before reuse. Reset after the
+Abort retries themselves fail is an explicit force-abandon operation; products
+that need eventual autonomous peer recovery must configure a nonzero receiver
+idle timeout.
+
+`transfer_id` values must not be reused while the peer may still retain their
+terminal record. Reusing an ID can only replay its previous idempotent result;
+use a fresh nonzero ID for each logical object transfer.
 
 The first implementation deliberately excludes multi-chunk windows, out-of-
 order reassembly, object-sized RAM staging, asynchronous retention of a Chunk

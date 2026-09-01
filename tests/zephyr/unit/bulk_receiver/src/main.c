@@ -29,6 +29,9 @@ struct sink_fixture {
   uint32_t finish_calls;
   uint32_t finish_successes;
   uint32_t abort_calls;
+  uint32_t callback_sequence;
+  uint32_t last_begin_sequence;
+  uint32_t last_abort_sequence;
   bool invalid_callback_input;
   uint8_t storage[TEST_STORAGE_SIZE];
 };
@@ -46,6 +49,7 @@ static wl_bulk_sink_result_t sink_begin(void *user_data,
   struct sink_fixture *sink = user_data;
 
   ++sink->begin_calls;
+  sink->last_begin_sequence = ++sink->callback_sequence;
   sink->last_descriptor = *descriptor;
   *out_resume_offset = sink->resume_offset;
   return sink->begin_result;
@@ -88,6 +92,7 @@ static void sink_abort(void *user_data, uint32_t transfer_id, int32_t reason) {
   struct sink_fixture *sink = user_data;
 
   ++sink->abort_calls;
+  sink->last_abort_sequence = ++sink->callback_sequence;
   sink->last_abort_transfer_id = transfer_id;
   sink->last_abort_reason = reason;
 }
@@ -613,13 +618,20 @@ ZTEST(wirelink_bulk_receiver, test_timeout_deadline_is_wrap_safe) {
       wl_bulk_receiver_get_deadline_hint(&fixture.receiver, 2U, &hint),
       WL_BULK_OK);
   zassert_equal(hint.next_deadline_ms, 3U);
-  zassert_equal(wl_bulk_receiver_poll(&fixture.receiver, 4U), WL_BULK_OK);
-  zassert_equal(fixture.sink.abort_calls, 0U);
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &begin, 2U),
+                WL_BULK_OK);
+  release_status(51U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_OK, 0U, 8U);
   zassert_equal(
       wl_bulk_receiver_get_deadline_hint(&fixture.receiver, 4U, &hint),
       WL_BULK_OK);
+  zassert_equal(hint.next_deadline_ms, 8U);
+  zassert_equal(wl_bulk_receiver_poll(&fixture.receiver, 11U), WL_BULK_OK);
+  zassert_equal(fixture.sink.abort_calls, 0U);
+  zassert_equal(
+      wl_bulk_receiver_get_deadline_hint(&fixture.receiver, 11U, &hint),
+      WL_BULK_OK);
   zassert_equal(hint.next_deadline_ms, 1U);
-  zassert_equal(wl_bulk_receiver_poll(&fixture.receiver, 5U), WL_BULK_OK);
+  zassert_equal(wl_bulk_receiver_poll(&fixture.receiver, 12U), WL_BULK_OK);
   zassert_equal(fixture.sink.abort_calls, 1U);
   zassert_equal(fixture.sink.last_abort_reason, WL_BULK_ERR_TIMEOUT);
   release_status(51U, WL_BULK_PHASE_ABORT, WL_BULK_STATUS_TIMED_OUT, 0U, 8U);
@@ -662,32 +674,115 @@ ZTEST(wirelink_bulk_receiver,
   expect_state(WL_BULK_RECEIVER_FAILED, 0U);
 
   fixture.sink.write_result = WL_BULK_SINK_OK;
+  fixture.sink.begin_result = WL_BULK_SINK_BUSY;
   begin = descriptor(73U, 4U, 4U, 73U);
   zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &begin, 4U),
+                WL_BULK_OK);
+  release_status(73U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_BUSY, 0U, 4U);
+  expect_state(WL_BULK_RECEIVER_FAILED, 0U);
+  zassert_equal(fixture.sink.abort_calls, 1U);
+  zassert_equal(fixture.sink.last_abort_transfer_id, 72U);
+  zassert_equal(fixture.sink.last_abort_reason, WL_BULK_ERR_INVALID_STATE);
+  zassert_true(fixture.sink.last_abort_sequence <
+               fixture.sink.last_begin_sequence);
+
+  fixture.sink.begin_result = WL_BULK_SINK_OK;
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &begin, 5U),
                 WL_BULK_OK);
   release_status(73U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_OK, 0U, 4U);
   expect_state(WL_BULK_RECEIVER_RECEIVING, 0U);
   zassert_equal(fixture.sink.finish_calls, 1U);
-  zassert_equal(fixture.sink.abort_calls, 0U);
-  zassert_equal(wl_bulk_receiver_on_abort(&fixture.receiver, 73U, 73, 5U),
+  zassert_equal(fixture.sink.abort_calls, 1U);
+  zassert_equal(wl_bulk_receiver_on_abort(&fixture.receiver, 73U, 73, 6U),
                 WL_BULK_OK);
   release_status(73U, WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED, 0U, 4U);
   expect_state(WL_BULK_RECEIVER_ABORTED, 0U);
-  zassert_equal(fixture.sink.abort_calls, 1U);
+  zassert_equal(fixture.sink.abort_calls, 2U);
 
   begin = descriptor(74U, 4U, 4U, 74U);
-  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &begin, 6U),
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &begin, 7U),
                 WL_BULK_OK);
   release_status(74U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_OK, 0U, 4U);
   expect_state(WL_BULK_RECEIVER_RECEIVING, 0U);
   zassert_equal(fixture.sink.finish_calls, 1U);
-  zassert_equal(fixture.sink.abort_calls, 1U);
-  zassert_equal(fixture.sink.begin_calls, 4U);
+  zassert_equal(fixture.sink.abort_calls, 2U);
+  zassert_equal(fixture.sink.begin_calls, 5U);
   zassert_equal(wl_bulk_receiver_get_stats(&fixture.receiver, &stats),
                 WL_BULK_OK);
   zassert_equal(stats.begins, 4U);
   zassert_equal(stats.write_failures, 1U);
+  zassert_equal(stats.busy_responses, 1U);
   zassert_equal(stats.aborts, 1U);
+}
+
+ZTEST(wirelink_bulk_receiver,
+      test_abort_before_begin_retains_cancellation_tombstone) {
+  wl_bulk_descriptor_t delayed = descriptor(81U, 8U, 8U, 81U);
+  wl_bulk_descriptor_t next = descriptor(82U, 8U, 8U, 82U);
+  wl_bulk_receiver_stats_t stats;
+
+  receiver_initialize(20U);
+  zassert_equal(wl_bulk_receiver_on_abort(&fixture.receiver, 81U, 9, 1U),
+                WL_BULK_OK);
+  release_status(81U, WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED, 0U, 0U);
+  expect_state(WL_BULK_RECEIVER_ABORTED, 0U);
+  zassert_equal(fixture.sink.begin_calls, 0U);
+  zassert_equal(fixture.sink.abort_calls, 0U);
+
+  zassert_equal(wl_bulk_receiver_on_abort(&fixture.receiver, 81U, 9, 2U),
+                WL_BULK_OK);
+  release_status(81U, WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED, 0U, 0U);
+  zassert_equal(fixture.sink.abort_calls, 0U);
+
+  fixture.sink.begin_result = WL_BULK_SINK_BUSY;
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &next, 3U),
+                WL_BULK_OK);
+  release_status(82U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_BUSY, 0U, 8U);
+  expect_state(WL_BULK_RECEIVER_ABORTED, 0U);
+  zassert_equal(fixture.sink.begin_calls, 1U);
+
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &delayed, 3U),
+                WL_BULK_OK);
+  release_status(81U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_CONFLICT, 0U, 0U);
+  zassert_equal(fixture.sink.begin_calls, 1U);
+  expect_state(WL_BULK_RECEIVER_ABORTED, 0U);
+
+  fixture.sink.begin_result = WL_BULK_SINK_OK;
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &next, 4U),
+                WL_BULK_OK);
+  release_status(82U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_OK, 0U, 8U);
+  expect_state(WL_BULK_RECEIVER_RECEIVING, 0U);
+  zassert_equal(fixture.sink.begin_calls, 2U);
+  zassert_equal(wl_bulk_receiver_get_stats(&fixture.receiver, &stats),
+                WL_BULK_OK);
+  zassert_equal(stats.aborts, 1U);
+  zassert_equal(stats.duplicate_messages, 1U);
+  zassert_equal(stats.busy_responses, 1U);
+  zassert_equal(stats.protocol_errors, 1U);
+}
+
+ZTEST(wirelink_bulk_receiver,
+      test_different_abort_releases_failed_sink_before_tombstone) {
+  const uint8_t bytes[4] = {0U, 1U, 2U, 3U};
+  wl_bulk_descriptor_t begin = descriptor(91U, 4U, 4U, 91U);
+  wl_bulk_chunk_t input = chunk(91U, 0U, bytes, sizeof(bytes));
+
+  receiver_initialize(20U);
+  zassert_equal(wl_bulk_receiver_on_begin(&fixture.receiver, &begin, 0U),
+                WL_BULK_OK);
+  release_status(91U, WL_BULK_PHASE_BEGIN, WL_BULK_STATUS_OK, 0U, 4U);
+  fixture.sink.write_result = WL_BULK_SINK_WRITE_FAILED;
+  zassert_equal(wl_bulk_receiver_on_chunk(&fixture.receiver, &input, 1U),
+                WL_BULK_OK);
+  release_status(91U, WL_BULK_PHASE_CHUNK, WL_BULK_STATUS_WRITE_FAILED, 0U, 4U);
+
+  zassert_equal(wl_bulk_receiver_on_abort(&fixture.receiver, 92U, 92, 2U),
+                WL_BULK_OK);
+  release_status(92U, WL_BULK_PHASE_ABORT, WL_BULK_STATUS_ABORTED, 0U, 0U);
+  expect_state(WL_BULK_RECEIVER_ABORTED, 0U);
+  zassert_equal(fixture.sink.abort_calls, 1U);
+  zassert_equal(fixture.sink.last_abort_transfer_id, 91U);
+  zassert_equal(fixture.sink.last_abort_reason, WL_BULK_ERR_INVALID_STATE);
 }
 
 ZTEST(wirelink_bulk_receiver, test_all_observability_counters_saturate) {
