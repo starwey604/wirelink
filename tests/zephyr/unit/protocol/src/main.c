@@ -1095,12 +1095,113 @@ ZTEST(wirelink_protocol_unit,
   zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
 
   zassert_ok(wl_poll(&ctx, 0U, &event));
-  zassert_equal(cap.call_count, 2U);
+  zassert_equal(cap.call_count, 1U);
   zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
-  zassert_equal(wl_ctx_impl(&ctx)->tx_unreliable_completions, 1U);
+  zassert_equal(wl_ctx_impl(&ctx)->tx_unreliable_completions, 0U);
   wl_event_release(&ctx, &event);
   zassert_ok(wl_poll(&ctx, 1U, &event));
+  zassert_equal(cap.call_count, 2U);
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+}
+
+ZTEST(wirelink_protocol_unit,
+      test_reliable_rx_event_precedes_queued_reliable_retry)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  uint8_t wire[WL_FRAME_MAX_COBS_LEN];
+  struct test_sink_capture cap = {0};
+  wl_sink_result_t script[] = {WL_SINK_BUSY, WL_SINK_SENT, WL_SINK_SENT};
+  wl_event_t event = {0};
+  wl_tx_handle_t handle = 0U;
+  size_t wire_len = 0U;
+  size_t accepted = 0U;
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_COBS_STREAM,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = UINT64_C(0x54585f4c4f43414c),
+    .max_retries = 1U,
+    .ack_timeout_ms = 5U,
+  };
+  const wl_wire_packet_t request = {
+    .type = WL_PACKET_DATA,
+    .flags = WL_PACKET_FLAG_RELIABLE,
+    .integrity = WL_INTEGRITY_NONE,
+    .message_id = 0x94U,
+    .session_id = UINT64_C(0x52585f4e45575f50),
+    .sequence = 1U,
+  };
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_send_reliable(&ctx, 0x95U, NULL, 0U, &handle));
+  zassert_not_equal(handle, 0U);
+  zassert_equal(cap.call_count, 1U);
+  zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
+
+  zassert_ok(wl_frame_encode(&request, WL_ENVELOPE_COBS_STREAM, wire,
+                             sizeof(wire), &wire_len));
+  zassert_ok(wl_feed_bytes(&ctx, wire, wire_len, &accepted));
+  zassert_equal(accepted, wire_len);
+
+  zassert_ok(wl_poll(&ctx, 0U, &event));
+  zassert_equal(event.type, WL_EVT_RELIABLE_RX);
+  zassert_equal(event.peer_session_id, request.session_id);
+  zassert_equal(cap.call_count, 2U, "queued data retried before RX dispatch");
+  zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
+  wl_event_release(&ctx, &event);
+
+  zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
+  zassert_equal(cap.call_count, 3U);
+  zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 0U);
+}
+
+ZTEST(wirelink_protocol_unit, test_rx_event_precedes_terminal_tx_timeout)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  uint8_t wire[WL_FRAME_MAX_RAW_LEN];
+  struct test_sink_capture cap = {0};
+  wl_sink_result_t script[] = {WL_SINK_SENT};
+  wl_event_t event = {0};
+  wl_tx_handle_t handle = 0U;
+  wl_tx_result_t result = {0};
+  size_t wire_len = 0U;
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = UINT64_C(0x54494d454f55545f),
+    .max_retries = 0U,
+    .ack_timeout_ms = 5U,
+  };
+  const wl_wire_packet_t packet = {
+    .type = WL_PACKET_DATA,
+    .integrity = WL_INTEGRITY_NONE,
+    .message_id = 0x96U,
+    .session_id = UINT64_C(0x52585f4245464f52),
+  };
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_send_reliable(&ctx, 0x97U, NULL, 0U, &handle));
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, wire,
+                             sizeof(wire), &wire_len));
+  zassert_ok(wl_feed_unit(&ctx, wire, wire_len));
+
+  zassert_ok(wl_poll(&ctx, 5U, &event));
+  zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
+  wl_event_release(&ctx, &event);
+
+  zassert_ok(wl_poll(&ctx, 5U, &event));
+  zassert_equal(event.type, WL_EVT_TX_TIMEOUT);
+  zassert_equal(event.handle, handle);
+  zassert_ok(wl_tx_take(&ctx, handle, &result));
+  zassert_equal(result.state, WL_TX_STATE_FAILED);
+  zassert_equal(result.result, WL_ERR_TIMEOUT);
 }
 
 ZTEST(wirelink_protocol_unit,

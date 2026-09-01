@@ -972,12 +972,31 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
   wl_ctx_impl(ctx)->now_ms = now_ms;
 
   (void)wl_submit_control(ctx);
-  if (wl_ctx_impl(ctx)->control_pending == 0U && wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_SENDING &&
+
+  /* A previously queued ACK keeps priority because the control slot cannot be
+   * overwritten. Once it drains, parse received input before retrying data TX
+   * so a reliable RX event can expose a restarted peer's new session first. */
+  if (wl_ctx_impl(ctx)->control_pending == 0U && wl_ctx_impl(ctx)->has_event == 0U &&
+      wl_ctx_impl(ctx)->rx_event_leased == 0U &&
+      wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
+    wl_process_rx_stream(ctx);
+  }
+  if (wl_ctx_impl(ctx)->control_pending == 0U && wl_ctx_impl(ctx)->has_event == 0U &&
+      wl_ctx_impl(ctx)->rx_event_leased == 0U &&
+      wl_ctx_impl(ctx)->rx_units.initialized != 0U) {
+    wl_process_rx_units(ctx);
+  }
+
+  if (wl_ctx_impl(ctx)->has_event == 0U &&
+      wl_ctx_impl(ctx)->control_pending == 0U &&
+      wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_SENDING &&
       wl_ctx_impl(ctx)->tx_queued != 0U && wl_ctx_impl(ctx)->tx_inflight == 0U) {
     (void)wl_send_tx_payload(ctx, 0U);
   }
 
-  if (wl_ctx_impl(ctx)->control_pending == 0U && wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_WAITING_ACK &&
+  if (wl_ctx_impl(ctx)->has_event == 0U &&
+      wl_ctx_impl(ctx)->control_pending == 0U &&
+      wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_WAITING_ACK &&
       wl_ctx_impl(ctx)->initialized != 0U && wl_ctx_impl(ctx)->config.ack_timeout_ms != 0U) {
     wl_time_ms_t timeout_ms = now_ms - wl_ctx_impl(ctx)->tx_start_ts;
     if (timeout_ms >= wl_ctx_impl(ctx)->config.ack_timeout_ms) {
@@ -1011,17 +1030,6 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
       wl_ctx_impl(ctx)->tx_unreliable_completions != 0U &&
       wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, 0U) == WL_OK) {
     wl_ctx_impl(ctx)->tx_unreliable_completions--;
-  }
-
-  if (wl_ctx_impl(ctx)->has_event == 0U && wl_ctx_impl(ctx)->rx_event_leased == 0U &&
-      wl_ctx_impl(ctx)->initialized != 0U &&
-      wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
-    wl_process_rx_stream(ctx);
-  }
-  if (wl_ctx_impl(ctx)->has_event == 0U &&
-      wl_ctx_impl(ctx)->rx_event_leased == 0U &&
-      wl_ctx_impl(ctx)->rx_units.initialized != 0U) {
-    wl_process_rx_units(ctx);
   }
 
   if (!wl_ctx_impl(ctx)->has_event) {
