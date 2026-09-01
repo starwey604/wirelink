@@ -448,7 +448,7 @@ scenarios are added separately with explicit driver and fixture requirements.
 From an existing Zephyr workspace, run the current RX-ring unit test with:
 
 ```sh
-cd ~/zephyrproject/zephyr
+cd /path/to/zephyr
 ../.venv/bin/west twister -T /path/to/wirelink/tests/zephyr/unit/rx_ring \
   -p unit_testing
 ```

@@ -199,7 +199,7 @@ size.
 The ESP32-S3 benchmark remains build-only in Twister and can be compiled with:
 
 ```sh
-cd ~/zephyrproject/zephyr
+cd /path/to/zephyr
 ../.venv/bin/west twister -T /path/to/wirelink/benchmarks/zephyr/rx_backend \
   -p esp32s3_devkitc/esp32s3/procpu --build-only
 ```
