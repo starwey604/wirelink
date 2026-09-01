@@ -10,6 +10,8 @@ fixed-count `packed`/`required packed`, and `default`; see
 `docs/schema-v1.md` for the normative v1 contract. Exact-width 8/16/32/64-bit
 integers, native `float32`/`float64`, and packed fixed-width numeric arrays
 provide compact control payloads without heap allocation or per-element tags.
+`string<MAX>` and `bytes<MAX>` retain borrowed zero-copy C views while making
+the accepted byte domain and generated static encoded-size ceiling explicit.
 
 Run its focused checks from the repository root with:
 
@@ -37,9 +39,10 @@ enum, or field numbers. `check_compatibility` compares two such models; deleted
 declaration IDs require top-level `reserved N;`, while deleted fields require
 the same declaration inside their message. Reserved IDs are permanent.
 
-The baseline treats a field's number, name, resolved type, and cardinality as
-wire identity. For a packed array, cardinality includes the exact element
-count. Reordering source declarations or fields is semantically inert. `wlc
+The baseline treats a field's number, name, resolved type, cardinality, and any
+borrowed-field byte bound as wire identity. For a packed array, cardinality
+includes the exact element count. Reordering source declarations or fields is
+semantically inert. `wlc
 validate --previous` and `wlc compile --previous` expose compatibility checking
 at the CLI boundary before generation.
 

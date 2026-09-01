@@ -1,7 +1,7 @@
 # WLC schema and payload format v1
 
-Status: **frozen pre-1.0 baseline, including required and dense numeric
-fields**.
+Status: **frozen pre-1.0 baseline, including required fields, exact-width
+integers, dense numeric arrays, and bounded borrowed fields**.
 
 This document defines the application-payload format carried by a Wirelink
 `DATA` packet. It is deliberately separate from the Wirelink packet header,
@@ -29,6 +29,8 @@ packed-field   = "packed" packed-type identifier "[" positive-integer "]"
                  "=" positive-integer ";"
 required-packed-field = "required" "packed" packed-type identifier
                         "[" positive-integer "]" "=" positive-integer ";"
+type            = identifier | bounded-length-type
+bounded-length-type = ("bytes" | "string") "<" positive-integer ">"
 packed-type    = "float32" | "float64" | "fixed32" | "fixed64"
 enum           = "enum" identifier "=" positive-integer "{" enum-item* "}"
 ```
@@ -58,7 +60,8 @@ change compatibly. A packed array's exact element count is part of its
 cardinality and wire identity. Defaults are local decode behaviour and are not
 a wire change. Adding a required field to an existing message is incompatible,
 as is changing integer width or signedness even when both forms use wire type
-zero.
+zero. A `string`/`bytes` bound is also wire identity: adding, removing,
+increasing, or decreasing it is incompatible for an existing field.
 
 ### 1.1 Built-in types
 
@@ -73,6 +76,15 @@ The generator's v1 built-in set is:
 | `float32`, `float64` | `float`, `double` | IEEE-754 binary32/binary64 bits as 4/8 bytes, big-endian |
 | `bytes` | `wl_codec_bytes_t` | length-delimited bytes |
 | `string` | `wl_codec_string_t` | length-delimited, valid UTF-8 |
+
+`bytes<MAX>` and `string<MAX>` use the same C views and exact wire form as
+their unbounded counterparts, with `MAX` in the range 1 through 65535. The
+bound counts encoded bytes, not Unicode scalar values or a terminating NUL.
+It is checked before encode and immediately after the wire length is decoded.
+An oversized present value returns `WL_CODEC_ERR_INVALID_VALUE`; an in-bound
+`string` with invalid UTF-8 still returns `WL_CODEC_ERR_UTF8`. Decode remains
+zero-copy: a bound validates a borrowed view and never creates inline string
+storage.
 
 An enum is encoded exactly as an `int32` ZigZag varint. Generated enum types
 are integer typedefs plus named constants, rather than a restrictive C `enum`,
@@ -96,7 +108,8 @@ boolean, fixed-width integer, and enum defaults must fit their declared type;
 an enum default must name an existing numeric enum value. Explicit float
 defaults are not accepted until the grammar defines a canonical,
 locale-independent float literal; an absent float clears to positive zero.
-Repeated and packed fields never have defaults.
+Repeated and packed fields never have defaults. A bounded string default must
+fit its bound in encoded UTF-8 bytes at schema-analysis time.
 
 ## 2. Wire format
 
@@ -213,6 +226,22 @@ wl_codec_status_t motor_status_decode(const uint8_t *input, size_t input_length,
                                       motor_status_t *out);
 ```
 
+Every generated message also exposes whether its encoded payload has a static
+maximum:
+
+```c
+#define MOTOR_STATUS_HAS_MAX_ENCODED_SIZE 1
+#define MOTOR_STATUS_MAX_ENCODED_SIZE UINT64_C(137)
+```
+
+The second macro is emitted only when `*_HAS_MAX_ENCODED_SIZE` is one. Fixed
+scalars, enums, packed arrays, bounded `string`/`bytes`, and transitively
+bounded nested messages participate in the calculation. An unbounded
+`string`/`bytes`, or any ordinary `repeated` field whose occurrence count has
+no schema bound, makes the message maximum unavailable. The maximum includes
+field keys and every length prefix, and is suitable for compile-time scratch
+and frame-capacity checks after verifying it fits the target's `size_t`.
+
 The API is allocation-free. `bytes` and `string` decode to borrowed views into
 `input`; they are not NUL-terminated and are valid only while that input is
 valid. In particular, a decoded view derived from `wl_event_t.payload` must be
@@ -273,7 +302,7 @@ message MotorCommand = 16 {
   required uint32 operation_id = 1;
   required MotorMode mode = 2;
   optional fixed32 target_milliamps = 3;
-  optional bytes vendor_extension = 4;
+  optional bytes<64> vendor_extension = 4;
 }
 
 message SensorSample = 17 {
@@ -283,7 +312,7 @@ message SensorSample = 17 {
 
 message TelemetryBatch = 18 {
   repeated SensorSample samples = 1;
-  optional string source = 2 [default = "board"];
+  optional string<31> source = 2 [default = "board"];
   optional uint64 timestamp_us = 3;
 }
 
@@ -321,4 +350,7 @@ control vector whose encoded field size remains 122 bytes. Required-field
 coverage includes missing scalar, nested, and packed values on both encode and
 decode. Narrow-integer coverage includes min/max golden bytes, default-range
 validation, exact-width C/C++ storage, and decode overflow rejection without
-truncation.
+truncation. Bounded borrowed-field coverage includes UTF-8 byte-counted
+defaults, exact-bound encode/decode, deterministic over-bound rejection,
+borrowed-pointer provenance, schema identity and compatibility, manifest
+metadata, and static maxima through required nested messages.

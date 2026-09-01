@@ -69,6 +69,10 @@ numeric IDs are permanent, removed IDs are reserved, field wire identity is
 stable, unknown fields are skipped, and additive optional fields are allowed.
 For fixed-count packed numeric fields, the element type, array length, and
 packed cardinality are all wire identity and cannot change compatibly.
+For `string<MAX>` and `bytes<MAX>`, the byte bound is also wire identity;
+adding, removing, increasing, or decreasing it requires a new field/message
+identity even though the individual length-delimited bytes use the same wire
+type.
 
 Schema compatibility must be checked before code generation with the previous
 schema supplied to WLC. The fixtures under `tests/fixtures/wlc/` are the
