@@ -35,7 +35,7 @@ Build the host tool with the local Astrial checkout:
 ```sh
 cmake -S . -B build/usb-bench -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_HOST_BENCHMARKS=ON \
-  -DWIRELINK_ASTRIAL_SOURCE_DIR=/home/ww/codings/astrial \
+  -DWIRELINK_ASTRIAL_SOURCE_DIR=/path/to/astrial \
   -DASTRIAL_IO_URING=OFF
 cmake --build build/usb-bench --parallel
 ```
