@@ -39,7 +39,9 @@ operation ID and result status. `BulkBegin`, `BulkChunk`, `BulkEnd`,
 sequential bulk runtime. IDs, chunk sizes, and object CRC32C values use
 `fixed32`; lengths and absolute offsets use `fixed64`; and Chunk data remains a
 borrowed `bytes` view that a synchronous route must consume before the RX event
-is released. Bulk messages deliberately have no retained profile entry.
+is released. Its 4096-byte schema bound rejects an oversized chunk before the
+storage sink sees it and publishes a deterministic encoded-size maximum. Bulk
+messages deliberately have no retained profile entry.
 Zephyr tests verify IEEE bit preservation (including signed zero and a NaN
 payload), network byte order, scalar float encoding, strict packed length
 rejection, generated typed bindings, LATEST coalescing, and reliable FIFO

@@ -203,7 +203,8 @@ wl_codec_status_t bulk_begin_encode(const bulk_begin_t *value, uint8_t *out, siz
 wl_codec_status_t bulk_begin_decode(const uint8_t *input, size_t input_length, bulk_begin_t *out);
 
 #define BULK_CHUNK_MESSAGE_ID 33U
-#define BULK_CHUNK_HAS_MAX_ENCODED_SIZE 0
+#define BULK_CHUNK_HAS_MAX_ENCODED_SIZE 1
+#define BULK_CHUNK_MAX_ENCODED_SIZE UINT64_C(4113)
 void bulk_chunk_clear(bulk_chunk_t *value);
 size_t bulk_chunk_encoded_size(const bulk_chunk_t *value);
 wl_codec_status_t bulk_chunk_encode(const bulk_chunk_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);

@@ -1,4 +1,4 @@
-version 4;
+version 5;
 
 enum JointMode = 1 {
   DISABLED = 0;
@@ -73,7 +73,7 @@ message BulkBegin = 32 {
 message BulkChunk = 33 {
   optional fixed32 transfer_id = 1;
   optional fixed64 offset = 2;
-  optional bytes data = 3;
+  optional bytes<4096> data = 3;
 }
 
 message BulkEnd = 34 {

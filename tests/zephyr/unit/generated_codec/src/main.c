@@ -223,6 +223,53 @@ ZTEST(wirelink_generated_codec, test_rpc_messages_carry_operation_identity)
   zassert_true(response.has_status);
   zassert_equal(response.status, OPERATION_REJECTED);
 }
+
+ZTEST(wirelink_generated_codec, test_bounded_bulk_chunk_rejects_oversize)
+{
+  static uint8_t chunk_bytes[4097];
+  static uint8_t encoded[BULK_CHUNK_MAX_ENCODED_SIZE];
+  static const uint8_t oversized_wire_length[] = {
+      0x1AU, 0x81U, 0x20U, /* data length = 4097 */
+  };
+  bulk_chunk_t chunk;
+  bulk_chunk_t decoded;
+  size_t encoded_length = 123U;
+
+  zassert_equal(BULK_CHUNK_HAS_MAX_ENCODED_SIZE, 1);
+  zassert_equal(BULK_CHUNK_MAX_ENCODED_SIZE, 4113U);
+
+  bulk_chunk_clear(&chunk);
+  chunk.has_transfer_id = true;
+  chunk.transfer_id = 1U;
+  chunk.has_offset = true;
+  chunk.offset = 0U;
+  chunk.has_data = true;
+  chunk.data.data = chunk_bytes;
+  chunk.data.length = sizeof(chunk_bytes);
+  zassert_equal(bulk_chunk_encoded_size(&chunk), SIZE_MAX);
+  zassert_equal(bulk_chunk_encode(&chunk, encoded, sizeof(encoded),
+                                  &encoded_length),
+                WL_CODEC_ERR_INVALID_VALUE);
+  zassert_equal(encoded_length, 123U);
+
+  zassert_equal(bulk_chunk_decode(oversized_wire_length,
+                                  sizeof(oversized_wire_length), &decoded),
+                WL_CODEC_ERR_INVALID_VALUE);
+
+  chunk.data.length = sizeof(chunk_bytes) - 1U;
+  zassert_equal(bulk_chunk_encoded_size(&chunk),
+                BULK_CHUNK_MAX_ENCODED_SIZE);
+  zassert_equal(bulk_chunk_encode(&chunk, encoded, sizeof(encoded),
+                                  &encoded_length),
+                WL_CODEC_OK);
+  zassert_equal(encoded_length, BULK_CHUNK_MAX_ENCODED_SIZE);
+  zassert_equal(bulk_chunk_decode(encoded, encoded_length, &decoded),
+                WL_CODEC_OK);
+  zassert_true(decoded.has_data);
+  zassert_equal(decoded.data.length, sizeof(chunk_bytes) - 1U);
+  zassert_true(points_into(decoded.data.data, decoded.data.length, encoded,
+                           encoded_length));
+}
 #endif
 
 ZTEST_SUITE(wirelink_generated_codec, NULL, NULL, NULL, NULL, NULL);

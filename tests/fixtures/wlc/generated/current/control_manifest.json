@@ -3,21 +3,24 @@
   "compiler": {
     "name": "wlc",
     "version": "0.1.0",
-    "codegen_abi": 6
+    "codegen_abi": 7
   },
   "module": "control",
   "identity": {
     "algorithm": "fnv1a64-v1",
-    "schema": "0xdf068d2bf866427c",
+    "schema": "0x0048b48181a18d13",
     "binding_profile": "0x3bab7a3869c4d89e"
   },
+  "bounded_fields": [
+    {"message": "BulkChunk", "message_id": 33, "field": "data", "field_number": 3, "kind": "bytes", "max_length": 4096}
+  ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "control.c", "size": 34500, "digest": "0xe46d61819fdaae06"},
-    {"path": "control.h", "size": 8417, "digest": "0x679c1f9aed69ff7d"},
+    {"path": "control.c", "size": 35048, "digest": "0x287a879b3769206d"},
+    {"path": "control.h", "size": 8468, "digest": "0x35c4fc14fd5b3e12"},
     {"path": "control_bindings.c", "size": 36495, "digest": "0x2db0f91f205760e3"},
     {"path": "control_bindings.h", "size": 8625, "digest": "0xde756cc9a15dd0d1"},
     {"path": "control_runtime.c", "size": 38996, "digest": "0xdf53e04ed6732111"},
-    {"path": "control_runtime.h", "size": 8588, "digest": "0x9f8ff9198a965e45"}
+    {"path": "control_runtime.h", "size": 8588, "digest": "0x3678f56bac4af2d0"}
   ]
 }
