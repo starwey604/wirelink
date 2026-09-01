@@ -33,11 +33,14 @@ int wl_rx_unit_queue_init(wl_ctx_t *ctx,
   queue = &wl_ctx_impl(ctx)->rx_units;
   memset(queue, 0, sizeof(*queue));
   queue->storage = config->storage;
-  queue->storage_size = config->storage_size;
   queue->unit_size = config->unit_size;
   queue->slot_count = config->slot_count;
   atomic_init(&queue->write_cursor, 0U);
   atomic_init(&queue->read_cursor, 0U);
+  if (!atomic_is_lock_free(&queue->write_cursor) ||
+      !atomic_is_lock_free(&queue->read_cursor)) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
   queue->initialized = 1U;
   return WL_OK;
 }

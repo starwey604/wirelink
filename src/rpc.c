@@ -12,7 +12,6 @@
 typedef struct {
   wl_rpc_client_slot_t *slots;
   uint8_t *response_storage;
-  size_t response_storage_size;
   uint32_t next_operation_id;
   uint32_t magic;
   uint16_t slot_count;
@@ -38,7 +37,6 @@ typedef struct {
   wl_rpc_server_pending_slot_t *pending_slots;
   wl_rpc_server_cache_slot_t *cache_slots;
   uint8_t *response_storage;
-  size_t response_storage_size;
   uint64_t next_generation;
   uint32_t pending_timeout_ms;
   uint32_t cache_ttl_ms;
@@ -277,7 +275,6 @@ wl_rpc_err_t wl_rpc_client_init(wl_rpc_client_t *client,
   wl_rpc_client_impl_t *impl = client_impl(client);
   impl->slots = config->slots;
   impl->response_storage = config->response_storage;
-  impl->response_storage_size = config->response_storage_size;
   impl->next_operation_id =
       config->next_operation_id == 0U ? 1U : config->next_operation_id;
   impl->slot_count = config->slot_count;
@@ -757,7 +754,6 @@ wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
   impl->pending_slots = config->pending_slots;
   impl->cache_slots = config->cache_slots;
   impl->response_storage = config->response_storage;
-  impl->response_storage_size = config->response_storage_size;
   impl->next_generation = 1U;
   impl->pending_timeout_ms = config->pending_timeout_ms;
   impl->cache_ttl_ms = config->cache_ttl_ms;

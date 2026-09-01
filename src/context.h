@@ -19,7 +19,6 @@ enum {
 
 typedef struct {
   uint8_t *storage;
-  size_t storage_size;
   size_t unit_size;
   size_t lengths[WL_RX_UNIT_QUEUE_MAX_SLOTS];
   _Atomic uint32_t write_cursor;
@@ -61,7 +60,6 @@ typedef struct {
   int tx_result_code;
   uint16_t tx_last_message_id;
   uint8_t tx_last_flags;
-  uint8_t tx_payload_direct;
   uint8_t tx_claim_active;
   uint8_t tx_claim_reliable;
   uint16_t tx_claim_message_id;

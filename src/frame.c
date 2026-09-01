@@ -84,7 +84,6 @@ static size_t frame_write_header(const wl_wire_packet_t *packet,
   const size_t header_len =
       wl_frame_packet_header_size(packet->type, packet->flags);
 
-  memset(header, 0, WL_FRAME_HEADER_SIZE);
   header[0] = (uint8_t)(WL_FRAME_PREFIX | frame_packet_kind(packet));
   header[1] = 0U;
   write_u16_be(&header[2], packet->message_id);
