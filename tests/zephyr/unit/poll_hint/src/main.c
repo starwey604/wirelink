@@ -150,6 +150,38 @@ ZTEST(wirelink_poll_hint_unit, test_async_tx_completion_becomes_poll_work) {
   expect_hint(&fixture->ctx, 100U, 0U, WL_POLL_NO_DEADLINE_MS);
 }
 
+ZTEST(wirelink_poll_hint_unit,
+      test_counted_tx_completions_remain_work_behind_borrowed_rx) {
+  const wl_sink_result_t script[] = {WL_SINK_SENT, WL_SINK_SENT};
+  struct fixture *fixture = fixture_init(WL_ENVELOPE_NATIVE_PACKET, 5U, 0U,
+                                         script, ARRAY_SIZE(script));
+  uint8_t unit[128];
+  wl_event_t rx_event = {0};
+  wl_event_t event = {0};
+  size_t unit_length;
+
+  unit_length =
+      encode_packet(fixture, WL_ENVELOPE_NATIVE_PACKET, 0U, 0x71U,
+                    UINT64_C(0x504545525f48494e), 0U, NULL, 0U, unit,
+                    sizeof(unit));
+  zassert_ok(wl_feed_unit(&fixture->ctx, unit, unit_length));
+  zassert_ok(wl_send_unreliable(&fixture->ctx, 0x72U, NULL, 0U));
+  zassert_ok(wl_send_unreliable(&fixture->ctx, 0x73U, NULL, 0U));
+  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+
+  zassert_ok(wl_poll(&fixture->ctx, 0U, &rx_event));
+  zassert_equal(rx_event.type, WL_EVT_UNRELIABLE_RX);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+
+  zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
+  zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
+  zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  wl_event_release(&fixture->ctx, &rx_event);
+}
+
 ZTEST(wirelink_poll_hint_unit, test_reliable_tx_completion_arms_deadline) {
   const wl_sink_result_t script[] = {WL_SINK_STARTED};
   struct fixture *fixture = fixture_init(WL_ENVELOPE_NATIVE_PACKET, 5U, 0U,

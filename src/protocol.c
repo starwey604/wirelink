@@ -14,6 +14,7 @@ static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len);
 static int wl_send_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_handle_ack(wl_ctx_t *ctx, const wl_frame_view_t *view);
 static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying);
+static int wl_complete_unreliable_tx(wl_ctx_t *ctx);
 static int wl_submit_control(wl_ctx_t *ctx);
 static void wl_process_rx_stream(wl_ctx_t *ctx);
 static void wl_process_rx_units(wl_ctx_t *ctx);
@@ -51,6 +52,27 @@ static int wl_push_event(wl_ctx_t *ctx, wl_event_type_t type, uint16_t message_i
   wl_ctx_impl(ctx)->event.lease = (is_rx != 0U) ? wl_ctx_impl(ctx)->rx_event_generation : 0U;
   wl_ctx_impl(ctx)->event.peer_session_id = 0U;
   wl_ctx_impl(ctx)->has_event = 1U;
+  return WL_OK;
+}
+
+static int wl_complete_unreliable_tx(wl_ctx_t *ctx) {
+  if (wl_ctx_impl(ctx)->tx_unreliable_completions == UINT32_MAX) {
+    return WL_ERR_QUEUE_FULL;
+  }
+
+  wl_ctx_impl(ctx)->tx_unreliable_completions++;
+  wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_SUCCESS;
+  wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
+  wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
+  wl_ctx_impl(ctx)->tx_retries_left = 0U;
+  wl_ctx_impl(ctx)->tx_current_reliable = 0U;
+  wl_ctx_impl(ctx)->tx_last_message_id = 0U;
+  wl_ctx_impl(ctx)->tx_last_flags = 0U;
+  memset(wl_ctx_impl(ctx)->storage.tx_payload, 0,
+         wl_ctx_impl(ctx)->storage.tx_payload_size);
+  wl_ctx_impl(ctx)->tx_payload.data = wl_ctx_impl(ctx)->storage.tx_payload;
+  wl_ctx_impl(ctx)->tx_payload.length = 0U;
+  wl_ctx_impl(ctx)->tx_payload_direct = 0U;
   return WL_OK;
 }
 
@@ -126,18 +148,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx, uint8_t retrying) {
       return WL_OK;
     }
 
-    wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_SUCCESS;
-    wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
-    wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
-    wl_ctx_impl(ctx)->tx_retries_left = 0U;
-    wl_ctx_impl(ctx)->tx_current_reliable = 0U;
-    wl_ctx_impl(ctx)->tx_last_message_id = 0U;
-    wl_ctx_impl(ctx)->tx_last_flags = 0U;
-    memset(wl_ctx_impl(ctx)->storage.tx_payload, 0, wl_ctx_impl(ctx)->storage.tx_payload_size);
-    wl_ctx_impl(ctx)->tx_payload.data = wl_ctx_impl(ctx)->storage.tx_payload;
-    wl_ctx_impl(ctx)->tx_payload.length = 0U;
-    wl_ctx_impl(ctx)->tx_payload_direct = 0U;
-    return wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, 0U);
+    return wl_complete_unreliable_tx(ctx);
   }
 
   if (sink_result == WL_SINK_FAILED) {
@@ -198,13 +209,10 @@ int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
       wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_ACK;
       wl_ctx_impl(ctx)->tx_start_ts = wl_ctx_impl(ctx)->now_ms;
     } else {
-      wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_SUCCESS;
-      wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
-      wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
-      (void)wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, 0U);
-      wl_ctx_impl(ctx)->tx_payload.data = wl_ctx_impl(ctx)->storage.tx_payload;
-      wl_ctx_impl(ctx)->tx_payload.length = 0U;
-      wl_ctx_impl(ctx)->tx_payload_direct = 0U;
+      int complete = wl_complete_unreliable_tx(ctx);
+      if (complete != WL_OK) {
+        return complete;
+      }
     }
     wl_ctx_impl(ctx)->tx_inflight = 0;
     wl_ctx_impl(ctx)->in_flight_reliable = 0U;
@@ -366,6 +374,10 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   if (wl_ctx_impl(ctx)->in_callback) {
     return WL_ERR_REENTRANT;
   }
+  if (reliable == 0U &&
+      wl_ctx_impl(ctx)->tx_unreliable_completions == UINT32_MAX) {
+    return WL_ERR_QUEUE_FULL;
+  }
 
   if (pkt->payload_len > wl_ctx_impl(ctx)->config.max_payload_len) {
     return WL_ERR_PAYLOAD_TOO_LONG;
@@ -500,6 +512,10 @@ int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
       wl_ctx_impl(ctx)->control_inflight != 0U ||
       wl_ctx_impl(ctx)->tx_queued != 0U) {
     return WL_ERR_BUSY;
+  }
+  if (delivery == WL_DELIVERY_UNRELIABLE &&
+      wl_ctx_impl(ctx)->tx_unreliable_completions == UINT32_MAX) {
+    return WL_ERR_QUEUE_FULL;
   }
 
   payload = wl_ctx_impl(ctx)->storage.tx_unit +
@@ -989,6 +1005,12 @@ int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
         }
       }
     }
+  }
+
+  if (wl_ctx_impl(ctx)->has_event == 0U &&
+      wl_ctx_impl(ctx)->tx_unreliable_completions != 0U &&
+      wl_push_event(ctx, WL_EVT_TX_SUCCESS, 0U, NULL, 0U, 0U) == WL_OK) {
+    wl_ctx_impl(ctx)->tx_unreliable_completions--;
   }
 
   if (wl_ctx_impl(ctx)->has_event == 0U && wl_ctx_impl(ctx)->rx_event_leased == 0U &&

@@ -105,6 +105,11 @@ Application bytes are copied before a send is accepted and are encoded into
 the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
 callback remains valid until its matching `wl_tx_complete()`. ACK/control
 units use their own buffer and are submitted before a queued application unit.
+Unreliable local completions are represented by a bounded counter rather than
+the single event slot. `wl_poll()` materializes one `WL_EVT_TX_SUCCESS` at a
+time, so synchronous sends, deferred completions, and BUSY retries cannot lose
+a completion while an RX event occupies that slot. A saturated counter rejects
+the next unreliable send before serialization or sink invocation.
 
 For `NATIVE_PACKET`, `wl_tx_payload_claim()` exposes the payload region inside
 the final TX unit. After the caller fills it, `wl_tx_payload_commit()` writes

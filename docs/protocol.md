@@ -587,6 +587,10 @@ state.
 - Unit feed is atomic: it accepts the complete unit or returns an error.
 - An unreliable send may return would-block/queue-full; success does not imply
   peer receipt.
+- Local completion of every accepted unreliable send is retained until a
+  corresponding `WL_EVT_TX_SUCCESS` is polled. Completion-capacity exhaustion
+  is detected before the sink is invoked, so a queue-full return never means
+  that the unit was transmitted as a side effect.
 - A reliable start fails if no transaction/retransmission slot is available.
 - A reliable receive is not ACKed until event storage is secured.
 - Oversize stream frames are discarded through the next delimiter.

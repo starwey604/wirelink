@@ -44,7 +44,7 @@ typedef struct {
 
   wl_tx_state_t tx_state;
   wl_tx_handle_t tx_handle;
-  wl_tx_handle_t tx_next_handle;
+  uint32_t tx_unreliable_completions;
   wl_io_token_t tx_token;
   wl_time_ms_t tx_start_ts;
   uint16_t tx_retries_left;

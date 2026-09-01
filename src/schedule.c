@@ -42,7 +42,8 @@ int wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
     return WL_ERR_NOT_INITIALIZED;
   }
 
-  if (impl->has_event != 0U || wl_rx_work_pending(ctx, impl) != 0) {
+  if (impl->has_event != 0U || impl->tx_unreliable_completions != 0U ||
+      wl_rx_work_pending(ctx, impl) != 0) {
     out_hint->work_pending = 1U;
   }
 

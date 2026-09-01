@@ -96,7 +96,7 @@ int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
   wl_ctx_impl(ctx)->session_id = config->session_id;
   wl_ctx_impl(ctx)->tx_handle = 0U;
   wl_ctx_impl(ctx)->tx_token = 1U;
-  wl_ctx_impl(ctx)->tx_next_handle = 1U;
+  wl_ctx_impl(ctx)->tx_unreliable_completions = 0U;
   wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_IDLE;
   wl_ctx_impl(ctx)->tx_last_message_id = 0U;
   wl_ctx_impl(ctx)->tx_last_flags = 0U;
