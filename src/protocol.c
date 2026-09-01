@@ -357,7 +357,8 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
   if (wl_ctx_impl(ctx)->tx_wait_state == WL_TX_WAIT_ACK || wl_ctx_impl(ctx)->tx_handle != 0U ||
-      wl_ctx_impl(ctx)->tx_inflight != 0U ||
+      wl_ctx_impl(ctx)->tx_inflight != 0U || wl_ctx_impl(ctx)->control_pending != 0U ||
+      wl_ctx_impl(ctx)->control_inflight != 0U ||
       wl_ctx_impl(ctx)->tx_queued != 0U) {
     return WL_ERR_BUSY;
   }
@@ -494,6 +495,8 @@ int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
       wl_ctx_impl(ctx)->tx_wait_state == WL_TX_WAIT_ACK ||
       wl_ctx_impl(ctx)->tx_handle != 0U ||
       wl_ctx_impl(ctx)->tx_inflight != 0U ||
+      wl_ctx_impl(ctx)->control_pending != 0U ||
+      wl_ctx_impl(ctx)->control_inflight != 0U ||
       wl_ctx_impl(ctx)->tx_queued != 0U) {
     return WL_ERR_BUSY;
   }

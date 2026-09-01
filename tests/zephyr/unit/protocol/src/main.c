@@ -297,6 +297,72 @@ ZTEST(wirelink_protocol_unit, test_reliable_send_started_and_complete)
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
 }
 
+ZTEST(wirelink_protocol_unit, test_data_send_waits_for_async_ack_completion)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[256];
+  uint8_t tx_mem[256];
+  uint8_t wire[WL_FRAME_MAX_RAW_LEN];
+  struct test_sink_capture cap = {0};
+  wl_event_t event = {0};
+  wl_tx_payload_claim_t claim = {0};
+  size_t wire_len = 0U;
+  wl_io_token_t ack_token;
+  const uint8_t request_payload[] = {0x11U};
+  const uint8_t response_payload[] = {0x22U};
+  wl_config_t cfg = {
+    .max_payload_len = 128U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = UINT64_C(0x1020304050607080),
+    .max_retries = 0U,
+    .ack_timeout_ms = 20U,
+  };
+  wl_wire_packet_t request = {
+    .type = WL_PACKET_DATA,
+    .flags = WL_PACKET_FLAG_RELIABLE,
+    .message_id = 7U,
+    .session_id = cfg.session_id,
+    .sequence = 9U,
+    .payload = request_payload,
+    .payload_len = sizeof(request_payload),
+    .integrity = WL_INTEGRITY_NONE,
+  };
+  wl_sink_result_t script[] = {WL_SINK_STARTED, WL_SINK_STARTED};
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_frame_encode(&request, WL_ENVELOPE_NATIVE_PACKET, wire,
+                             sizeof(wire), &wire_len));
+  zassert_ok(wl_feed_unit(&ctx, wire, wire_len));
+  zassert_equal(cap.call_count, 1U);
+  zassert_equal(wl_ctx_impl(&ctx)->control_inflight, 1U);
+  ack_token = cap.last_token;
+
+  zassert_equal(wl_tx_payload_claim(&ctx, 8U, WL_DELIVERY_UNRELIABLE,
+                                    &claim),
+                WL_ERR_BUSY);
+  zassert_equal(wl_send_unreliable(&ctx, 8U, response_payload,
+                                   sizeof(response_payload)),
+                WL_ERR_BUSY);
+  zassert_equal(cap.call_count, 1U,
+                "data must not overwrite the asynchronous ACK token");
+  zassert_equal(cap.last_token, ack_token);
+  zassert_ok(wl_tx_complete(&ctx, ack_token, WL_OK));
+  zassert_equal(wl_ctx_impl(&ctx)->control_inflight, 0U);
+
+  zassert_ok(wl_send_unreliable(&ctx, 8U, response_payload,
+                                sizeof(response_payload)));
+  zassert_equal(cap.call_count, 2U);
+  zassert_not_equal(cap.last_token, ack_token);
+  zassert_ok(wl_tx_complete(&ctx, cap.last_token, WL_OK));
+
+  zassert_ok(wl_poll(&ctx, 0U, &event));
+  zassert_equal(event.type, WL_EVT_RELIABLE_RX);
+  zassert_mem_equal(event.payload, request_payload, sizeof(request_payload));
+  wl_event_release(&ctx, &event);
+}
+
 ZTEST(wirelink_protocol_unit, test_ack_match_drives_tx_success)
 {
   wl_ctx_t ctx = {0};
