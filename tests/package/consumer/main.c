@@ -163,15 +163,24 @@ _Static_assert(sizeof(wl_storage_requirements_t) == 40U &&
                    offsetof(wl_storage_requirements_t, rx_fifo_size) == 24U &&
                    offsetof(wl_storage_requirements_t, rx_fallback_size) == 32U,
                "v1 storage requirements ABI changed");
-_Static_assert(sizeof(wl_event_t) == 40U && _Alignof(wl_event_t) == 8U &&
+_Static_assert(sizeof(wl_event_t) == 48U && _Alignof(wl_event_t) == 8U &&
                    offsetof(wl_event_t, type) == 0U &&
                    offsetof(wl_event_t, message_id) == 4U &&
                    offsetof(wl_event_t, payload) == 8U &&
                    offsetof(wl_event_t, payload_len) == 16U &&
                    offsetof(wl_event_t, handle) == 24U &&
                    offsetof(wl_event_t, io_result) == 28U &&
-                   offsetof(wl_event_t, lease) == 32U,
+                   offsetof(wl_event_t, lease) == 32U &&
+                   offsetof(wl_event_t, peer_session_id) == 40U,
                "v1 event ABI changed");
+_Static_assert(sizeof(wl_rpc_request_identity_t) == 24U &&
+                   _Alignof(wl_rpc_request_identity_t) == 8U &&
+                   offsetof(wl_rpc_request_identity_t, operation_id) == 0U &&
+                   offsetof(wl_rpc_request_identity_t, request_message_id) == 4U &&
+                   offsetof(wl_rpc_request_identity_t, response_message_id) == 6U &&
+                   offsetof(wl_rpc_request_identity_t, request_fingerprint) == 8U &&
+                   offsetof(wl_rpc_request_identity_t, peer_session_id) == 16U,
+               "v1 RPC request identity ABI changed");
 _Static_assert(sizeof(wl_tx_result_t) == 12U &&
                    _Alignof(wl_tx_result_t) == 4U &&
                    offsetof(wl_tx_result_t, state) == 0U &&

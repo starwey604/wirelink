@@ -431,6 +431,10 @@ event storage before considering it accepted. Once accepted it:
 2. queues a corresponding ACK with control-traffic priority; and
 3. exposes the application event exactly once.
 
+The reliable RX event copies the sender's `session_id` into
+`wl_event_t.peer_session_id`, allowing application runtimes to scope replay
+state to the peer epoch. Unreliable RX and every TX event expose zero there.
+
 If no event storage is available, the receiver MUST NOT ACK the packet. The
 sender can retry later. A future NACK/BUSY control packet may optimize this
 case, but it is not required by v1.

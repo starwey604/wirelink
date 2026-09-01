@@ -66,17 +66,24 @@ still hold a response-cache entry.
 
 ## Server duplicate and replay policy
 
-`wl_rpc_server_begin()` compares all identity fields: operation ID, request and
-response message IDs, and the caller-produced canonical-request fingerprint.
-The fingerprint's collision quality is a product/schema responsibility.
+`wl_rpc_server_begin()` scopes operation IDs by the reliable sender's Wirelink
+session. It compares all identity fields: peer session ID, operation ID,
+request and response message IDs, and the caller-produced canonical-request
+fingerprint. The fingerprint's collision quality is a product/schema
+responsibility. A zero peer session denotes an unscoped request, as required
+for transports or delivery modes that do not expose a reliable session.
 
 - `NEW` reserves pending metadata and permits handler execution.
 - `PENDING_DUPLICATE` suppresses re-execution of an identical active request.
 - `REPLAY` returns bounded cached response bytes for immediate re-encoding.
-- `CONFLICT` reports reuse of the operation ID with any different identity.
+- `CONFLICT` reports reuse of the operation ID with any different identity in
+  the same peer session. The same ID in a new peer session is `NEW`.
 
-`complete()` and `reject()` finish an asynchronous operation and cache the
-result. With `WL_RPC_CACHE_REJECT_NEW`, a full cache leaves the operation
+`complete()`, `reject()`, and `abandon()` take the exact identity returned for
+the request, rather than an operation ID alone. This permits simultaneous
+pending operations with the same numeric ID from different peer sessions and
+prevents an old completion from targeting the new request. With
+`WL_RPC_CACHE_REJECT_NEW`, a full cache leaves the operation
 pending so the caller can retry completion after expiry or abandon it. With
 `WL_RPC_CACHE_EVICT_OLDEST`, completion replaces the oldest generation; age
 comparison remains valid across the generation counter wrap. A replay pointer

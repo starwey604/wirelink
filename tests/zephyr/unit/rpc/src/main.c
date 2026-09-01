@@ -347,7 +347,7 @@ ZTEST(wirelink_rpc, test_server_pending_duplicate_replay_and_conflict) {
                                     &disposition, &response),
                 WL_RPC_OK);
   zassert_equal(disposition, WL_RPC_SERVER_CONFLICT);
-  zassert_equal(wl_rpc_server_complete(&servers.server, 1U, 0, payload,
+  zassert_equal(wl_rpc_server_complete(&servers.server, &request, 0, payload,
                                        sizeof(payload), 2U, &response),
                 WL_RPC_OK);
   zassert_mem_equal(response.response_data, payload, sizeof(payload));
@@ -363,6 +363,60 @@ ZTEST(wirelink_rpc, test_server_pending_duplicate_replay_and_conflict) {
   zassert_equal(disposition, WL_RPC_SERVER_CONFLICT);
 }
 
+ZTEST(wirelink_rpc, test_server_isolates_same_operation_across_peer_sessions) {
+  wl_rpc_request_identity_t session_a = identity(1U, UINT64_C(0x1234));
+  wl_rpc_request_identity_t session_b = session_a;
+  wl_rpc_request_identity_t conflict = session_a;
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_response_t response;
+
+  session_a.peer_session_id = UINT64_C(0xAAA0000000000001);
+  session_b.peer_session_id = UINT64_C(0xBBB0000000000002);
+  conflict.peer_session_id = session_a.peer_session_id;
+  conflict.request_fingerprint = UINT64_C(0x5678);
+
+  server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 0U, 2U, 2U);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &session_a, 0U,
+                                    &disposition, &response),
+                WL_RPC_OK);
+  zassert_equal(disposition, WL_RPC_SERVER_NEW);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &session_b, 1U,
+                                    &disposition, &response),
+                WL_RPC_OK);
+  zassert_equal(disposition, WL_RPC_SERVER_NEW);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &conflict, 2U,
+                                    &disposition, &response),
+                WL_RPC_OK);
+  zassert_equal(disposition, WL_RPC_SERVER_CONFLICT);
+  zassert_equal(wl_rpc_server_complete(&servers.server, &conflict, 0, NULL,
+                                       0U, 2U, &response),
+                WL_RPC_ERR_OPERATION_CONFLICT);
+
+  zassert_equal(wl_rpc_server_complete(&servers.server, &session_a, 0, NULL,
+                                       0U, 3U, &response),
+                WL_RPC_OK);
+  zassert_equal(response.identity.peer_session_id,
+                session_a.peer_session_id);
+  zassert_equal(wl_rpc_server_complete(&servers.server, &session_b, 0, NULL,
+                                       0U, 4U, &response),
+                WL_RPC_OK);
+  zassert_equal(response.identity.peer_session_id,
+                session_b.peer_session_id);
+
+  zassert_equal(wl_rpc_server_begin(&servers.server, &session_a, 5U,
+                                    &disposition, &response),
+                WL_RPC_OK);
+  zassert_equal(disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(response.identity.peer_session_id,
+                session_a.peer_session_id);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &session_b, 6U,
+                                    &disposition, &response),
+                WL_RPC_OK);
+  zassert_equal(disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(response.identity.peer_session_id,
+                session_b.peer_session_id);
+}
+
 ZTEST(wirelink_rpc, test_server_capacity_reject_preserves_pending) {
   wl_rpc_request_identity_t first = identity(1U, 1U);
   wl_rpc_request_identity_t second = identity(2U, 2U);
@@ -375,22 +429,24 @@ ZTEST(wirelink_rpc, test_server_capacity_reject_preserves_pending) {
       wl_rpc_server_begin(&servers.server, &first, 0U, &disposition, &response),
       WL_RPC_OK);
   zassert_equal(
-      wl_rpc_server_complete(&servers.server, 1U, 0, NULL, 0U, 0U, &response),
+      wl_rpc_server_complete(&servers.server, &first, 0, NULL, 0U, 0U,
+                             &response),
       WL_RPC_OK);
   zassert_equal(wl_rpc_server_begin(&servers.server, &second, 1U, &disposition,
                                     &response),
                 WL_RPC_OK);
-  zassert_equal(wl_rpc_server_complete(&servers.server, 2U, 0, oversized,
+  zassert_equal(wl_rpc_server_complete(&servers.server, &second, 0, oversized,
                                        sizeof(oversized), 1U, &response),
                 WL_RPC_ERR_RESPONSE_TOO_LARGE);
   zassert_equal(
-      wl_rpc_server_complete(&servers.server, 2U, 0, NULL, 0U, 1U, &response),
+      wl_rpc_server_complete(&servers.server, &second, 0, NULL, 0U, 1U,
+                             &response),
       WL_RPC_ERR_CACHE_FULL);
   zassert_equal(wl_rpc_server_begin(&servers.server, &second, 2U, &disposition,
                                     &response),
                 WL_RPC_OK);
   zassert_equal(disposition, WL_RPC_SERVER_PENDING_DUPLICATE);
-  zassert_equal(wl_rpc_server_abandon(&servers.server, 2U), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_abandon(&servers.server, &second), WL_RPC_OK);
 }
 
 ZTEST(wirelink_rpc, test_server_evict_oldest_and_reject_status) {
@@ -405,12 +461,13 @@ ZTEST(wirelink_rpc, test_server_evict_oldest_and_reject_status) {
       wl_rpc_server_begin(&servers.server, &first, 0U, &disposition, &response),
       WL_RPC_OK);
   zassert_equal(
-      wl_rpc_server_complete(&servers.server, 1U, 0, NULL, 0U, 1U, &response),
+      wl_rpc_server_complete(&servers.server, &first, 0, NULL, 0U, 1U,
+                             &response),
       WL_RPC_OK);
   zassert_equal(wl_rpc_server_begin(&servers.server, &second, 2U, &disposition,
                                     &response),
                 WL_RPC_OK);
-  zassert_equal(wl_rpc_server_reject(&servers.server, 2U, -4, error_detail,
+  zassert_equal(wl_rpc_server_reject(&servers.server, &second, -4, error_detail,
                                      sizeof(error_detail), 3U, &response),
                 WL_RPC_OK);
   zassert_equal(response.application_status, -4);
@@ -442,8 +499,8 @@ ZTEST(wirelink_rpc, test_server_generation_wrap_evicts_true_oldest) {
                                       &disposition, &response),
                   WL_RPC_OK);
     zassert_equal(disposition, WL_RPC_SERVER_NEW);
-    zassert_equal(wl_rpc_server_complete(&servers.server, i + 1U, 0, NULL, 0U,
-                                         i, &response),
+    zassert_equal(wl_rpc_server_complete(&servers.server, &requests[i], 0,
+                                         NULL, 0U, i, &response),
                   WL_RPC_OK);
   }
 
@@ -456,14 +513,16 @@ ZTEST(wirelink_rpc, test_server_generation_wrap_evicts_true_oldest) {
                                     &disposition, &response),
                 WL_RPC_OK);
   zassert_equal(disposition, WL_RPC_SERVER_NEW);
-  zassert_equal(wl_rpc_server_abandon(&servers.server, 1U), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_abandon(&servers.server, &requests[0]),
+                WL_RPC_OK);
   zassert_equal(wl_rpc_server_begin(&servers.server, &requests[1], 3U,
                                     &disposition, &response),
                 WL_RPC_OK);
   zassert_equal(disposition, WL_RPC_SERVER_REPLAY);
 
   zassert_equal(
-      wl_rpc_server_complete(&servers.server, 4U, 0, NULL, 0U, 3U, &response),
+      wl_rpc_server_complete(&servers.server, &requests[3], 0, NULL, 0U, 3U,
+                             &response),
       WL_RPC_OK);
   /* With active generations MAX and 0, MAX is older and must go next. */
   zassert_equal(wl_rpc_server_begin(&servers.server, &requests[1], 4U,
@@ -495,7 +554,7 @@ ZTEST(wirelink_rpc, test_server_pending_and_cache_expiry_wrap) {
   zassert_equal(wl_rpc_server_begin(&servers.server, &second, UINT32_MAX - 15U,
                                     &disposition, &response),
                 WL_RPC_OK);
-  zassert_equal(wl_rpc_server_complete(&servers.server, 2U, 0, NULL, 0U,
+  zassert_equal(wl_rpc_server_complete(&servers.server, &second, 0, NULL, 0U,
                                        UINT32_MAX - 15U, &response),
                 WL_RPC_OK);
   zassert_equal(wl_rpc_server_get_deadline_hint(&servers.server, 3U, &hint),

@@ -49,6 +49,7 @@ static int wl_push_event(wl_ctx_t *ctx, wl_event_type_t type, uint16_t message_i
   wl_ctx_impl(ctx)->event.handle = handle;
   wl_ctx_impl(ctx)->event.io_result = 0;
   wl_ctx_impl(ctx)->event.lease = (is_rx != 0U) ? wl_ctx_impl(ctx)->rx_event_generation : 0U;
+  wl_ctx_impl(ctx)->event.peer_session_id = 0U;
   wl_ctx_impl(ctx)->has_event = 1U;
   return WL_OK;
 }
@@ -622,11 +623,12 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
         wl_ctx_impl(ctx)->rx_counters.duplicate++;
         return wl_send_ack(ctx, &view);
       }
-      ret = wl_push_event(ctx, WL_EVT_RELIABLE_RX, view.message_id, view.payload.data,
-                          view.payload.length, 0U);
+      ret = wl_push_event(ctx, WL_EVT_RELIABLE_RX, view.message_id,
+                          view.payload.data, view.payload.length, 0U);
       if (ret != WL_OK) {
         return ret;
       }
+      wl_ctx_impl(ctx)->event.peer_session_id = view.session_id;
       wl_ctx_impl(ctx)->rx_session_id = view.session_id;
       wl_ctx_impl(ctx)->rx_sequence = view.sequence;
       wl_ctx_impl(ctx)->rx_have_reliable = 1U;

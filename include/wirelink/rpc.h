@@ -214,6 +214,8 @@ typedef struct wl_rpc_request_identity {
    * server treats identity fields as exact; the caller owns collision quality.
    */
   uint64_t request_fingerprint;
+  /* Wirelink sender session. Zero denotes an unscoped/unreliable request. */
+  uint64_t peer_session_id;
 } wl_rpc_request_identity_t;
 
 typedef struct wl_rpc_server_config {
@@ -248,7 +250,9 @@ wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
 /*
  * NEW reserves a pending slot. PENDING_DUPLICATE suppresses re-execution.
  * REPLAY returns cached response bytes. CONFLICT means the operation ID is in
- * use by a different exact identity. All four are successful classifications.
+ * use by a different exact identity within the same peer session. The same
+ * operation ID from another peer session is independent. All four are
+ * successful classifications.
  */
 wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  const wl_rpc_request_identity_t *identity,
@@ -257,9 +261,9 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  wl_rpc_server_response_t *out_replay);
 
 /* Complete an asynchronous or synchronous operation and cache/move its
- * response. */
+ * response. identity must exactly match the token accepted by begin(). */
 wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
-                                    uint32_t operation_id,
+                                    const wl_rpc_request_identity_t *identity,
                                     int32_t application_status,
                                     const uint8_t *response_payload,
                                     size_t response_length, wl_time_ms_t now_ms,
@@ -267,15 +271,15 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
 
 /* Application rejection is a completed, replayable nonzero status. */
 wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
-                                  uint32_t operation_id,
+                                  const wl_rpc_request_identity_t *identity,
                                   int32_t application_status,
                                   const uint8_t *response_payload,
                                   size_t response_length, wl_time_ms_t now_ms,
                                   wl_rpc_server_response_t *out_response);
 
-/* Drop pending metadata without manufacturing or caching a response. */
+/* Drop exact pending metadata without manufacturing or caching a response. */
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
-                                   uint32_t operation_id);
+                                   const wl_rpc_request_identity_t *identity);
 
 /* Expire pending operations and cached replay entries with wrap-safe time. */
 wl_rpc_err_t wl_rpc_server_poll(wl_rpc_server_t *server, wl_time_ms_t now_ms,

@@ -674,7 +674,14 @@ static bool identity_equal(const wl_rpc_request_identity_t *left,
   return left->operation_id == right->operation_id &&
          left->request_message_id == right->request_message_id &&
          left->response_message_id == right->response_message_id &&
-         left->request_fingerprint == right->request_fingerprint;
+         left->request_fingerprint == right->request_fingerprint &&
+         left->peer_session_id == right->peer_session_id;
+}
+
+static bool identity_key_equal(const wl_rpc_request_identity_t *left,
+                               const wl_rpc_request_identity_t *right) {
+  return left->operation_id == right->operation_id &&
+         left->peer_session_id == right->peer_session_id;
 }
 
 static bool generation_older(uint64_t left, uint64_t right) {
@@ -791,7 +798,7 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
       }
       continue;
     }
-    if (pending->identity.operation_id == identity->operation_id) {
+    if (identity_key_equal(&pending->identity, identity)) {
       *out_disposition = identity_equal(&pending->identity, identity)
                              ? WL_RPC_SERVER_PENDING_DUPLICATE
                              : WL_RPC_SERVER_CONFLICT;
@@ -800,8 +807,7 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
   }
   for (i = 0U; i < impl->cache_slot_count; ++i) {
     wl_rpc_server_cache_impl_t *cache = server_cache(impl, i);
-    if (cache->active != 0U &&
-        cache->identity.operation_id == identity->operation_id) {
+    if (cache->active != 0U && identity_key_equal(&cache->identity, identity)) {
       if (identity_equal(&cache->identity, identity)) {
         *out_disposition = WL_RPC_SERVER_REPLAY;
         response_from_cache(impl, i, out_replay);
@@ -823,7 +829,7 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
 }
 
 wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
-                                    uint32_t operation_id,
+                                    const wl_rpc_request_identity_t *identity,
                                     int32_t application_status,
                                     const uint8_t *response_payload,
                                     size_t response_length, wl_time_ms_t now_ms,
@@ -838,7 +844,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
   }
-  if (operation_id == 0U || out_response == NULL ||
+  if (!identity_valid(identity) || out_response == NULL ||
       (response_length != 0U && response_payload == NULL)) {
     return WL_RPC_ERR_INVALID_ARG;
   }
@@ -850,7 +856,10 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
   for (i = 0U; i < impl->pending_slot_count; ++i) {
     wl_rpc_server_pending_impl_t *candidate = server_pending(impl, i);
     if (candidate->active != 0U &&
-        candidate->identity.operation_id == operation_id) {
+        identity_key_equal(&candidate->identity, identity)) {
+      if (!identity_equal(&candidate->identity, identity)) {
+        return WL_RPC_ERR_OPERATION_CONFLICT;
+      }
       pending = candidate;
       break;
     }
@@ -899,7 +908,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
 }
 
 wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
-                                  uint32_t operation_id,
+                                  const wl_rpc_request_identity_t *identity,
                                   int32_t application_status,
                                   const uint8_t *response_payload,
                                   size_t response_length, wl_time_ms_t now_ms,
@@ -907,27 +916,29 @@ wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
   if (application_status == 0) {
     return WL_RPC_ERR_INVALID_ARG;
   }
-  return wl_rpc_server_complete(server, operation_id, application_status,
+  return wl_rpc_server_complete(server, identity, application_status,
                                 response_payload, response_length, now_ms,
                                 out_response);
 }
 
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
-                                   uint32_t operation_id) {
+                                   const wl_rpc_request_identity_t *identity) {
   wl_rpc_server_impl_t *impl;
   uint16_t i;
 
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
   }
-  if (operation_id == 0U) {
+  if (!identity_valid(identity)) {
     return WL_RPC_ERR_INVALID_ARG;
   }
   impl = server_impl(server);
   for (i = 0U; i < impl->pending_slot_count; ++i) {
     wl_rpc_server_pending_impl_t *pending = server_pending(impl, i);
-    if (pending->active != 0U &&
-        pending->identity.operation_id == operation_id) {
+    if (pending->active != 0U && identity_key_equal(&pending->identity, identity)) {
+      if (!identity_equal(&pending->identity, identity)) {
+        return WL_RPC_ERR_OPERATION_CONFLICT;
+      }
       memset(pending, 0, sizeof(*pending));
       return WL_RPC_OK;
     }

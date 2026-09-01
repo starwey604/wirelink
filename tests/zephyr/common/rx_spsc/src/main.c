@@ -162,6 +162,7 @@ ZTEST(wirelink_rx_spsc, test_contiguous_payload_is_borrowed_from_ring) {
 
   zassert_ok(wl_poll(&fixture.ctx, 2U, &event));
   zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
+  zassert_equal(event.peer_session_id, 0U);
   zassert_true(points_into(event.payload, fixture.rx_fifo,
                            fixture.storage.rx_fifo_size));
   zassert_mem_equal(event.payload, payload, sizeof(payload));

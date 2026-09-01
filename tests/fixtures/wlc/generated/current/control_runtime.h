@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 7U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 8U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -91,15 +91,15 @@ typedef struct {
   wl_latest_view_t lease;
 } control_arm_mit_command_latest_view_t;
 
-/* The decoded request and borrowed fields are valid only for the callback.
- * Return zero after copying anything needed asynchronously. A nonzero return
- * abandons the pending operation without manufacturing a response. */
-typedef int32_t (*control_home_request_handler_fn)(void *user_data, const home_request_t *request, wl_delivery_t delivery);
+/* The decoded request, its borrowed fields, and completion_identity are
+ * valid only for the callback. Copy the identity and anything needed for an
+ * asynchronous completion. A nonzero return abandons the pending operation. */
+typedef int32_t (*control_home_rpc_request_handler_fn)(void *user_data, const home_request_t *request, const wl_rpc_request_identity_t *completion_identity, wl_delivery_t delivery);
 typedef struct {
   home_request_t *request_scratch;
   home_response_t *response_scratch;
   control_encode_scratch_t canonical_request_scratch;
-  control_home_request_handler_fn request_handler;
+  control_home_rpc_request_handler_fn request_handler;
   void *user_data;
 } control_home_rpc_t;
 
@@ -138,7 +138,7 @@ typedef struct {
   uint32_t rpc_server_cache_ttl_ms;
   wl_rpc_cache_policy_t rpc_server_cache_policy;
   size_t home_canonical_request_capacity;
-  control_home_request_handler_fn home_request_handler;
+  control_home_rpc_request_handler_fn home_request_handler;
   void *home_user_data;
 } control_runtime_config_t;
 
@@ -193,10 +193,11 @@ wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint3
 control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t *client, home_response_t *response);
 wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id);
 
-/* Completion writes operation ID and status into response in place, encodes
- * once, caches those bytes, and sends the exact cached byte sequence. */
-control_runtime_result_t control_home_server_complete(wl_ctx_t *ctx, control_runtime_t *runtime, uint32_t operation_id, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
-control_runtime_result_t control_home_server_reject(wl_ctx_t *ctx, control_runtime_t *runtime, uint32_t operation_id, int32_t application_status, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
+/* completion_identity is copied from the request callback and uniquely scopes
+ * completion to its Wirelink peer session. Completion writes operation ID and
+ * status into response, caches once, and sends the cached bytes. */
+control_runtime_result_t control_home_server_complete(wl_ctx_t *ctx, control_runtime_t *runtime, const wl_rpc_request_identity_t *completion_identity, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
+control_runtime_result_t control_home_server_reject(wl_ctx_t *ctx, control_runtime_t *runtime, const wl_rpc_request_identity_t *completion_identity, int32_t application_status, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
 /* cached.response_data remains owned by wl_rpc_server_t; send or copy it before
  * the next server mutation, poll, or expiry. */
 control_runtime_result_t control_home_server_retry_cached(wl_ctx_t *ctx, const wl_rpc_server_response_t *cached);

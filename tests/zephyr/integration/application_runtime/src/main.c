@@ -56,6 +56,7 @@ struct rpc_server_fixture {
   uint32_t handler_calls;
   uint32_t last_operation_id;
   uint32_t last_joint_mask;
+  wl_rpc_request_identity_t last_identity;
   wl_delivery_t last_delivery;
   int32_t handler_result;
 };
@@ -432,16 +433,20 @@ ZTEST(wirelink_application_runtime,
 
 static int32_t handle_home_request(void *user_data,
                                    const home_request_t *message,
+                                   const wl_rpc_request_identity_t *identity,
                                    wl_delivery_t delivery) {
   struct rpc_server_fixture *fixture = user_data;
 
-  if (!message->has_operation_id || message->operation_id == 0U ||
+  if (identity == NULL || identity->operation_id != message->operation_id ||
+      identity->peer_session_id == 0U || !message->has_operation_id ||
+      message->operation_id == 0U ||
       !message->has_joint_mask || delivery != WL_DELIVERY_RELIABLE) {
     return -1;
   }
   ++fixture->handler_calls;
   fixture->last_operation_id = message->operation_id;
   fixture->last_joint_mask = message->joint_mask;
+  fixture->last_identity = *identity;
   fixture->last_delivery = delivery;
   return fixture->handler_result;
 }
@@ -652,7 +657,8 @@ ZTEST(wirelink_application_runtime,
 
   home_response_clear(&response);
   result = control_home_server_complete(
-      &server->ctx, &rpc_server.instance.runtime, operation_id, &response,
+      &server->ctx, &rpc_server.instance.runtime, &rpc_server.last_identity,
+      &response,
       (control_encode_scratch_t){
           .data = encode_scratch,
           .capacity = sizeof(encode_scratch),
@@ -759,7 +765,8 @@ ZTEST(wirelink_application_runtime,
   home_response_clear(&response);
   result =
       control_home_server_reject(&server->ctx, &rpc_server.instance.runtime,
-                                 operation_id, OPERATION_REJECTED, &response,
+                                 &rpc_server.last_identity, OPERATION_REJECTED,
+                                 &response,
                                  (control_encode_scratch_t){
                                      .data = encode_scratch,
                                      .capacity = sizeof(encode_scratch),

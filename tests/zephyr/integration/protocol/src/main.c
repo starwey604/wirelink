@@ -126,12 +126,14 @@ static void feed_reliable_data(struct endpoint *endpoint, uint64_t session_id,
 
 static void expect_reliable_rx(struct endpoint *endpoint, uint16_t message_id,
                                const uint8_t *payload, size_t payload_len,
+                               uint64_t peer_session_id,
                                wl_time_ms_t now_ms) {
   wl_event_t event = {0};
 
   zassert_ok(wl_poll(&endpoint->ctx, now_ms, &event));
   zassert_equal(event.type, WL_EVT_RELIABLE_RX);
   zassert_equal(event.message_id, message_id);
+  zassert_equal(event.peer_session_id, peer_session_id);
   zassert_equal(event.payload_len, payload_len);
   if (payload_len != 0U) {
     zassert_mem_equal(event.payload, payload, payload_len);
@@ -155,10 +157,12 @@ ZTEST(wirelink_protocol_integration, test_reliable_round_trip)
   deliver(right, left);
   zassert_ok(wl_poll(&right->ctx, 0U, &event));
   zassert_equal(event.type, WL_EVT_RELIABLE_RX);
+  zassert_equal(event.peer_session_id, left->config.session_id);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&right->ctx, &event);
   zassert_ok(wl_poll(&left->ctx, 0U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+  zassert_equal(event.peer_session_id, 0U);
   zassert_ok(wl_tx_take(&left->ctx, handle, &result));
   zassert_equal(result.state, WL_TX_STATE_SUCCESS);
 }
@@ -209,7 +213,8 @@ ZTEST(wirelink_protocol_integration,
   memcpy(initial_data, left->outbound, initial_data_len);
 
   deliver(left, right);
-  expect_reliable_rx(right, 0x31U, payload, sizeof(payload), 0U);
+  expect_reliable_rx(right, 0x31U, payload, sizeof(payload),
+                     left->config.session_id, 0U);
   drop_outbound(right); /* Lose the first ACK after accepting the DATA. */
 
   zassert_equal(wl_poll(&left->ctx, left->config.ack_timeout_ms, &event),
@@ -263,7 +268,7 @@ ZTEST(wirelink_protocol_integration,
   zassert_equal(state, WL_TX_STATE_WAITING_ACK);
 
   deliver(left, right);
-  expect_reliable_rx(right, 0x41U, NULL, 0U, 1U);
+  expect_reliable_rx(right, 0x41U, NULL, 0U, left->config.session_id, 1U);
   deliver(right, left);
   zassert_ok(wl_poll(&left->ctx, 1U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
@@ -279,7 +284,7 @@ ZTEST(wirelink_protocol_integration,
   zassert_equal(state, WL_TX_STATE_WAITING_ACK);
 
   deliver(left, right);
-  expect_reliable_rx(right, 0x42U, NULL, 0U, 2U);
+  expect_reliable_rx(right, 0x42U, NULL, 0U, left->config.session_id, 2U);
   deliver(right, left);
   zassert_ok(wl_poll(&left->ctx, 2U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
@@ -303,7 +308,8 @@ ZTEST(wirelink_protocol_integration,
 
   feed_reliable_data(receiver, session_a, 7U, 0x51U, payload_a,
                      sizeof(payload_a));
-  expect_reliable_rx(receiver, 0x51U, payload_a, sizeof(payload_a), 0U);
+  expect_reliable_rx(receiver, 0x51U, payload_a, sizeof(payload_a), session_a,
+                     0U);
   drop_outbound(receiver);
 
   feed_reliable_data(receiver, session_a, 7U, 0x51U, payload_a,
@@ -313,18 +319,21 @@ ZTEST(wirelink_protocol_integration,
 
   feed_reliable_data(receiver, session_b, 7U, 0x52U, payload_b,
                      sizeof(payload_b));
-  expect_reliable_rx(receiver, 0x52U, payload_b, sizeof(payload_b), 2U);
+  expect_reliable_rx(receiver, 0x52U, payload_b, sizeof(payload_b), session_b,
+                     2U);
   drop_outbound(receiver);
 
   feed_reliable_data(receiver, session_b, 8U, 0x53U, payload_a,
                      sizeof(payload_a));
-  expect_reliable_rx(receiver, 0x53U, payload_a, sizeof(payload_a), 3U);
+  expect_reliable_rx(receiver, 0x53U, payload_a, sizeof(payload_a), session_b,
+                     3U);
   drop_outbound(receiver);
 
   /* V1 intentionally remembers only the most recent (session, sequence). */
   feed_reliable_data(receiver, session_a, 7U, 0x54U, payload_b,
                      sizeof(payload_b));
-  expect_reliable_rx(receiver, 0x54U, payload_b, sizeof(payload_b), 4U);
+  expect_reliable_rx(receiver, 0x54U, payload_b, sizeof(payload_b), session_a,
+                     4U);
   drop_outbound(receiver);
 
   zassert_ok(wl_rx_get_counters(&receiver->ctx, &counters));
@@ -391,7 +400,7 @@ ZTEST(wirelink_protocol_integration, test_seeded_reliable_fault_model)
 
     deliver(left, right);
     expect_reliable_rx(right, (uint16_t)(0x600U + round), payload,
-                       sizeof(payload), now_ms);
+                       sizeof(payload), left->config.session_id, now_ms);
 
     if (fault == 2U) {
       drop_outbound(right);

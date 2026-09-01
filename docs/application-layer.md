@@ -154,7 +154,8 @@ runs:
 - `NEW` reserves bounded pending metadata and permits one execution;
 - `PENDING_DUPLICATE` suppresses re-execution;
 - `REPLAY` returns the cached response bytes; and
-- `CONFLICT` reports reuse of an operation ID by a different request identity.
+- `CONFLICT` reports reuse of an operation ID by a different request identity
+  within the same reliable peer session.
 
 The application can complete or reject a `NEW` operation immediately, retain
 it for later asynchronous completion, or explicitly abandon its pending
@@ -170,12 +171,14 @@ what final response wins a cancel/complete race.
 Link-level retransmission does not redeliver a reliable DATA event within the
 active Wirelink deduplication window. Application retries, reconnects, or lost
 responses can nevertheless produce a second request with the same operation
-ID. A server uses a caller-sized response cache:
+ID. A server uses a caller-sized response cache keyed by the reliable sender
+session and application operation identity:
 
 - a completed cached operation replays its response without re-execution;
 - an in-progress duplicate remains pending or receives a declared busy
   response; and
-- a conflicting request that reuses an active ID is rejected.
+- a conflicting request that reuses an active ID within one peer session is
+  rejected, while the same ID from a new session is an independent request.
 
 After cache eviction or restart, exactly-once behavior is no longer assured.
 Non-idempotent or safety-critical operations require a persistent product-level

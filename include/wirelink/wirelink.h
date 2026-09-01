@@ -63,6 +63,8 @@ typedef struct {
   wl_tx_handle_t handle;
   int io_result;
   uint32_t lease;
+  /* Sender session from a reliable RX frame; zero for all other events. */
+  uint64_t peer_session_id;
 } wl_event_t;
 
 typedef struct {
