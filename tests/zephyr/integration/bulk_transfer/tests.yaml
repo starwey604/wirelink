@@ -1,0 +1,30 @@
+tests:
+  wirelink.bulk_transfer.unit:
+    type: unit
+    tags:
+      - wirelink
+      - wlc
+      - bulk
+      - cobs
+    timeout: 120
+    platform_allow:
+      - unit_testing
+  wirelink.bulk_transfer.integration:
+    tags:
+      - wirelink
+      - wlc
+      - bulk
+      - cobs
+      - integration
+    harness: ztest
+    timeout: 120
+    integration_platforms:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64
+    platform_allow:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64
