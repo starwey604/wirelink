@@ -168,6 +168,10 @@ if(WIRELINK_BUILD_FUZZERS)
   target_compile_options(wirelink PRIVATE
     -fsanitize=address,undefined
     -fno-omit-frame-pointer)
+  # Any executable consuming the instrumented static archive must also link
+  # the sanitizer runtimes, including the examples built by default.
+  target_link_options(wirelink INTERFACE
+    -fsanitize=address,undefined)
   add_subdirectory(fuzz)
 endif()
 
