@@ -1,6 +1,7 @@
 # WLC schema and payload format v1
 
-Status: **frozen pre-1.0 baseline, including dense numeric fields**.
+Status: **frozen pre-1.0 baseline, including required and dense numeric
+fields**.
 
 This document defines the application-payload format carried by a Wirelink
 `DATA` packet. It is deliberately separate from the Wirelink packet header,
@@ -18,21 +19,26 @@ declaration    = message | enum
 reservation    = "reserved" positive-integer ";"
 message        = "message" identifier "=" positive-integer
                  "{" (field | reservation)* "}"
-field          = optional-field | repeated-field | packed-field
+field          = optional-field | required-field | repeated-field
+                 | packed-field | required-packed-field
 optional-field = "optional" type identifier "=" positive-integer
                  ("[" "default" "=" literal "]")? ";"
+required-field = "required" type identifier "=" positive-integer ";"
 repeated-field = "repeated" type identifier "=" positive-integer ";"
 packed-field   = "packed" packed-type identifier "[" positive-integer "]"
                  "=" positive-integer ";"
+required-packed-field = "required" "packed" packed-type identifier
+                        "[" positive-integer "]" "=" positive-integer ";"
 packed-type    = "float32" | "float64" | "fixed32" | "fixed64"
 enum           = "enum" identifier "=" positive-integer "{" enum-item* "}"
 ```
 
-There are no implicit IDs, `required` fields, maps, `oneof`, services,
-extensions, or schema-level reliability annotations in v1. Reliability is
-selected when the application calls `wl_send_reliable()` or
-`wl_send_unreliable()`. A packed field is a fixed-count numeric array, not a
-general repeated-field encoding.
+There are no implicit IDs, maps, `oneof`, services, extensions, or
+schema-level reliability annotations in v1. Reliability is selected by the
+binding profile or the application send API. A packed field is a fixed-count
+numeric array, not a general repeated-field encoding. A required field cannot
+declare a default or be repeated; fixed-count required vectors use
+`required packed`.
 
 `version` is the schema revision used by WLC compatibility checking. It is not
 the Wirelink packet version and is not serialized in a payload. A first schema
@@ -50,7 +56,9 @@ Removed messages, enums, fields, and enum values remain reserved forever. A
 message name, declaration ID, field number, field type, or cardinality cannot
 change compatibly. A packed array's exact element count is part of its
 cardinality and wire identity. Defaults are local decode behaviour and are not
-a wire change.
+a wire change. Adding a required field to an existing message is incompatible,
+as is changing integer width or signedness even when both forms use wire type
+zero.
 
 ### 1.1 Built-in types
 
@@ -59,8 +67,8 @@ The generator's v1 built-in set is:
 | Type | C representation | Wire form |
 | --- | --- | --- |
 | `bool` | `bool` | unsigned varint, only `0` or `1` |
-| `uint32`, `uint64` | `uint32_t`, `uint64_t` | unsigned LEB128 varint |
-| `int32`, `int64` | `int32_t`, `int64_t` | ZigZag, then unsigned LEB128 |
+| `uint8`, `uint16`, `uint32`, `uint64` | exact-width unsigned C integer | unsigned LEB128 varint |
+| `int8`, `int16`, `int32`, `int64` | exact-width signed C integer | ZigZag, then unsigned LEB128 |
 | `fixed32`, `fixed64` | `uint32_t`, `uint64_t` | 4/8 bytes, big-endian |
 | `float32`, `float64` | `float`, `double` | IEEE-754 binary32/binary64 bits as 4/8 bytes, big-endian |
 | `bytes` | `wl_codec_bytes_t` | length-delimited bytes |
@@ -115,7 +123,10 @@ key = (field_number << 3) | wire_type
 use type 1; `bytes`, `string`, nested messages, and packed arrays use type 2;
 and `fixed32` and `float32` use type 5. Length values must fit the remaining
 payload and `size_t`; malformed, truncated, overlong, or overflowing varints
-are decode errors. Wire types 3, 4, and 6--7 are invalid.
+are decode errors. A decoded `uint8`, `uint16`, `int8`, or `int16` value must
+fit its declared C type; otherwise decode returns `WL_CODEC_ERR_OVERFLOW`
+without modifying the field through a narrowing conversion. Wire types 3, 4,
+and 6--7 are invalid.
 
 Signed values use the exact mappings below before unsigned LEB128 encoding:
 
@@ -144,10 +155,14 @@ Unknown fields using a permitted wire type are skipped and discarded. This is
 the forward-compatibility mechanism; unknown data is not retained if an
 application decodes and re-encodes a message.
 
-An absent optional or packed field leaves `has_<field>` false and its value
-initialized to the schema default (or the type's zero/empty value). A present
-field equal to its default is still emitted and leaves `has_<field>` true. This
-preserves presence without requiring a separate on-wire marker.
+An absent optional or optional-packed field leaves `has_<field>` false and its
+value initialized to the schema default (or the type's zero/empty value). A
+present field equal to its default is still emitted and leaves `has_<field>`
+true. Required scalar, nested, and packed fields use the same wire form and
+retain the same `has_<field>` representation in C, but encode and decode return
+`WL_CODEC_ERR_MISSING_REQUIRED_FIELD` unless every required field is present.
+Malformed or truncated field bytes remain `WL_CODEC_ERR_MALFORMED`; they are
+not reclassified as a missing field.
 
 ## 3. Generated C contract
 
@@ -179,10 +194,10 @@ enum {
 };
 ```
 
-`WL_CODEC_ERR_MISSING_REQUIRED_FIELD` is reserved for schema cardinality
-validation. It is distinct from malformed wire bytes and from a present field
-whose value is outside its permitted domain. Existing optional-only generated
-code never returns it.
+`WL_CODEC_ERR_MISSING_REQUIRED_FIELD` reports schema cardinality validation.
+It is distinct from malformed wire bytes and from a present field whose value
+is outside its permitted domain. `*_encoded_size()` returns `SIZE_MAX` for an
+object with a missing required field.
 
 For every message `MotorStatus`, WLC generates:
 
@@ -230,18 +245,18 @@ float controls[30];
 ```
 
 It has no runtime count, capacity, pointer, or allocation failure. `*_clear()`
-sets the presence flag false and clears the complete array to zero. When
-present, `packed float32 controls[30] = 1;` occupies 122 payload bytes: the
-one-byte field key, the one-byte length `120`, and 120 element bytes. This
-dense representation is intended for fixed-shape control vectors, matrices,
-and similar numeric payloads where an ordinary repeated field's per-element
-tag is unnecessary.
+sets the presence flag false and clears the complete array to zero. Plain
+`packed` is optional; `required packed` has the same storage and wire layout
+but enforces presence. When present, `packed float32 controls[30] = 1;`
+occupies 122 payload bytes: the one-byte field key, the one-byte length `120`,
+and 120 element bytes. This dense representation is intended for fixed-shape
+control vectors, matrices, and similar numeric payloads where an ordinary
+repeated field's per-element tag is unnecessary.
 
-The first generator emits codec functions only. It does not emit convenience
-`wl_send_*` wrappers, RPC/request-response bindings, or response correlation;
-an application encodes into its own payload buffer and passes that buffer to
-the Wirelink core. The core copies accepted TX payload bytes, so the encode
-scratch buffer may be reused immediately after a successful send call.
+WLC always emits the codec pair and may additionally emit typed send/dispatch
+bindings and a profile-driven LATEST/FIFO/RPC runtime. Generated artifacts are
+separate translation units, so a codec-only target does not pull Wirelink core
+or application-runtime symbols into its link.
 
 ## 4. Example
 
@@ -255,8 +270,8 @@ enum MotorMode = 1 {
 }
 
 message MotorCommand = 16 {
-  optional uint32 operation_id = 1;
-  optional MotorMode mode = 2 [default = 0];
+  required uint32 operation_id = 1;
+  required MotorMode mode = 2;
   optional fixed32 target_milliamps = 3;
   optional bytes vendor_extension = 4;
 }
@@ -273,9 +288,9 @@ message TelemetryBatch = 18 {
 }
 
 message ArmMitCommand = 19 {
-  packed float32 controls[30] = 1;
-  optional uint64 sequence = 2;
-  optional float32 dt_s = 3;
+  required packed float32 controls[30] = 1;
+  required uint16 sequence = 2;
+  required float32 dt_s = 3;
 }
 ```
 
@@ -302,4 +317,8 @@ Dense numeric coverage additionally requires bit-exact `float32` and
 with a non-canonical payload; generated C11 compilation and execution; packed
 length, duplicate, wire-type, and truncation rejection; packed compatibility
 checks for type, count, and cardinality; and a checked 30-element binary32
-control vector whose encoded field size remains 122 bytes.
+control vector whose encoded field size remains 122 bytes. Required-field
+coverage includes missing scalar, nested, and packed values on both encode and
+decode. Narrow-integer coverage includes min/max golden bytes, default-range
+validation, exact-width C/C++ storage, and decode overflow rejection without
+truncation.

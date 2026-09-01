@@ -5,10 +5,11 @@
 The Rust compiler is developed in the adjacent `wlc/` worktree. It owns the
 versioned `.wl` grammar, AST, source-located validation, semantic model,
 compatibility checks, and deterministic C generator. The supported baseline
-constructs are `message`, `enum`, `optional`, `repeated`, fixed-count `packed`,
-and `default`; see `docs/schema-v1.md` for the normative v1 contract. Native
-`float32`/`float64` and packed fixed-width numeric arrays provide dense control
-payloads without heap allocation or per-element tags.
+constructs are `message`, `enum`, `optional`, `required`, `repeated`,
+fixed-count `packed`/`required packed`, and `default`; see
+`docs/schema-v1.md` for the normative v1 contract. Exact-width 8/16/32/64-bit
+integers, native `float32`/`float64`, and packed fixed-width numeric arrays
+provide compact control payloads without heap allocation or per-element tags.
 
 Run its focused checks from the repository root with:
 
