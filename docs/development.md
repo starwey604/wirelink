@@ -352,9 +352,16 @@ duplicates without emitting another event.
   duplicate fields, UTF-8, wire-type, and malformed-input failures.
 - `tests/zephyr/unit/conformance/` reproduces the exact v1 transmission units
   and freezes decoder rejection classes.
+- `tests/zephyr/unit/bulk_sender/` and `bulk_receiver/` freeze the sequential
+  action/Status lifecycle, retry deadlines, idempotence, sink ownership,
+  Abort tombstones, and reset rules.
+- `tests/zephyr/integration/bulk_transfer/` routes the generated WLC messages
+  through two real Wirelink contexts, including a 1 MiB object, resume, a lost
+  Status retry, borrowed Chunk storage, and failed final integrity.
 - `fuzz/` contains Clang libFuzzer harnesses for COBS, frames, chunked protocol
-  streams, and generated codecs. CTest limits each smoke target to 5000 runs;
-  longer corpus-guided jobs may invoke the executables directly.
+  streams, generated codecs, and both bulk state machines. CTest limits each
+  smoke target to 5000 runs; longer corpus-guided jobs may invoke the
+  executables directly.
 - `tests/package/consumer/` is a separate CMake project that validates the
   installed `Wirelink::wirelink` target.
 - `examples/` and `samples/zephyr/uart_dma/` are compile-checked integration
@@ -394,14 +401,17 @@ top-level CMake.
 
 ## Application-layer extensions
 
-Typed routers, the SPSC `LATEST` mailbox, the ordered SPSC `FIFO`, and the RPC
-client/server runtime are built above the core rather than into adapter
-callbacks. Their callback lifetime, threading, multiplexing, and storage rules
-are frozen in
+Typed routers, the SPSC `LATEST` mailbox, the ordered SPSC `FIFO`, the RPC
+client/server runtime, and the sequential bulk sender/receiver are built above
+the core rather than into adapter callbacks. Their callback lifetime,
+threading, multiplexing, and storage rules are frozen in
 [`application-layer.md`](application-layer.md). New implementations must keep
 the core's single-consumer state machine and borrowed-event ownership intact.
-Cross-thread session executors and bulk object transfer remain future
-application-layer modules, not fields in the v1 link header.
+`wirelink/bulk.h` retains only constant-size transfer state: source bytes are
+read while an action is encoded, and received Chunk bytes are consumed by a
+synchronous caller sink before the RX event is released. Cross-thread session
+executors remain future work; bulk transfer does not add fields to the v1 link
+header.
 
 ## Integration platform matrix
 

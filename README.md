@@ -16,9 +16,9 @@ and remaining pre-1.0 API decisions are in
 Platform adapters currently cover Zephyr asynchronous UART DMA plus Astrial
 serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C
 codecs and bindings turn typed schemas into payloads, route borrowed RX events,
-and submit typed messages. Allocation-free `LATEST`, ordered SPSC `FIFO`, and
-RPC runtimes retain application state and correlate completion above the
-frozen v1 link header.
+and submit typed messages. Allocation-free `LATEST`, ordered SPSC `FIFO`, RPC,
+and sequential bulk runtimes retain application state and correlate completion
+above the frozen v1 link header.
 
 ## Build the core
 
@@ -134,20 +134,34 @@ checked-in generated C artifacts live under
 - native IEEE `float32`/`float64` values and inline packed numeric arrays;
 - a 30-element binary32 control vector encoded in 122 payload bytes;
 - separately linkable typed dispatch and send bindings;
+- additive `Begin`/`Chunk`/`End`/`Abort`/`Status` messages for sequential bulk
+  objects;
 - Wirelink transmission over the Astrial serial adapter;
 - in-place event decode with borrowed `string` and `bytes` fields; and
 - old/new decoder behavior plus deterministic malformed-input errors.
 
-The implemented generated-dispatch, latest-value, ordered FIFO, and
-application-RPC interfaces are described by
+The implemented generated-dispatch, latest-value, ordered FIFO,
+application-RPC, and sequential bulk interfaces are described by
 [`docs/latest-mailbox.md`](docs/latest-mailbox.md),
 [`docs/fifo.md`](docs/fifo.md), and
-[`docs/rpc-runtime.md`](docs/rpc-runtime.md). Their common boundary with thread
-ownership, explicit stream multiplexing, and future bulk transfers is defined
-in
+[`docs/rpc-runtime.md`](docs/rpc-runtime.md). The bulk sender and receiver API
+is [`wirelink/bulk.h`](include/wirelink/bulk.h). Their common boundary with
+thread ownership, borrowed fields, explicit stream multiplexing, and object
+transfer is defined in
 [`docs/application-layer.md`](docs/application-layer.md). A Wirelink ACK is a
 link-delivery result; application completion always uses an explicit typed
 response or status message.
+
+The bulk runtime uses a caller-owned repeatable source and synchronous sink,
+without heap allocation or an object-sized protocol buffer. Chunk bytes borrow
+the decoded RX event and are valid only during the sink callback. Fresh
+nonzero transfer IDs and explicit Abort/reset rules prevent delayed traffic
+from reviving an old transfer. The schema fixture is in
+[`tests/fixtures/wlc`](tests/fixtures/wlc), the state-machine tests are in
+[`tests/zephyr/unit/bulk_sender`](tests/zephyr/unit/bulk_sender) and
+[`tests/zephyr/unit/bulk_receiver`](tests/zephyr/unit/bulk_receiver), and the
+1 MiB route is covered by
+[`tests/zephyr/integration/bulk_transfer`](tests/zephyr/integration/bulk_transfer).
 
 ## Zephyr tests
 

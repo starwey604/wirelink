@@ -1,8 +1,8 @@
 # Wirelink application-layer contract
 
-Status: **implemented baseline for typed routing, `LATEST`, `FIFO`, and RPC**.
-The sequential bulk-object contract below is frozen for its first runtime
-implementation. Cross-thread session executors remain a design contract.
+Status: **implemented baseline for typed routing, `LATEST`, `FIFO`, RPC, and
+sequential bulk transfer**. Cross-thread session executors remain a design
+contract.
 
 This document fixes the boundary between the frozen Wirelink v1 link protocol
 and the allocation-free application facilities built above it. It is not a
@@ -19,7 +19,7 @@ The application stack has four independent layers:
    exposes a borrowed `wl_event_t`;
 3. WLC-generated bindings decode and route the application payload; and
 4. optional application runtimes supply `LATEST` mailboxes, ordered `FIFO`
-   queues, and RPC correlation; bulk-transfer state can be added independently.
+   queues, RPC correlation, and sequential bulk-transfer state.
 
 A Wirelink ACK proves only that a valid reliable DATA packet reached stable
 event storage at the peer. For reliable DATA, `WL_EVT_TX_SUCCESS` therefore
@@ -191,7 +191,8 @@ Initialization must calculate or validate every long-lived byte of storage:
 - element size and capacity for every `FIFO` route;
 - client RPC slots, server pending slots, and cached response bytes;
 - cross-thread command-queue entries; and
-- optional bulk-transfer state and chunk buffers.
+- bulk sender/receiver state and caller-owned repeatable source or sink
+  storage.
 
 No route may silently allocate when input exceeds its configured capacity.
 Capacity exhaustion produces a typed error and counter. For a reliable
@@ -200,9 +201,10 @@ link already acknowledged storage; it returns a declared busy/error response
 or applies the service's documented retry policy.
 
 Application facilities use standalone configuration/storage structures and,
-where computed alignment is needed, requirement queries. Future FIFO, command
-queue, and transfer APIs must follow the same pattern and must not append
-fields to the frozen `wl_config_t`, `wl_storage_t`, or `wl_event_t` structures.
+where computed alignment is needed, requirement queries. The bulk runtime uses
+its own fixed-size opaque sender and receiver contexts. Future command-queue
+and session APIs must follow the same pattern and must not append fields to the
+frozen `wl_config_t`, `wl_storage_t`, or `wl_event_t` structures.
 
 ## 6. Error and health domains
 
@@ -270,6 +272,16 @@ Five separately allocated application message IDs represent `Begin`,
 | `Abort` | `transfer_id`, application reason |
 | `Status` | `transfer_id`, acknowledged phase, result, cumulative `next_offset`, accepted chunk size |
 
+`wl_bulk_sender_action_acquire()` lends the next action to the application.
+After encoding and local TX acceptance, the application calls
+`wl_bulk_sender_action_submitted()`; transport backpressure instead uses
+`wl_bulk_sender_action_defer()`. The generated receive route synchronously
+calls the matching `wl_bulk_receiver_on_*()` function, then acquires its
+retained Status. Status is released only after local TX acceptance, or deferred
+for a later attempt. Sender and receiver `poll()` calls advance wrap-safe
+timeouts, and their deadline hints participate in the consumer loop's earliest
+wake deadline.
+
 `Status.next_offset` is the only application-level cumulative acknowledgement.
 A Wirelink ACK is produced before typed decode and persistent sink completion,
 so link success must never be interpreted as successful object storage or
@@ -324,6 +336,10 @@ Abort retries themselves fail is an explicit force-abandon operation; products
 that need eventual autonomous peer recovery must configure a nonzero receiver
 idle timeout.
 
+Receiver reset requires that no Status view is acquired. It aborts any active
+sink and explicitly clears terminal history, including an Abort tombstone; it
+is therefore a local lifecycle boundary rather than a peer-visible cancel.
+
 `transfer_id` values must not be reused while the peer may still retain their
 terminal record. Reusing an ID can only replay its previous idempotent result;
 use a fresh nonzero ID for each logical object transfer.
@@ -333,6 +349,15 @@ order reassembly, object-sized RAM staging, asynchronous retention of a Chunk
 span, download direction, and resume state that survives process or MCU
 restart. A later bounded window or persistent checkpoint format may extend the
 application messages without changing the Wirelink v1 frame header.
+
+The additive message definitions and generated C fixture live in
+[`tests/fixtures/wlc`](../tests/fixtures/wlc). Unit state-machine coverage is in
+[`bulk_sender`](../tests/zephyr/unit/bulk_sender) and
+[`bulk_receiver`](../tests/zephyr/unit/bulk_receiver); the generated-message,
+two-context 1 MiB path is in
+[`bulk_transfer`](../tests/zephyr/integration/bulk_transfer). The reproducible
+CPU/goodput method and initial host record are in
+[`bulk-performance.md`](bulk-performance.md).
 
 ## 9. Required verification
 
