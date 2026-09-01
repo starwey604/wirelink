@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 2U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 5U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -78,6 +78,19 @@ typedef struct {
   control_runtime_detail_t detail;
 } control_runtime_result_t;
 
+/* The typed value remains borrowed until the matching release. */
+typedef struct {
+  const joint_command_t *value;
+  wl_fifo_view_t lease;
+} control_joint_command_fifo_view_t;
+
+/* The typed value remains borrowed until the matching release. */
+typedef struct {
+  const arm_mit_command_t *value;
+  uint32_t generation;
+  wl_latest_view_t lease;
+} control_arm_mit_command_latest_view_t;
+
 /* The decoded request and borrowed fields are valid only for the callback.
  * Return zero after copying anything needed asynchronously. A nonzero return
  * abandons the pending operation without manufacturing a response. */
@@ -89,6 +102,12 @@ typedef struct {
   control_home_request_handler_fn request_handler;
   void *user_data;
 } control_home_rpc_t;
+
+typedef struct {
+  uint16_t client_timed_out;
+  uint16_t server_pending_expired;
+  uint16_t server_cache_expired;
+} control_runtime_poll_result_t;
 
 typedef struct {
   uint8_t _reserved;
@@ -152,9 +171,27 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
  * terminal events advance the client but the caller still owns wl_tx_take(). */
 control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_runtime_t *runtime, wl_time_ms_t now_ms);
 
+int control_joint_command_fifo_acquire(control_runtime_t *runtime, control_joint_command_fifo_view_t *out_view);
+int control_joint_command_fifo_release(control_runtime_t *runtime, control_joint_command_fifo_view_t *view);
+
+int control_arm_mit_command_latest_acquire(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *out_view);
+int control_arm_mit_command_latest_release(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *view);
+
+/* Advance configured RPC deadlines without performing I/O. Disabled client
+ * or server roles are skipped. */
+wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_poll_result_t *out_result);
+/* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
+wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
+
 /* Client start writes the allocated operation ID into request in place. */
 control_runtime_result_t control_home_client_start_scratch(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms, control_encode_scratch_t scratch);
 control_runtime_result_t control_home_client_start_direct(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
+/* Nonblocking inspection returns generic metadata for this service. */
+wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client);
+/* Decode a retained response previously returned by client_inspect(). Borrowed
+ * response fields remain valid only until client_release(). */
+control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t *client, home_response_t *response);
+wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id);
 
 /* Completion writes operation ID and status into response in place, encodes
  * once, caches those bytes, and sends the exact cached byte sequence. */

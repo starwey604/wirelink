@@ -3,6 +3,13 @@
 #include "control.h"
 #include "control_runtime.h"
 
+#if !ARM_MIT_COMMAND_HAS_MAX_ENCODED_SIZE
+#error "the fixed MIT command must expose a static encoded-size bound"
+#endif
+
+_Static_assert(ARM_MIT_COMMAND_MAX_ENCODED_SIZE <= SIZE_MAX,
+               "the generated payload bound must fit host size_t");
+
 int main(void) {
   arm_mit_command_t command;
   control_runtime_config_t config = {0};

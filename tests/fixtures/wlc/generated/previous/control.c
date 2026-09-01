@@ -25,7 +25,7 @@ enum {
 typedef struct wlc_desc wlc_desc_t;
 typedef struct {
   uint16_t number;
-  uint8_t card, kind;
+  uint8_t card, kind, required;
   size_t value, has, count, capacity, element, packed_count;
   int64_t signed_default;
   uint64_t unsigned_default;
@@ -175,7 +175,10 @@ static wl_codec_status_t wlc_measure(const wlc_desc_t *d, const void *value,
     if (f->card == WLC_PACKED) {
       size_t bytes;
       wl_codec_status_t s;
-      if (!*(const bool *)(base + f->has)) continue;
+      if (!*(const bool *)(base + f->has)) {
+        if (f->required != 0U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+        continue;
+      }
       if ((s = wlc_packed_bytes(f, &bytes)) != WL_CODEC_OK) return s;
       if ((s = wlc_add(&n, wlc_vsize(((uint64_t)f->number << 3U) | 2U))) != WL_CODEC_OK ||
           (s = wlc_add(&n, wlc_vsize(bytes))) != WL_CODEC_OK ||
@@ -184,7 +187,10 @@ static wl_codec_status_t wlc_measure(const wlc_desc_t *d, const void *value,
     }
     size_t count = 1U;
     if (f->card == WLC_OPTIONAL) {
-      if (!*(const bool *)(base + f->has)) continue;
+      if (!*(const bool *)(base + f->has)) {
+        if (f->required != 0U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+        continue;
+      }
     } else {
       count = *(const size_t *)(base + f->count);
       if ((count != 0U && *(void *const *)(base + f->value) == NULL) ||
@@ -484,26 +490,31 @@ static wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *in,
     if (f->card == WLC_OPTIONAL) *(bool *)(base + f->has) = true;
     else ++*(size_t *)(base + f->count);
   }
+  for (size_t i = 0U; i < d->count; ++i) {
+    const wlc_field_t *f = &d->fields[i];
+    if (f->required != 0U && !*(const bool *)((uint8_t *)out + f->has))
+      return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  }
   return WL_CODEC_OK;
 }
 static const wlc_desc_t joint_command_desc;
 static const wlc_desc_t arm_command_desc;
 
 static const wlc_field_t joint_command_fields[] = {
-  { 1U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, position_bits), offsetof(joint_command_t, has_position_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
-  { 2U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, velocity_bits), offsetof(joint_command_t, has_velocity_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
-  { 3U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, torque_bits), offsetof(joint_command_t, has_torque_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
-  { 4U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, kp_bits), offsetof(joint_command_t, has_kp_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
-  { 5U, WLC_OPTIONAL, WLC_F32, offsetof(joint_command_t, kd_bits), offsetof(joint_command_t, has_kd_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
-  { 6U, WLC_OPTIONAL, WLC_ENUM, offsetof(joint_command_t, mode), offsetof(joint_command_t, has_mode), 0, 0, sizeof(joint_mode_t), 0U, INT32_C(0), 0ULL, NULL, NULL },
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, offsetof(joint_command_t, position_bits), offsetof(joint_command_t, has_position_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F32, 0, offsetof(joint_command_t, velocity_bits), offsetof(joint_command_t, has_velocity_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_F32, 0, offsetof(joint_command_t, torque_bits), offsetof(joint_command_t, has_torque_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 4U, WLC_OPTIONAL, WLC_F32, 0, offsetof(joint_command_t, kp_bits), offsetof(joint_command_t, has_kp_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 5U, WLC_OPTIONAL, WLC_F32, 0, offsetof(joint_command_t, kd_bits), offsetof(joint_command_t, has_kd_bits), 0, 0, sizeof(uint32_t), 0U, 0, 0ULL, NULL, NULL },
+  { 6U, WLC_OPTIONAL, WLC_ENUM, 0, offsetof(joint_command_t, mode), offsetof(joint_command_t, has_mode), 0, 0, sizeof(joint_mode_t), 0U, INT32_C(0), 0ULL, NULL, NULL },
 };
 static const wlc_desc_t joint_command_desc = { joint_command_fields, sizeof(joint_command_fields) / sizeof(joint_command_fields[0]) };
 
 static const wlc_field_t arm_command_fields[] = {
-  { 1U, WLC_REPEATED, WLC_MESSAGE, offsetof(arm_command_t, joints), 0, offsetof(arm_command_t, joints_count), offsetof(arm_command_t, joints_capacity), sizeof(joint_command_t), 0U, 0, 0ULL, NULL, &joint_command_desc },
-  { 2U, WLC_OPTIONAL, WLC_U64, offsetof(arm_command_t, sequence), offsetof(arm_command_t, has_sequence), 0, 0, sizeof(uint64_t), 0U, 0, 0ULL, NULL, NULL },
-  { 3U, WLC_OPTIONAL, WLC_STRING, offsetof(arm_command_t, source), offsetof(arm_command_t, has_source), 0, 0, sizeof(wl_codec_string_t), 0U, 0, 4ULL, "\x68""\x6F""\x73""\x74", NULL },
-  { 4U, WLC_OPTIONAL, WLC_BYTES, offsetof(arm_command_t, extension), offsetof(arm_command_t, has_extension), 0, 0, sizeof(wl_codec_bytes_t), 0U, 0, 0ULL, NULL, NULL },
+  { 1U, WLC_REPEATED, WLC_MESSAGE, 0, offsetof(arm_command_t, joints), 0, offsetof(arm_command_t, joints_count), offsetof(arm_command_t, joints_capacity), sizeof(joint_command_t), 0U, 0, 0ULL, NULL, &joint_command_desc },
+  { 2U, WLC_OPTIONAL, WLC_U64, 0, offsetof(arm_command_t, sequence), offsetof(arm_command_t, has_sequence), 0, 0, sizeof(uint64_t), 0U, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_STRING, 0, offsetof(arm_command_t, source), offsetof(arm_command_t, has_source), 0, 0, sizeof(wl_codec_string_t), 0U, 0, 4ULL, "\x68""\x6F""\x73""\x74", NULL },
+  { 4U, WLC_OPTIONAL, WLC_BYTES, 0, offsetof(arm_command_t, extension), offsetof(arm_command_t, has_extension), 0, 0, sizeof(wl_codec_bytes_t), 0U, 0, 0ULL, NULL, NULL },
 };
 static const wlc_desc_t arm_command_desc = { arm_command_fields, sizeof(arm_command_fields) / sizeof(arm_command_fields[0]) };
 

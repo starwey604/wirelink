@@ -229,6 +229,44 @@ init_failed:
   return result;
 }
 
+wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_poll_result_t *out_result) {
+  wl_rpc_err_t result;
+  wl_rpc_server_expiry_t server_expiry = {0};
+  if (out_result != NULL) memset(out_result, 0, sizeof(*out_result));
+  if (runtime == NULL || out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
+  if (runtime->rpc_client != NULL) {
+    result = wl_rpc_client_poll(runtime->rpc_client, now_ms, &out_result->client_timed_out);
+    if (result != WL_RPC_OK) return result;
+  }
+  if (runtime->rpc_server != NULL) {
+    result = wl_rpc_server_poll(runtime->rpc_server, now_ms, &server_expiry);
+    if (result != WL_RPC_OK) return result;
+    out_result->server_pending_expired = server_expiry.pending_expired;
+    out_result->server_cache_expired = server_expiry.cache_expired;
+  }
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint) {
+  wl_rpc_deadline_hint_t component = {WL_RPC_NO_DEADLINE_MS};
+  wl_rpc_err_t result;
+  uint32_t nearest = WL_RPC_NO_DEADLINE_MS;
+  if (out_hint != NULL) out_hint->next_deadline_ms = WL_RPC_NO_DEADLINE_MS;
+  if (runtime == NULL || out_hint == NULL) return WL_RPC_ERR_INVALID_ARG;
+  if (runtime->rpc_client != NULL) {
+    result = wl_rpc_client_get_deadline_hint(runtime->rpc_client, now_ms, &component);
+    if (result != WL_RPC_OK) return result;
+    if (component.next_deadline_ms < nearest) nearest = component.next_deadline_ms;
+  }
+  if (runtime->rpc_server != NULL) {
+    result = wl_rpc_server_get_deadline_hint(runtime->rpc_server, now_ms, &component);
+    if (result != WL_RPC_OK) return result;
+    if (component.next_deadline_ms < nearest) nearest = component.next_deadline_ms;
+  }
+  out_hint->next_deadline_ms = nearest;
+  return WL_RPC_OK;
+}
+
 control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_runtime_t *runtime, wl_time_ms_t now_ms) {
   control_runtime_result_t result = control_runtime_result(event);
   if (event == NULL) return result;
@@ -462,6 +500,65 @@ release_event:
   return result;
 }
 
+int control_joint_command_fifo_acquire(control_runtime_t *runtime, control_joint_command_fifo_view_t *out_view) {
+  wl_fifo_view_t lease = {0};
+  int result;
+  if (out_view != NULL) memset(out_view, 0, sizeof(*out_view));
+  if (runtime == NULL || out_view == NULL) return WL_ERR_INVALID_ARG;
+  if (runtime->joint_command_fifo == NULL) return WL_ERR_NOT_INITIALIZED;
+  result = wl_fifo_read_acquire(runtime->joint_command_fifo, &lease);
+  if (result != WL_OK) return result;
+  if (lease.value == NULL || lease.value_size < sizeof(joint_command_t) || ((uintptr_t)lease.value % _Alignof(joint_command_t)) != 0U) {
+    int failure = lease.value_size < sizeof(joint_command_t) ? WL_ERR_BUF_TOO_SMALL : WL_ERR_INVALID_STATE;
+    int release_result = wl_fifo_read_release(runtime->joint_command_fifo, &lease);
+    if (release_result != WL_OK) return release_result;
+    return failure;
+  }
+  out_view->value = (const joint_command_t *)lease.value;
+  out_view->lease = lease;
+  return WL_OK;
+}
+
+int control_joint_command_fifo_release(control_runtime_t *runtime, control_joint_command_fifo_view_t *view) {
+  int result;
+  if (runtime == NULL || view == NULL) return WL_ERR_INVALID_ARG;
+  if (runtime->joint_command_fifo == NULL) return WL_ERR_NOT_INITIALIZED;
+  if ((const void *)view->value != view->lease.value) return WL_ERR_INVALID_STATE;
+  result = wl_fifo_read_release(runtime->joint_command_fifo, &view->lease);
+  if (result == WL_OK) memset(view, 0, sizeof(*view));
+  return result;
+}
+
+int control_arm_mit_command_latest_acquire(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *out_view) {
+  wl_latest_view_t lease = {0};
+  int result;
+  if (out_view != NULL) memset(out_view, 0, sizeof(*out_view));
+  if (runtime == NULL || out_view == NULL) return WL_ERR_INVALID_ARG;
+  if (runtime->arm_mit_command_latest == NULL) return WL_ERR_NOT_INITIALIZED;
+  result = wl_latest_read_acquire(runtime->arm_mit_command_latest, &lease);
+  if (result != WL_OK) return result;
+  if (lease.value == NULL || lease.value_size < sizeof(arm_mit_command_t) || ((uintptr_t)lease.value % _Alignof(arm_mit_command_t)) != 0U) {
+    int failure = lease.value_size < sizeof(arm_mit_command_t) ? WL_ERR_BUF_TOO_SMALL : WL_ERR_INVALID_STATE;
+    int release_result = wl_latest_read_release(runtime->arm_mit_command_latest, &lease);
+    if (release_result != WL_OK) return release_result;
+    return failure;
+  }
+  out_view->value = (const arm_mit_command_t *)lease.value;
+  out_view->generation = lease.generation;
+  out_view->lease = lease;
+  return WL_OK;
+}
+
+int control_arm_mit_command_latest_release(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *view) {
+  int result;
+  if (runtime == NULL || view == NULL) return WL_ERR_INVALID_ARG;
+  if (runtime->arm_mit_command_latest == NULL) return WL_ERR_NOT_INITIALIZED;
+  if ((const void *)view->value != view->lease.value || view->generation != view->lease.generation) return WL_ERR_INVALID_STATE;
+  result = wl_latest_read_release(runtime->arm_mit_command_latest, &view->lease);
+  if (result == WL_OK) memset(view, 0, sizeof(*view));
+  return result;
+}
+
 static control_runtime_result_t control_home_client_finish_start(control_runtime_t *runtime, uint32_t operation_id, control_send_result_t sent) {
   control_runtime_result_t result = control_runtime_result(NULL);
   result.message_id = HOME_REQUEST_MESSAGE_ID;
@@ -523,6 +620,63 @@ control_runtime_result_t control_home_client_start_direct(wl_ctx_t *ctx, control
   request->operation_id = operation_id;
   sent = control_home_request_send_direct(ctx, request, WL_DELIVERY_RELIABLE);
   return control_home_client_finish_start(runtime, operation_id, sent);
+}
+
+wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client) {
+  wl_rpc_err_t result;
+  if (out_client != NULL) memset(out_client, 0, sizeof(*out_client));
+  if (runtime == NULL || runtime->rpc_client == NULL || operation_id == 0U || out_client == NULL) return WL_RPC_ERR_INVALID_ARG;
+  result = wl_rpc_client_get(runtime->rpc_client, operation_id, out_client);
+  if (result != WL_RPC_OK) return result;
+  if (out_client->request_message_id != HOME_REQUEST_MESSAGE_ID || out_client->response_message_id != HOME_RESPONSE_MESSAGE_ID) return WL_RPC_ERR_RESPONSE_MISMATCH;
+  return WL_RPC_OK;
+}
+
+control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t *client, home_response_t *response) {
+  control_runtime_result_t result = control_runtime_result(NULL);
+  result.message_id = HOME_RESPONSE_MESSAGE_ID;
+  result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
+  if (client != NULL) {
+    result.detail.rpc.operation_id = client->operation_id;
+    result.detail.rpc.handle = client->tx_handle;
+    result.detail.rpc.core_result = client->link_result;
+    result.detail.rpc.application_result = client->application_status;
+    result.detail.rpc.payload_length = client->response_length;
+  }
+  if (client == NULL || response == NULL || client->operation_id == 0U) return result;
+  home_response_clear(response);
+  if (client->request_message_id != HOME_REQUEST_MESSAGE_ID || client->response_message_id != HOME_RESPONSE_MESSAGE_ID) {
+    result.detail.rpc.rpc_result = WL_RPC_ERR_RESPONSE_MISMATCH;
+    result.domain = CONTROL_RUNTIME_RPC_ERROR;
+    return result;
+  }
+  if ((client->state != WL_RPC_CLIENT_COMPLETED && client->state != WL_RPC_CLIENT_APPLICATION_ERROR) || client->response_data == NULL || client->response_length == 0U) {
+    result.detail.rpc.rpc_result = WL_RPC_ERR_INVALID_STATE;
+    result.domain = CONTROL_RUNTIME_RPC_ERROR;
+    return result;
+  }
+  result.detail.rpc.codec_status = home_response_decode(client->response_data, client->response_length, response);
+  if (result.detail.rpc.codec_status != WL_CODEC_OK) {
+    result.domain = CONTROL_RUNTIME_CODEC_ERROR;
+    return result;
+  }
+  if (!response->has_operation_id || response->operation_id != client->operation_id || !response->has_status || (int32_t)response->status != client->application_status) {
+    result.detail.rpc.rpc_result = WL_RPC_ERR_RESPONSE_MISMATCH;
+    result.domain = CONTROL_RUNTIME_RPC_ERROR;
+    return result;
+  }
+  result.domain = CONTROL_RUNTIME_OK;
+  return result;
+}
+
+wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id) {
+  wl_rpc_client_result_t client = {0};
+  wl_rpc_err_t result;
+  if (runtime == NULL || runtime->rpc_client == NULL || operation_id == 0U) return WL_RPC_ERR_INVALID_ARG;
+  result = wl_rpc_client_get(runtime->rpc_client, operation_id, &client);
+  if (result != WL_RPC_OK) return result;
+  if (client.request_message_id != HOME_REQUEST_MESSAGE_ID || client.response_message_id != HOME_RESPONSE_MESSAGE_ID) return WL_RPC_ERR_RESPONSE_MISMATCH;
+  return wl_rpc_client_release(runtime->rpc_client, operation_id);
 }
 
 control_runtime_result_t control_home_server_retry_cached(wl_ctx_t *ctx, const wl_rpc_server_response_t *cached) {

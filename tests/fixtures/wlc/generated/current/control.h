@@ -156,60 +156,78 @@ struct bulk_status {
 };
 
 #define JOINT_COMMAND_MESSAGE_ID 2U
+#define JOINT_COMMAND_HAS_MAX_ENCODED_SIZE 1
+#define JOINT_COMMAND_MAX_ENCODED_SIZE UINT64_C(31)
 void joint_command_clear(joint_command_t *value);
 size_t joint_command_encoded_size(const joint_command_t *value);
 wl_codec_status_t joint_command_encode(const joint_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t joint_command_decode(const uint8_t *input, size_t input_length, joint_command_t *out);
 
 #define ARM_COMMAND_MESSAGE_ID 16U
+#define ARM_COMMAND_HAS_MAX_ENCODED_SIZE 0
 void arm_command_clear(arm_command_t *value);
 size_t arm_command_encoded_size(const arm_command_t *value);
 wl_codec_status_t arm_command_encode(const arm_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t arm_command_decode(const uint8_t *input, size_t input_length, arm_command_t *out);
 
 #define ARM_MIT_COMMAND_MESSAGE_ID 17U
+#define ARM_MIT_COMMAND_HAS_MAX_ENCODED_SIZE 1
+#define ARM_MIT_COMMAND_MAX_ENCODED_SIZE UINT64_C(138)
 void arm_mit_command_clear(arm_mit_command_t *value);
 size_t arm_mit_command_encoded_size(const arm_mit_command_t *value);
 wl_codec_status_t arm_mit_command_encode(const arm_mit_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t arm_mit_command_decode(const uint8_t *input, size_t input_length, arm_mit_command_t *out);
 
 #define HOME_REQUEST_MESSAGE_ID 18U
+#define HOME_REQUEST_HAS_MAX_ENCODED_SIZE 1
+#define HOME_REQUEST_MAX_ENCODED_SIZE UINT64_C(12)
 void home_request_clear(home_request_t *value);
 size_t home_request_encoded_size(const home_request_t *value);
 wl_codec_status_t home_request_encode(const home_request_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t home_request_decode(const uint8_t *input, size_t input_length, home_request_t *out);
 
 #define HOME_RESPONSE_MESSAGE_ID 19U
+#define HOME_RESPONSE_HAS_MAX_ENCODED_SIZE 1
+#define HOME_RESPONSE_MAX_ENCODED_SIZE UINT64_C(12)
 void home_response_clear(home_response_t *value);
 size_t home_response_encoded_size(const home_response_t *value);
 wl_codec_status_t home_response_encode(const home_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t home_response_decode(const uint8_t *input, size_t input_length, home_response_t *out);
 
 #define BULK_BEGIN_MESSAGE_ID 32U
+#define BULK_BEGIN_HAS_MAX_ENCODED_SIZE 1
+#define BULK_BEGIN_MAX_ENCODED_SIZE UINT64_C(24)
 void bulk_begin_clear(bulk_begin_t *value);
 size_t bulk_begin_encoded_size(const bulk_begin_t *value);
 wl_codec_status_t bulk_begin_encode(const bulk_begin_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t bulk_begin_decode(const uint8_t *input, size_t input_length, bulk_begin_t *out);
 
 #define BULK_CHUNK_MESSAGE_ID 33U
+#define BULK_CHUNK_HAS_MAX_ENCODED_SIZE 0
 void bulk_chunk_clear(bulk_chunk_t *value);
 size_t bulk_chunk_encoded_size(const bulk_chunk_t *value);
 wl_codec_status_t bulk_chunk_encode(const bulk_chunk_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t bulk_chunk_decode(const uint8_t *input, size_t input_length, bulk_chunk_t *out);
 
 #define BULK_END_MESSAGE_ID 34U
+#define BULK_END_HAS_MAX_ENCODED_SIZE 1
+#define BULK_END_MAX_ENCODED_SIZE UINT64_C(19)
 void bulk_end_clear(bulk_end_t *value);
 size_t bulk_end_encoded_size(const bulk_end_t *value);
 wl_codec_status_t bulk_end_encode(const bulk_end_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t bulk_end_decode(const uint8_t *input, size_t input_length, bulk_end_t *out);
 
 #define BULK_ABORT_MESSAGE_ID 35U
+#define BULK_ABORT_HAS_MAX_ENCODED_SIZE 1
+#define BULK_ABORT_MAX_ENCODED_SIZE UINT64_C(11)
 void bulk_abort_clear(bulk_abort_t *value);
 size_t bulk_abort_encoded_size(const bulk_abort_t *value);
 wl_codec_status_t bulk_abort_encode(const bulk_abort_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t bulk_abort_decode(const uint8_t *input, size_t input_length, bulk_abort_t *out);
 
 #define BULK_STATUS_MESSAGE_ID 36U
+#define BULK_STATUS_HAS_MAX_ENCODED_SIZE 1
+#define BULK_STATUS_MAX_ENCODED_SIZE UINT64_C(31)
 void bulk_status_clear(bulk_status_t *value);
 size_t bulk_status_encoded_size(const bulk_status_t *value);
 wl_codec_status_t bulk_status_encode(const bulk_status_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
