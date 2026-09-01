@@ -57,9 +57,21 @@ build/usb-bench/benchmarks/host/wirelink_transport_benchmark wirelink-bulk \
 build/usb-bench/benchmarks/host/wirelink_transport_benchmark wirelink-bulk \
   --idle wait --wake rx --payload 120 --warmup 1000 --iterations 10000
 
+# Allocation-free receiver path for a sequential 1 MiB object.
+build/usb-bench/benchmarks/host/wirelink_transport_benchmark wirelink-object \
+  --vid 0x2fe3 --pid 0x574c --bytes 1048576 --chunk 2016 \
+  --warmup 1 --iterations 5 --timeout-ms 30000 \
+  --idle hybrid --wake rx --spin-us 50
+
 build/usb-bench/benchmarks/host/wirelink_transport_benchmark cdc \
   --port /dev/ttyACM1 --payload 120 --warmup 1000 --iterations 10000
 ```
+
+Object mode derives a best-effort fresh nonzero transfer-ID base for each
+process and prints it with the result. `--transfer-id-base` overrides it for a
+reproducible fixture. The benchmark rejects a nonzero Begin resume offset so
+an accidentally reused receiver terminal ID fails loudly instead of producing
+a false near-zero transfer result.
 
 The VID/PIDs in the samples are development identifiers only and must be
 replaced before product distribution.
@@ -515,3 +527,95 @@ Across the full matrix, repeated control-point runs, idle-policy runs,
 telemetry run, and smoke checks, the board completed 145,200 exchanges without
 a timeout, payload mismatch, or adapter error. The normal non-telemetry image
 was restored and passed a final 1,100-exchange smoke test.
+
+### 2026-09-01 sequential 1 MiB object transfer
+
+The generated Bulk messages and sequential sender/receiver runtime were then
+exercised through the same native USB endpoint. The board remained an
+ESP32-S3-N8R2 at 240 MHz with Full-Speed USB and
+`CONFIG_UDC_DWC2_DMA=n`; the host was an Intel Core 5 315 running Linux
+7.2.0-1-cachyos with the `powersave` governor. Software versions were Wirelink
+`fcb0ab1` plus the benchmark-only fresh-ID guard in `2d7e815`, Zephyr
+`bd8c1538237`, Astrial `4ec4dc3`, and libusb 1.0.30.
+
+The receiver uses a constant-RAM sink: every borrowed Chunk is pattern-checked
+and accumulated into CRC32C before the event is released, but the 1 MiB object
+is never staged in board RAM. This one final object checksum is application
+integrity; it does not reintroduce a CRC on every USB frame. The normal image
+occupied 138,820 bytes of flash,
+41,292 bytes of IRAM, and 65,184 bytes of DRAM. Its maximum Wirelink payload was
+2,048 bytes and the largest tested generated Chunk carried 2,016 object bytes.
+
+Each normal-image cell used one warm-up followed by five measured transfers.
+The host used `hybrid` idle with a 50 us spin window after submission and
+receive-only wakeups. Object time starts immediately before Begin and ends
+when the End Status completes the sender. All 18 warm-up and measured objects
+completed with the expected CRC. The 15 measured objects reported no retry,
+no BUSY response, and no adapter error.
+
+| Chunk (B) | Actions/object | Object p50 (ms) | Object second-highest (ms) | Max (ms) | Status RTT p50 / p99 / max (us) | Payload B/s | Host CPU |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 2,050 | 2,145.37 | 2,146.74 | 2,156.31 | 1,024.41 / 1,176.57 / 2,373.68 | 488,565.66 | 11.18% |
+| 1,024 | 1,026 | 1,651.36 | 1,655.93 | 1,657.02 | 1,593.52 / 1,714.84 / 2,702.91 | 634,504.42 | 7.62% |
+| 2,016 | 523 | 1,398.29 | 1,398.35 | 1,402.57 | 2,669.59 / 2,799.47 / 3,611.39 | 749,983.72 | 5.03% |
+
+With only five measured objects per cell, the benchmark's nominal object p99
+selects the second-highest sample; the table labels that order statistic
+directly rather than claiming a formal object p99. Each Status distribution
+contains 2,615 to 10,250 samples, so its p99 remains useful.
+
+Increasing the Chunk from 512 to 2,016 bytes raised useful goodput by 53.5%
+and cut host CPU from 11.18% to 5.03%. The larger frame has a longer individual
+Status RTT, but requires about one quarter as many round trips. For the
+2,016-byte telemetry transfer the device received 1,064,189 bytes for a
+1,048,576-byte object, only 1.49% above the object size; 523 returned Status
+frames added 15,167 bytes in the other direction. The remaining throughput
+gap is therefore dominated by one-Status-per-action stop-and-wait scheduling,
+not the compact v1 frame header or COBS expansion. A bounded Chunk window or
+credit protocol is the next material object-throughput optimization.
+
+#### Device CPU attribution
+
+The optional telemetry image occupied 139,412 bytes of flash and 65,736 bytes
+of DRAM. One clean-tree run completed the 1 MiB / 2,016-byte transfer in
+1,471 ms and populated all sample and adapter regions; its DWC2/USBD hook
+fields correctly remained zero. To measure those lower layers, the documented
+temporary hooks were applied to the clean Zephyr checkout, the board was
+rebooted, and an 8-byte echo CSV was captured before the object. The table is
+the cumulative object CSV minus that baseline, so enumeration and the echo are
+excluded from counts and total cycles. The instrumented object took 1,452 ms
+on the device and 1,453.16 ms on the host.
+
+| Measured region | Calls/object | Mean/call (us) | Time/object (ms) | Cycle-window / elapsed |
+| --- | ---: | ---: | ---: | ---: |
+| DWC2 top-half ISR | 17,170 | 6.245 | 107.229 | 7.38% |
+| DWC2 deferred event | 2,092 | 22.178 | 46.397 | 3.20% |
+| Zephyr USBD event | 1,046 | 29.736 | 31.104 | 2.14% |
+| Adapter RX callback | -- | -- | 12.422 | 0.86% |
+| Adapter TX callback | -- | -- | 7.944 | 0.55% |
+| Adapter TX submit/sink | -- | -- | 39.818 | 2.74% |
+| Active adapter service | 1,074 | 57.062 | 61.285 | 4.22% |
+| `wl_poll` | 1,169 | 128.375 | 150.070 | 10.34% |
+| Full USB service call | 1,169 | 53.069 | 62.037 | 4.27% |
+| Bulk message dispatch | 523 | 245.286 | 128.285 | 8.84% |
+| Pattern check plus sink CRC | 521 | 176.560 | 91.988 | 6.34% |
+| Status `wl_send_unreliable` | 523 | 141.806 | 74.165 | 5.11% |
+
+The roughly 32.83 DWC2 interrupts per action are consistent with a maximum
+Chunk frame crossing about 32 64-byte Full-Speed packets, plus completion and
+Status traffic. The top-half maximum remained the 40.492 us boot-time maximum;
+the object did not establish a larger one. These rows are attribution windows,
+not disjoint CPU ownership: sink work is inside Bulk dispatch, active adapter
+service is inside the full service call, callbacks are inside the USBD path,
+the adapter TX submit/sink is inside Status `wl_send_unreliable`, and an ISR
+can preempt any thread window. They must not be summed into a total CPU
+percentage. Normal-image results remain authoritative for throughput.
+
+The temporary DWC2 and USBD hooks were removed immediately after capture, and
+the external Zephyr worktree was verified clean at `bd8c1538237`. Two
+independent 64 KiB single-run smokes then used different generated transfer
+IDs and both wrote all 33 Chunks; an intentional retained-ID reuse was rejected
+by the host benchmark before it could be reported as a transfer. The normal
+non-telemetry image was finally restored and completed another 1 MiB transfer
+in 1,396.92 ms at 750,635.99 payload B/s, with 523 matching Status messages,
+no retry, and no adapter error.

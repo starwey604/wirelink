@@ -357,7 +357,9 @@ The additive message definitions and generated C fixture live in
 two-context 1 MiB path is in
 [`bulk_transfer`](../tests/zephyr/integration/bulk_transfer). The reproducible
 CPU/goodput method and initial host record are in
-[`bulk-performance.md`](bulk-performance.md).
+[`bulk-performance.md`](bulk-performance.md). The generated-message 1 MiB
+ESP32-S3/Astrial path, including USB and device-CPU attribution, is recorded in
+[`usb-performance.md`](usb-performance.md#2026-09-01-sequential-1-mib-object-transfer).
 
 ## 9. Required verification
 
