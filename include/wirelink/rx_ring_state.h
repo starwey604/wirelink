@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/alignment.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,7 +18,7 @@ extern "C" {
 #define WL_RX_RING_STATE_SIZE 256U
 
 typedef union {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t bytes[WL_RX_RING_STATE_SIZE];
 } wl_rx_ring_state_t;
 

@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/alignment.h"
 #include "wirelink/types.h"
 
 #ifdef __cplusplus
@@ -21,7 +22,7 @@ extern "C" {
 #define WL_FIFO_CONTEXT_STORAGE_SIZE 128U
 
 typedef union wl_fifo {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_FIFO_CONTEXT_STORAGE_SIZE];
 } wl_fifo_t;
 

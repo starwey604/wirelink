@@ -70,27 +70,27 @@ enum {
 #define WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE 64U
 
 typedef union wl_rpc_client {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_CLIENT_STORAGE_SIZE];
 } wl_rpc_client_t;
 
 typedef union wl_rpc_client_slot {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_CLIENT_SLOT_STORAGE_SIZE];
 } wl_rpc_client_slot_t;
 
 typedef union wl_rpc_server {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_SERVER_STORAGE_SIZE];
 } wl_rpc_server_t;
 
 typedef union wl_rpc_server_pending_slot {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_SERVER_PENDING_SLOT_STORAGE_SIZE];
 } wl_rpc_server_pending_slot_t;
 
 typedef union wl_rpc_server_cache_slot {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE];
 } wl_rpc_server_cache_slot_t;
 

@@ -42,6 +42,10 @@ target_include_directories(wirelink PUBLIC
 )
 set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 
+if(MSVC)
+  target_compile_options(wirelink PUBLIC /utf-8)
+endif()
+
 option(WIRELINK_BUILD_FUZZERS
   "Build Clang libFuzzer targets" OFF)
 
@@ -210,6 +214,7 @@ if(WIRELINK_INSTALL)
 
   install(FILES
     include/wirelink/adapter.h
+    include/wirelink/alignment.h
     include/wirelink/bulk.h
     include/wirelink/cobs.h
     include/wirelink/codec.h

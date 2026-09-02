@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/alignment.h"
 #include "wirelink/frame.h"
 #include "wirelink/span.h"
 #include "wirelink/types.h"
@@ -25,7 +26,7 @@ typedef uint32_t wl_io_token_t;
  */
 #define WL_CONTEXT_STORAGE_SIZE 896U
 typedef union wl_ctx {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_CONTEXT_STORAGE_SIZE];
 } wl_ctx_t;
 

@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/alignment.h"
 #include "wirelink/types.h"
 
 #ifdef __cplusplus
@@ -16,12 +17,12 @@ extern "C" {
 #define WL_OUTBOX_SLOT_STORAGE_SIZE 32U
 
 typedef union wl_outbox {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_OUTBOX_STORAGE_SIZE];
 } wl_outbox_t;
 
 typedef union wl_outbox_slot {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_OUTBOX_SLOT_STORAGE_SIZE];
 } wl_outbox_slot_t;
 

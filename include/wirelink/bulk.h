@@ -110,7 +110,7 @@ enum {
 
 #define WL_BULK_RECEIVER_STORAGE_SIZE 256U
 typedef union wl_bulk_receiver {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_BULK_RECEIVER_STORAGE_SIZE];
 } wl_bulk_receiver_t;
 
@@ -211,7 +211,7 @@ enum {
 
 #define WL_BULK_SENDER_STORAGE_SIZE 256U
 typedef union wl_bulk_sender {
-  max_align_t align;
+  wl_max_align_t align;
   uint8_t private_bytes[WL_BULK_SENDER_STORAGE_SIZE];
 } wl_bulk_sender_t;
 
