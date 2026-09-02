@@ -102,6 +102,25 @@ cmake -S . -B build/usb-host \
 cmake --build build/usb-host
 ```
 
+On Windows, enable Wirelink's `astrial-usb` vcpkg manifest feature instead of
+installing libusb into a machine-wide classic vcpkg tree:
+
+```powershell
+$env:VCPKG_ROOT = "C:\src\vcpkg"
+cmake -S . -B build/usb-host `
+  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows `
+  -DVCPKG_MANIFEST_FEATURES=astrial-usb `
+  -DWIRELINK_BUILD_ASTRIAL_USB_ADAPTER=ON `
+  -DWIRELINK_ASTRIAL_SOURCE_DIR=C:\src\astrial `
+  -DASTRIAL_IO_URING=OFF
+cmake --build build/usb-host --config Release --parallel
+```
+
+The pinned manifest installs libusb below the build directory. Astrial's
+config-aware imported target links the matching MSVC library and lets vcpkg
+copy the correct runtime DLL beside application and test executables.
+
 The `wirelink::astrial_usb` target uses libusb through Astrial. RX transfers
 land directly in Wirelink's SPSC ring, and TX transfers borrow Wirelink's
 stable encoded unit until completion. It intentionally queues one variable-
