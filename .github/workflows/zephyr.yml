@@ -19,12 +19,12 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: wirelink
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -37,8 +37,8 @@ jobs:
       - name: Run Twister
         run: >-
           west twister
-          -T wirelink/tests/zephyr/unit
-          -T wirelink/tests/zephyr/integration
+          -T ${{ github.workspace }}/wirelink/tests/zephyr/unit
+          -T ${{ github.workspace }}/wirelink/tests/zephyr/integration
           -p unit_testing
           -p native_sim
           -p qemu_cortex_m3
@@ -53,12 +53,12 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: wirelink
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -72,7 +72,7 @@ jobs:
       - name: Build normal and CPU telemetry samples
         run: >-
           west twister
-          -T wirelink/samples/zephyr/usb_bulk
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/usb_bulk
           -p esp32s3_devkitc/esp32s3/procpu
           -s sample.wirelink.usb_bulk
           -s sample.wirelink.usb_bulk.cpu_stats
