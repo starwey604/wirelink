@@ -12,7 +12,8 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink_astrial PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(BUILD_TESTING AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE))
+if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL AND
+   (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR APPLE))
   add_executable(wirelink_astrial_virtual_serial_tests
     tests/virtual_serial.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures/wlc/generated/current/control.c)

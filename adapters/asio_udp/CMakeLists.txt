@@ -23,7 +23,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink_asio_udp PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL)
   add_executable(wirelink_asio_udp_loopback_tests tests/loopback.cpp)
   target_link_libraries(wirelink_asio_udp_loopback_tests PRIVATE wirelink_asio_udp)
   add_test(NAME wirelink_asio_udp_loopback
