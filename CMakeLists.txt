@@ -22,6 +22,8 @@ set(WIRELINK_SOURCES
   src/frame.c
   src/init.c
   src/latest.c
+  src/outbox.c
+  src/pump.c
   src/protocol.c
   src/rpc.c
   src/rx_ring_bipbuf.c
@@ -214,6 +216,8 @@ if(WIRELINK_INSTALL)
     include/wirelink/fifo.h
     include/wirelink/frame.h
     include/wirelink/latest.h
+    include/wirelink/outbox.h
+    include/wirelink/pump.h
     include/wirelink/rpc.h
     include/wirelink/span.h
     include/wirelink/types.h

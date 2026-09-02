@@ -3,18 +3,12 @@
 #include "wirelink/host/executor.hpp"
 
 #include <chrono>
-#include <cstring>
 #include <system_error>
 
 namespace wirelink::host {
 
 namespace {
 constexpr std::size_t s_kPollBudget = 64;
-
-bool s_isExpectedServiceResult(int s_result) {
-    return s_result == WL_OK || s_result == WL_ERR_NO_DATA ||
-           s_result == WL_ERR_WOULD_BLOCK;
-}
 } // namespace
 
 Executor::~Executor() {
@@ -28,7 +22,17 @@ int Executor::initialize(const wl_config_t& s_config,
         return WL_ERR_INVALID_ARG;
     }
 
-    const int s_result = wl_init(&m_context, &s_config, &s_storage);
+    const wl_outbox_config_t s_outbox_config{
+        .slots = m_outbox_slots.data(),
+        .slot_count = static_cast<std::uint16_t>(m_outbox_slots.size()),
+        .payload_storage = m_outbox_payloads.data(),
+        .payload_storage_size = m_outbox_payloads.size(),
+        .payload_capacity_per_slot = s_kMaximumCommandPayload,
+        .initial_generation = 0,
+    };
+    int s_result = wl_outbox_init(&m_outbox, &s_outbox_config);
+    if (s_result != WL_OK) return s_result;
+    s_result = wl_init(&m_context, &s_config, &s_storage);
     if (s_result != WL_OK) return s_result;
     m_state.store(State::kReady, std::memory_order_release);
     return WL_OK;
@@ -88,9 +92,8 @@ void Executor::stop() noexcept {
 
     if (s_current == State::kReady) {
         m_accepting.store(false, std::memory_order_release);
-        if (m_hooks.m_quiesce != nullptr) {
-            m_hooks.m_quiesce(m_hooks.m_user_data);
-        }
+        auto s_hooks = s_pumpHooks();
+        wl_pump_quiesce(&s_hooks);
         (void)wl_set_sink(&m_context, nullptr, nullptr);
         m_state.store(State::kStopped, std::memory_order_release);
         return;
@@ -153,40 +156,20 @@ int Executor::submitLatest(std::uint16_t s_message_id,
         if (!m_accepting.load(std::memory_order_relaxed)) {
             return WL_ERR_CANCELLED;
         }
-        LatestLane* s_lane = nullptr;
-        for (auto& s_candidate : m_latest_lanes) {
-            if (s_candidate.m_valid &&
-                s_candidate.m_command.m_message_id == s_message_id) {
-                s_lane = &s_candidate;
-                m_stats.m_latest_coalesced.fetch_add(
-                    1, std::memory_order_relaxed);
-                break;
-            }
-        }
-        if (s_lane == nullptr) {
-            for (auto& s_candidate : m_latest_lanes) {
-                if (!s_candidate.m_valid) {
-                    s_lane = &s_candidate;
-                    break;
-                }
-            }
-        }
-        if (s_lane == nullptr) {
+        std::uint8_t s_coalesced{};
+        const int s_result = wl_outbox_submit_latest(
+            &m_outbox, s_message_id, s_payload, s_payload_size,
+            &s_coalesced);
+        if (s_result == WL_ERR_QUEUE_FULL) {
             m_stats.m_latest_queue_full.fetch_add(1,
                                                   std::memory_order_relaxed);
-            return WL_ERR_QUEUE_FULL;
+            return s_result;
         }
-
-        s_lane->m_command.m_generation = m_next_generation++;
-        if (m_next_generation == 0) m_next_generation = 1;
-        s_lane->m_command.m_message_id = s_message_id;
-        s_lane->m_command.m_payload_size =
-            static_cast<std::uint16_t>(s_payload_size);
-        if (s_payload_size != 0) {
-            std::memcpy(s_lane->m_command.m_payload.data(), s_payload,
-                        s_payload_size);
+        if (s_result != WL_OK) return s_result;
+        if (s_coalesced != 0U) {
+            m_stats.m_latest_coalesced.fetch_add(
+                1, std::memory_order_relaxed);
         }
-        s_lane->m_valid = true;
     }
 
     m_stats.m_latest_submitted.fetch_add(1, std::memory_order_relaxed);
@@ -200,30 +183,93 @@ wl_time_ms_t Executor::s_nowMs() noexcept {
         duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+int Executor::s_serviceBridge(void* s_user_data) noexcept {
+    auto& s_self = *static_cast<Executor*>(s_user_data);
+    return s_self.m_hooks.m_service(s_self.m_hooks.m_user_data);
+}
+
+void Executor::s_quiesceBridge(void* s_user_data) noexcept {
+    auto& s_self = *static_cast<Executor*>(s_user_data);
+    s_self.m_hooks.m_quiesce(s_self.m_hooks.m_user_data);
+}
+
+std::uint8_t Executor::s_applicationProgressBridge(
+    void* s_user_data, wl_ctx_t* s_context,
+    wl_time_ms_t s_now_ms) noexcept {
+    auto& s_self = *static_cast<Executor*>(s_user_data);
+    return s_self.m_hooks.m_application_progress(
+               s_self.m_hooks.m_user_data, *s_context, s_now_ms)
+               ? 1U
+               : 0U;
+}
+
+std::uint32_t Executor::s_applicationDeadlineBridge(
+    const void* s_user_data, wl_time_ms_t s_now_ms) noexcept {
+    const auto& s_self = *static_cast<const Executor*>(s_user_data);
+    return s_self.m_hooks.m_application_deadline_hint(
+        s_self.m_hooks.m_user_data, s_now_ms);
+}
+
+std::uint32_t Executor::s_adapterDeadlineBridge(
+    const void* s_user_data, wl_time_ms_t s_now_ms) noexcept {
+    const auto& s_self = *static_cast<const Executor*>(s_user_data);
+    return s_self.m_hooks.m_adapter_deadline_hint(
+        s_self.m_hooks.m_user_data, s_now_ms);
+}
+
+void Executor::s_eventBridge(void* s_user_data, wl_ctx_t* s_context,
+                             const wl_event_t* s_event) noexcept {
+    auto& s_self = *static_cast<Executor*>(s_user_data);
+    s_self.m_hooks.m_on_event(s_self.m_hooks.m_user_data, *s_context,
+                              *s_event);
+}
+
+wl_pump_hooks_t Executor::s_pumpHooks() noexcept {
+    return wl_pump_hooks_t{
+        .user_data = this,
+        .service = m_hooks.m_service != nullptr ? &Executor::s_serviceBridge
+                                                : nullptr,
+        .quiesce = m_hooks.m_quiesce != nullptr ? &Executor::s_quiesceBridge
+                                                : nullptr,
+        .application_progress =
+            m_hooks.m_application_progress != nullptr
+                ? &Executor::s_applicationProgressBridge
+                : nullptr,
+        .application_deadline_hint =
+            m_hooks.m_application_deadline_hint != nullptr
+                ? &Executor::s_applicationDeadlineBridge
+                : nullptr,
+        .adapter_deadline_hint =
+            m_hooks.m_adapter_deadline_hint != nullptr
+                ? &Executor::s_adapterDeadlineBridge
+                : nullptr,
+        .on_event = m_hooks.m_on_event != nullptr ? &Executor::s_eventBridge
+                                                  : nullptr,
+    };
+}
+
 void Executor::s_run() noexcept {
+    auto s_pump_hooks = s_pumpHooks();
     while (!m_stop_requested.load(std::memory_order_acquire)) {
         for (std::size_t s_index = 0;
              s_index < s_kPollBudget && m_wake.try_acquire(); ++s_index) {
         }
         const std::uint64_t s_observed_wake =
             m_wake_generation.load(std::memory_order_acquire);
-        const wl_time_ms_t s_now = s_nowMs();
-
-        if (m_hooks.m_service != nullptr) {
-            const int s_result = m_hooks.m_service(m_hooks.m_user_data);
-            if (!s_isExpectedServiceResult(s_result)) {
-                m_stats.m_service_errors.fetch_add(1, std::memory_order_relaxed);
-            }
+        wl_pump_result_t s_pump_result{};
+        const int s_step_result = wl_pump_step(
+            &m_context, s_nowMs(), s_kPollBudget, &s_pump_hooks,
+            &s_pump_result);
+        if (s_step_result != WL_OK) {
+            m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
         }
-
-        bool s_progress = s_pollEvents(s_now);
-        if (m_stop_requested.load(std::memory_order_acquire)) break;
-
-        if (m_hooks.m_application_progress != nullptr &&
-            m_hooks.m_application_progress(m_hooks.m_user_data, m_context,
-                                             s_nowMs())) {
-            s_progress = true;
-        }
+        m_stats.m_rx_events.fetch_add(s_pump_result.rx_events,
+                                      std::memory_order_relaxed);
+        m_stats.m_poll_errors.fetch_add(s_pump_result.poll_errors,
+                                        std::memory_order_relaxed);
+        m_stats.m_service_errors.fetch_add(s_pump_result.service_errors,
+                                           std::memory_order_relaxed);
+        bool s_progress = s_pump_result.progress != 0U;
         if (m_stop_requested.load(std::memory_order_acquire)) break;
 
         if (s_dispatchOne()) {
@@ -233,8 +279,8 @@ void Executor::s_run() noexcept {
 
         wl_poll_hint_t s_hint{};
         const wl_time_ms_t s_hint_now = s_nowMs();
-        const int s_hint_result =
-            wl_poll_get_hint(&m_context, s_hint_now, &s_hint);
+        const int s_hint_result = wl_pump_get_hint(
+            &m_context, s_hint_now, &s_pump_hooks, &s_hint);
         if (s_hint_result != WL_OK) {
             m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
         } else if (s_hint.work_pending != 0) {
@@ -244,22 +290,6 @@ void Executor::s_run() noexcept {
         std::uint32_t s_next_deadline =
             s_hint_result == WL_OK ? s_hint.next_deadline_ms
                                    : WL_POLL_NO_DEADLINE_MS;
-        if (m_hooks.m_application_deadline_hint != nullptr) {
-            const std::uint32_t s_application_deadline =
-                m_hooks.m_application_deadline_hint(m_hooks.m_user_data,
-                                                    s_hint_now);
-            if (s_application_deadline < s_next_deadline) {
-                s_next_deadline = s_application_deadline;
-            }
-        }
-        if (m_hooks.m_adapter_deadline_hint != nullptr) {
-            const std::uint32_t s_adapter_deadline =
-                m_hooks.m_adapter_deadline_hint(m_hooks.m_user_data,
-                                                s_hint_now);
-            if (s_adapter_deadline < s_next_deadline) {
-                s_next_deadline = s_adapter_deadline;
-            }
-        }
         if (s_next_deadline == 0) continue;
 
         if (m_stop_requested.load(std::memory_order_acquire) ||
@@ -279,83 +309,52 @@ void Executor::s_run() noexcept {
     m_state.store(State::kStopped, std::memory_order_release);
 }
 
-bool Executor::s_pollEvents(wl_time_ms_t s_now_ms) noexcept {
-    bool s_progress = false;
-    for (std::size_t s_index = 0; s_index < s_kPollBudget; ++s_index) {
-        wl_event_t s_event{};
-        const int s_result = wl_poll(&m_context, s_now_ms, &s_event);
-        if (s_result == WL_ERR_NO_DATA) break;
-        if (s_result != WL_OK) {
-            m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
-            s_progress = true;
-            continue;
-        }
-
-        s_progress = true;
-        s_handleEvent(s_event);
-    }
-    return s_progress;
-}
-
 bool Executor::s_dispatchOne() noexcept {
-    Command s_latest{};
-    if (!s_peekLatest(s_latest)) return false;
+    std::array<std::uint8_t, s_kMaximumCommandPayload> s_payload{};
+    wl_outbox_item_t s_item{};
+    {
+        std::lock_guard<std::mutex> s_lock(m_command_mutex);
+        const int s_acquired = wl_outbox_acquire_copy(
+            &m_outbox, s_payload.data(), s_payload.size(), &s_item);
+        if (s_acquired == WL_ERR_NO_DATA) return false;
+        if (s_acquired != WL_OK) {
+            m_stats.m_latest_failed.fetch_add(1,
+                                               std::memory_order_relaxed);
+            return false;
+        }
+    }
 
     const int s_result = wl_send_unreliable(
-        &m_context, s_latest.m_message_id, s_latest.m_payload.data(),
-        s_latest.m_payload_size);
+        &m_context, s_item.message_id, s_payload.data(),
+        s_item.payload_length);
+    const bool s_deferred = s_result == WL_ERR_BUSY ||
+                            s_result == WL_ERR_WOULD_BLOCK ||
+                            s_result == WL_ERR_NO_SPACE;
+    {
+        std::lock_guard<std::mutex> s_lock(m_command_mutex);
+        (void)wl_outbox_complete(
+            &m_outbox, &s_item,
+            s_result == WL_OK
+                ? WL_OUTBOX_ACCEPTED
+                : (s_deferred ? WL_OUTBOX_DEFERRED
+                              : WL_OUTBOX_REJECTED));
+    }
     if (s_result == WL_OK) {
-        s_removeLatest(s_latest.m_generation);
         m_stats.m_latest_dispatched.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
-    if (s_result == WL_ERR_BUSY || s_result == WL_ERR_WOULD_BLOCK) {
+    if (s_deferred) {
         return false;
     }
 
-    s_removeLatest(s_latest.m_generation);
     m_stats.m_latest_failed.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 
-void Executor::s_handleEvent(const wl_event_t& s_event) noexcept {
-    if (s_event.type == WL_EVT_UNRELIABLE_RX ||
-        s_event.type == WL_EVT_RELIABLE_RX) {
-        m_stats.m_rx_events.fetch_add(1, std::memory_order_relaxed);
-        if (m_hooks.m_on_event != nullptr) {
-            m_hooks.m_on_event(m_hooks.m_user_data, m_context, s_event);
-        } else {
-            wl_event_release(&m_context, &s_event);
-        }
-        return;
-    }
-
-    if (s_event.type != WL_EVT_TX_SUCCESS &&
-        s_event.type != WL_EVT_TX_TIMEOUT &&
-        s_event.type != WL_EVT_TX_FAILED) {
-        return;
-    }
-
-    // Internal control-unit sends (for example a reliable RX ACK) have no
-    // user-visible handle and therefore do not belong to a generated RPC
-    // client transaction.
-    if (s_event.handle == 0) return;
-
-    // Generated RPC runtimes must see terminal TX events before the handle is
-    // taken. They use the handle to move LINK_PENDING requests forward.
-    if (m_hooks.m_on_event != nullptr) {
-        m_hooks.m_on_event(m_hooks.m_user_data, m_context, s_event);
-    }
-
-    wl_tx_result_t s_ignored{};
-    (void)wl_tx_take(&m_context, s_event.handle, &s_ignored);
-}
-
 void Executor::s_shutdownOnOwner() noexcept {
     m_accepting.store(false, std::memory_order_release);
-    if (m_hooks.m_quiesce != nullptr) {
-        m_hooks.m_quiesce(m_hooks.m_user_data);
-    }
+    auto s_pump_hooks = s_pumpHooks();
+    wl_pump_quiesce(&s_pump_hooks);
 
     std::uint32_t s_producers =
         m_producers_in_flight.load(std::memory_order_acquire);
@@ -364,53 +363,25 @@ void Executor::s_shutdownOnOwner() noexcept {
         s_producers = m_producers_in_flight.load(std::memory_order_acquire);
     }
 
-    if (m_hooks.m_service != nullptr) {
-        const int s_service_result = m_hooks.m_service(m_hooks.m_user_data);
-        if (!s_isExpectedServiceResult(s_service_result)) {
-            m_stats.m_service_errors.fetch_add(1, std::memory_order_relaxed);
+    if (s_pump_hooks.service != nullptr) {
+        const int s_service_result = s_pump_hooks.service(this);
+        if (s_service_result != WL_OK && s_service_result != WL_ERR_NO_DATA &&
+            s_service_result != WL_ERR_WOULD_BLOCK) {
+            m_stats.m_service_errors.fetch_add(1,
+                                               std::memory_order_relaxed);
         }
     }
 
     {
         std::lock_guard<std::mutex> s_lock(m_command_mutex);
-        std::uint64_t s_cancelled{};
-        for (auto& s_lane : m_latest_lanes) {
-            if (s_lane.m_valid) {
-                s_lane.m_valid = false;
-                ++s_cancelled;
-            }
-        }
+        std::uint16_t s_cancelled{};
+        (void)wl_outbox_reset(&m_outbox, &s_cancelled);
         if (s_cancelled != 0) {
             m_stats.m_latest_cancelled.fetch_add(s_cancelled,
                                                  std::memory_order_relaxed);
         }
     }
     (void)wl_set_sink(&m_context, nullptr, nullptr);
-}
-
-bool Executor::s_peekLatest(Command& s_command) noexcept {
-    std::lock_guard<std::mutex> s_lock(m_command_mutex);
-    for (std::size_t s_offset = 0; s_offset < m_latest_lanes.size();
-         ++s_offset) {
-        const std::size_t s_index =
-            (m_latest_cursor + s_offset) % m_latest_lanes.size();
-        if (!m_latest_lanes[s_index].m_valid) continue;
-        s_command = m_latest_lanes[s_index].m_command;
-        m_latest_cursor = (s_index + 1) % m_latest_lanes.size();
-        return true;
-    }
-    return false;
-}
-
-void Executor::s_removeLatest(std::uint64_t s_generation) noexcept {
-    std::lock_guard<std::mutex> s_lock(m_command_mutex);
-    for (auto& s_lane : m_latest_lanes) {
-        if (s_lane.m_valid &&
-            s_lane.m_command.m_generation == s_generation) {
-            s_lane.m_valid = false;
-            return;
-        }
-    }
 }
 
 ExecutorStats Executor::stats() const noexcept {

@@ -1,0 +1,6 @@
+tests:
+  wirelink.pump.unit:
+    type: unit
+    tags:
+      - wirelink
+      - scheduling

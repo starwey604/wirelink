@@ -4,6 +4,8 @@
 #define WIRELINK_HOST_EXECUTOR_HPP
 
 #include "wirelink/wirelink.h"
+#include "wirelink/outbox.h"
+#include "wirelink/pump.h"
 
 #include <array>
 #include <atomic>
@@ -116,13 +118,6 @@ public:
     ExecutorStats stats() const noexcept;
 
 private:
-    struct Command {
-        std::uint64_t m_generation{};
-        std::uint16_t m_message_id{};
-        std::uint16_t m_payload_size{};
-        std::array<std::uint8_t, s_kMaximumCommandPayload> m_payload{};
-    };
-
     struct AtomicStats {
         std::atomic<std::uint64_t> m_feed_calls{};
         std::atomic<std::uint64_t> m_feed_bytes{};
@@ -138,19 +133,22 @@ private:
         std::atomic<std::uint64_t> m_latest_cancelled{};
     };
 
-    struct LatestLane {
-        Command m_command{};
-        bool m_valid{};
-    };
-
     static wl_time_ms_t s_nowMs() noexcept;
+    static int s_serviceBridge(void* s_user_data) noexcept;
+    static void s_quiesceBridge(void* s_user_data) noexcept;
+    static std::uint8_t s_applicationProgressBridge(
+        void* s_user_data, wl_ctx_t* s_context,
+        wl_time_ms_t s_now_ms) noexcept;
+    static std::uint32_t s_applicationDeadlineBridge(
+        const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
+    static std::uint32_t s_adapterDeadlineBridge(
+        const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
+    static void s_eventBridge(void* s_user_data, wl_ctx_t* s_context,
+                              const wl_event_t* s_event) noexcept;
+    wl_pump_hooks_t s_pumpHooks() noexcept;
     void s_run() noexcept;
-    bool s_pollEvents(wl_time_ms_t s_now_ms) noexcept;
     bool s_dispatchOne() noexcept;
-    void s_handleEvent(const wl_event_t& s_event) noexcept;
     void s_shutdownOnOwner() noexcept;
-    bool s_peekLatest(Command& s_command) noexcept;
-    void s_removeLatest(std::uint64_t s_generation) noexcept;
     wl_ctx_t m_context{};
     ExecutorHooks m_hooks{};
     std::atomic<State> m_state{State::kUninitialized};
@@ -159,9 +157,11 @@ private:
     std::thread m_thread;
 
     std::mutex m_command_mutex;
-    std::array<LatestLane, s_kLatestLaneCapacity> m_latest_lanes{};
-    std::size_t m_latest_cursor{};
-    std::uint64_t m_next_generation{1};
+    wl_outbox_t m_outbox{};
+    std::array<wl_outbox_slot_t, s_kLatestLaneCapacity> m_outbox_slots{};
+    std::array<std::uint8_t,
+               s_kLatestLaneCapacity * s_kMaximumCommandPayload>
+        m_outbox_payloads{};
 
     std::atomic<std::uint64_t> m_wake_generation{};
     std::counting_semaphore<> m_wake{0};

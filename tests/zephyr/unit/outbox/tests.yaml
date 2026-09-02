@@ -1,0 +1,6 @@
+tests:
+  wirelink.outbox.unit:
+    type: unit
+    tags:
+      - wirelink
+      - outbox
