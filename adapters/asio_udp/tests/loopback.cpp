@@ -57,13 +57,19 @@ int main()
         .bind_port = 0,
         .maximum_datagram_size = 128,
     };
+    const wirelink::asio::UdpAdapterConfig learning_config{
+        .bind_address = "127.0.0.1",
+        .bind_port = 0,
+        .maximum_datagram_size = 128,
+        .learn_peer_from_first_datagram = true,
+    };
     std::error_code error;
     auto left_udp = wirelink::asio::UdpAdapter::open(left.context, config, error);
     assert(left_udp && !error);
-    auto right_udp = wirelink::asio::UdpAdapter::open(right.context, config, error);
+    auto right_udp = wirelink::asio::UdpAdapter::open(right.context,
+                                                       learning_config, error);
     assert(right_udp && !error);
     assert(left_udp->set_peer("127.0.0.1", right_udp->local_port()) == WL_OK);
-    assert(right_udp->set_peer("127.0.0.1", left_udp->local_port()) == WL_OK);
     assert(right_udp->deadline_hint(0) == 1);
 
     constexpr std::array<std::uint8_t, 5> payload{1, 3, 5, 7, 9};
@@ -92,6 +98,23 @@ int main()
     right_udp->get_stats(stats);
     assert(stats.rx_datagrams == 1);
     assert(stats.rx_bytes > payload.size());
+    assert(stats.peer_learns == 1);
+
+    constexpr std::array<std::uint8_t, 2> reply{4, 2};
+    assert(wl_send_unreliable(&right.context, 0x43, reply.data(),
+                              reply.size()) == WL_OK);
+    received = false;
+    for (unsigned int attempt = 0; attempt < 100 && !received; ++attempt)
+    {
+        const int service_result = left_udp->service();
+        assert(service_result == WL_OK || service_result == WL_ERR_NO_DATA ||
+               service_result == WL_ERR_WOULD_BLOCK);
+        if (wl_poll(&left.context, attempt, &event) == WL_OK)
+            received = event.type == WL_EVT_UNRELIABLE_RX;
+        if (!received) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    assert(received && event.message_id == 0x43);
+    wl_event_release(&left.context, &event);
     right_udp->quiesce();
     assert(right_udp->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS);
     assert(right_udp->service() == WL_ERR_INVALID_STATE);

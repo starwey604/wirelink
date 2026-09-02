@@ -13,9 +13,9 @@ class UdpAdapter::Impl
 {
 public:
     Impl(wl_ctx_t& context, std::size_t maximum,
-         std::chrono::milliseconds interval)
+         std::chrono::milliseconds interval, bool learn_peer)
         : link(context), socket(io), maximum_datagram_size(maximum),
-          poll_interval(interval)
+          poll_interval(interval), learn_peer_from_first_datagram(learn_peer)
     {
     }
 
@@ -27,6 +27,7 @@ public:
     std::size_t maximum_datagram_size{};
     std::chrono::milliseconds poll_interval{1};
     bool quiesced{};
+    bool learn_peer_from_first_datagram{};
     UdpAdapterStats stats{};
 };
 
@@ -56,7 +57,8 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_ctx_t& link,
     const auto address = ::asio::ip::make_address(config.bind_address, error);
     if (error) return nullptr;
     auto impl = std::make_unique<Impl>(link, config.maximum_datagram_size,
-                                      config.poll_interval);
+                                      config.poll_interval,
+                                      config.learn_peer_from_first_datagram);
     impl->socket.open(address.is_v6() ? ::asio::ip::udp::v6() :
                                        ::asio::ip::udp::v4(), error);
     if (error) return nullptr;
@@ -96,8 +98,9 @@ wl_sink_result_t UdpAdapter::sink(void* user_data, wl_io_token_t token,
     if (adapter == nullptr || data == nullptr || length == 0)
         return WL_SINK_FAILED;
     auto& impl = *adapter->m_impl;
-    if (!impl.have_peer || length > impl.maximum_datagram_size)
+    if (length > impl.maximum_datagram_size)
         return WL_SINK_FAILED;
+    if (!impl.have_peer) return WL_SINK_BUSY;
 
     std::error_code error;
     const auto sent = impl.socket.send_to(::asio::buffer(data, length),
@@ -147,7 +150,13 @@ int UdpAdapter::service()
         ++m_impl->stats.errors;
         return WL_ERR_IO;
     }
-    if (m_impl->have_peer && source != m_impl->peer)
+    if (!m_impl->have_peer && m_impl->learn_peer_from_first_datagram)
+    {
+        m_impl->peer = source;
+        m_impl->have_peer = true;
+        ++m_impl->stats.peer_learns;
+    }
+    else if (!m_impl->have_peer || source != m_impl->peer)
     {
         (void)wl_rx_dma_finish(&m_impl->link, &claim);
         ++m_impl->stats.rx_rejected;

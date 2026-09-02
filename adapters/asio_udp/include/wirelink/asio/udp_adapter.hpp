@@ -23,6 +23,9 @@ struct UdpAdapterConfig
     // The synchronous non-blocking socket has no readiness callback. This
     // bounded owner wake keeps receive latency explicit instead of busy-spin.
     std::chrono::milliseconds poll_interval{1};
+    // If true, the first accepted source becomes the fixed peer. Intended for
+    // devices that announce themselves before the host can address them.
+    bool learn_peer_from_first_datagram{};
 };
 
 struct UdpAdapterStats
@@ -31,6 +34,7 @@ struct UdpAdapterStats
     std::uint64_t rx_bytes{};
     std::uint64_t rx_rejected{};
     std::uint64_t rx_pauses{};
+    std::uint64_t peer_learns{};
     std::uint64_t tx_datagrams{};
     std::uint64_t tx_bytes{};
     std::uint64_t errors{};
