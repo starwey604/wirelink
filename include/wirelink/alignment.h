@@ -6,14 +6,14 @@
 #include <stddef.h>
 
 /*
- * MSVC's C frontend does not expose C11 max_align_t. Keep the opaque public
- * storage conservatively aligned without making applications special-case
- * allocation on Windows. Sixteen bytes matches the MSVC x64 heap guarantee
- * and is at least as strict as every type stored in Wirelink's contexts.
+ * MSVC's C frontend does not expose C11 max_align_t. Reconstruct its maximum
+ * scalar alignment so C and C++ callers agree on opaque context layout.
  */
 #if defined(_MSC_VER) && !defined(__clang__)
 typedef union wl_max_align {
-  __declspec(align(16)) unsigned char byte;
+  long double floating;
+  void *pointer;
+  __int64 integer;
 } wl_max_align_t;
 #else
 typedef max_align_t wl_max_align_t;
