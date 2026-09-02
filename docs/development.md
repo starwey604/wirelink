@@ -184,6 +184,16 @@ the new hint remains non-immediate and the loop sleeps for the next writable
 notification instead of spinning. An adapter without a writability callback
 must provide its own bounded periodic wake policy.
 
+Hosted adapters expose the same owner-facing lifecycle: `service()` publishes
+deferred completion/rearm state, `quiesce()` stops producers and detaches the
+sink, and `deadline_hint(now_ms)` returns a relative scheduling bound.
+Astrial serial and USB Bulk are event-driven: their completion callbacks wake
+the owner and their deadline is `WL_POLL_NO_DEADLINE_MS`. The synchronous
+non-blocking Asio UDP adapter cannot expose socket readiness through its
+cross-platform API, so its configuration supplies a finite `poll_interval`
+(1 ms by default). The owner merges this adapter hint with core and
+application hints through `wl_pump_get_hint()`.
+
 For COBS ingress, the query scans only for a complete delimiter-terminated
 unit; a partial unit waits for the producer's next notification. RX overflow
 is immediate recovery work even when the ring contains no complete unit.

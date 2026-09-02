@@ -4,6 +4,7 @@
 
 #include <asio.hpp>
 
+#include <limits>
 #include <utility>
 
 namespace wirelink::asio
@@ -11,8 +12,10 @@ namespace wirelink::asio
 class UdpAdapter::Impl
 {
 public:
-    Impl(wl_ctx_t& context, std::size_t maximum)
-        : link(context), socket(io), maximum_datagram_size(maximum)
+    Impl(wl_ctx_t& context, std::size_t maximum,
+         std::chrono::milliseconds interval)
+        : link(context), socket(io), maximum_datagram_size(maximum),
+          poll_interval(interval)
     {
     }
 
@@ -22,6 +25,8 @@ public:
     ::asio::ip::udp::endpoint peer;
     bool have_peer{};
     std::size_t maximum_datagram_size{};
+    std::chrono::milliseconds poll_interval{1};
+    bool quiesced{};
     UdpAdapterStats stats{};
 };
 
@@ -30,9 +35,7 @@ UdpAdapter::UdpAdapter(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
 UdpAdapter::~UdpAdapter()
 {
     if (!m_impl) return;
-    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
-    std::error_code ignored;
-    m_impl->socket.close(ignored);
+    quiesce();
 }
 
 std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_ctx_t& link,
@@ -41,7 +44,7 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_ctx_t& link,
 {
     wl_config_t link_config{};
     error.clear();
-    if (config.maximum_datagram_size == 0 ||
+    if (config.maximum_datagram_size == 0 || config.poll_interval.count() <= 0 ||
         wl_get_config(&link, &link_config) != WL_OK ||
         link_config.envelope != WL_ENVELOPE_COBS_STREAM ||
         link_config.integrity != WL_INTEGRITY_NONE)
@@ -52,7 +55,8 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_ctx_t& link,
 
     const auto address = ::asio::ip::make_address(config.bind_address, error);
     if (error) return nullptr;
-    auto impl = std::make_unique<Impl>(link, config.maximum_datagram_size);
+    auto impl = std::make_unique<Impl>(link, config.maximum_datagram_size,
+                                      config.poll_interval);
     impl->socket.open(address.is_v6() ? ::asio::ip::udp::v6() :
                                        ::asio::ip::udp::v4(), error);
     if (error) return nullptr;
@@ -112,6 +116,7 @@ wl_sink_result_t UdpAdapter::sink(void* user_data, wl_io_token_t token,
 
 int UdpAdapter::service()
 {
+    if (!m_impl || m_impl->quiesced) return WL_ERR_INVALID_STATE;
     wl_rx_dma_claim_t claim{};
     int result = wl_rx_dma_claim(&m_impl->link,
                                  m_impl->maximum_datagram_size, &claim);
@@ -159,6 +164,26 @@ int UdpAdapter::service()
     ++m_impl->stats.rx_datagrams;
     m_impl->stats.rx_bytes += received;
     return WL_OK;
+}
+
+void UdpAdapter::quiesce() noexcept
+{
+    if (!m_impl || m_impl->quiesced) return;
+    m_impl->quiesced = true;
+    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
+    std::error_code ignored;
+    m_impl->socket.close(ignored);
+}
+
+std::uint32_t UdpAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept
+{
+    (void)now_ms;
+    if (!m_impl || m_impl->quiesced) return WL_POLL_NO_DEADLINE_MS;
+    const std::int64_t count = m_impl->poll_interval.count();
+    if (count >= static_cast<std::int64_t>(
+                     std::numeric_limits<std::uint32_t>::max()))
+        return std::numeric_limits<std::uint32_t>::max() - 1U;
+    return static_cast<std::uint32_t>(count);
 }
 
 std::uint16_t UdpAdapter::local_port() const

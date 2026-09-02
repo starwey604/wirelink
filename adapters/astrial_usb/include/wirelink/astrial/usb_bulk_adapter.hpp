@@ -70,6 +70,8 @@ public:
 
     // Call from Wirelink's single-consumer context after wl_poll().
     int service();
+    void quiesce() noexcept;
+    [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     // Blocks the single-consumer context until RX/TX activity or timeout.
     // Pending notifications are coalesced before returning.
     bool wait_for_activity(std::chrono::nanoseconds timeout);

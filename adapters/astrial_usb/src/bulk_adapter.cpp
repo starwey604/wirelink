@@ -229,20 +229,7 @@ UsbBulkAdapter::UsbBulkAdapter(wl_ctx_t& link, UsbBulkDevice&& device,
 UsbBulkAdapter::~UsbBulkAdapter()
 {
     if (!m_impl) return;
-
-    m_impl->stopping.store(true, std::memory_order_release);
-    m_impl->device.close();
-    (void)service();
-    if (m_impl->claim_active)
-    {
-        if (m_impl->native_unit_mode)
-            (void)wl_rx_unit_abort(&m_impl->link, &m_impl->unit_claim);
-        else
-            (void)wl_rx_dma_abort(&m_impl->link);
-        m_impl->claim_active = false;
-    }
-    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
-    m_impl->started.store(false, std::memory_order_release);
+    quiesce();
 }
 
 tl::expected<std::unique_ptr<UsbBulkAdapter>, std::error_code>
@@ -386,6 +373,30 @@ int UsbBulkAdapter::service()
         m_impl->device.resume_reads();
     }
     return WL_OK;
+}
+
+void UsbBulkAdapter::quiesce() noexcept
+{
+    if (!m_impl || m_impl->stopping.exchange(true, std::memory_order_acq_rel))
+        return;
+    m_impl->device.close();
+    (void)service();
+    if (m_impl->claim_active)
+    {
+        if (m_impl->native_unit_mode)
+            (void)wl_rx_unit_abort(&m_impl->link, &m_impl->unit_claim);
+        else
+            (void)wl_rx_dma_abort(&m_impl->link);
+        m_impl->claim_active = false;
+    }
+    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
+    m_impl->started.store(false, std::memory_order_release);
+}
+
+std::uint32_t UsbBulkAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept
+{
+    (void)now_ms;
+    return WL_POLL_NO_DEADLINE_MS;
 }
 
 bool UsbBulkAdapter::wait_for_activity(std::chrono::nanoseconds timeout)

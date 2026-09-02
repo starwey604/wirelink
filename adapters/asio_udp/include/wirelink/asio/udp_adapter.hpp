@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -19,6 +20,9 @@ struct UdpAdapterConfig
     std::string bind_address{"0.0.0.0"};
     std::uint16_t bind_port{};
     std::size_t maximum_datagram_size{1200};
+    // The synchronous non-blocking socket has no readiness callback. This
+    // bounded owner wake keeps receive latency explicit instead of busy-spin.
+    std::chrono::milliseconds poll_interval{1};
 };
 
 struct UdpAdapterStats
@@ -45,6 +49,8 @@ public:
 
     int set_peer(std::string_view address, std::uint16_t port);
     int service();
+    void quiesce() noexcept;
+    [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     [[nodiscard]] std::uint16_t local_port() const;
     void get_stats(UdpAdapterStats& out_stats) const;
 

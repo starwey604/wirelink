@@ -4,6 +4,7 @@
 #include "control.h"
 
 #include <array>
+#include <atomic>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -27,6 +28,12 @@
 namespace
 {
 using namespace std::chrono_literals;
+
+void count_activity(void* user_data) noexcept
+{
+    static_cast<std::atomic<std::uint64_t>*>(user_data)->fetch_add(
+        1, std::memory_order_relaxed);
+}
 
 void require(bool condition, const std::string& message)
 {
@@ -195,12 +202,15 @@ void test_wirelink_round_trip()
     PseudoTerminal terminal;
     Endpoint device(0x1111);
     Endpoint peer(0x2222);
+    std::atomic<std::uint64_t> activity_count{};
     peer.enable_capture();
 
     wirelink::astrial::SerialConfig adapter_config;
     adapter_config.port = terminal.slave_name();
     adapter_config.baud_rate = 115200;
     adapter_config.auto_reconnect = false;
+    adapter_config.activity_callback = count_activity;
+    adapter_config.activity_user_data = &activity_count;
     auto opened = wirelink::astrial::SerialAdapter::open(device.context, adapter_config);
     if (!opened) throw std::system_error(opened.error(), "open Wirelink Astrial adapter");
     auto adapter = std::move(opened.value());
@@ -256,6 +266,13 @@ void test_wirelink_round_trip()
     require(stats.tx_submissions == 1, "TX submission statistics mismatch");
     require(stats.tx_completions == 1, "TX completion statistics mismatch");
     require(stats.errors == 0, "adapter reported unexpected errors");
+    require(activity_count.load(std::memory_order_relaxed) >= 2,
+            "RX/TX completions did not notify the owner");
+    require(adapter->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS,
+            "event-driven serial adapter exposed a polling deadline");
+    adapter->quiesce();
+    adapter->get_stats(stats);
+    require(!stats.started, "serial adapter did not quiesce");
 }
 
 void test_rx_backpressure_resume()

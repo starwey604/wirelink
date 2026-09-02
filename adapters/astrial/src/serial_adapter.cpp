@@ -16,8 +16,10 @@ enum class TxCompletion : unsigned int { None, Done, Failed };
 class SerialAdapter::Impl
 {
 public:
-    Impl(wl_ctx_t& link_context, Serial&& serial_port)
-        : link(link_context), port(std::move(serial_port))
+    Impl(wl_ctx_t& link_context, Serial&& serial_port,
+         SerialConfig::ActivityCallback callback, void* callback_user_data)
+        : link(link_context), port(std::move(serial_port)),
+          activity_callback(callback), activity_user_data(callback_user_data)
     {
     }
 
@@ -28,14 +30,14 @@ public:
         if (result != WL_OK)
         {
             errors.fetch_add(1, std::memory_order_relaxed);
-            rx_paused.store(true, std::memory_order_release);
+            pause_rx();
             return {};
         }
         if (reservation.length == 0)
         {
             (void)wl_rx_commit(&link, 0);
             rx_pauses.fetch_add(1, std::memory_order_relaxed);
-            rx_paused.store(true, std::memory_order_release);
+            pause_rx();
             return {};
         }
 
@@ -66,6 +68,7 @@ public:
         {
             errors.fetch_add(1, std::memory_order_relaxed);
         }
+        notify_activity();
     }
 
     void record_tx_completion(const std::error_code& error,
@@ -81,10 +84,25 @@ public:
         {
             errors.fetch_add(1, std::memory_order_relaxed);
         }
+        notify_activity();
+    }
+
+    void pause_rx()
+    {
+        if (!rx_paused.exchange(true, std::memory_order_acq_rel))
+            notify_activity();
+    }
+
+    void notify_activity()
+    {
+        if (activity_callback != nullptr)
+            activity_callback(activity_user_data);
     }
 
     wl_ctx_t& link;
     Serial port;
+    SerialConfig::ActivityCallback activity_callback{};
+    void* activity_user_data{};
     std::atomic<bool> started{false};
     std::atomic<bool> stopping{false};
     std::atomic<bool> rx_paused{false};
@@ -101,8 +119,11 @@ public:
     std::atomic<uint64_t> errors{};
 };
 
-SerialAdapter::SerialAdapter(wl_ctx_t& link, Serial&& serial)
-    : m_impl(std::make_unique<Impl>(link, std::move(serial)))
+SerialAdapter::SerialAdapter(wl_ctx_t& link, Serial&& serial,
+                             SerialConfig::ActivityCallback activity_callback,
+                             void* activity_user_data)
+    : m_impl(std::make_unique<Impl>(link, std::move(serial), activity_callback,
+                                    activity_user_data))
 {
 }
 
@@ -110,11 +131,7 @@ SerialAdapter::~SerialAdapter()
 {
     if (!m_impl) return;
 
-    m_impl->stopping.store(true, std::memory_order_release);
-    m_impl->port.close();
-    (void)service();
-    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
-    m_impl->started.store(false, std::memory_order_release);
+    quiesce();
 }
 
 tl::expected<std::unique_ptr<SerialAdapter>, std::error_code>
@@ -137,7 +154,9 @@ SerialAdapter::open(wl_ctx_t& link, const SerialConfig& config)
     if (!opened) return tl::make_unexpected(opened.error());
 
     auto adapter = std::unique_ptr<SerialAdapter>(
-        new SerialAdapter(link, std::move(opened.value())));
+        new SerialAdapter(link, std::move(opened.value()),
+                          config.activity_callback,
+                          config.activity_user_data));
     if (adapter->start() != WL_OK)
     {
         return tl::make_unexpected(make_error_code(SerialError::InvalidArgument));
@@ -224,6 +243,22 @@ int SerialAdapter::service()
         m_impl->port.resume_read();
     }
     return WL_OK;
+}
+
+void SerialAdapter::quiesce() noexcept
+{
+    if (!m_impl || m_impl->stopping.exchange(true, std::memory_order_acq_rel))
+        return;
+    m_impl->port.close();
+    (void)service();
+    (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
+    m_impl->started.store(false, std::memory_order_release);
+}
+
+std::uint32_t SerialAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept
+{
+    (void)now_ms;
+    return WL_POLL_NO_DEADLINE_MS;
 }
 
 void SerialAdapter::get_stats(SerialAdapterStats& out_stats) const

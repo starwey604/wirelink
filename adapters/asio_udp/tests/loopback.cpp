@@ -64,6 +64,7 @@ int main()
     assert(right_udp && !error);
     assert(left_udp->set_peer("127.0.0.1", right_udp->local_port()) == WL_OK);
     assert(right_udp->set_peer("127.0.0.1", left_udp->local_port()) == WL_OK);
+    assert(right_udp->deadline_hint(0) == 1);
 
     constexpr std::array<std::uint8_t, 5> payload{1, 3, 5, 7, 9};
     assert(wl_send_unreliable(&left.context, 0x42, payload.data(),
@@ -91,5 +92,8 @@ int main()
     right_udp->get_stats(stats);
     assert(stats.rx_datagrams == 1);
     assert(stats.rx_bytes > payload.size());
+    right_udp->quiesce();
+    assert(right_udp->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS);
+    assert(right_udp->service() == WL_ERR_INVALID_STATE);
     return 0;
 }

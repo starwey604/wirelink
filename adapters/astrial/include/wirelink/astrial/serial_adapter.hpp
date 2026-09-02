@@ -19,6 +19,8 @@ namespace wirelink::astrial
 {
 struct SerialConfig
 {
+    using ActivityCallback = void (*)(void* user_data) noexcept;
+
     std::string port;
     uint32_t baud_rate{115200};
     Parity parity{Parity::None};
@@ -26,6 +28,9 @@ struct SerialConfig
     DataBits data_bits{DataBits::Eight};
     bool auto_reconnect{true};
     std::chrono::milliseconds reconnect_interval{std::chrono::seconds(2)};
+    // Runs on Astrial's I/O thread after RX/TX completion state is published.
+    ActivityCallback activity_callback{};
+    void* activity_user_data{};
 };
 
 struct SerialAdapterStats
@@ -57,13 +62,17 @@ public:
     // Call from Wirelink's single consumer context after wl_poll(). It
     // forwards deferred TX completion and re-arms RX after ring backpressure.
     int service();
+    void quiesce() noexcept;
+    [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     void get_stats(SerialAdapterStats& out_stats) const;
     Serial& serial();
 
 private:
     class Impl;
 
-    SerialAdapter(wl_ctx_t& link, Serial&& serial);
+    SerialAdapter(wl_ctx_t& link, Serial&& serial,
+                  SerialConfig::ActivityCallback activity_callback,
+                  void* activity_user_data);
     int start();
     static wl_sink_result_t sink(void* user_data, wl_io_token_t token,
                                  const uint8_t* data, size_t length);
