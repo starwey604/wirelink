@@ -49,7 +49,8 @@ publish an installed CMake package target.
 
 The installed package also exposes `wirelink_wlc_generate()` for build-time
 schema compilation. WLC is always a host executable, including during a
-cross-build; pass its path explicitly or place it on the host `PATH`:
+cross-build. A normal online build does not require Rust or a separately
+installed compiler:
 
 ```cmake
 find_package(Wirelink 0.9 CONFIG REQUIRED)
@@ -57,17 +58,23 @@ find_package(Wirelink 0.9 CONFIG REQUIRED)
 wirelink_wlc_generate(
   TARGET fci_arm_protocol
   SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/schema/fci_arm.wl"
-  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/schema/host.bind.wl"
-  WLC_EXECUTABLE "${WLC_EXECUTABLE}")
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/schema/host.bind.wl")
 
 target_link_libraries(my_application PRIVATE fci_arm_protocol)
 ```
 
+WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
+`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names
+the pinned compatible version, Wirelink downloads its WLC GitHub Release into
+`WIRELINK_WLC_CACHE_DIR` and verifies the archive's fixed SHA256 before use.
+Set `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` for offline or hermetic builds and provide
+the executable explicitly. Platform selection uses `CMAKE_HOST_SYSTEM_NAME`
+and `CMAKE_HOST_SYSTEM_PROCESSOR`, never the cross-compilation target.
+
 Generated sources are written below the build directory and regenerate when
 the schema, profile, compatibility predecessor, or WLC executable changes.
-`WIRELINK_WLC_EXECUTABLE` may be set once at project scope instead of passing
-`WLC_EXECUTABLE` to every call. Automatic discovery uses the host search path
-rather than the cross-compilation sysroot.
+The generated manifest must match Wirelink's pinned compiler version and
+codegen ABI before any generated translation unit is compiled.
 
 ## Build the desktop serial adapter
 

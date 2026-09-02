@@ -19,6 +19,22 @@ Run its focused checks from the repository root with:
 cargo test --manifest-path wlc/Cargo.toml
 ```
 
+Consumer builds use the released host compiler instead of building this Rust
+worktree. `wirelink_wlc_generate()` resolves a per-call executable, a
+project-wide executable, or a compatible `wlc` on the host `PATH` before
+downloading the pinned release. The fallback selects from
+`CMAKE_HOST_SYSTEM_NAME`/`CMAKE_HOST_SYSTEM_PROCESSOR`, verifies a source-pinned
+SHA256, and caches the extracted executable below
+`WIRELINK_WLC_CACHE_DIR`. It never follows a branch or a `latest` release and
+never selects from the target sysroot during a cross-build. Set
+`WIRELINK_WLC_AUTO_DOWNLOAD=OFF` and `WIRELINK_WLC_EXECUTABLE` for an offline
+tool cache.
+
+Wirelink pins both the WLC release version and its codegen ABI. Every generated
+manifest is checked at build time before generated C compilation; updating WLC
+therefore requires updating the version, per-host archive hashes, expected ABI,
+fixtures, and package-consumer tests together.
+
 WLC emits a codec pair (`<module>.h/.c`) and an optional binding pair
 (`<module>_bindings.h/.c`). The codec exposes allocation-free clear,
 encoded-size, encode, and decode functions and depends only on

@@ -46,6 +46,15 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
+      - name: Configure WLC package consumer
+        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build WLC package consumer
+        run: cmake --build wlc-consumer-build --config Release --parallel
+
+      - name: Test WLC package consumer
+        run: ctest --test-dir wlc-consumer-build --build-config Release --output-on-failure
+
   short-enum-abi:
     name: Installed ABI (-fshort-enums consumer)
     runs-on: ubuntu-latest
