@@ -130,6 +130,7 @@ public:
         claim = {};
         unit_claim = {};
         rx_bytes.fetch_add(length, std::memory_order_relaxed);
+        rx_completions.fetch_add(1, std::memory_order_relaxed);
         if (error && !stopping.load(std::memory_order_acquire) &&
             error != make_error_code(UsbError::TransferCancelled))
         {
@@ -151,6 +152,8 @@ public:
         {
             errors.fetch_add(1, std::memory_order_relaxed);
         }
+        if (wanted == TxCompletion::Done)
+            tx_bytes.fetch_add(transferred, std::memory_order_relaxed);
         if (wake_policy == UsbBulkWakePolicy::AllCompletions) notify_activity();
     }
 
@@ -205,13 +208,16 @@ public:
     wl_io_token_t tx_token{};
     std::atomic<uint64_t> rx_claims{};
     std::atomic<uint64_t> rx_bytes{};
+    std::atomic<uint64_t> rx_completions{};
     std::atomic<uint64_t> rx_pauses{};
     std::atomic<uint64_t> tx_submissions{};
     std::atomic<uint64_t> tx_completions{};
+    std::atomic<uint64_t> tx_bytes{};
     std::atomic<uint64_t> activity_notifications{};
     std::atomic<uint64_t> wait_calls{};
     std::atomic<uint64_t> wait_wakeups{};
     std::atomic<uint64_t> wait_timeouts{};
+    std::atomic<uint64_t> service_calls{};
     std::atomic<uint64_t> errors{};
 };
 
@@ -348,6 +354,7 @@ wl_sink_result_t UsbBulkAdapter::sink(void* user_data, wl_io_token_t token,
 int UsbBulkAdapter::service()
 {
     if (!m_impl) return WL_ERR_INVALID_ARG;
+    m_impl->service_calls.fetch_add(1, std::memory_order_relaxed);
 
     const TxCompletion completion =
         m_impl->tx_completion.exchange(TxCompletion::None, std::memory_order_acq_rel);
@@ -421,6 +428,29 @@ void UsbBulkAdapter::get_stats(UsbBulkAdapterStats& out_stats) const
     out_stats.started = m_impl->started.load(std::memory_order_relaxed);
     out_stats.rx_paused = m_impl->rx_paused.load(std::memory_order_relaxed);
     out_stats.tx_active = m_impl->tx_active.load(std::memory_order_relaxed);
+}
+
+void UsbBulkAdapter::get_common_stats(
+    wl_adapter_stats_t& out_stats) const noexcept
+{
+    out_stats = wl_adapter_stats_t{
+        .rx_units = m_impl->rx_completions.load(std::memory_order_relaxed),
+        .rx_bytes = m_impl->rx_bytes.load(std::memory_order_relaxed),
+        .rx_backpressure = m_impl->rx_pauses.load(std::memory_order_relaxed),
+        .tx_units = m_impl->tx_submissions.load(std::memory_order_relaxed),
+        .tx_bytes = m_impl->tx_bytes.load(std::memory_order_relaxed),
+        .tx_completions = m_impl->tx_completions.load(std::memory_order_relaxed),
+        .activity_notifications =
+            m_impl->activity_notifications.load(std::memory_order_relaxed),
+        .service_calls = m_impl->service_calls.load(std::memory_order_relaxed),
+        .errors = m_impl->errors.load(std::memory_order_relaxed),
+        .started = static_cast<std::uint8_t>(
+            m_impl->started.load(std::memory_order_relaxed)),
+        .rx_paused = static_cast<std::uint8_t>(
+            m_impl->rx_paused.load(std::memory_order_relaxed)),
+        .tx_active = static_cast<std::uint8_t>(
+            m_impl->tx_active.load(std::memory_order_relaxed)),
+    };
 }
 
 UsbBulkDevice& UsbBulkAdapter::device()

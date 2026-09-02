@@ -14,6 +14,7 @@
 #include <tl/expected.hpp>
 
 #include "wirelink/wirelink.h"
+#include "wirelink/adapter.h"
 
 namespace wirelink::astrial
 {
@@ -76,6 +77,7 @@ public:
     // Pending notifications are coalesced before returning.
     bool wait_for_activity(std::chrono::nanoseconds timeout);
     void get_stats(UsbBulkAdapterStats& out_stats) const;
+    void get_common_stats(wl_adapter_stats_t& out_stats) const noexcept;
     UsbBulkDevice& device();
 
 private:

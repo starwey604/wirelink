@@ -266,11 +266,23 @@ void test_wirelink_round_trip()
     require(stats.tx_submissions == 1, "TX submission statistics mismatch");
     require(stats.tx_completions == 1, "TX completion statistics mismatch");
     require(stats.errors == 0, "adapter reported unexpected errors");
+    wl_adapter_stats_t common{};
+    adapter->get_common_stats(common);
+    require(common.rx_units > 0 && common.rx_bytes == stats.rx_bytes,
+            "common serial RX statistics mismatch");
+    require(common.tx_units == 1 && common.tx_completions == 1 &&
+                common.tx_bytes > outbound_payload.size(),
+            "common serial TX statistics mismatch");
+    require(common.activity_notifications >= 2 && common.service_calls > 0 &&
+                common.errors == 0,
+            "common serial lifecycle statistics mismatch");
     require(activity_count.load(std::memory_order_relaxed) >= 2,
             "RX/TX completions did not notify the owner");
     require(adapter->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS,
             "event-driven serial adapter exposed a polling deadline");
     adapter->quiesce();
+    adapter->get_common_stats(common);
+    require(common.started == 0, "common serial state did not quiesce");
     adapter->get_stats(stats);
     require(!stats.started, "serial adapter did not quiesce");
 }

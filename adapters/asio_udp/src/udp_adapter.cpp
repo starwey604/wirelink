@@ -120,6 +120,7 @@ wl_sink_result_t UdpAdapter::sink(void* user_data, wl_io_token_t token,
 int UdpAdapter::service()
 {
     if (!m_impl || m_impl->quiesced) return WL_ERR_INVALID_STATE;
+    ++m_impl->stats.service_calls;
     wl_rx_dma_claim_t claim{};
     int result = wl_rx_dma_claim(&m_impl->link,
                                  m_impl->maximum_datagram_size, &claim);
@@ -205,5 +206,23 @@ std::uint16_t UdpAdapter::local_port() const
 void UdpAdapter::get_stats(UdpAdapterStats& out_stats) const
 {
     out_stats = m_impl->stats;
+}
+
+void UdpAdapter::get_common_stats(wl_adapter_stats_t& out_stats) const noexcept
+{
+    out_stats = wl_adapter_stats_t{
+        .rx_units = m_impl->stats.rx_datagrams,
+        .rx_bytes = m_impl->stats.rx_bytes,
+        .rx_backpressure = m_impl->stats.rx_pauses,
+        .tx_units = m_impl->stats.tx_datagrams,
+        .tx_bytes = m_impl->stats.tx_bytes,
+        .tx_completions = m_impl->stats.tx_datagrams,
+        .activity_notifications = 0,
+        .service_calls = m_impl->stats.service_calls,
+        .errors = m_impl->stats.errors,
+        .started = static_cast<std::uint8_t>(!m_impl->quiesced),
+        .rx_paused = 0,
+        .tx_active = 0,
+    };
 }
 } // namespace wirelink::asio

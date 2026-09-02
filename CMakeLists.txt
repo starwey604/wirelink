@@ -209,6 +209,7 @@ if(WIRELINK_INSTALL)
   endif()
 
   install(FILES
+    include/wirelink/adapter.h
     include/wirelink/bulk.h
     include/wirelink/cobs.h
     include/wirelink/codec.h

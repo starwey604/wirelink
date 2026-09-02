@@ -194,6 +194,13 @@ cross-platform API, so its configuration supplies a finite `poll_interval`
 (1 ms by default). The owner merges this adapter hint with core and
 application hints through `wl_pump_get_hint()`.
 
+Hosted adapters also expose `get_common_stats(wl_adapter_stats_t&)`. The
+transport-independent view is the acceptance surface for telemetry and HIL:
+RX/TX units and bytes, backpressure, TX completions, owner notifications,
+service passes, errors, and current started/paused/active flags. Adapter-
+specific statistics remain available for controller or backend diagnostics,
+but product tests should use the common counters for pass/fail rules.
+
 For COBS ingress, the query scans only for a complete delimiter-terminated
 unit; a partial unit waits for the producer's next notification. RX overflow
 is immediate recovery work even when the ring contains no complete unit.

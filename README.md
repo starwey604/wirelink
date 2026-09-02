@@ -205,6 +205,8 @@ west twister \
 See [`docs/development.md`](docs/development.md) for concurrency, memory
 ownership, DMA lifecycle, adapter, and test contracts. The wire format is
 specified in [`docs/protocol.md`](docs/protocol.md).
+Cross-transport counters and hardware acceptance rules are defined in
+[`docs/adapter-hil.md`](docs/adapter-hil.md).
 
 ## Release checks
 

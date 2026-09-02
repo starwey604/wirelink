@@ -12,6 +12,7 @@
 #include <system_error>
 
 #include "wirelink/wirelink.h"
+#include "wirelink/adapter.h"
 
 namespace wirelink::asio
 {
@@ -38,6 +39,7 @@ struct UdpAdapterStats
     std::uint64_t tx_datagrams{};
     std::uint64_t tx_bytes{};
     std::uint64_t errors{};
+    std::uint64_t service_calls{};
 };
 
 class UdpAdapter
@@ -57,6 +59,7 @@ public:
     [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     [[nodiscard]] std::uint16_t local_port() const;
     void get_stats(UdpAdapterStats& out_stats) const;
+    void get_common_stats(wl_adapter_stats_t& out_stats) const noexcept;
 
 private:
     class Impl;

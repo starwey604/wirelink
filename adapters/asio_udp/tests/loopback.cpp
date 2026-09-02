@@ -99,6 +99,10 @@ int main()
     assert(stats.rx_datagrams == 1);
     assert(stats.rx_bytes > payload.size());
     assert(stats.peer_learns == 1);
+    wl_adapter_stats_t common{};
+    right_udp->get_common_stats(common);
+    assert(common.rx_units == 1 && common.rx_bytes == stats.rx_bytes);
+    assert(common.service_calls > 0 && common.errors == 0 && common.started == 1);
 
     constexpr std::array<std::uint8_t, 2> reply{4, 2};
     assert(wl_send_unreliable(&right.context, 0x43, reply.data(),
@@ -116,6 +120,8 @@ int main()
     assert(received && event.message_id == 0x43);
     wl_event_release(&left.context, &event);
     right_udp->quiesce();
+    right_udp->get_common_stats(common);
+    assert(common.started == 0);
     assert(right_udp->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS);
     assert(right_udp->service() == WL_ERR_INVALID_STATE);
     return 0;
