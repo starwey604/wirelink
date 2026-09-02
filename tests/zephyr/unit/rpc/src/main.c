@@ -248,6 +248,49 @@ ZTEST(wirelink_rpc, test_client_link_failure_and_unreliable_application_error) {
   zassert_equal(result.link_delivery_confirmed, 0U);
 }
 
+ZTEST(wirelink_rpc, test_client_deferred_start_releases_only_backpressure) {
+  wl_rpc_client_result_t result;
+
+  client_init(1U);
+  zassert_equal(
+      wl_rpc_client_begin_with_id(&clients.client, 1U, 10U, 11U, 100U, 0U),
+      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_link_failed(&clients.client, 1U, WL_ERR_BUSY),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release_deferred_start(&clients.client, 1U),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get(&clients.client, 1U, &result),
+                WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(
+      wl_rpc_client_begin_with_id(&clients.client, 1U, 10U, 11U, 100U, 1U),
+      WL_RPC_OK);
+  zassert_equal(
+      wl_rpc_client_link_failed(&clients.client, 1U, WL_ERR_WOULD_BLOCK),
+      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release_deferred_start(&clients.client, 1U),
+                WL_RPC_OK);
+
+  zassert_equal(
+      wl_rpc_client_begin_with_id(&clients.client, 2U, 10U, 11U, 100U, 2U),
+      WL_RPC_OK);
+  zassert_equal(
+      wl_rpc_client_link_failed(&clients.client, 2U, WL_ERR_NO_SPACE),
+      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release_deferred_start(&clients.client, 2U),
+                WL_RPC_OK);
+
+  zassert_equal(
+      wl_rpc_client_begin_with_id(&clients.client, 3U, 10U, 11U, 100U, 3U),
+      WL_RPC_OK);
+  zassert_equal(wl_rpc_client_link_failed(&clients.client, 3U, WL_ERR_IO),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release_deferred_start(&clients.client, 3U),
+                WL_RPC_ERR_INVALID_STATE);
+  zassert_equal(wl_rpc_client_get(&clients.client, 3U, &result), WL_RPC_OK);
+  zassert_equal(result.state, WL_RPC_CLIENT_LINK_FAILED);
+  zassert_equal(result.link_result, WL_ERR_IO);
+}
+
 ZTEST(wirelink_rpc, test_client_timeout_wrap_and_cancel_completion_race) {
   uint16_t timed_out = UINT16_MAX;
   wl_rpc_client_result_t result;
