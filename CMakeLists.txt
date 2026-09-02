@@ -44,6 +44,7 @@ set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 
 if(MSVC)
   target_compile_options(wirelink PUBLIC /utf-8)
+  target_compile_options(wirelink PRIVATE /experimental:c11atomics)
 endif()
 
 option(WIRELINK_BUILD_FUZZERS
