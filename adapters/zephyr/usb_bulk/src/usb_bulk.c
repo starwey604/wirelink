@@ -135,6 +135,7 @@ static wl_sink_result_t usb_sink(void *user_data, wl_io_token_t token,
                                                   : WL_SINK_FAILED;
   }
   atomic_inc(&adapter->tx_submissions);
+  atomic_add(&adapter->tx_bytes, (atomic_val_t)length);
   record_cycles(adapter, &adapter->tx_sink_cycles,
                 &adapter->tx_sink_max_cycles, started);
   return WL_SINK_STARTED;
@@ -523,6 +524,7 @@ void wl_zephyr_usb_bulk_reset_stats(wl_zephyr_usb_bulk_t *adapter) {
   atomic_set(&adapter->rx_pauses, 0);
   atomic_set(&adapter->tx_submissions, 0);
   atomic_set(&adapter->tx_completions, 0);
+  atomic_set(&adapter->tx_bytes, 0);
   atomic_set(&adapter->rx_callback_cycles, 0);
   atomic_set(&adapter->rx_callback_max_cycles, 0);
   atomic_set(&adapter->tx_callback_cycles, 0);
@@ -548,6 +550,7 @@ void wl_zephyr_usb_bulk_get_stats(const wl_zephyr_usb_bulk_t *adapter,
   out_stats->rx_pauses = (uint32_t)atomic_get(&adapter->rx_pauses);
   out_stats->tx_submissions = (uint32_t)atomic_get(&adapter->tx_submissions);
   out_stats->tx_completions = (uint32_t)atomic_get(&adapter->tx_completions);
+  out_stats->tx_bytes = (uint32_t)atomic_get(&adapter->tx_bytes);
   out_stats->rx_callback_cycles =
       (uint32_t)atomic_get(&adapter->rx_callback_cycles);
   out_stats->rx_callback_max_cycles =

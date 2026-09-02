@@ -44,6 +44,7 @@ typedef struct wl_zephyr_usb_bulk_stats {
   uint32_t rx_pauses;
   uint32_t tx_submissions;
   uint32_t tx_completions;
+  uint32_t tx_bytes;
   uint32_t rx_callback_cycles;
   uint32_t rx_callback_max_cycles;
   uint32_t tx_callback_cycles;
@@ -78,6 +79,7 @@ typedef struct wl_zephyr_usb_bulk {
   atomic_t rx_pauses;
   atomic_t tx_submissions;
   atomic_t tx_completions;
+  atomic_t tx_bytes;
   atomic_t rx_callback_cycles;
   atomic_t rx_callback_max_cycles;
   atomic_t tx_callback_cycles;
