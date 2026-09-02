@@ -1,0 +1,4 @@
+add_executable(wirelink_host_executor_tests executor.cpp)
+target_link_libraries(wirelink_host_executor_tests PRIVATE Wirelink::host)
+target_compile_features(wirelink_host_executor_tests PRIVATE cxx_std_20)
+add_test(NAME wirelink_host_executor COMMAND wirelink_host_executor_tests)

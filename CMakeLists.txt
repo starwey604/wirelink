@@ -92,6 +92,8 @@ option(WIRELINK_BUILD_BULK_BENCHMARK
   "Build the host sequential bulk runtime benchmark" OFF)
 option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
+option(WIRELINK_BUILD_HOST_RUNTIME
+  "Build the optional C++20 threaded session runtime" OFF)
 option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_INSTALL
@@ -100,6 +102,11 @@ set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
 set(WIRELINK_ASIO_INCLUDE_DIR "" CACHE PATH
   "Directory containing standalone Asio's asio.hpp")
+
+if(WIRELINK_BUILD_HOST_RUNTIME)
+  enable_language(CXX)
+  add_subdirectory(runtime/host)
+endif()
 
 if(WIRELINK_BUILD_HOST_BENCHMARKS)
   set(WIRELINK_BUILD_ASTRIAL_ADAPTER ON)
@@ -188,6 +195,17 @@ if(WIRELINK_INSTALL)
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+  if(TARGET wirelink_host)
+    install(TARGETS wirelink_host
+      EXPORT WirelinkTargets
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(FILES runtime/host/include/wirelink/host/executor.hpp
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
+  endif()
+
   install(FILES
     include/wirelink/bulk.h
     include/wirelink/cobs.h
@@ -208,6 +226,10 @@ if(WIRELINK_INSTALL)
     NAMESPACE Wirelink::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
 
+  set(WIRELINK_PACKAGE_HAS_HOST_RUNTIME OFF)
+  if(TARGET wirelink_host)
+    set(WIRELINK_PACKAGE_HAS_HOST_RUNTIME ON)
+  endif()
   configure_package_config_file(
     cmake/WirelinkConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
