@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -61,7 +61,7 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure normal library
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -102,10 +102,10 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check out Astrial
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: starwey604/astrial
           path: astrial
@@ -124,11 +124,11 @@ jobs:
 
       - name: Configure (Linux/macOS)
         if: runner.os != 'Windows'
-        run: cmake -S . -B build -DWIRELINK_BUILD_HOST_BENCHMARKS=ON -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial -DBUILD_TESTING=ON -DBUILD_EXAMPLE=OFF -DASTRIAL_IO_URING=OFF -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DWIRELINK_BUILD_HOST_BENCHMARKS=ON -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial -DBUILD_TESTING=ON -DASTRIAL_BUILD_EXAMPLES=OFF -DASTRIAL_IO_URING=OFF -DCMAKE_BUILD_TYPE=Release
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build -DWIRELINK_BUILD_HOST_BENCHMARKS=ON -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial -DBUILD_TESTING=ON -DBUILD_EXAMPLE=OFF -DASTRIAL_IO_URING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_FEATURES=astrial-usb
+        run: cmake -S . -B build -DWIRELINK_BUILD_HOST_BENCHMARKS=ON -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial -DBUILD_TESTING=ON -DASTRIAL_BUILD_EXAMPLES=OFF -DASTRIAL_IO_URING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_FEATURES=astrial-usb
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -142,10 +142,10 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Check out Astrial
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: starwey604/astrial
           path: astrial
@@ -156,7 +156,7 @@ jobs:
           -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON
           -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial
           -DBUILD_TESTING=ON
-          -DBUILD_EXAMPLE=OFF
+          -DASTRIAL_BUILD_EXAMPLES=OFF
           -DASTRIAL_IO_URING=OFF
           -DCMAKE_BUILD_TYPE=Debug
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
@@ -178,7 +178,7 @@ jobs:
 
     steps:
       - name: Check out Wirelink
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Configure
         run: cmake -S . -B build -DWIRELINK_BUILD_FUZZERS=ON -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang

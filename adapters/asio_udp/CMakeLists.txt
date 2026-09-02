@@ -12,6 +12,13 @@ endif()
 find_package(Threads REQUIRED)
 target_compile_features(wirelink_asio_udp PUBLIC cxx_std_20)
 target_compile_definitions(wirelink_asio_udp PRIVATE ASIO_STANDALONE)
+if(WIN32)
+  target_compile_definitions(wirelink_asio_udp PRIVATE
+    _WIN32_WINNT=0x0601
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX)
+  target_compile_options(wirelink_asio_udp PRIVATE /utf-8)
+endif()
 target_include_directories(wirelink_asio_udp
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
