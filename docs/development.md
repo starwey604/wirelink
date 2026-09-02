@@ -474,7 +474,7 @@ matrix:
 | `qemu_riscv32` | 32-bit RISC-V toolchain and architecture coverage. |
 | `qemu_x86_64` | 64-bit QEMU coverage independent of the native host binary. |
 
-Only integration tests should list these platforms in `tests.yaml`; pure-core
+Only integration tests should list these platforms in `testcase.yaml`; pure-core
 tests remain `type: unit` and run exclusively on `unit_testing`. Hardware
 scenarios are added separately with explicit driver and fixture requirements.
 
