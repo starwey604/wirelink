@@ -20,9 +20,12 @@ class UsbBulkAdapter::Impl
 {
 public:
     Impl(wl_ctx_t& link_context, UsbBulkDevice&& usb_device,
-         std::size_t read_size, UsbBulkWakePolicy policy)
+         std::size_t read_size, UsbBulkWakePolicy policy,
+         UsbBulkAdapterConfig::ActivityCallback callback,
+         void* callback_user_data)
         : link(link_context), device(std::move(usb_device)),
-          maximum_read_size(read_size), wake_policy(policy)
+          maximum_read_size(read_size), wake_policy(policy),
+          activity_callback(callback), activity_user_data(callback_user_data)
     {
     }
 
@@ -162,6 +165,8 @@ public:
     void notify_activity()
     {
         activity_notifications.fetch_add(1, std::memory_order_relaxed);
+        if (activity_callback != nullptr)
+            activity_callback(activity_user_data);
         activity.release();
     }
 
@@ -184,6 +189,8 @@ public:
     UsbBulkDevice device;
     std::size_t maximum_read_size{};
     UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
+    UsbBulkAdapterConfig::ActivityCallback activity_callback{};
+    void* activity_user_data{};
     std::atomic<bool> started{false};
     std::atomic<bool> stopping{false};
     std::atomic<bool> rx_paused{false};
@@ -210,9 +217,12 @@ public:
 
 UsbBulkAdapter::UsbBulkAdapter(wl_ctx_t& link, UsbBulkDevice&& device,
                                std::size_t maximum_read_size,
-                               UsbBulkWakePolicy wake_policy)
+                               UsbBulkWakePolicy wake_policy,
+                               UsbBulkAdapterConfig::ActivityCallback activity_callback,
+                               void* activity_user_data)
     : m_impl(std::make_unique<Impl>(link, std::move(device), maximum_read_size,
-                                    wake_policy))
+                                    wake_policy, activity_callback,
+                                    activity_user_data))
 {
 }
 
@@ -257,7 +267,8 @@ UsbBulkAdapter::open(wl_ctx_t& link, const UsbBulkAdapterConfig& config)
 
     auto adapter = std::unique_ptr<UsbBulkAdapter>(new UsbBulkAdapter(
         link, std::move(opened.value()), config.maximum_read_size,
-        config.wake_policy));
+        config.wake_policy, config.activity_callback,
+        config.activity_user_data));
     if (link_config.envelope == WL_ENVELOPE_NATIVE_PACKET)
     {
         adapter->m_impl->native_unit_mode = true;

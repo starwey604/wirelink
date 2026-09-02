@@ -49,6 +49,12 @@ static int queue_out(struct usbd_class_data *class_data,
                      wl_zephyr_usb_bulk_t *adapter);
 static struct usbd_class_data *wl_usb_bulk_class_data(void);
 
+static void wake_consumer(const wl_zephyr_usb_bulk_t *adapter) {
+  if (adapter->wake_consumer != NULL) {
+    adapter->wake_consumer(adapter->wake_user_data);
+  }
+}
+
 static uint32_t cycle_count(const wl_zephyr_usb_bulk_t *adapter) {
   return adapter->cycle_counter == NULL
              ? 0U
@@ -153,6 +159,7 @@ static int bulk_request(struct usbd_class_data *class_data,
     usbd_ep_buf_free(context, buffer);
     atomic_set(&adapter->tx_completion,
                error == 0 ? TX_COMPLETION_DONE : TX_COMPLETION_FAILED);
+    wake_consumer(adapter);
     record_cycles(adapter, &adapter->tx_callback_cycles,
                   &adapter->tx_callback_max_cycles, started);
     return 0;
@@ -195,6 +202,7 @@ static int bulk_request(struct usbd_class_data *class_data,
   usbd_ep_buf_free(context, buffer);
   atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
   atomic_inc(&adapter->rx_completions);
+  wake_consumer(adapter);
   record_cycles(adapter, &adapter->rx_callback_cycles,
                 &adapter->rx_callback_max_cycles, started);
   return 0;
@@ -208,6 +216,7 @@ static void bulk_enable(struct usbd_class_data *class_data) {
     atomic_set_bit(&adapter->flags, ADAPTER_ENABLED);
     atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
     (void)queue_out(class_data, adapter);
+    wake_consumer(adapter);
   }
 }
 
@@ -216,6 +225,7 @@ static void bulk_disable(struct usbd_class_data *class_data) {
 
   if (private_data->adapter != NULL) {
     atomic_clear_bit(&private_data->adapter->flags, ADAPTER_ENABLED);
+    wake_consumer(private_data->adapter);
   }
 }
 
@@ -426,6 +436,8 @@ int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
   adapter->maximum_rx_size = config->maximum_rx_size;
   adapter->native_unit_mode =
       link_config.envelope == WL_ENVELOPE_NATIVE_PACKET;
+  adapter->wake_user_data = config->wake_user_data;
+  adapter->wake_consumer = config->wake_consumer;
   if (adapter->native_unit_mode) {
     const wl_rx_unit_queue_config_t queue_config = {
         .storage = config->unit_queue_storage,

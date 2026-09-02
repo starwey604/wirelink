@@ -25,10 +25,17 @@ enum class UsbBulkWakePolicy
 
 struct UsbBulkAdapterConfig
 {
+    using ActivityCallback = void (*)(void* user_data) noexcept;
+
     UsbBulkConfig usb;
     std::size_t maximum_read_size{512};
     std::uint8_t unit_queue_slots{4};
     UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
+    // Optional non-blocking notification used to wake an external Wirelink
+    // owner. It runs on Astrial's USB event thread after RX/TX activity has
+    // been published; protocol work remains on the owner's thread.
+    ActivityCallback activity_callback{};
+    void* activity_user_data{};
 };
 
 struct UsbBulkAdapterStats
@@ -73,7 +80,9 @@ private:
     class Impl;
 
     UsbBulkAdapter(wl_ctx_t& link, UsbBulkDevice&& device,
-                   std::size_t maximum_read_size, UsbBulkWakePolicy wake_policy);
+                   std::size_t maximum_read_size, UsbBulkWakePolicy wake_policy,
+                   UsbBulkAdapterConfig::ActivityCallback activity_callback,
+                   void* activity_user_data);
     int start();
     static wl_sink_result_t sink(void* user_data, wl_io_token_t token,
                                  const uint8_t* data, size_t length);

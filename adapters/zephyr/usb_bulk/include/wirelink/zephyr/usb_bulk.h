@@ -20,6 +20,7 @@ extern "C" {
 #define WL_ZEPHYR_USB_BULK_INTERFACE_PROTOCOL 0x4CU
 
 typedef uint32_t (*wl_zephyr_usb_bulk_cycle_count_fn)(void *user_data);
+typedef void (*wl_zephyr_usb_bulk_wake_fn)(void *user_data);
 
 typedef struct wl_zephyr_usb_bulk_config {
   wl_ctx_t *link;
@@ -28,6 +29,9 @@ typedef struct wl_zephyr_usb_bulk_config {
   uint8_t *unit_queue_storage;
   size_t unit_queue_storage_size;
   uint8_t unit_queue_slots;
+  /* Optional ISR-safe notification for the single Wirelink consumer. */
+  void *wake_user_data;
+  wl_zephyr_usb_bulk_wake_fn wake_consumer;
   /* Optional thread/ISR-safe cycle counter used only for instrumentation. */
   void *cycle_counter_user_data;
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
@@ -58,6 +62,8 @@ typedef struct wl_zephyr_usb_bulk_stats {
 typedef struct wl_zephyr_usb_bulk {
   wl_ctx_t *link;
   size_t maximum_rx_size;
+  void *wake_user_data;
+  wl_zephyr_usb_bulk_wake_fn wake_consumer;
   void *cycle_counter_user_data;
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
   wl_rx_dma_claim_t rx_claim;
