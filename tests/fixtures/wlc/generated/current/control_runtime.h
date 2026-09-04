@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 8U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 9U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -107,7 +107,15 @@ typedef struct {
   uint16_t client_timed_out;
   uint16_t server_pending_expired;
   uint16_t server_cache_expired;
+  wl_rpc_request_identity_t server_expired_identity;
 } control_runtime_poll_result_t;
+
+typedef struct {
+  control_runtime_poll_result_t deadlines;
+  control_runtime_result_t response;
+  uint16_t responses_submitted;
+  uint16_t responses_deferred;
+} control_runtime_service_result_t;
 
 typedef struct {
   uint8_t _reserved;
@@ -177,9 +185,13 @@ int control_joint_command_fifo_release(control_runtime_t *runtime, control_joint
 int control_arm_mit_command_latest_acquire(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *out_view);
 int control_arm_mit_command_latest_release(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *view);
 
-/* Advance configured RPC deadlines without performing I/O. Disabled client
- * or server roles are skipped. */
+/* Advance configured RPC deadlines without performing I/O. At most one
+ * expired server identity is returned per call and remains pending until the
+ * application completes, rejects, or abandons it. */
 wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_poll_result_t *out_result);
+/* Advance deadlines and submit at most one runtime-owned server response.
+ * Link backpressure defers the same cached bytes for a later service call. */
+wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_service_result_t *out_result);
 /* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
 wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
 
@@ -195,11 +207,10 @@ wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t op
 
 /* completion_identity is copied from the request callback and uniquely scopes
  * completion to its Wirelink peer session. Completion writes operation ID and
- * status into response, caches once, and sends the cached bytes. */
+ * status into a runtime-owned response cache. runtime_service() performs I/O. */
 control_runtime_result_t control_home_server_complete(wl_ctx_t *ctx, control_runtime_t *runtime, const wl_rpc_request_identity_t *completion_identity, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
 control_runtime_result_t control_home_server_reject(wl_ctx_t *ctx, control_runtime_t *runtime, const wl_rpc_request_identity_t *completion_identity, int32_t application_status, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
-/* cached.response_data remains owned by wl_rpc_server_t; send or copy it before
- * the next server mutation, poll, or expiry. */
+/* Compatibility helper: replay is already queued; runtime_service() sends it. */
 control_runtime_result_t control_home_server_retry_cached(wl_ctx_t *ctx, const wl_rpc_server_response_t *cached);
 
 #ifdef __cplusplus

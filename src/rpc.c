@@ -51,16 +51,26 @@ typedef struct {
   wl_rpc_request_identity_t identity;
   wl_time_ms_t started_at;
   uint8_t active;
+  uint8_t expiry_reported;
 } wl_rpc_server_pending_impl_t;
 
 typedef struct {
   wl_rpc_request_identity_t identity;
   size_t response_length;
   uint64_t generation;
+  wl_tx_handle_t tx_handle;
   wl_time_ms_t completed_at;
   int32_t application_status;
   uint8_t active;
+  uint8_t delivery_state;
 } wl_rpc_server_cache_impl_t;
+
+enum {
+  WL_RPC_RESPONSE_DELIVERED = 0,
+  WL_RPC_RESPONSE_READY,
+  WL_RPC_RESPONSE_ACQUIRED,
+  WL_RPC_RESPONSE_IN_FLIGHT,
+};
 
 _Static_assert(sizeof(wl_rpc_client_impl_t) <= WL_RPC_CLIENT_STORAGE_SIZE,
                "WL_RPC_CLIENT_STORAGE_SIZE is too small");
@@ -720,6 +730,28 @@ static void response_from_cache(const wl_rpc_server_impl_t *server,
   out_response->response_data =
       &server->response_storage[(size_t)index * server->response_capacity];
   out_response->response_length = cache->response_length;
+  out_response->generation = cache->generation;
+}
+
+static wl_rpc_server_cache_impl_t *server_response_find(
+    wl_rpc_server_impl_t *server, const wl_rpc_server_response_t *response) {
+  uint16_t i;
+
+  if (response == NULL || !identity_valid(&response->identity)) {
+    return NULL;
+  }
+  for (i = 0U; i < server->cache_slot_count; ++i) {
+    wl_rpc_server_cache_impl_t *cache = server_cache(server, i);
+    const uint8_t *data =
+        &server->response_storage[(size_t)i * server->response_capacity];
+    if (cache->active != 0U && cache->generation == response->generation &&
+        identity_equal(&cache->identity, &response->identity) &&
+        response->response_data == data &&
+        response->response_length == cache->response_length) {
+      return cache;
+    }
+  }
+  return NULL;
 }
 
 static void server_expire(wl_rpc_server_impl_t *server, wl_time_ms_t now_ms,
@@ -727,17 +759,10 @@ static void server_expire(wl_rpc_server_impl_t *server, wl_time_ms_t now_ms,
   uint16_t i;
 
   memset(expiry, 0, sizeof(*expiry));
-  for (i = 0U; i < server->pending_slot_count; ++i) {
-    wl_rpc_server_pending_impl_t *pending = server_pending(server, i);
-    if (pending->active != 0U &&
-        elapsed(now_ms, pending->started_at, server->pending_timeout_ms)) {
-      memset(pending, 0, sizeof(*pending));
-      ++expiry->pending_expired;
-    }
-  }
   for (i = 0U; i < server->cache_slot_count; ++i) {
     wl_rpc_server_cache_impl_t *cache = server_cache(server, i);
     if (cache->active != 0U &&
+        cache->delivery_state == WL_RPC_RESPONSE_DELIVERED &&
         elapsed(now_ms, cache->completed_at, server->cache_ttl_ms)) {
       memset(cache, 0, sizeof(*cache));
       ++expiry->cache_expired;
@@ -796,7 +821,6 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  wl_rpc_server_response_t *out_replay) {
   wl_rpc_server_impl_t *impl;
   wl_rpc_server_pending_impl_t *free_pending = NULL;
-  wl_rpc_server_expiry_t ignored_expiry;
   uint16_t i;
 
   if (!server_initialized(server)) {
@@ -808,7 +832,6 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
   }
   memset(out_replay, 0, sizeof(*out_replay));
   impl = server_impl(server);
-  server_expire(impl, now_ms, &ignored_expiry);
 
   for (i = 0U; i < impl->pending_slot_count; ++i) {
     wl_rpc_server_pending_impl_t *pending = server_pending(impl, i);
@@ -829,6 +852,9 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
     wl_rpc_server_cache_impl_t *cache = server_cache(impl, i);
     if (cache->active != 0U && identity_key_equal(&cache->identity, identity)) {
       if (identity_equal(&cache->identity, identity)) {
+        if (cache->delivery_state == WL_RPC_RESPONSE_DELIVERED) {
+          cache->delivery_state = WL_RPC_RESPONSE_READY;
+        }
         *out_disposition = WL_RPC_SERVER_REPLAY;
         response_from_cache(impl, i, out_replay);
       } else {
@@ -859,7 +885,6 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
   wl_rpc_server_cache_impl_t *target = NULL;
   uint16_t target_index = 0U;
   uint16_t i;
-  wl_rpc_server_expiry_t ignored_expiry;
 
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
@@ -872,7 +897,6 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
   if (response_length > (size_t)impl->response_capacity) {
     return WL_RPC_ERR_RESPONSE_TOO_LARGE;
   }
-  server_expire(impl, now_ms, &ignored_expiry);
   for (i = 0U; i < impl->pending_slot_count; ++i) {
     wl_rpc_server_pending_impl_t *candidate = server_pending(impl, i);
     if (candidate->active != 0U &&
@@ -899,14 +923,19 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
     if (impl->cache_policy == WL_RPC_CACHE_REJECT_NEW) {
       return WL_RPC_ERR_CACHE_FULL;
     }
-    target = server_cache(impl, 0U);
-    target_index = 0U;
-    for (i = 1U; i < impl->cache_slot_count; ++i) {
+    for (i = 0U; i < impl->cache_slot_count; ++i) {
       wl_rpc_server_cache_impl_t *candidate = server_cache(impl, i);
-      if (generation_older(candidate->generation, target->generation)) {
+      if (candidate->delivery_state != WL_RPC_RESPONSE_DELIVERED) {
+        continue;
+      }
+      if (target == NULL ||
+          generation_older(candidate->generation, target->generation)) {
         target = candidate;
         target_index = i;
       }
+    }
+    if (target == NULL) {
+      return WL_RPC_ERR_CACHE_FULL;
     }
   }
 
@@ -922,6 +951,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
   target->completed_at = now_ms;
   target->application_status = application_status;
   target->active = 1U;
+  target->delivery_state = WL_RPC_RESPONSE_READY;
   memset(pending, 0, sizeof(*pending));
   response_from_cache(impl, target_index, out_response);
   return WL_RPC_OK;
@@ -939,6 +969,190 @@ wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
   return wl_rpc_server_complete(server, identity, application_status,
                                 response_payload, response_length, now_ms,
                                 out_response);
+}
+
+wl_rpc_err_t wl_rpc_server_response_acquire(
+    wl_rpc_server_t *server, wl_rpc_server_response_t *out_response) {
+  wl_rpc_server_impl_t *impl;
+  wl_rpc_server_cache_impl_t *oldest = NULL;
+  uint16_t oldest_index = 0U;
+  uint16_t i;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (out_response == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  memset(out_response, 0, sizeof(*out_response));
+  impl = server_impl(server);
+  for (i = 0U; i < impl->cache_slot_count; ++i) {
+    wl_rpc_server_cache_impl_t *candidate = server_cache(impl, i);
+    if (candidate->active == 0U ||
+        candidate->delivery_state != WL_RPC_RESPONSE_READY) {
+      continue;
+    }
+    if (oldest == NULL ||
+        generation_older(candidate->generation, oldest->generation)) {
+      oldest = candidate;
+      oldest_index = i;
+    }
+  }
+  if (oldest == NULL) {
+    return WL_RPC_ERR_NOT_FOUND;
+  }
+  oldest->delivery_state = WL_RPC_RESPONSE_ACQUIRED;
+  response_from_cache(impl, oldest_index, out_response);
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_server_response_defer(
+    wl_rpc_server_t *server, const wl_rpc_server_response_t *response) {
+  wl_rpc_server_cache_impl_t *cache;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  cache = server_response_find(server_impl(server), response);
+  if (cache == NULL) {
+    return response == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_FOUND;
+  }
+  if (cache->delivery_state != WL_RPC_RESPONSE_ACQUIRED) {
+    return WL_RPC_ERR_INVALID_STATE;
+  }
+  cache->delivery_state = WL_RPC_RESPONSE_READY;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_server_response_submitted(
+    wl_rpc_server_t *server, const wl_rpc_server_response_t *response,
+    wl_tx_handle_t tx_handle) {
+  wl_rpc_server_impl_t *impl;
+  wl_rpc_server_cache_impl_t *cache;
+  uint16_t i;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (tx_handle == 0U) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  impl = server_impl(server);
+  cache = server_response_find(impl, response);
+  if (cache == NULL) {
+    return response == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_FOUND;
+  }
+  if (cache->delivery_state != WL_RPC_RESPONSE_ACQUIRED) {
+    return WL_RPC_ERR_INVALID_STATE;
+  }
+  for (i = 0U; i < impl->cache_slot_count; ++i) {
+    wl_rpc_server_cache_impl_t *candidate = server_cache(impl, i);
+    if (candidate != cache && candidate->active != 0U &&
+        candidate->delivery_state == WL_RPC_RESPONSE_IN_FLIGHT &&
+        candidate->tx_handle == tx_handle) {
+      return WL_RPC_ERR_OPERATION_CONFLICT;
+    }
+  }
+  cache->tx_handle = tx_handle;
+  cache->delivery_state = WL_RPC_RESPONSE_IN_FLIGHT;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_server_response_sent(
+    wl_rpc_server_t *server, const wl_rpc_server_response_t *response) {
+  wl_rpc_server_cache_impl_t *cache;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  cache = server_response_find(server_impl(server), response);
+  if (cache == NULL) {
+    return response == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_FOUND;
+  }
+  if (cache->delivery_state != WL_RPC_RESPONSE_ACQUIRED) {
+    return WL_RPC_ERR_INVALID_STATE;
+  }
+  cache->delivery_state = WL_RPC_RESPONSE_DELIVERED;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_server_on_tx_event(wl_rpc_server_t *server,
+                                       const wl_event_t *event) {
+  wl_rpc_server_impl_t *impl;
+  uint16_t i;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (event == NULL ||
+      (event->type != WL_EVT_TX_SUCCESS && event->type != WL_EVT_TX_TIMEOUT &&
+       event->type != WL_EVT_TX_FAILED)) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  if (event->handle == 0U) {
+    return WL_RPC_ERR_NOT_FOUND;
+  }
+  impl = server_impl(server);
+  for (i = 0U; i < impl->cache_slot_count; ++i) {
+    wl_rpc_server_cache_impl_t *cache = server_cache(impl, i);
+    if (cache->active == 0U ||
+        cache->delivery_state != WL_RPC_RESPONSE_IN_FLIGHT ||
+        cache->tx_handle != event->handle) {
+      continue;
+    }
+    cache->tx_handle = 0U;
+    cache->delivery_state = WL_RPC_RESPONSE_DELIVERED;
+    return WL_RPC_OK;
+  }
+  return WL_RPC_ERR_NOT_FOUND;
+}
+
+wl_rpc_err_t wl_rpc_server_discard_session(
+    wl_rpc_server_t *server, uint64_t peer_session_id,
+    wl_rpc_server_cancel_tx_fn_t cancel_tx, void *cancel_context,
+    wl_rpc_server_discard_result_t *out_result) {
+  wl_rpc_server_impl_t *impl;
+  uint16_t i;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (peer_session_id == 0U || out_result == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  memset(out_result, 0, sizeof(*out_result));
+  impl = server_impl(server);
+  for (i = 0U; i < impl->pending_slot_count; ++i) {
+    wl_rpc_server_pending_impl_t *pending = server_pending(impl, i);
+
+    if (pending->active == 0U ||
+        pending->identity.peer_session_id != peer_session_id) {
+      continue;
+    }
+    memset(pending, 0, sizeof(*pending));
+    ++out_result->pending_discarded;
+  }
+  for (i = 0U; i < impl->cache_slot_count; ++i) {
+    wl_rpc_server_cache_impl_t *cache = server_cache(impl, i);
+    wl_tx_handle_t cancel_handle;
+
+    if (cache->active == 0U ||
+        cache->identity.peer_session_id != peer_session_id) {
+      continue;
+    }
+    cancel_handle = cache->delivery_state == WL_RPC_RESPONSE_IN_FLIGHT
+                        ? cache->tx_handle
+                        : 0U;
+    memset(cache, 0, sizeof(*cache));
+    ++out_result->responses_discarded;
+    if (cancel_handle != 0U) {
+      ++out_result->tx_cancel_requested;
+      if (cancel_tx != NULL) {
+        cancel_tx(cancel_context, cancel_handle);
+      }
+    }
+  }
+  return WL_RPC_OK;
 }
 
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
@@ -960,6 +1174,35 @@ wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
         return WL_RPC_ERR_OPERATION_CONFLICT;
       }
       memset(pending, 0, sizeof(*pending));
+      return WL_RPC_OK;
+    }
+  }
+  return WL_RPC_ERR_NOT_FOUND;
+}
+
+wl_rpc_err_t wl_rpc_server_expired_acquire(
+    wl_rpc_server_t *server, wl_time_ms_t now_ms,
+    wl_rpc_request_identity_t *out_identity) {
+  wl_rpc_server_impl_t *impl;
+  uint16_t i;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (out_identity == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  memset(out_identity, 0, sizeof(*out_identity));
+  impl = server_impl(server);
+  if (impl->pending_timeout_ms == 0U) {
+    return WL_RPC_ERR_NOT_FOUND;
+  }
+  for (i = 0U; i < impl->pending_slot_count; ++i) {
+    wl_rpc_server_pending_impl_t *pending = server_pending(impl, i);
+    if (pending->active != 0U && pending->expiry_reported == 0U &&
+        elapsed(now_ms, pending->started_at, impl->pending_timeout_ms)) {
+      pending->expiry_reported = 1U;
+      *out_identity = pending->identity;
       return WL_RPC_OK;
     }
   }
@@ -992,13 +1235,22 @@ wl_rpc_err_t wl_rpc_server_get_deadline_hint(const wl_rpc_server_t *server,
     return WL_RPC_ERR_INVALID_ARG;
   }
   impl = server_impl_const(server);
+  for (i = 0U; i < impl->cache_slot_count; ++i) {
+    const wl_rpc_server_cache_impl_t *cache = server_cache_const(impl, i);
+
+    if (cache->active != 0U &&
+        cache->delivery_state == WL_RPC_RESPONSE_READY) {
+      nearest = 0U;
+      break;
+    }
+  }
   if (impl->pending_timeout_ms != 0U) {
     for (i = 0U; i < impl->pending_slot_count; ++i) {
       const wl_rpc_server_pending_impl_t *pending =
           server_pending_const(impl, i);
       uint32_t remaining;
 
-      if (pending->active == 0U) {
+      if (pending->active == 0U || pending->expiry_reported != 0U) {
         continue;
       }
       remaining = deadline_remaining(now_ms, pending->started_at,
@@ -1013,7 +1265,8 @@ wl_rpc_err_t wl_rpc_server_get_deadline_hint(const wl_rpc_server_t *server,
       const wl_rpc_server_cache_impl_t *cache = server_cache_const(impl, i);
       uint32_t remaining;
 
-      if (cache->active == 0U) {
+      if (cache->active == 0U ||
+          cache->delivery_state != WL_RPC_RESPONSE_DELIVERED) {
         continue;
       }
       remaining =

@@ -67,7 +67,7 @@ enum {
 #define WL_RPC_CLIENT_SLOT_STORAGE_SIZE 64U
 #define WL_RPC_SERVER_STORAGE_SIZE 96U
 #define WL_RPC_SERVER_PENDING_SLOT_STORAGE_SIZE 48U
-#define WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE 64U
+#define WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE 96U
 
 typedef union wl_rpc_client {
   wl_max_align_t align;
@@ -252,12 +252,23 @@ typedef struct wl_rpc_server_response {
   int32_t application_status;
   const uint8_t *response_data;
   size_t response_length;
+  /* Opaque cache generation used to validate lifecycle transitions. */
+  uint64_t generation;
 } wl_rpc_server_response_t;
 
 typedef struct wl_rpc_server_expiry {
   uint16_t pending_expired;
   uint16_t cache_expired;
 } wl_rpc_server_expiry_t;
+
+typedef void (*wl_rpc_server_cancel_tx_fn_t)(void *context,
+                                             wl_tx_handle_t tx_handle);
+
+typedef struct wl_rpc_server_discard_result {
+  uint16_t pending_discarded;
+  uint16_t responses_discarded;
+  uint16_t tx_cancel_requested;
+} wl_rpc_server_discard_result_t;
 
 wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
                                 const wl_rpc_server_config_t *config);
@@ -292,11 +303,60 @@ wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
                                   size_t response_length, wl_time_ms_t now_ms,
                                   wl_rpc_server_response_t *out_response);
 
+/*
+ * Acquire the oldest response waiting for transport acceptance. The returned
+ * bytes remain stable until exactly one matching defer/submitted/sent call.
+ * NOT_FOUND means that no response currently needs service.
+ */
+wl_rpc_err_t wl_rpc_server_response_acquire(
+    wl_rpc_server_t *server, wl_rpc_server_response_t *out_response);
+
+/* Return an acquired response to the ready queue after link backpressure. */
+wl_rpc_err_t wl_rpc_server_response_defer(
+    wl_rpc_server_t *server, const wl_rpc_server_response_t *response);
+
+/* Bind an acquired reliable response to its nonzero Wirelink TX handle. */
+wl_rpc_err_t wl_rpc_server_response_submitted(
+    wl_rpc_server_t *server, const wl_rpc_server_response_t *response,
+    wl_tx_handle_t tx_handle);
+
+/* Finish an acquired unreliable response, which has no terminal TX event. */
+wl_rpc_err_t wl_rpc_server_response_sent(
+    wl_rpc_server_t *server, const wl_rpc_server_response_t *response);
+
+/*
+ * Consume a matching reliable terminal event. Any terminal result leaves a
+ * replayable delivered cache entry; a duplicate request schedules it again.
+ * Link-level retry remains bounded by the protocol's reliable TX policy.
+ */
+wl_rpc_err_t wl_rpc_server_on_tx_event(wl_rpc_server_t *server,
+                                       const wl_event_t *event);
+
+/*
+ * Forget every pending/cached operation owned by one nonzero peer session.
+ * The optional callback receives each still in-flight reliable handle after
+ * its response has been detached, so a product can call wl_tx_cancel().
+ */
+wl_rpc_err_t wl_rpc_server_discard_session(
+    wl_rpc_server_t *server, uint64_t peer_session_id,
+    wl_rpc_server_cancel_tx_fn_t cancel_tx, void *cancel_context,
+    wl_rpc_server_discard_result_t *out_result);
+
 /* Drop exact pending metadata without manufacturing or caching a response. */
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
                                    const wl_rpc_request_identity_t *identity);
 
-/* Expire pending operations and cached replay entries with wrap-safe time. */
+/*
+ * Return one newly expired pending identity without discarding it. The caller
+ * must complete/reject it with a typed terminal response, or abandon it. A
+ * reported identity is not returned again and no longer contributes a
+ * deadline. NOT_FOUND means no unreported expiry is due.
+ */
+wl_rpc_err_t wl_rpc_server_expired_acquire(
+    wl_rpc_server_t *server, wl_time_ms_t now_ms,
+    wl_rpc_request_identity_t *out_identity);
+
+/* Expire delivered replay entries. Pending identities use expired_acquire(). */
 wl_rpc_err_t wl_rpc_server_poll(wl_rpc_server_t *server, wl_time_ms_t now_ms,
                                 wl_rpc_server_expiry_t *out_expiry);
 

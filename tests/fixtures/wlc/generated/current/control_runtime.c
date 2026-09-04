@@ -239,11 +239,71 @@ wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_m
     if (result != WL_RPC_OK) return result;
   }
   if (runtime->rpc_server != NULL) {
+    result = wl_rpc_server_expired_acquire(runtime->rpc_server, now_ms, &out_result->server_expired_identity);
+    if (result == WL_RPC_OK) out_result->server_pending_expired = 1U;
+    else if (result != WL_RPC_ERR_NOT_FOUND) return result;
     result = wl_rpc_server_poll(runtime->rpc_server, now_ms, &server_expiry);
     if (result != WL_RPC_OK) return result;
-    out_result->server_pending_expired = server_expiry.pending_expired;
     out_result->server_cache_expired = server_expiry.cache_expired;
   }
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_service_result_t *out_result) {
+  wl_rpc_server_response_t response = {0};
+  wl_rpc_err_t result;
+  if (out_result != NULL) memset(out_result, 0, sizeof(*out_result));
+  if (ctx == NULL || runtime == NULL || out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
+  out_result->response = control_runtime_result(NULL);
+  result = control_runtime_poll(runtime, now_ms, &out_result->deadlines);
+  if (result != WL_RPC_OK) return result;
+  if (runtime->rpc_server == NULL) return WL_RPC_OK;
+  result = wl_rpc_server_response_acquire(runtime->rpc_server, &response);
+  if (result == WL_RPC_ERR_NOT_FOUND) return WL_RPC_OK;
+  if (result != WL_RPC_OK) return result;
+  out_result->response.message_id = response.identity.response_message_id;
+  out_result->response.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
+  out_result->response.detail.rpc.operation_id = response.identity.operation_id;
+  out_result->response.detail.rpc.application_result = response.application_status;
+  out_result->response.detail.rpc.payload_length = response.response_length;
+  out_result->response.detail.rpc.server_response = response;
+  switch (response.identity.response_message_id) {
+    case HOME_RESPONSE_MESSAGE_ID:
+      if (response.identity.request_message_id != HOME_REQUEST_MESSAGE_ID) {
+        result = WL_RPC_ERR_RESPONSE_MISMATCH;
+        break;
+      }
+      out_result->response.detail.rpc.core_result = wl_send_reliable(ctx, HOME_RESPONSE_MESSAGE_ID, response.response_data, response.response_length, &out_result->response.detail.rpc.handle);
+      break;
+    default:
+      result = WL_RPC_ERR_RESPONSE_MISMATCH;
+      break;
+  }
+  if (result != WL_RPC_OK) {
+    (void)wl_rpc_server_response_defer(runtime->rpc_server, &response);
+    return result;
+  }
+  if (out_result->response.detail.rpc.core_result != WL_OK) {
+    result = wl_rpc_server_response_defer(runtime->rpc_server, &response);
+    if (result != WL_RPC_OK) return result;
+    out_result->response.domain = CONTROL_RUNTIME_CORE_ERROR;
+    out_result->responses_deferred = 1U;
+    return WL_RPC_OK;
+  }
+  switch (response.identity.response_message_id) {
+    case HOME_RESPONSE_MESSAGE_ID:
+      result = wl_rpc_server_response_submitted(runtime->rpc_server, &response, out_result->response.detail.rpc.handle);
+      break;
+    default:
+      result = WL_RPC_ERR_RESPONSE_MISMATCH;
+      break;
+  }
+  if (result != WL_RPC_OK) {
+    (void)wl_rpc_server_response_defer(runtime->rpc_server, &response);
+    return result;
+  }
+  out_result->response.domain = CONTROL_RUNTIME_OK;
+  out_result->responses_submitted = 1U;
   return WL_RPC_OK;
 }
 
@@ -272,15 +332,30 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
   if (event == NULL) return result;
   (void)now_ms;
   if (event->type == WL_EVT_TX_SUCCESS || event->type == WL_EVT_TX_TIMEOUT || event->type == WL_EVT_TX_FAILED) {
-    if (runtime == NULL || runtime->rpc_client == NULL) {
+    if (runtime == NULL) {
       result.domain = CONTROL_RUNTIME_NON_RX;
       return result;
     }
     result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
-    result.detail.rpc.rpc_result = wl_rpc_client_on_tx_event(runtime->rpc_client, event);
-    if (result.detail.rpc.rpc_result == WL_RPC_OK) result.domain = CONTROL_RUNTIME_OK;
-    else if (result.detail.rpc.rpc_result == WL_RPC_ERR_NOT_FOUND) result.domain = CONTROL_RUNTIME_NON_RX;
-    else result.domain = CONTROL_RUNTIME_RPC_ERROR;
+    if (runtime->rpc_server != NULL) {
+      result.detail.rpc.rpc_result = wl_rpc_server_on_tx_event(runtime->rpc_server, event);
+      if (result.detail.rpc.rpc_result == WL_RPC_OK) {
+        result.domain = CONTROL_RUNTIME_OK;
+        return result;
+      }
+      if (result.detail.rpc.rpc_result != WL_RPC_ERR_NOT_FOUND) {
+        result.domain = CONTROL_RUNTIME_RPC_ERROR;
+        return result;
+      }
+    }
+    if (runtime->rpc_client != NULL) {
+      result.detail.rpc.rpc_result = wl_rpc_client_on_tx_event(runtime->rpc_client, event);
+      if (result.detail.rpc.rpc_result == WL_RPC_OK) result.domain = CONTROL_RUNTIME_OK;
+      else if (result.detail.rpc.rpc_result == WL_RPC_ERR_NOT_FOUND) result.domain = CONTROL_RUNTIME_NON_RX;
+      else result.domain = CONTROL_RUNTIME_RPC_ERROR;
+    } else {
+      result.domain = CONTROL_RUNTIME_NON_RX;
+    }
     return result;
   }
   if (event->type != WL_EVT_UNRELIABLE_RX && event->type != WL_EVT_RELIABLE_RX) {
@@ -689,7 +764,7 @@ control_runtime_result_t control_home_server_retry_cached(wl_ctx_t *ctx, const w
   result.detail.rpc.application_result = cached->application_status;
   result.detail.rpc.payload_length = cached->response_length;
   result.detail.rpc.server_response = *cached;
-  result.detail.rpc.core_result = wl_send_reliable(ctx, HOME_RESPONSE_MESSAGE_ID, cached->response_data, cached->response_length, &result.detail.rpc.handle);
+  result.detail.rpc.core_result = WL_OK;
   result.domain = result.detail.rpc.core_result == WL_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_CORE_ERROR;
   return result;
 }

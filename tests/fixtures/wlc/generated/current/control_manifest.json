@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.1.0",
-    "codegen_abi": 8
+    "codegen_abi": 9
   },
   "module": "control",
   "identity": {
@@ -20,7 +20,7 @@
     {"path": "control.h", "size": 8468, "digest": "0x35c4fc14fd5b3e12"},
     {"path": "control_bindings.c", "size": 36495, "digest": "0x2db0f91f205760e3"},
     {"path": "control_bindings.h", "size": 8625, "digest": "0xde756cc9a15dd0d1"},
-    {"path": "control_runtime.c", "size": 39379, "digest": "0x80808dbf394467be"},
-    {"path": "control_runtime.h", "size": 8797, "digest": "0xcb4597495bc820ac"}
+    {"path": "control_runtime.c", "size": 42625, "digest": "0x251042b1de820fad"},
+    {"path": "control_runtime.h", "size": 9407, "digest": "0x38693e542827c142"}
   ]
 }
