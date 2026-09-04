@@ -54,8 +54,6 @@ typedef struct {
   control_send_domain_t domain;
   wl_codec_status_t codec_status;
   int core_result;
-  int abort_result;
-  uint32_t core_called;
   size_t payload_length;
   wl_tx_handle_t handle;
 } control_send_result_t;
@@ -82,13 +80,11 @@ typedef struct {
 
 control_dispatch_result_t control_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_router_t *router);
 
-control_send_result_t control_joint_command_send_unreliable(wl_ctx_t *ctx, const joint_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_joint_command_send_reliable(wl_ctx_t *ctx, const joint_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_joint_command_send_direct(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_arm_command_send_unreliable(wl_ctx_t *ctx, const arm_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_arm_command_send_reliable(wl_ctx_t *ctx, const arm_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_arm_command_send_direct(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery);
 
 #ifdef __cplusplus
 }

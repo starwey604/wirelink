@@ -555,6 +555,11 @@ wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
     return WL_ERR_NOT_FOUND;
   }
   reliable = wl_ctx_impl(ctx)->tx_claim_reliable;
+  wl_ctx_impl(ctx)->tx_claim_active = 0U;
+  wl_ctx_impl(ctx)->tx_claim_payload = (wl_span_t){0};
+  if (out_handle != NULL) {
+    *out_handle = 0U;
+  }
   if (payload_len > claim->span.length ||
       (reliable != 0U && out_handle == NULL)) {
     return WL_ERR_INVALID_ARG;
@@ -571,11 +576,6 @@ wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
   packet.sequence = reliable != 0U ? wl_ctx_impl(ctx)->tx_sequence++ : 0U;
   packet.payload = claim->span.data;
   packet.payload_len = payload_len;
-  wl_ctx_impl(ctx)->tx_claim_active = 0U;
-  wl_ctx_impl(ctx)->tx_claim_payload = (wl_span_t){0};
-  if (out_handle != NULL) {
-    *out_handle = 0U;
-  }
   return wl_send_frame_internal(ctx, &packet, out_handle, reliable, 1U);
 }
 

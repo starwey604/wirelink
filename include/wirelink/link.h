@@ -113,7 +113,8 @@ typedef struct {
 typedef int32_t wl_delivery_t;
 enum { WL_DELIVERY_UNRELIABLE = 0, WL_DELIVERY_RELIABLE = 1 };
 
-/* Writable payload storage owned by the link until commit or abort. */
+/* Writable payload storage owned by the link until commit or abort. A commit
+ * attempt consumes a matching active claim even when it returns an error. */
 typedef struct wl_tx_payload_claim {
   wl_span_t span;
   uint32_t token;

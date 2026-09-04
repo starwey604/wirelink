@@ -163,21 +163,6 @@ wl_rpc_err_t wl_rpc_client_link_failed(wl_rpc_client_t *client,
                                        int32_t link_result);
 
 /*
- * Roll back a generated client-start attempt that reached LINK_FAILED only
- * because the core could not yet accept a new transmission.  BUSY,
- * WOULD_BLOCK, and NO_SPACE are queueing signals rather than terminal link
- * failures.  On success the slot is returned to FREE so the application can
- * retry the same logical request after transport/protocol progress.
- *
- * This deliberately does not preserve the operation ID: a subsequent
- * generated start allocates a fresh runtime operation for the retained
- * application request.  Definitive link errors remain terminal and return
- * WL_RPC_ERR_INVALID_STATE without mutation.
- */
-wl_rpc_err_t wl_rpc_client_release_deferred_start(
-    wl_rpc_client_t *client, uint32_t operation_id);
-
-/*
  * Consume only TX terminal events. LINK success advances to WAIT_RESPONSE; it
  * never creates application success. Returns NOT_FOUND for an unrelated handle.
  */

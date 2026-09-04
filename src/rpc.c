@@ -454,30 +454,6 @@ wl_rpc_err_t wl_rpc_client_link_failed(wl_rpc_client_t *client,
   return WL_RPC_OK;
 }
 
-wl_rpc_err_t wl_rpc_client_release_deferred_start(
-    wl_rpc_client_t *client, uint32_t operation_id) {
-  wl_rpc_client_slot_impl_t *slot;
-
-  if (!client_initialized(client)) {
-    return client == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
-  }
-  if (operation_id == 0U) {
-    return WL_RPC_ERR_INVALID_ARG;
-  }
-  slot = client_find(client_impl(client), operation_id, NULL);
-  if (slot == NULL) {
-    return WL_RPC_ERR_NOT_FOUND;
-  }
-  if (slot->state != WL_RPC_CLIENT_LINK_FAILED ||
-      (slot->link_result != WL_ERR_BUSY &&
-       slot->link_result != WL_ERR_WOULD_BLOCK &&
-       slot->link_result != WL_ERR_NO_SPACE)) {
-    return WL_RPC_ERR_INVALID_STATE;
-  }
-  memset(slot, 0, sizeof(*slot));
-  return WL_RPC_OK;
-}
-
 wl_rpc_err_t wl_rpc_client_on_tx_event(wl_rpc_client_t *client,
                                        const wl_event_t *event) {
   wl_rpc_client_impl_t *impl;

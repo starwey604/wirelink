@@ -475,13 +475,6 @@ static void transfer_init(uint64_t resume_offset) {
   adapters_init(&fixture);
 }
 
-static control_encode_scratch_t encode_scratch(void) {
-  return (control_encode_scratch_t){
-      .data = fixture.encode_scratch,
-      .capacity = sizeof(fixture.encode_scratch),
-  };
-}
-
 static void assert_send_ok(control_send_result_t result) {
   zassert_equal(result.domain, CONTROL_SEND_OK);
   zassert_equal(result.codec_status, WL_CODEC_OK);
@@ -504,8 +497,8 @@ static void send_action(const wl_bulk_sender_action_t *action,
         .has_object_crc32c = true,
         .object_crc32c = action->descriptor.object_crc32c,
     };
-    send_result = control_bulk_begin_send_unreliable(
-        &fixture.sender_endpoint.ctx, &message, encode_scratch());
+    send_result = control_bulk_begin_send(&fixture.sender_endpoint.ctx,
+                                          &message, WL_DELIVERY_UNRELIABLE);
     break;
   }
   case WL_BULK_PHASE_CHUNK: {
@@ -525,8 +518,8 @@ static void send_action(const wl_bulk_sender_action_t *action,
                 .length = action->length,
             },
     };
-    send_result = control_bulk_chunk_send_unreliable(
-        &fixture.sender_endpoint.ctx, &message, encode_scratch());
+    send_result = control_bulk_chunk_send(&fixture.sender_endpoint.ctx,
+                                          &message, WL_DELIVERY_UNRELIABLE);
     break;
   }
   case WL_BULK_PHASE_END: {
@@ -538,8 +531,8 @@ static void send_action(const wl_bulk_sender_action_t *action,
         .has_object_crc32c = true,
         .object_crc32c = action->descriptor.object_crc32c,
     };
-    send_result = control_bulk_end_send_unreliable(&fixture.sender_endpoint.ctx,
-                                                   &message, encode_scratch());
+    send_result = control_bulk_end_send(&fixture.sender_endpoint.ctx, &message,
+                                        WL_DELIVERY_UNRELIABLE);
     break;
   }
   case WL_BULK_PHASE_ABORT: {
@@ -549,8 +542,8 @@ static void send_action(const wl_bulk_sender_action_t *action,
         .has_reason = true,
         .reason = action->abort_reason,
     };
-    send_result = control_bulk_abort_send_unreliable(
-        &fixture.sender_endpoint.ctx, &message, encode_scratch());
+    send_result = control_bulk_abort_send(&fixture.sender_endpoint.ctx,
+                                          &message, WL_DELIVERY_UNRELIABLE);
     break;
   }
   default:
@@ -589,8 +582,8 @@ static bool publish_receiver_status(wl_time_ms_t now_ms) {
       .has_accepted_chunk_size = true,
       .accepted_chunk_size = view.status.accepted_chunk_size,
   };
-  send_result = control_bulk_status_send_unreliable(
-      &fixture.receiver_endpoint.ctx, &message, encode_scratch());
+  send_result = control_bulk_status_send(&fixture.receiver_endpoint.ctx,
+                                         &message, WL_DELIVERY_UNRELIABLE);
   assert_send_ok(send_result);
   zassert_equal(wl_bulk_receiver_status_release(&fixture.receiver, &view),
                 WL_BULK_OK);
@@ -754,8 +747,9 @@ ZTEST(wirelink_bulk_transfer,
       .has_object_crc32c = true,
       .object_crc32c = transfer.object_crc32c,
   };
-  send_result = control_bulk_begin_send_unreliable(
-      &fixture.sender_endpoint.ctx, &delayed_begin, encode_scratch());
+  send_result = control_bulk_begin_send(&fixture.sender_endpoint.ctx,
+                                        &delayed_begin,
+                                        WL_DELIVERY_UNRELIABLE);
   assert_send_ok(send_result);
   drain_tx_success(&fixture.sender_endpoint, 20U);
   fixture.receiver_adapter.now_ms = 20U;

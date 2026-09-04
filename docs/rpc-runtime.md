@@ -31,7 +31,9 @@ After encoding and sending a reliable request, bind its `wl_tx_handle_t` with
 `wl_rpc_client_bind_tx()` and route its terminal TX event through
 `wl_rpc_client_on_tx_event()`. `WL_EVT_TX_SUCCESS` enters `WAIT_RESPONSE` and
 sets `link_delivery_confirmed` to one. It does not complete the RPC. The caller
-must still call `wl_tx_take()` to release the terminal core transaction.
+of this low-level API must still call `wl_tx_take()` to release the terminal
+core transaction. A WLC-generated runtime performs both operations when it
+matches the terminal event; do not take that handle again.
 
 For an unreliable request, or a send wrapper with no correlatable TX handle,
 call `wl_rpc_client_tx_completed()` after local submission succeeds. It enters

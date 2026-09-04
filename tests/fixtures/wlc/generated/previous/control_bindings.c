@@ -79,82 +79,36 @@ control_dispatch_result_t control_dispatch_event(wl_ctx_t *ctx, const wl_event_t
   return result;
 }
 
-control_send_result_t control_joint_command_send_unreliable(wl_ctx_t *ctx, const joint_command_t *message, control_encode_scratch_t scratch) {
-  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
-  result.codec_status = joint_command_encode(message, scratch.data, scratch.capacity, &result.payload_length);
-  if (result.codec_status != WL_CODEC_OK) return result;
-  result.core_called = 1U;
-  result.core_result = wl_send_unreliable(ctx, JOINT_COMMAND_MESSAGE_ID, scratch.data, result.payload_length);
-  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
-  return result;
-}
-
-control_send_result_t control_joint_command_send_reliable(wl_ctx_t *ctx, const joint_command_t *message, control_encode_scratch_t scratch) {
-  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
-  result.codec_status = joint_command_encode(message, scratch.data, scratch.capacity, &result.payload_length);
-  if (result.codec_status != WL_CODEC_OK) return result;
-  result.core_called = 1U;
-  result.core_result = wl_send_reliable(ctx, JOINT_COMMAND_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
-  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
-  return result;
-}
-
-control_send_result_t control_joint_command_send_direct(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery) {
-  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, 0U, 0U };
   wl_tx_payload_claim_t claim = {0};
   result.core_result = wl_tx_payload_claim(ctx, JOINT_COMMAND_MESSAGE_ID, delivery, &claim);
   if (result.core_result != WL_OK) return result;
   result.codec_status = joint_command_encode(message, claim.span.data, claim.span.length, &result.payload_length);
   if (result.codec_status != WL_CODEC_OK) {
     result.domain = CONTROL_SEND_CODEC_ERROR;
-    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    (void)wl_tx_payload_abort(ctx, &claim);
     return result;
   }
   result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
-  if (result.core_result != WL_OK) {
-    result.abort_result = wl_tx_payload_abort(ctx, &claim);
-    return result;
-  }
+  if (result.core_result != WL_OK) return result;
   result.domain = CONTROL_SEND_OK;
   return result;
 }
 
-control_send_result_t control_arm_command_send_unreliable(wl_ctx_t *ctx, const arm_command_t *message, control_encode_scratch_t scratch) {
-  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
-  result.codec_status = arm_command_encode(message, scratch.data, scratch.capacity, &result.payload_length);
-  if (result.codec_status != WL_CODEC_OK) return result;
-  result.core_called = 1U;
-  result.core_result = wl_send_unreliable(ctx, ARM_COMMAND_MESSAGE_ID, scratch.data, result.payload_length);
-  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
-  return result;
-}
-
-control_send_result_t control_arm_command_send_reliable(wl_ctx_t *ctx, const arm_command_t *message, control_encode_scratch_t scratch) {
-  control_send_result_t result = { CONTROL_SEND_CODEC_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 0U, 0U, 0U };
-  result.codec_status = arm_command_encode(message, scratch.data, scratch.capacity, &result.payload_length);
-  if (result.codec_status != WL_CODEC_OK) return result;
-  result.core_called = 1U;
-  result.core_result = wl_send_reliable(ctx, ARM_COMMAND_MESSAGE_ID, scratch.data, result.payload_length, &result.handle);
-  result.domain = result.core_result == WL_OK ? CONTROL_SEND_OK : CONTROL_SEND_CORE_ERROR;
-  return result;
-}
-
-control_send_result_t control_arm_command_send_direct(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery) {
-  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, WL_OK, 1U, 0U, 0U };
+control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery) {
+  control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, 0U, 0U };
   wl_tx_payload_claim_t claim = {0};
   result.core_result = wl_tx_payload_claim(ctx, ARM_COMMAND_MESSAGE_ID, delivery, &claim);
   if (result.core_result != WL_OK) return result;
   result.codec_status = arm_command_encode(message, claim.span.data, claim.span.length, &result.payload_length);
   if (result.codec_status != WL_CODEC_OK) {
     result.domain = CONTROL_SEND_CODEC_ERROR;
-    result.abort_result = wl_tx_payload_abort(ctx, &claim);
+    (void)wl_tx_payload_abort(ctx, &claim);
     return result;
   }
   result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
-  if (result.core_result != WL_OK) {
-    result.abort_result = wl_tx_payload_abort(ctx, &claim);
-    return result;
-  }
+  if (result.core_result != WL_OK) return result;
   result.domain = CONTROL_SEND_OK;
   return result;
 }

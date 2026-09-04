@@ -335,15 +335,18 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
   if (event == NULL) return result;
   (void)now_ms;
   if (event->type == WL_EVT_TX_SUCCESS || event->type == WL_EVT_TX_TIMEOUT || event->type == WL_EVT_TX_FAILED) {
-    if (runtime == NULL) {
+    wl_tx_result_t tx_result = {0};
+    if (runtime == NULL || ctx == NULL) {
       result.domain = CONTROL_RUNTIME_NON_RX;
       return result;
     }
     result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
+    result.detail.rpc.handle = event->handle;
     if (runtime->rpc_server != NULL) {
       result.detail.rpc.rpc_result = wl_rpc_server_on_tx_event(runtime->rpc_server, event);
       if (result.detail.rpc.rpc_result == WL_RPC_OK) {
-        result.domain = CONTROL_RUNTIME_OK;
+        result.detail.rpc.core_result = wl_tx_take(ctx, event->handle, &tx_result);
+        result.domain = result.detail.rpc.core_result == WL_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_CORE_ERROR;
         return result;
       }
       if (result.detail.rpc.rpc_result != WL_RPC_ERR_NOT_FOUND) {
@@ -353,8 +356,10 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
     }
     if (runtime->rpc_client != NULL) {
       result.detail.rpc.rpc_result = wl_rpc_client_on_tx_event(runtime->rpc_client, event);
-      if (result.detail.rpc.rpc_result == WL_RPC_OK) result.domain = CONTROL_RUNTIME_OK;
-      else if (result.detail.rpc.rpc_result == WL_RPC_ERR_NOT_FOUND) result.domain = CONTROL_RUNTIME_NON_RX;
+      if (result.detail.rpc.rpc_result == WL_RPC_OK) {
+        result.detail.rpc.core_result = wl_tx_take(ctx, event->handle, &tx_result);
+        result.domain = result.detail.rpc.core_result == WL_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_CORE_ERROR;
+      } else if (result.detail.rpc.rpc_result == WL_RPC_ERR_NOT_FOUND) result.domain = CONTROL_RUNTIME_NON_RX;
       else result.domain = CONTROL_RUNTIME_RPC_ERROR;
     } else {
       result.domain = CONTROL_RUNTIME_NON_RX;
@@ -644,17 +649,15 @@ static control_runtime_result_t control_home_client_finish_start(control_runtime
   result.detail.rpc.operation_id = operation_id;
   result.detail.rpc.codec_status = sent.codec_status;
   result.detail.rpc.core_result = sent.core_result;
-  result.detail.rpc.abort_result = sent.abort_result;
   result.detail.rpc.handle = sent.handle;
   result.detail.rpc.payload_length = sent.payload_length;
-  if (sent.domain == CONTROL_SEND_CODEC_ERROR) {
-    result.detail.rpc.rpc_result = wl_rpc_client_link_failed(runtime->rpc_client, operation_id, WL_ERR_CORRUPT_PAYLOAD);
-    result.domain = CONTROL_RUNTIME_CODEC_ERROR;
-    return result;
-  }
-  if (sent.domain == CONTROL_SEND_CORE_ERROR) {
-    result.detail.rpc.rpc_result = wl_rpc_client_link_failed(runtime->rpc_client, operation_id, sent.core_result);
-    result.domain = CONTROL_RUNTIME_CORE_ERROR;
+  if (sent.domain == CONTROL_SEND_CODEC_ERROR || sent.domain == CONTROL_SEND_CORE_ERROR) {
+    const int32_t link_result = sent.domain == CONTROL_SEND_CODEC_ERROR ? WL_ERR_CORRUPT_PAYLOAD : sent.core_result;
+    result.detail.rpc.rpc_result = wl_rpc_client_link_failed(runtime->rpc_client, operation_id, link_result);
+    if (result.detail.rpc.rpc_result == WL_RPC_OK)
+      result.detail.rpc.rpc_result = wl_rpc_client_release(runtime->rpc_client, operation_id);
+    if (result.detail.rpc.rpc_result == WL_RPC_OK) result.detail.rpc.operation_id = 0U;
+    result.domain = sent.domain == CONTROL_SEND_CODEC_ERROR ? CONTROL_RUNTIME_CODEC_ERROR : CONTROL_RUNTIME_CORE_ERROR;
     return result;
   }
   result.detail.rpc.rpc_result = wl_rpc_client_bind_tx(runtime->rpc_client, operation_id, result.detail.rpc.handle);
@@ -662,10 +665,12 @@ static control_runtime_result_t control_home_client_finish_start(control_runtime
   return result;
 }
 
-control_runtime_result_t control_home_client_start_scratch(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms, control_encode_scratch_t scratch) {
+control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
   control_runtime_result_t result = control_runtime_result(NULL);
   control_send_result_t sent;
   uint32_t operation_id = 0U;
+  bool had_operation_id;
+  uint32_t previous_operation_id;
   result.message_id = HOME_REQUEST_MESSAGE_ID;
   result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
   if (ctx == NULL || runtime == NULL || runtime->rpc_client == NULL || request == NULL) return result;
@@ -675,28 +680,13 @@ control_runtime_result_t control_home_client_start_scratch(wl_ctx_t *ctx, contro
     result.domain = CONTROL_RUNTIME_RPC_ERROR;
     return result;
   }
+  had_operation_id = request->has_operation_id;
+  previous_operation_id = request->operation_id;
   request->has_operation_id = true;
   request->operation_id = operation_id;
-  sent = control_home_request_send_reliable(ctx, request, scratch);
-  return control_home_client_finish_start(runtime, operation_id, sent);
-}
-
-control_runtime_result_t control_home_client_start_direct(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
-  control_runtime_result_t result = control_runtime_result(NULL);
-  control_send_result_t sent;
-  uint32_t operation_id = 0U;
-  result.message_id = HOME_REQUEST_MESSAGE_ID;
-  result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
-  if (ctx == NULL || runtime == NULL || runtime->rpc_client == NULL || request == NULL) return result;
-  result.detail.rpc.rpc_result = wl_rpc_client_begin(runtime->rpc_client, HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, timeout_ms, now_ms, &operation_id);
-  result.detail.rpc.operation_id = operation_id;
-  if (result.detail.rpc.rpc_result != WL_RPC_OK) {
-    result.domain = CONTROL_RUNTIME_RPC_ERROR;
-    return result;
-  }
-  request->has_operation_id = true;
-  request->operation_id = operation_id;
-  sent = control_home_request_send_direct(ctx, request, WL_DELIVERY_RELIABLE);
+  sent = control_home_request_send(ctx, request, WL_DELIVERY_RELIABLE);
+  request->has_operation_id = had_operation_id;
+  request->operation_id = previous_operation_id;
   return control_home_client_finish_start(runtime, operation_id, sent);
 }
 

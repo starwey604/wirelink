@@ -1021,6 +1021,39 @@ ZTEST(wirelink_protocol_unit,
   zassert_mem_equal(view.payload.data, payload, sizeof(payload));
 }
 
+ZTEST(wirelink_protocol_unit, test_tx_commit_error_consumes_matching_claim)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  struct test_sink_capture cap = {0};
+  wl_tx_payload_claim_t claim = {0};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_NATIVE_PACKET,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = UINT64_C(0x434f4d4d49545458),
+  };
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), NULL, 0U);
+  zassert_ok(
+      wl_tx_payload_claim(&ctx, 0x73U, WL_DELIVERY_RELIABLE, &claim));
+  zassert_equal(wl_tx_payload_commit(&ctx, &claim, 0U, NULL),
+                WL_ERR_INVALID_ARG);
+  zassert_equal(wl_tx_payload_abort(&ctx, &claim), WL_ERR_NOT_FOUND);
+
+  zassert_ok(
+      wl_tx_payload_claim(&ctx, 0x74U, WL_DELIVERY_UNRELIABLE, &claim));
+  zassert_equal(wl_tx_payload_commit(&ctx, &claim, claim.span.length + 1U,
+                                     NULL),
+                WL_ERR_INVALID_ARG);
+  zassert_equal(wl_tx_payload_abort(&ctx, &claim), WL_ERR_NOT_FOUND);
+  zassert_ok(
+      wl_tx_payload_claim(&ctx, 0x75U, WL_DELIVERY_UNRELIABLE, &claim));
+  zassert_ok(wl_tx_payload_abort(&ctx, &claim));
+}
+
 ZTEST(wirelink_protocol_unit,
       test_sync_unreliable_completions_are_counted_until_polled)
 {

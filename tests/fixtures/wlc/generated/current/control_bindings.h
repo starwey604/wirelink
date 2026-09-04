@@ -54,8 +54,6 @@ typedef struct {
   control_send_domain_t domain;
   wl_codec_status_t codec_status;
   int core_result;
-  int abort_result;
-  uint32_t core_called;
   size_t payload_length;
   wl_tx_handle_t handle;
 } control_send_result_t;
@@ -146,45 +144,35 @@ typedef struct {
 
 control_dispatch_result_t control_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_router_t *router);
 
-control_send_result_t control_joint_command_send_unreliable(wl_ctx_t *ctx, const joint_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_joint_command_send_reliable(wl_ctx_t *ctx, const joint_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_joint_command_send_direct(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_arm_command_send_unreliable(wl_ctx_t *ctx, const arm_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_arm_command_send_reliable(wl_ctx_t *ctx, const arm_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_arm_command_send_direct(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_arm_mit_command_send_unreliable(wl_ctx_t *ctx, const arm_mit_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_arm_mit_command_send_reliable(wl_ctx_t *ctx, const arm_mit_command_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_arm_mit_command_send_direct(wl_ctx_t *ctx, const arm_mit_command_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_arm_mit_command_send(wl_ctx_t *ctx, const arm_mit_command_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_home_request_send_unreliable(wl_ctx_t *ctx, const home_request_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_home_request_send_reliable(wl_ctx_t *ctx, const home_request_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_home_request_send_direct(wl_ctx_t *ctx, const home_request_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_home_request_send(wl_ctx_t *ctx, const home_request_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_home_response_send_unreliable(wl_ctx_t *ctx, const home_response_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_home_response_send_reliable(wl_ctx_t *ctx, const home_response_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_home_response_send_direct(wl_ctx_t *ctx, const home_response_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_home_response_send(wl_ctx_t *ctx, const home_response_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_bulk_begin_send_unreliable(wl_ctx_t *ctx, const bulk_begin_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_begin_send_reliable(wl_ctx_t *ctx, const bulk_begin_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_begin_send_direct(wl_ctx_t *ctx, const bulk_begin_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_bulk_begin_send(wl_ctx_t *ctx, const bulk_begin_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_bulk_chunk_send_unreliable(wl_ctx_t *ctx, const bulk_chunk_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_chunk_send_reliable(wl_ctx_t *ctx, const bulk_chunk_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_chunk_send_direct(wl_ctx_t *ctx, const bulk_chunk_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_bulk_chunk_send(wl_ctx_t *ctx, const bulk_chunk_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_bulk_end_send_unreliable(wl_ctx_t *ctx, const bulk_end_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_end_send_reliable(wl_ctx_t *ctx, const bulk_end_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_end_send_direct(wl_ctx_t *ctx, const bulk_end_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_bulk_end_send(wl_ctx_t *ctx, const bulk_end_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_bulk_abort_send_unreliable(wl_ctx_t *ctx, const bulk_abort_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_abort_send_reliable(wl_ctx_t *ctx, const bulk_abort_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_abort_send_direct(wl_ctx_t *ctx, const bulk_abort_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_bulk_abort_send(wl_ctx_t *ctx, const bulk_abort_t *message, wl_delivery_t delivery);
 
-control_send_result_t control_bulk_status_send_unreliable(wl_ctx_t *ctx, const bulk_status_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_status_send_reliable(wl_ctx_t *ctx, const bulk_status_t *message, control_encode_scratch_t scratch);
-control_send_result_t control_bulk_status_send_direct(wl_ctx_t *ctx, const bulk_status_t *message, wl_delivery_t delivery);
+/* Encodes directly into Wirelink-owned TX storage. */
+control_send_result_t control_bulk_status_send(wl_ctx_t *ctx, const bulk_status_t *message, wl_delivery_t delivery);
 
 #ifdef __cplusplus
 }

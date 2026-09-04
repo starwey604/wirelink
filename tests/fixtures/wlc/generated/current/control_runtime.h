@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 12U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 13U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -50,7 +50,6 @@ typedef struct {
 
 typedef struct {
   wl_codec_status_t codec_status;
-  int32_t abort_result;
   wl_rpc_err_t rpc_result;
   int32_t core_result;
   int32_t application_result;
@@ -179,8 +178,8 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
 
 /* Terminal consumer for RX events: with non-null ctx/event every RX
  * outcome releases the event exactly once. Do not chain another dispatcher
- * or release it again. Non-RX events are never released; matching RPC TX
- * terminal events advance the client but the caller still owns wl_tx_take(). */
+ * or release it again. Matching RPC TX terminal events advance the runtime
+ * and reclaim the handle. Unmatched non-RX events remain caller-owned. */
 control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_runtime_t *runtime, wl_time_ms_t now_ms);
 
 int control_joint_command_fifo_acquire(control_runtime_t *runtime, control_joint_command_fifo_view_t *out_view);
@@ -199,9 +198,10 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
 /* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
 wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
 
-/* Client start writes the allocated operation ID into request in place. */
-control_runtime_result_t control_home_client_start_scratch(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms, control_encode_scratch_t scratch);
-control_runtime_result_t control_home_client_start_direct(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
+/* Allocates, encodes, and submits atomically from the caller's view. The
+ * request is restored before return. A local encode/submit failure releases the
+ * allocated RPC slot and returns operation_id zero. */
+control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
 /* Nonblocking inspection returns generic metadata for this service. */
 wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client);
 /* Decode a retained response previously returned by client_inspect(). Borrowed
