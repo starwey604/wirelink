@@ -5,6 +5,10 @@ desktop systems. It provides explicit framing, CRC integrity, stop-and-wait
 reliability, borrowed RX payloads, and direct SPSC/DMA ingress without owning
 hardware, threads, a heap, or a clock.
 
+New users should start with [`docs/getting-started.md`](docs/getting-started.md),
+which builds a hardware-free endpoint pair and demonstrates unreliable typed
+telemetry plus a reliable RPC.
+
 The current release is the `0.9.0` release candidate for the v1 wire protocol
 and C API. Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees

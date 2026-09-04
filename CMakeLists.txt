@@ -103,6 +103,8 @@ option(WIRELINK_BUILD_HOST_RUNTIME
   "Build the optional C++20 threaded session runtime" OFF)
 option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
+option(WIRELINK_BUILD_GETTING_STARTED
+  "Build the WLC-generated typed quickstart (requires compatible WLC)" OFF)
 option(WIRELINK_INSTALL
   "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH

@@ -1,0 +1,200 @@
+# Build a Wirelink endpoint
+
+This guide builds two in-memory endpoints, sends lossy telemetry in one
+direction, and completes a reliable typed RPC in the other. It is Wirelink's
+equivalent of libcsp's loopback client/server example, but the abstraction is
+different: Wirelink is a point-to-point link engine, not an addressed network
+or router. An application combines an endpoint, a transport, a session, and an
+optional WLC-generated runtime.
+
+## Mental model
+
+```text
+typed messages and RPC       application policy
+WLC-generated runtime        encode, route, retain, correlate
+Wirelink link                frame, integrity, ACK, retry, deduplicate
+port/adapter                  UART, USB, UDP, CAN packet, or test loopback
+```
+
+One consumer owns sending, polling, event release, transaction completion,
+runtime service, and adapter service. A transport callback or ISR may be the
+single RX producer. Wirelink allocates no memory and creates no threads or
+clocks.
+
+| libcsp concept | Wirelink equivalent |
+| --- | --- |
+| addressed node | one point-to-point endpoint; addressing is out of scope |
+| node incarnation | nonzero `session_id` on reliable traffic |
+| destination port | stable WLC message ID |
+| connection-less send | unreliable delivery |
+| reliable connection/request | reliable transaction plus optional RPC |
+| interface and driver | adapter using the public port API |
+| router task | application-owned poll/service loop |
+
+## Build the runnable example
+
+From a source checkout with a compatible ABI 14 `wlc` executable:
+
+```sh
+cmake -S . -B build/quickstart \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_GETTING_STARTED=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
+cmake --build build/quickstart --target wirelink_getting_started
+./build/quickstart/examples/wirelink_getting_started
+```
+
+Expected output is:
+
+```text
+unreliable telemetry: sample=7 temperature=23.50 C
+reliable RPC: 20 + 22 = 42
+```
+
+The complete program is
+[`examples/getting_started.c`](../examples/getting_started.c). Its in-memory
+sink represents a packet transport; replacing that sink and ingress path is
+the only transport-specific step.
+
+## 1. Define the application protocol
+
+[`quickstart.wl`](../examples/getting_started/quickstart.wl) assigns permanent
+numeric IDs to `Telemetry`, `AddRequest`, and `AddResponse`. The separate
+[`quickstart.bind.wl`](../examples/getting_started/quickstart.bind.wl) selects
+runtime behavior:
+
+```text
+latest Telemetry { delivery = unreliable; }
+
+rpc Add {
+  request = AddRequest;
+  response = AddResponse;
+  request_operation_id = operation_id;
+  response_operation_id = operation_id;
+  response_status = status;
+  request_delivery = reliable;
+  response_delivery = reliable;
+}
+```
+
+Use unreliable delivery for replaceable state where a newer sample makes an
+older one irrelevant. Use reliable delivery when link acknowledgement matters.
+Use RPC when the caller needs an application result, deadline, status, or
+bounded duplicate/replay handling.
+
+## 2. Generate and link the typed runtime
+
+An application consuming an installed Wirelink package needs only:
+
+```cmake
+find_package(Wirelink CONFIG REQUIRED)
+wirelink_wlc_generate(
+  TARGET quickstart_protocol
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.wl"
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.bind.wl")
+target_link_libraries(my_endpoint PRIVATE quickstart_protocol)
+```
+
+Generation produces codecs, typed send functions, retained-message accessors,
+RPC client/server functions, and a manifest containing schema, profile, and
+codegen ABI identities. Generated C is compiled into the target; WLC does not
+run on the device.
+
+## 3. Initialize an endpoint and session
+
+Choose the same envelope, integrity mode, payload bound, and transmission-unit
+bound at both ends. These profile values are configured out of band in
+protocol v1. Allocate the buffers returned by `wl_config_requirements()`, keep
+them alive, and initialize the link with `wl_init()`.
+
+A session ID is a nonzero boot/session incarnation, not a node address. It is
+included in reliable DATA and ACK frames so a peer can distinguish retransmits
+from traffic sent before a reboot. Provision it from a random boot nonce or a
+persistent monotonic boot counter; do not reuse it while old frames may remain
+in the transport.
+
+The example uses the native-packet envelope and fixed static arrays for
+clarity. A datagram transport feeds each complete unit through
+`wl_feed_unit()`. A byte stream uses `wl_feed_bytes()` or the reserve/commit
+producer API instead.
+
+## 4. Bind the transport
+
+Register one `wl_sink_fn` with `wl_set_sink()`:
+
+- return `WL_SINK_SENT` when the bytes were consumed synchronously;
+- return `WL_SINK_STARTED` when the transport borrows them asynchronously,
+  then call `wl_tx_complete()` exactly once;
+- return `WL_SINK_BUSY` for retryable backpressure; or
+- return `WL_SINK_FAILED` for a terminal I/O failure.
+
+The sink-provided byte pointer remains owned by Wirelink until synchronous
+return or asynchronous completion. RX publication only makes work available;
+decoding and application callbacks stay on the consumer.
+
+## 5. Initialize application runtime storage
+
+Set only the roles this endpoint owns. The controller example enables one RPC
+client slot; the device enables one pending server operation, one replay-cache
+entry, and the `Add` handler. Call `quickstart_runtime_requirements()`, provide
+aligned storage of the reported size, then call `quickstart_runtime_init()`.
+
+The instance and storage arena must remain at stable addresses. The generated
+runtime owns no scheduler: the application still drives link and application
+progress.
+
+## 6. Drive events and RPC progress
+
+The essential owner pass is:
+
+```c
+while (wl_poll(&endpoint.link, now_ms, &event) == WL_OK) {
+  quickstart_runtime_result_t result =
+      quickstart_runtime_dispatch_event(&endpoint.link, &event,
+                                        &runtime.instance.runtime, now_ms);
+  handle_dispatch_result(result);
+}
+
+quickstart_runtime_service_result_t service = {0};
+quickstart_runtime_service(&endpoint.link, &runtime.instance.runtime,
+                           now_ms, &service);
+```
+
+The generated dispatcher releases every RX event passed to it. It also consumes and
+reclaims matching RPC terminal TX events; unmatched terminal handles remain an
+application concern. Call `runtime_service()` once per bounded owner pass. A
+successful submission is progress; a deferred response waits for transport
+progress rather than causing a tight retry loop. Combine
+`quickstart_runtime_get_deadline_hint()` with `wl_poll_get_hint()` and the
+adapter deadline before sleeping.
+
+Start an RPC with `quickstart_add_client_start()`, retain its returned nonzero
+operation ID, inspect/decode the terminal response, and finally call
+`quickstart_add_client_release()`. A retry may put that ID back into the same
+canonical request to address the peer's bounded replay cache. Cache eviction,
+expiry, session change, or restart ends this protection.
+
+## 7. Move from loopback to hardware
+
+Keep the schema, runtime, owner loop, and session rules unchanged. Replace the
+memory sink with a platform adapter and select its matching ingress mode:
+
+- UART/serial stream: COBS envelope plus byte or DMA publication;
+- USB, UDP, or packet CAN: native-packet envelope plus unit publication;
+- a bus that supplies a 16-bit length: `WL_ENVELOPE_BUS_LENGTH16`.
+
+Start and stop the adapter outside the core, notify the owner on RX, TX
+completion, and writability, and quiesce it before reinitializing endpoint
+storage.
+
+## Design reference
+
+The presentation follows libcsp's separation of initialization, buffers,
+send/receive flow, interfaces, and a default loopback client/server example:
+
+- [The basics of CSP](https://libcsp.github.io/libcsp/basic.html)
+- [Client and server example](https://libcsp.github.io/libcsp/example.html)
+- [How to install LibCSP](https://libcsp.github.io/libcsp/INSTALL.html)
+
+Wirelink deliberately stops below libcsp's node addresses, sockets, routing
+table, router task, and standard network services.
