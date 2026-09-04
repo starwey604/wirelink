@@ -580,6 +580,7 @@ ZTEST(wirelink_rpc, test_server_generation_wrap_evicts_true_oldest) {
                                     &disposition, &response),
                 WL_RPC_OK);
   zassert_equal(disposition, WL_RPC_SERVER_REPLAY);
+  server_mark_next_sent();
 
   zassert_equal(
       wl_rpc_server_complete(&servers.server, &requests[3], 0, NULL, 0U, 3U,
@@ -710,7 +711,7 @@ ZTEST(wirelink_rpc, test_server_discards_one_peer_session) {
   pending.peer_session_id = 7U;
   in_flight.peer_session_id = 7U;
   other.peer_session_id = 8U;
-  server_init(WL_RPC_CACHE_REJECT_NEW, 100U, 100U, 3U, 2U);
+  server_init(WL_RPC_CACHE_REJECT_NEW, 100U, 100U, 2U, 2U);
   zassert_equal(wl_rpc_server_begin(&servers.server, &pending, 0U,
                                     &disposition, &response),
                 WL_RPC_OK);
