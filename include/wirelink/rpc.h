@@ -292,6 +292,19 @@ typedef struct wl_rpc_server_discard_result {
   uint16_t tx_cancel_requested;
 } wl_rpc_server_discard_result_t;
 
+/* Optional point-to-point peer-session tracker. Zero-initialize before use. */
+typedef struct wl_rpc_peer {
+  uint64_t session_id;
+} wl_rpc_peer_t;
+
+typedef struct wl_rpc_peer_observation {
+  uint64_t previous_session_id;
+  uint64_t current_session_id;
+  wl_rpc_server_discard_result_t discarded;
+  /* One for an initial binding or a transition; zero for the same session. */
+  uint8_t changed;
+} wl_rpc_peer_observation_t;
+
 wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
                                 const wl_rpc_server_config_t *config);
 
@@ -384,6 +397,16 @@ wl_rpc_err_t wl_rpc_server_discard_session(
     wl_rpc_server_t *server, uint64_t peer_session_id,
     wl_rpc_server_cancel_tx_fn_t cancel_tx, void *cancel_context,
     wl_rpc_server_discard_result_t *out_result);
+
+/*
+ * Observe a nonzero session for a point-to-point peer. On transition, discard
+ * all RPC state for the previous session before publishing the new one. The
+ * caller remains responsible for product state such as leases and non-RPC TX.
+ */
+wl_rpc_err_t wl_rpc_peer_observe(
+    wl_rpc_server_t *server, wl_rpc_peer_t *peer, uint64_t peer_session_id,
+    wl_rpc_server_cancel_tx_fn_t cancel_tx, void *cancel_context,
+    wl_rpc_peer_observation_t *out_observation);
 
 /* Drop exact pending metadata without manufacturing or caching a response. */
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,

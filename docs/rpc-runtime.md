@@ -125,10 +125,13 @@ also advances client/server deadlines and submits at most one cached response
 per call. Products should call it after event dispatch and application
 completion, then combine its deadline result with `wl_poll_get_hint()`.
 
-When a point-to-point peer changes session, call
-`wl_rpc_server_discard_session()` for the old nonzero session. It removes
-pending and cached identities and reports in-flight handles through an optional
-callback so the product can call `wl_tx_cancel()` and later `wl_tx_take()`.
+For a point-to-point peer, zero-initialize `wl_rpc_peer_t` and pass every
+observed nonzero session to `wl_rpc_peer_observe()`. On a transition it
+atomically discards the old session's RPC state before publishing the new ID,
+and reports in-flight handles through an optional cancellation callback. The
+observation tells the product when to revoke its own leases and non-RPC work.
+Multi-peer products can instead call `wl_rpc_server_discard_session()`
+directly for each departed peer.
 
 Pending timeout and cache TTL are independently wrap-safe. Zero disables each
 expiry. `wl_rpc_server_expired_acquire()` returns a timed-out pending request

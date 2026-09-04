@@ -873,6 +873,47 @@ ZTEST(wirelink_rpc, test_server_discards_one_peer_session) {
   zassert_equal(disposition, WL_RPC_SERVER_PENDING_DUPLICATE);
 }
 
+ZTEST(wirelink_rpc, test_peer_observe_discards_previous_session_once) {
+  wl_rpc_request_identity_t request = identity(61U, 71U);
+  wl_rpc_server_request_t accepted;
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_response_t response;
+  wl_rpc_peer_t peer = {0};
+  wl_rpc_peer_observation_t observation;
+
+  request.peer_session_id = 7U;
+  server_init(WL_RPC_CACHE_REJECT_NEW, 100U, 100U, 1U, 1U);
+  zassert_equal(wl_rpc_peer_observe(&servers.server, &peer, 7U, NULL, NULL,
+                                    &observation),
+                WL_RPC_OK);
+  zassert_equal(observation.changed, 1U);
+  zassert_equal(observation.previous_session_id, 0U);
+  zassert_equal(observation.current_session_id, 7U);
+  zassert_equal(observation.discarded.pending_discarded, 0U);
+  zassert_equal(peer.session_id, 7U);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &request, 0U,
+                                    &disposition, &accepted, &response),
+                WL_RPC_OK);
+
+  zassert_equal(wl_rpc_peer_observe(&servers.server, &peer, 7U, NULL, NULL,
+                                    &observation),
+                WL_RPC_OK);
+  zassert_equal(observation.changed, 0U);
+  zassert_equal(observation.discarded.pending_discarded, 0U);
+  zassert_equal(wl_rpc_peer_observe(&servers.server, &peer, 8U, NULL, NULL,
+                                    &observation),
+                WL_RPC_OK);
+  zassert_equal(observation.changed, 1U);
+  zassert_equal(observation.previous_session_id, 7U);
+  zassert_equal(observation.current_session_id, 8U);
+  zassert_equal(observation.discarded.pending_discarded, 1U);
+  zassert_equal(observation.discarded.responses_discarded, 0U);
+  zassert_equal(peer.session_id, 8U);
+  zassert_equal(wl_rpc_server_complete(&servers.server, &accepted, 0, NULL, 0U,
+                                       1U, &response),
+                WL_RPC_ERR_NOT_FOUND);
+}
+
 ZTEST(wirelink_rpc, test_server_zero_handle_terminal_event_is_unrelated) {
   wl_event_t event = {.type = WL_EVT_TX_SUCCESS, .handle = 0U};
 

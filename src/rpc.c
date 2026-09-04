@@ -1309,6 +1309,37 @@ wl_rpc_err_t wl_rpc_server_discard_session(
   return WL_RPC_OK;
 }
 
+wl_rpc_err_t wl_rpc_peer_observe(
+    wl_rpc_server_t *server, wl_rpc_peer_t *peer, uint64_t peer_session_id,
+    wl_rpc_server_cancel_tx_fn_t cancel_tx, void *cancel_context,
+    wl_rpc_peer_observation_t *out_observation) {
+  wl_rpc_err_t result;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (peer == NULL || peer_session_id == 0U || out_observation == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  memset(out_observation, 0, sizeof(*out_observation));
+  out_observation->previous_session_id = peer->session_id;
+  out_observation->current_session_id = peer_session_id;
+  if (peer->session_id == peer_session_id) {
+    return WL_RPC_OK;
+  }
+  if (peer->session_id != 0U) {
+    result = wl_rpc_server_discard_session(
+        server, peer->session_id, cancel_tx, cancel_context,
+        &out_observation->discarded);
+    if (result != WL_RPC_OK) {
+      return result;
+    }
+  }
+  peer->session_id = peer_session_id;
+  out_observation->changed = 1U;
+  return WL_RPC_OK;
+}
+
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
                                    const wl_rpc_server_request_t *request) {
   wl_rpc_server_impl_t *impl;
