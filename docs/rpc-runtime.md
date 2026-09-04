@@ -63,9 +63,12 @@ Likewise, an RPC deadline does not release a bound core transaction. On
 and must eventually call `wl_tx_take()` after the core transaction reaches a
 terminal state.
 
-Auto-generated IDs advance monotonically and skip locally retained slots.
-Callers that provide IDs explicitly must also avoid reuse while the peer may
-still hold a response-cache entry.
+Auto-generated IDs advance monotonically and skip locally retained slots. A
+generated client start uses a present nonzero request operation ID exactly;
+absent or zero selects automatic allocation. After releasing a terminal client
+slot, retrying the same canonical request with the same explicit ID can address
+the server's bounded replay cache. Reusing that ID with different request data
+is a conflict while the peer retains the cache entry.
 
 ## Server duplicate and replay policy
 

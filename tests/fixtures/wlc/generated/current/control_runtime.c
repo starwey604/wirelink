@@ -674,14 +674,19 @@ control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtim
   result.message_id = HOME_REQUEST_MESSAGE_ID;
   result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
   if (ctx == NULL || runtime == NULL || runtime->rpc_client == NULL || request == NULL) return result;
-  result.detail.rpc.rpc_result = wl_rpc_client_begin(runtime->rpc_client, HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, timeout_ms, now_ms, &operation_id);
+  had_operation_id = request->has_operation_id;
+  previous_operation_id = request->operation_id;
+  if (had_operation_id && previous_operation_id != 0U) {
+    operation_id = previous_operation_id;
+    result.detail.rpc.rpc_result = wl_rpc_client_begin_with_id(runtime->rpc_client, operation_id, HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, timeout_ms, now_ms);
+  } else {
+    result.detail.rpc.rpc_result = wl_rpc_client_begin(runtime->rpc_client, HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, timeout_ms, now_ms, &operation_id);
+  }
   result.detail.rpc.operation_id = operation_id;
   if (result.detail.rpc.rpc_result != WL_RPC_OK) {
     result.domain = CONTROL_RUNTIME_RPC_ERROR;
     return result;
   }
-  had_operation_id = request->has_operation_id;
-  previous_operation_id = request->operation_id;
   request->has_operation_id = true;
   request->operation_id = operation_id;
   sent = control_home_request_send(ctx, request, WL_DELIVERY_RELIABLE);
@@ -752,6 +757,10 @@ static control_runtime_result_t control_home_server_finish(control_runtime_t *ru
   wl_rpc_server_response_buffer_t buffer = {0};
   wl_rpc_server_response_t cached = {0};
   size_t encoded_length = 0U;
+  bool had_operation_id;
+  uint32_t previous_operation_id;
+  bool had_status;
+  int32_t previous_status;
   result.message_id = HOME_RESPONSE_MESSAGE_ID;
   result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
   result.detail.rpc.application_result = application_status;
@@ -768,11 +777,19 @@ static control_runtime_result_t control_home_server_finish(control_runtime_t *ru
     result.domain = CONTROL_RUNTIME_RPC_ERROR;
     return result;
   }
+  had_operation_id = response->has_operation_id;
+  previous_operation_id = response->operation_id;
+  had_status = response->has_status;
+  previous_status = (int32_t)response->status;
   response->has_operation_id = true;
   response->operation_id = server_request->identity.operation_id;
   response->has_status = true;
   response->status = application_status;
   result.detail.rpc.codec_status = home_response_encode(response, buffer.data, buffer.capacity, &encoded_length);
+  response->has_operation_id = had_operation_id;
+  response->operation_id = previous_operation_id;
+  response->has_status = had_status;
+  response->status = previous_status;
   result.detail.rpc.payload_length = encoded_length;
   if (result.detail.rpc.codec_status != WL_CODEC_OK) {
     result.domain = CONTROL_RUNTIME_CODEC_ERROR;

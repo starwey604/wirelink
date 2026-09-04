@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 13U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 14U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -198,9 +198,12 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
 /* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
 wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
 
-/* Allocates, encodes, and submits atomically from the caller's view. The
- * request is restored before return. A local encode/submit failure releases the
- * allocated RPC slot and returns operation_id zero. */
+/* Allocates, encodes, and submits atomically from the caller's view. A
+ * present nonzero request operation ID is used exactly, allowing an explicit
+ * retry to address the server's bounded replay cache; absent or zero selects an
+ * automatically allocated ID. The request is restored before return. A local
+ * encode/submit failure releases the allocated RPC slot and returns operation_id
+ * zero. */
 control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
 /* Nonblocking inspection returns generic metadata for this service. */
 wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client);
@@ -211,7 +214,8 @@ wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t op
 
 /* server_request is copied from the request callback and uniquely scopes this
  * execution generation. Completion encodes directly into the response storage
- * reserved by wl_rpc_server_begin(); runtime_service() performs I/O. */
+ * reserved by wl_rpc_server_begin(); runtime_service() performs I/O and restores
+ * the caller-owned response before return. */
 control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, home_response_t *response, wl_time_ms_t now_ms);
 control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, wl_time_ms_t now_ms);
 

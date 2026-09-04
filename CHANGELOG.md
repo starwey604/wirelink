@@ -11,6 +11,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 - Collapsed generated message sends and RPC starts into one typed operation
   each; generated code now encodes directly into claimed TX storage, rolls
   back failed RPC starts, and owns matching RPC terminal-event release.
+- Made the single generated RPC start honor a caller-supplied nonzero operation
+  ID as a bounded replay key, while preserving automatic IDs by default and
+  restoring caller-owned request and response objects on every return path.
 - Added separately linkable WLC-generated typed routers, scratch send
   wrappers, and a native-packet claim/encode/commit path; valid RX events are
   released exactly once across success and every routing failure domain.

@@ -684,10 +684,13 @@ ZTEST(wirelink_application_runtime,
                                         7U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
-  zassert_true(response.has_operation_id);
-  zassert_equal(response.operation_id, operation_id);
-  zassert_true(response.has_status);
+  zassert_false(response.has_operation_id);
+  zassert_equal(response.operation_id, 0U);
+  zassert_false(response.has_status);
   zassert_equal(response.status, OPERATION_OK);
+  response.has_operation_id = true;
+  response.operation_id = operation_id;
+  response.has_status = true;
   zassert_equal(home_response_encode(&response, expected_response,
                                      sizeof(expected_response),
                                      &expected_length),
@@ -742,6 +745,34 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(
       wl_rpc_client_release(&rpc_client.instance.rpc_client, operation_id),
       WL_RPC_OK);
+
+  /* Retry the same logical operation through the single generated start API.
+   * The explicit ID addresses the completed server cache entry, so the
+   * application handler is not executed again. */
+  result = control_home_client_start(
+      &client->ctx, &rpc_client.instance.runtime, &request, 100U, 14U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(rpc_detail(&result)->operation_id, operation_id);
+  zassert_true(request.has_operation_id);
+  zassert_equal(request.operation_id, operation_id);
+  const wl_tx_handle_t retry_request_handle = rpc_detail(&result)->handle;
+  result = dispatch_home_request(client, server, 15U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(rpc_detail(&result)->rpc_disposition, WL_RPC_SERVER_REPLAY);
+  zassert_equal(rpc_server.handler_calls, 1U);
+  terminal = finish_reliable_tx(client, &rpc_client.instance.runtime, 16U,
+                                retry_request_handle);
+  zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
+  const wl_tx_handle_t retry_response_handle =
+      service_server_response(server, 17U);
+  result = receive_home_response(server, client, cached_response,
+                                 expected_length, 18U);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
+  zassert_equal(rpc_detail(&result)->operation_id, operation_id);
+  finish_response_tx(client, server, retry_response_handle, 19U);
+  zassert_equal(
+      wl_rpc_client_release(&rpc_client.instance.rpc_client, operation_id),
+      WL_RPC_OK);
 }
 
 ZTEST(wirelink_application_runtime,
@@ -786,8 +817,14 @@ ZTEST(wirelink_application_runtime,
       OPERATION_REJECTED, &response, 23U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->application_result, OPERATION_REJECTED);
-  zassert_equal(response.operation_id, operation_id);
-  zassert_equal(response.status, OPERATION_REJECTED);
+  zassert_false(response.has_operation_id);
+  zassert_equal(response.operation_id, 0U);
+  zassert_false(response.has_status);
+  zassert_equal(response.status, OPERATION_OK);
+  response.has_operation_id = true;
+  response.operation_id = operation_id;
+  response.has_status = true;
+  response.status = OPERATION_REJECTED;
   zassert_equal(home_response_encode(&response, expected_response,
                                      sizeof(expected_response),
                                      &expected_length),
