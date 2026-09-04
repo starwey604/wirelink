@@ -8,6 +8,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- Collapsed generated message sends and RPC starts into one typed operation
+  each; generated code now encodes directly into claimed TX storage, rolls
+  back failed RPC starts, and owns matching RPC terminal-event release.
 - Added separately linkable WLC-generated typed routers, scratch send
   wrappers, and a native-packet claim/encode/commit path; valid RX events are
   released exactly once across success and every routing failure domain.
