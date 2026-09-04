@@ -24,7 +24,8 @@ wrap-safe.
 nearest relative application deadline (`0` when due and `UINT32_MAX` when no
 deadline exists). The consumer can take the minimum of these values and the
 core `wl_poll_get_hint()` deadline before sleeping; only `poll()` advances RPC
-state or removes expired server entries.
+deadlines. A ready server response reports deadline zero so the owner services
+it before sleeping.
 
 After encoding and sending a reliable request, bind its `wl_tx_handle_t` with
 `wl_rpc_client_bind_tx()` and route its terminal TX event through
@@ -86,11 +87,39 @@ prevents an old completion from targeting the new request. With
 `WL_RPC_CACHE_REJECT_NEW`, a full cache leaves the operation
 pending so the caller can retry completion after expiry or abandon it. With
 `WL_RPC_CACHE_EVICT_OLDEST`, completion replaces the oldest generation; age
-comparison remains valid across the generation counter wrap. A replay pointer
-is borrowed only until the next server mutation or poll that may expire or
-evict its slot.
+comparison remains valid across the generation counter wrap. Entries awaiting
+submission or reliable completion are never eviction candidates.
+
+## Server response ownership and progress
+
+Completion transfers encoded response bytes into server-owned cache storage;
+it does not call the link. The owner loop acquires one ready response with
+`wl_rpc_server_response_acquire()` and then performs exactly one transition:
+
+- synchronous backpressure: `wl_rpc_server_response_defer()`;
+- accepted reliable TX: `wl_rpc_server_response_submitted()` with its handle;
+- accepted unreliable TX: `wl_rpc_server_response_sent()`.
+
+Route reliable terminal events through `wl_rpc_server_on_tx_event()`. Any
+terminal result ends that bounded link attempt and leaves a delivered,
+replayable entry. A duplicate request moves the same owned bytes back to the
+ready queue; RPC does not create an unbounded retry loop above link ARQ.
+Acquired bytes remain stable until their matching transition.
+
+WLC-generated runtimes implement this sequence in `*_runtime_service()`, which
+also advances client/server deadlines and submits at most one cached response
+per call. Products should call it after event dispatch and application
+completion, then combine its deadline result with `wl_poll_get_hint()`.
+
+When a point-to-point peer changes session, call
+`wl_rpc_server_discard_session()` for the old nonzero session. It removes
+pending and cached identities and reports in-flight handles through an optional
+callback so the product can call `wl_tx_cancel()` and later `wl_tx_take()`.
 
 Pending timeout and cache TTL are independently wrap-safe. Zero disables each
-expiry. Eviction, expiry, or process restart ends replay protection, so this is
-not durable exactly-once execution; non-idempotent products need a persistent
-operation key or an idempotent handler.
+expiry. `wl_rpc_server_expired_acquire()` returns a timed-out pending identity
+without discarding it; the application must reject/complete it with a typed
+terminal response or explicitly abandon it. Eviction, expiry, session discard,
+or process restart ends replay protection, so this is not durable exactly-once
+execution; non-idempotent products need a persistent operation key or an
+idempotent handler.
