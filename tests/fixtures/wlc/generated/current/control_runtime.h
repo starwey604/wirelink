@@ -166,19 +166,35 @@ typedef struct {
 } control_runtime_config_t;
 
 #define CONTROL_RUNTIME_HAS_DEFAULT_STORAGE 1
+typedef union {
+  uint8_t byte;
+  joint_command_t joint_command_fifo;
+  arm_mit_command_t arm_mit_command_latest;
+  wl_rpc_client_slot_t rpc_client_slot;
+  wl_rpc_server_pending_slot_t rpc_server_pending_slot;
+  wl_rpc_server_cache_slot_t rpc_server_cache_slot;
+} control_runtime_default_storage_alignment_t;
+
+#if defined(__cplusplus)
+#define CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT alignof(control_runtime_default_storage_alignment_t)
+#elif defined(_MSC_VER)
+#define CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT __alignof(control_runtime_default_storage_alignment_t)
+#else
+#define CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT _Alignof(control_runtime_default_storage_alignment_t)
+#endif
 #define CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY \
   (1U + \
-   ((sizeof(max_align_t) - 1U) + sizeof(joint_command_t) + (sizeof(max_align_t) - 1U)) + \
-   ((sizeof(max_align_t) - 1U) + ((sizeof(arm_mit_command_t) + (sizeof(max_align_t) - 1U)) * WL_LATEST_SLOT_COUNT)) + \
-   ((sizeof(max_align_t) - 1U) + sizeof(wl_rpc_client_slot_t)) + \
+   ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(joint_command_t) + (CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U)) + \
+   ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + ((sizeof(arm_mit_command_t) + (CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U)) * WL_LATEST_SLOT_COUNT)) + \
+   ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_client_slot_t)) + \
    12U + \
-   ((sizeof(max_align_t) - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
-   ((sizeof(max_align_t) - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
+   ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
+   ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
    12U + \
    12U)
 
 typedef union {
-  max_align_t alignment;
+  control_runtime_default_storage_alignment_t alignment;
   uint8_t bytes[CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY];
 } control_runtime_default_storage_t;
 
