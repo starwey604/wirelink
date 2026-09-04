@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 11U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 12U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -170,8 +170,8 @@ typedef struct {
   wl_latest_t arm_mit_command_latest;
   wl_rpc_client_t rpc_client;
   wl_rpc_server_t rpc_server;
-  home_request_t home_request_scratch;
-  home_response_t home_response_scratch;
+  /* Dispatch is serialized; request and response decode scratch lifetimes do not overlap. */
+  union { home_request_t request; home_response_t response; } home_scratch;
 } control_runtime_instance_t;
 
 int control_runtime_requirements(const control_runtime_config_t *config, control_runtime_requirements_t *out_requirements);

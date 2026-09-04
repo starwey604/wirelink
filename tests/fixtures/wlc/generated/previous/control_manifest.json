@@ -2,8 +2,8 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.1.0",
-    "codegen_abi": 10
+    "version": "0.4.0",
+    "codegen_abi": 12
   },
   "module": "control",
   "identity": {
@@ -15,9 +15,9 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "control.c", "size": 24232, "digest": "0x8f8a2633a132aedc"},
+    {"path": "control.c", "size": 25300, "digest": "0xe21382c75bad4aeb"},
     {"path": "control.h", "size": 1838, "digest": "0x76ac29565c285d9a"},
     {"path": "control_bindings.c", "size": 8107, "digest": "0xbf6a636cbb157e19"},
-    {"path": "control_bindings.h", "size": 3012, "digest": "0x681c2a6a05321988"}
+    {"path": "control_bindings.h", "size": 3008, "digest": "0x95e1dd16ccc0febf"}
   ]
 }

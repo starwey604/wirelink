@@ -2,7 +2,7 @@
 #define WIRELINK_GENERATED_CONTROL_H_BINDINGS
 
 #include "control.h"
-#include <wirelink/wirelink.h>
+#include <wirelink/link.h>
 
 #ifdef __cplusplus
 extern "C" {

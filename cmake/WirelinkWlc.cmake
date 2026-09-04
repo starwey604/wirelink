@@ -3,9 +3,9 @@ include_guard(GLOBAL)
 # These values are consumed by functions that may be called from a parent
 # directory after Wirelink itself was added with add_subdirectory(). Keep them
 # in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.3.0" CACHE INTERNAL
+set(WIRELINK_WLC_VERSION "0.4.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_ABI "11" CACHE INTERNAL
+set(WIRELINK_WLC_CODEGEN_ABI "12" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Download the pinned WLC host compiler when it is not installed" ON)
@@ -64,27 +64,27 @@ function(_wirelink_wlc_release_asset out_asset out_hash out_executable)
   if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND
       _architecture STREQUAL "x86_64")
     set(_asset "wlc-windows-x86_64.zip")
-    set(_hash "fefc7288ebb0450c08f9bd15a6b2f81df2af45788af05155b4ed14a2964f5e72")
+    set(_hash "5568a888dd9ff84b4ddce474b2e424d785d49c708d9c8ed5b08d2837de631ea0")
     set(_executable "wlc.exe")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
       _architecture STREQUAL "x86_64")
     set(_asset "wlc-linux-x86_64-musl.tar.gz")
-    set(_hash "f84da8491e978cdebce7cb5aaef72a61400fb2791796e84830e2a2788fc6d803")
+    set(_hash "cdb168fe79fc4de720fddaa1ccb01e8cab38657b377dcb76fac6f3a6132673d4")
     set(_executable "wlc")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
       _architecture STREQUAL "aarch64")
     set(_asset "wlc-linux-aarch64-musl.tar.gz")
-    set(_hash "2f4fcfb281a11367c54df2cee181e443aa1b9494cb582ccb5a0732ffb9b39548")
+    set(_hash "8412165603dabc326965cecbb5355ff3a9f5cc61c5ec9f73219bbef601279977")
     set(_executable "wlc")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
       _architecture STREQUAL "x86_64")
     set(_asset "wlc-macos-x86_64.tar.gz")
-    set(_hash "50e8c597fd01168c279109fa1bebe0520d7d8f56cb0e2151be1aea3fe8ae89c8")
+    set(_hash "8f9b968a2d2187357b59b484453d4fd5bfd4147c9af01f7c0d84240eb66aa7e6")
     set(_executable "wlc")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
       _architecture STREQUAL "aarch64")
     set(_asset "wlc-macos-aarch64.tar.gz")
-    set(_hash "f16ac0139da834092e8029d699104a41fdbf8d1a259b60b5ba57de3478c3d222")
+    set(_hash "1404ac1b885fff44afe1b0fe92da937b7832b2aba9813e34963d9b214a57ab96")
     set(_executable "wlc")
   else()
     message(FATAL_ERROR

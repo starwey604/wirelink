@@ -215,13 +215,13 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     instance->runtime.rpc_server = &instance->rpc_server;
   }
   if (config->rpc_server_enabled != 0U) {
-    instance->runtime.home.request_scratch = &instance->home_request_scratch;
+    instance->runtime.home.request_scratch = &instance->home_scratch.request;
     instance->runtime.home.canonical_request_scratch.data = (uint8_t *)layout.home_canonical_request_storage;
     instance->runtime.home.canonical_request_scratch.capacity = config->home_canonical_request_capacity;
     instance->runtime.home.request_handler = config->home_request_handler;
     instance->runtime.home.user_data = config->home_user_data;
   }
-  if (config->rpc_client_enabled != 0U) instance->runtime.home.response_scratch = &instance->home_response_scratch;
+  if (config->rpc_client_enabled != 0U) instance->runtime.home.response_scratch = &instance->home_scratch.response;
   return WL_OK;
 
 init_failed:
@@ -252,6 +252,7 @@ wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_m
 wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_service_result_t *out_result) {
   wl_rpc_server_response_t response = {0};
   wl_rpc_err_t result;
+  uint8_t reliable_response = 0U;
   if (out_result != NULL) memset(out_result, 0, sizeof(*out_result));
   if (ctx == NULL || runtime == NULL || out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
   out_result->response = control_runtime_result(NULL);
@@ -273,7 +274,7 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
         result = WL_RPC_ERR_RESPONSE_MISMATCH;
         break;
       }
-      out_result->response.detail.rpc.core_result = wl_send_reliable(ctx, HOME_RESPONSE_MESSAGE_ID, response.response_data, response.response_length, &out_result->response.detail.rpc.handle);
+      reliable_response = 1U;
       break;
     default:
       result = WL_RPC_ERR_RESPONSE_MISMATCH;
@@ -283,6 +284,11 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
     (void)wl_rpc_server_response_defer(runtime->rpc_server, &response);
     return result;
   }
+  if (reliable_response != 0U) {
+    out_result->response.detail.rpc.core_result = wl_send_reliable(ctx, response.identity.response_message_id, response.response_data, response.response_length, &out_result->response.detail.rpc.handle);
+  } else {
+    out_result->response.detail.rpc.core_result = wl_send_unreliable(ctx, response.identity.response_message_id, response.response_data, response.response_length);
+  }
   if (out_result->response.detail.rpc.core_result != WL_OK) {
     result = wl_rpc_server_response_defer(runtime->rpc_server, &response);
     if (result != WL_RPC_OK) return result;
@@ -290,13 +296,10 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
     out_result->responses_deferred = 1U;
     return WL_RPC_OK;
   }
-  switch (response.identity.response_message_id) {
-    case HOME_RESPONSE_MESSAGE_ID:
-      result = wl_rpc_server_response_submitted(runtime->rpc_server, &response, out_result->response.detail.rpc.handle);
-      break;
-    default:
-      result = WL_RPC_ERR_RESPONSE_MISMATCH;
-      break;
+  if (reliable_response != 0U) {
+    result = wl_rpc_server_response_submitted(runtime->rpc_server, &response, out_result->response.detail.rpc.handle);
+  } else {
+    result = wl_rpc_server_response_sent(runtime->rpc_server, &response);
   }
   if (result != WL_RPC_OK) {
     (void)wl_rpc_server_response_defer(runtime->rpc_server, &response);
