@@ -24,19 +24,23 @@ typedef enum wl_pump_event_disposition {
   WL_PUMP_EVENT_CONSUMED = 1,
 } wl_pump_event_disposition_t;
 typedef wl_pump_event_disposition_t (*wl_pump_event_fn)(
-    void *user_data, wl_ctx_t *ctx, const wl_event_t *event);
+    void *user_data, wl_ctx_t *ctx, const wl_event_t *event,
+    wl_time_ms_t now_ms);
 
 typedef struct wl_pump_hooks {
-  void *user_data;
+  /* Adapter callbacks share one context; application callbacks share another. */
+  void *adapter_user_data;
   wl_pump_service_fn service;
   wl_pump_quiesce_fn quiesce;
+  wl_pump_deadline_hint_fn adapter_deadline_hint;
+  void *application_user_data;
   wl_pump_application_progress_fn application_progress;
   wl_pump_deadline_hint_fn application_deadline_hint;
-  wl_pump_deadline_hint_fn adapter_deadline_hint;
   /*
    * Return CONSUMED only after releasing an RX event or taking a terminal TX
    * handle. UNHANDLED asks the pump to perform that default owner action.
-   * Other event kinds have no pump-owned resource to discharge.
+   * The callback receives RX events and terminal TX events with nonzero handles;
+   * other event kinds have no application-owned resource to discharge.
    */
   wl_pump_event_fn on_event;
 } wl_pump_hooks_t;

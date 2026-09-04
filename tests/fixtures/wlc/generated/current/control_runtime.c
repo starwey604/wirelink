@@ -818,3 +818,49 @@ control_runtime_result_t control_home_server_complete(control_runtime_t *runtime
 control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, wl_time_ms_t now_ms) {
   return control_home_server_finish(runtime, server_request, application_status, response, now_ms, true);
 }
+
+static wl_pump_event_disposition_t control_runtime_pump_event(void *user_data, wl_ctx_t *ctx, const wl_event_t *event, wl_time_ms_t now_ms) {
+  control_runtime_pump_t *pump = (control_runtime_pump_t *)user_data;
+  control_runtime_result_t result;
+  if (pump == NULL || pump->runtime == NULL) return WL_PUMP_EVENT_UNHANDLED;
+  result = control_runtime_dispatch_event(ctx, event, pump->runtime, now_ms);
+  if (pump->on_result != NULL) pump->on_result(pump->user_data, &result);
+  return result.event_consumed != 0U ? WL_PUMP_EVENT_CONSUMED : WL_PUMP_EVENT_UNHANDLED;
+}
+
+static uint8_t control_runtime_pump_progress(void *user_data, wl_ctx_t *ctx, wl_time_ms_t now_ms) {
+  control_runtime_pump_t *pump = (control_runtime_pump_t *)user_data;
+  if (pump == NULL || pump->runtime == NULL) return 0U;
+  pump->last_service_result = control_runtime_service(ctx, pump->runtime, now_ms, &pump->last_service);
+  if (pump->last_service_result != WL_RPC_OK) return 0U;
+  if (pump->last_service.response.message_id != 0U && pump->on_result != NULL)
+    pump->on_result(pump->user_data, &pump->last_service.response);
+  return pump->last_service.responses_submitted != 0U ? 1U : 0U;
+}
+
+static uint32_t control_runtime_pump_deadline(const void *user_data, wl_time_ms_t now_ms) {
+  const control_runtime_pump_t *pump = (const control_runtime_pump_t *)user_data;
+  wl_rpc_deadline_hint_t hint = {0};
+  if (pump == NULL || pump->runtime == NULL || control_runtime_get_deadline_hint(pump->runtime, now_ms, &hint) != WL_RPC_OK)
+    return WL_POLL_NO_DEADLINE_MS;
+  return hint.next_deadline_ms;
+}
+
+wl_err_t control_runtime_pump_init(control_runtime_pump_t *pump, control_runtime_t *runtime, control_runtime_result_fn on_result, void *user_data) {
+  if (pump == NULL || runtime == NULL) return WL_ERR_INVALID_ARG;
+  memset(pump, 0, sizeof(*pump));
+  pump->runtime = runtime;
+  pump->user_data = user_data;
+  pump->on_result = on_result;
+  return WL_OK;
+}
+
+wl_pump_hooks_t control_runtime_pump_hooks(control_runtime_pump_t *pump) {
+  wl_pump_hooks_t hooks = {0};
+  if (pump == NULL) return hooks;
+  hooks.application_user_data = pump;
+  hooks.on_event = control_runtime_pump_event;
+  hooks.application_progress = control_runtime_pump_progress;
+  hooks.application_deadline_hint = control_runtime_pump_deadline;
+  return hooks;
+}

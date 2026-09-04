@@ -33,7 +33,7 @@ struct ExecutorHooks {
     // handle. UNHANDLED delegates that owner action to the executor.
     using EventFn = wl_pump_event_disposition_t (*)(
         void* s_user_data, wl_ctx_t& s_context,
-        const wl_event_t& s_event) noexcept;
+        const wl_event_t& s_event, wl_time_ms_t s_now_ms) noexcept;
     void* m_user_data{};
     // Owner-pass order is adapter service, core event dispatch, application
     // progress, and queued TX dispatch. Deadline hints are queried only after a
@@ -143,7 +143,7 @@ private:
         const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
     static wl_pump_event_disposition_t s_eventBridge(
         void* s_user_data, wl_ctx_t* s_context,
-        const wl_event_t* s_event) noexcept;
+        const wl_event_t* s_event, wl_time_ms_t s_now_ms) noexcept;
     wl_pump_hooks_t s_pumpHooks() noexcept;
     void s_run() noexcept;
     bool s_dispatchOne() noexcept;

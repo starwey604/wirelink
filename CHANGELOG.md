@@ -8,6 +8,8 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- Added generated runtime pump hooks that share the owner's time sample,
+  dispatch events, drain bounded RPC responses, and merge RPC deadlines.
 - Collapsed generated message sends and RPC starts into one typed operation
   each; generated code now encodes directly into claimed TX storage, rolls
   back failed RPC starts, and owns matching RPC terminal-event release.
@@ -29,6 +31,8 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### API and protocol hardening
 
+- Split pump adapter and application callback contexts so generated runtime
+  hooks compose directly with platform lifecycle callbacks.
 - Made pump event ownership explicit with `UNHANDLED`/`CONSUMED` callback
   dispositions, and added the generated ABI 15 `event_consumed` result so a
   generated RPC dispatcher and owner pump never reclaim the same event twice.

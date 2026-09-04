@@ -139,34 +139,36 @@ client slot; the device enables one pending server operation, one replay-cache
 entry, and the `Add` handler. Call `quickstart_runtime_requirements()`, provide
 aligned storage of the reported size, then call `quickstart_runtime_init()`.
 
-The instance and storage arena must remain at stable addresses. The generated
-runtime owns no scheduler: the application still drives link and application
-progress.
+The instance and storage arena must remain at stable addresses. Initialize a
+`quickstart_runtime_pump_t` beside the runtime; it is caller-owned state, not a
+thread or scheduler.
 
 ## 6. Drive events and RPC progress
 
-The essential owner pass is:
+Build the generated application hooks once, optionally fill the separate
+adapter callback fields, and execute one bounded owner pass:
 
 ```c
-while (wl_poll(&endpoint.link, now_ms, &event) == WL_OK) {
-  quickstart_runtime_result_t result =
-      quickstart_runtime_dispatch_event(&endpoint.link, &event,
-                                        &runtime.instance.runtime, now_ms);
-  handle_dispatch_result(result);
-}
+quickstart_runtime_pump_t runtime_pump;
+quickstart_runtime_pump_init(&runtime_pump, &runtime.instance.runtime,
+                             observe_result, app);
+wl_pump_hooks_t hooks = quickstart_runtime_pump_hooks(&runtime_pump);
+hooks.adapter_user_data = transport;
+hooks.service = transport_service;
+hooks.quiesce = transport_quiesce;
+hooks.adapter_deadline_hint = transport_deadline;
 
-quickstart_runtime_service_result_t service = {0};
-quickstart_runtime_service(&endpoint.link, &runtime.instance.runtime,
-                           now_ms, &service);
+wl_pump_result_t step;
+wl_pump_step(&endpoint.link, now_ms, 16U, &hooks, &step);
 ```
 
-The generated dispatcher releases every RX event passed to it. It also consumes and
-reclaims matching RPC terminal TX events; unmatched terminal handles remain an
-application concern. Call `runtime_service()` once per bounded owner pass. A
-successful submission is progress; a deferred response waits for transport
-progress rather than causing a tight retry loop. Combine
-`quickstart_runtime_get_deadline_hint()` with `wl_poll_get_hint()` and the
-adapter deadline before sleeping.
+The bridge uses the pump's single time sample, releases RX events, reclaims
+matching RPC terminals, services at most one queued response per pass, and
+merges RPC deadlines. A successful response submission requests another
+bounded pass; backpressure waits for transport progress instead of spinning.
+Call `wl_pump_get_hint()` before sleeping. Advanced owner loops may still call
+the generated dispatch/service functions directly and use `event_consumed`
+before applying fallback ownership.
 
 Start an RPC with `quickstart_add_client_start()`, retain its returned nonzero
 operation ID, inspect/decode the terminal response, and finally call

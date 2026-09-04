@@ -35,10 +35,10 @@ consumer without a locally injected `WLC_EXECUTABLE`.
 
 ### Generate an owner-loop bridge
 
-Applications currently hand-wire dispatcher, runtime service, RPC deadline,
-core deadline, adapter service, and wakeups. Generate or provide a small
-`wl_runtime_hooks` bridge compatible with the pump so the safe order is the
-default and bounded response draining is automatic.
+Implemented: generated `*_runtime_pump_init()`/`*_runtime_pump_hooks()` bridge
+dispatch, RPC service, and RPC deadlines into the public pump. Pump hooks keep
+separate adapter and application contexts, so applications can add transport
+service/quiesce/deadline callbacks without another wrapper object.
 
 ### Add role-focused runtime initialization
 

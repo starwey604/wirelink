@@ -101,9 +101,11 @@ static int ordered_service(void *user_data) {
 
 static wl_pump_event_disposition_t ordered_event(void *user_data,
                                                   wl_ctx_t *ctx,
-                                                  const wl_event_t *event) {
+                                                  const wl_event_t *event,
+                                                  wl_time_ms_t now_ms) {
   struct hook_state *state = user_data;
 
+  zassert_not_equal(now_ms, 0U);
   state->event_order = ++state->order;
   state->events++;
   if (event->type == WL_EVT_UNRELIABLE_RX ||
@@ -121,10 +123,12 @@ static wl_pump_event_disposition_t ordered_event(void *user_data,
 }
 
 static wl_pump_event_disposition_t consuming_event(
-    void *user_data, wl_ctx_t *ctx, const wl_event_t *event) {
+    void *user_data, wl_ctx_t *ctx, const wl_event_t *event,
+    wl_time_ms_t now_ms) {
   struct hook_state *state = user_data;
   wl_tx_result_t ignored;
 
+  (void)now_ms;
   state->terminal_handle = event->handle;
   state->terminal_take_result = wl_tx_take(ctx, event->handle, &ignored);
   return WL_PUMP_EVENT_CONSUMED;
@@ -160,12 +164,31 @@ static void mark_quiesced(void *user_data) {
   state->quiesced++;
 }
 
+static int record_adapter_context(void *user_data) {
+  unsigned int *seen = user_data;
+
+  *seen = 1U;
+  return WL_ERR_NO_DATA;
+}
+
+static wl_pump_event_disposition_t release_with_application_context(
+    void *user_data, wl_ctx_t *ctx, const wl_event_t *event,
+    wl_time_ms_t now_ms) {
+  unsigned int *seen = user_data;
+
+  (void)now_ms;
+  *seen = 1U;
+  wl_event_release(ctx, event);
+  return WL_PUMP_EVENT_CONSUMED;
+}
+
 ZTEST(wirelink_pump_unit, test_owner_pass_order_and_default_release) {
   struct fixture *fixture = fixture_init(5U);
   struct hook_state state = {0};
   wl_pump_hooks_t hooks = {
-      .user_data = &state,
+      .adapter_user_data = &state,
       .service = ordered_service,
+      .application_user_data = &state,
       .application_progress = ordered_application,
       .on_event = ordered_event,
   };
@@ -193,10 +216,11 @@ ZTEST(wirelink_pump_unit, test_deadline_merge_and_quiesce) {
   struct fixture *fixture = fixture_init(5U);
   struct hook_state state = {0};
   const wl_pump_hooks_t hooks = {
-      .user_data = &state,
+      .adapter_user_data = &state,
       .quiesce = mark_quiesced,
       .application_deadline_hint = application_deadline,
       .adapter_deadline_hint = adapter_deadline,
+      .application_user_data = &state,
   };
   wl_poll_hint_t hint;
 
@@ -207,11 +231,31 @@ ZTEST(wirelink_pump_unit, test_deadline_merge_and_quiesce) {
   zassert_equal(state.quiesced, 1U);
 }
 
+ZTEST(wirelink_pump_unit, test_adapter_and_application_contexts_are_separate) {
+  struct fixture *fixture = fixture_init(5U);
+  unsigned int adapter_seen = 0U;
+  unsigned int application_seen = 0U;
+  const wl_pump_hooks_t hooks = {
+      .adapter_user_data = &adapter_seen,
+      .service = record_adapter_context,
+      .application_user_data = &application_seen,
+      .on_event = release_with_application_context,
+  };
+  wl_pump_result_t result;
+  uint8_t unit[128];
+  const size_t length = encode_unit(fixture, 0x44U, unit, sizeof(unit));
+
+  zassert_ok(wl_feed_unit(&fixture->ctx, unit, length));
+  zassert_ok(wl_pump_step(&fixture->ctx, 12U, 1U, &hooks, &result));
+  zassert_equal(adapter_seen, 1U);
+  zassert_equal(application_seen, 1U);
+}
+
 ZTEST(wirelink_pump_unit, test_terminal_callback_precedes_handle_take) {
   struct fixture *fixture = fixture_init(5U);
   struct hook_state state = {0};
   const wl_pump_hooks_t hooks = {
-      .user_data = &state,
+      .application_user_data = &state,
       .on_event = ordered_event,
   };
   wl_pump_result_t result;
@@ -232,7 +276,7 @@ ZTEST(wirelink_pump_unit, test_consumed_terminal_is_not_owned_by_pump) {
   struct fixture *fixture = fixture_init(5U);
   struct hook_state state = {0};
   const wl_pump_hooks_t hooks = {
-      .user_data = &state,
+      .application_user_data = &state,
       .on_event = consuming_event,
   };
   wl_pump_result_t result;

@@ -114,8 +114,9 @@ struct RxCapture {
 
     static wl_pump_event_disposition_t onEvent(
         void* s_user_data, wl_ctx_t& s_context,
-        const wl_event_t& s_event) noexcept {
+        const wl_event_t& s_event, wl_time_ms_t s_now_ms) noexcept {
         auto& s_self = *static_cast<RxCapture*>(s_user_data);
+        (void)s_now_ms;
         {
             std::lock_guard<std::mutex> s_lock(s_self.mutex);
             s_self.callback_thread = std::this_thread::get_id();

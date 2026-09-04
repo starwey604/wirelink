@@ -30,6 +30,8 @@ typedef union {
 typedef struct {
   quickstart_runtime_instance_t instance;
   runtime_arena_t arena;
+  quickstart_runtime_pump_t pump;
+  quickstart_runtime_result_t last_result;
 } application_runtime_t;
 
 typedef struct {
@@ -85,6 +87,13 @@ static int endpoint_init(endpoint_t *endpoint, uint64_t session_id) {
   return wl_set_sink(&endpoint->link, memory_sink, endpoint);
 }
 
+static void observe_runtime_result(
+    void *user_data, const quickstart_runtime_result_t *result) {
+  application_runtime_t *runtime = user_data;
+
+  runtime->last_result = *result;
+}
+
 static int runtime_init(application_runtime_t *runtime,
                         const quickstart_runtime_config_t *config) {
   quickstart_runtime_requirements_t requirements;
@@ -102,7 +111,13 @@ static int runtime_init(application_runtime_t *runtime,
   }
   storage.data = runtime->arena.bytes;
   storage.size = requirements.storage_size;
-  return quickstart_runtime_init(&runtime->instance, config, &storage);
+  result = quickstart_runtime_init(&runtime->instance, config, &storage);
+  if (result != WL_OK) {
+    return result;
+  }
+  return quickstart_runtime_pump_init(
+      &runtime->pump, &runtime->instance.runtime, observe_runtime_result,
+      runtime);
 }
 
 static int deliver(endpoint_t *source, endpoint_t *destination) {
@@ -118,14 +133,22 @@ static int deliver(endpoint_t *source, endpoint_t *destination) {
 static int poll_dispatch(endpoint_t *endpoint, application_runtime_t *runtime,
                          wl_time_ms_t now_ms,
                          quickstart_runtime_result_t *out_result) {
-  wl_event_t event = {0};
-  int result = wl_poll(&endpoint->link, now_ms, &event);
+  const wl_pump_hooks_t hooks =
+      quickstart_runtime_pump_hooks(&runtime->pump);
+  wl_pump_result_t step;
+  int result;
 
+  memset(&runtime->last_result, 0, sizeof(runtime->last_result));
+  /* Handle-less local completions do not cross the application boundary. */
+  runtime->last_result.domain = QUICKSTART_RUNTIME_NON_RX;
+  result = wl_pump_step(&endpoint->link, now_ms, 1U, &hooks, &step);
   if (result != WL_OK) {
     return result;
   }
-  *out_result = quickstart_runtime_dispatch_event(
-      &endpoint->link, &event, &runtime->instance.runtime, now_ms);
+  if (step.events != 1U) {
+    return WL_ERR_NO_DATA;
+  }
+  *out_result = runtime->last_result;
   return WL_OK;
 }
 
@@ -190,7 +213,8 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   add_response_t response;
   add_response_t decoded;
   quickstart_runtime_result_t result;
-  quickstart_runtime_service_result_t service;
+  wl_pump_result_t step;
+  wl_pump_hooks_t hooks;
   wl_rpc_client_result_t client;
   uint32_t operation_id;
 
@@ -224,12 +248,11 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   response.sum = server->left + server->right;
   result = quickstart_add_server_complete(
       &device_runtime->instance.runtime, &server->request, &response, 13U);
-  memset(&service, 0, sizeof(service));
+  hooks = quickstart_runtime_pump_hooks(&device_runtime->pump);
   if (result.domain != QUICKSTART_RUNTIME_OK ||
-      quickstart_runtime_service(&device->link,
-                                 &device_runtime->instance.runtime, 13U,
-                                 &service) != WL_RPC_OK ||
-      service.responses_submitted != 1U) {
+      wl_pump_step(&device->link, 13U, 1U, &hooks, &step) != WL_OK ||
+      device_runtime->pump.last_service_result != WL_RPC_OK ||
+      device_runtime->pump.last_service.responses_submitted != 1U) {
     return 3;
   }
 

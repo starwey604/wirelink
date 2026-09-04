@@ -34,7 +34,7 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
   result.poll_result = WL_ERR_NO_DATA;
 
   if (hooks != NULL && hooks->service != NULL) {
-    result.service_result = hooks->service(hooks->user_data);
+    result.service_result = hooks->service(hooks->adapter_user_data);
     if (!service_result_expected(result.service_result)) {
       result.service_errors = 1U;
     }
@@ -59,7 +59,8 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
     if (is_rx_event(&event)) {
       ++result.rx_events;
       if (hooks != NULL && hooks->on_event != NULL) {
-        disposition = hooks->on_event(hooks->user_data, ctx, &event);
+        disposition = hooks->on_event(hooks->application_user_data, ctx, &event,
+                                      now_ms);
       }
       if (disposition == WL_PUMP_EVENT_UNHANDLED) {
         wl_event_release(ctx, &event);
@@ -71,7 +72,8 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
       continue;
     }
     if (hooks != NULL && hooks->on_event != NULL) {
-      disposition = hooks->on_event(hooks->user_data, ctx, &event);
+      disposition = hooks->on_event(hooks->application_user_data, ctx, &event,
+                                    now_ms);
     }
     if (disposition == WL_PUMP_EVENT_UNHANDLED) {
       wl_tx_result_t ignored;
@@ -80,7 +82,8 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
   }
 
   if (hooks != NULL && hooks->application_progress != NULL &&
-      hooks->application_progress(hooks->user_data, ctx, now_ms) != 0U) {
+      hooks->application_progress(hooks->application_user_data, ctx, now_ms) !=
+          0U) {
     result.progress = 1U;
   }
   *out_result = result;
@@ -103,14 +106,14 @@ wl_err_t wl_pump_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
   }
   if (hooks != NULL && hooks->application_deadline_hint != NULL) {
     const uint32_t deadline =
-        hooks->application_deadline_hint(hooks->user_data, now_ms);
+        hooks->application_deadline_hint(hooks->application_user_data, now_ms);
     if (deadline < hint.next_deadline_ms) {
       hint.next_deadline_ms = deadline;
     }
   }
   if (hooks != NULL && hooks->adapter_deadline_hint != NULL) {
     const uint32_t deadline =
-        hooks->adapter_deadline_hint(hooks->user_data, now_ms);
+        hooks->adapter_deadline_hint(hooks->adapter_user_data, now_ms);
     if (deadline < hint.next_deadline_ms) {
       hint.next_deadline_ms = deadline;
     }
@@ -121,6 +124,6 @@ wl_err_t wl_pump_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
 
 void wl_pump_quiesce(const wl_pump_hooks_t *hooks) {
   if (hooks != NULL && hooks->quiesce != NULL) {
-    hooks->quiesce(hooks->user_data);
+    hooks->quiesce(hooks->adapter_user_data);
   }
 }

@@ -2,6 +2,7 @@
 #define WIRELINK_GENERATED_CONTROL_RUNTIME_H
 
 #include "control_bindings.h"
+#include <wirelink/pump.h>
 #include <wirelink/fifo.h>
 #include <wirelink/latest.h>
 #include <wirelink/rpc.h>
@@ -130,6 +131,16 @@ typedef struct {
   control_home_rpc_t home;
 } control_runtime_t;
 
+typedef void (*control_runtime_result_fn)(void *user_data, const control_runtime_result_t *result);
+
+typedef struct {
+  control_runtime_t *runtime;
+  void *user_data;
+  control_runtime_result_fn on_result;
+  wl_rpc_err_t last_service_result;
+  control_runtime_service_result_t last_service;
+} control_runtime_pump_t;
+
 /* Static runtime assembly. requirements() validates every sizing field and
  * reports the exact caller-owned byte storage needed by init(). Configuration
  * and storage descriptors may be temporary; instance and storage must outlive
@@ -197,6 +208,12 @@ wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_m
 wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_service_result_t *out_result);
 /* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
 wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
+
+/* Build pump hooks that dispatch events with the owner's time sample. RPC
+ * profiles also service one queued response per pass and merge their deadline.
+ * on_result may be null; result pointers are borrowed only for the callback. */
+wl_err_t control_runtime_pump_init(control_runtime_pump_t *pump, control_runtime_t *runtime, control_runtime_result_fn on_result, void *user_data);
+wl_pump_hooks_t control_runtime_pump_hooks(control_runtime_pump_t *pump);
 
 /* Allocates, encodes, and submits atomically from the caller's view. A
  * present nonzero request operation ID is used exactly, allowing an explicit

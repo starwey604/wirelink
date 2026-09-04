@@ -499,44 +499,36 @@ static void rpc_init(void) {
   zassert_equal(rpc_server.instance.runtime.home.user_data, &rpc_server);
 }
 
-struct runtime_pump_state {
-  control_runtime_t *runtime;
-  wl_time_ms_t now_ms;
+struct runtime_pump_capture {
   control_runtime_result_t result;
 };
 
-static wl_pump_event_disposition_t
-dispatch_with_pump(void *user_data, wl_ctx_t *ctx,
-                   const wl_event_t *event) {
-  struct runtime_pump_state *state = user_data;
+static void capture_pump_result(void *user_data,
+                                const control_runtime_result_t *result) {
+  struct runtime_pump_capture *capture = user_data;
 
-  state->result = control_runtime_dispatch_event(ctx, event, state->runtime,
-                                                  state->now_ms);
-  return state->result.event_consumed != 0U ? WL_PUMP_EVENT_CONSUMED
-                                            : WL_PUMP_EVENT_UNHANDLED;
+  capture->result = *result;
 }
 
 static control_runtime_result_t
 finish_reliable_tx(struct endpoint *endpoint, control_runtime_t *runtime,
                    wl_time_ms_t now_ms, wl_tx_handle_t expected_handle) {
-  struct runtime_pump_state state = {
-      .runtime = runtime,
-      .now_ms = now_ms,
-  };
-  const wl_pump_hooks_t hooks = {
-      .user_data = &state,
-      .on_event = dispatch_with_pump,
-  };
+  struct runtime_pump_capture capture = {0};
+  control_runtime_pump_t pump;
+  wl_pump_hooks_t hooks;
   wl_pump_result_t pump_result;
   wl_tx_state_t tx_state;
 
+  zassert_ok(control_runtime_pump_init(&pump, runtime, capture_pump_result,
+                                       &capture));
+  hooks = control_runtime_pump_hooks(&pump);
   zassert_ok(wl_pump_step(&endpoint->ctx, now_ms, 1U, &hooks, &pump_result));
   zassert_equal(pump_result.events, 1U);
-  zassert_equal(state.result.event_type, WL_EVT_TX_SUCCESS);
-  zassert_equal(rpc_detail(&state.result)->handle, expected_handle);
+  zassert_equal(capture.result.event_type, WL_EVT_TX_SUCCESS);
+  zassert_equal(rpc_detail(&capture.result)->handle, expected_handle);
   zassert_equal(wl_tx_status(&endpoint->ctx, expected_handle, &tx_state),
                 WL_ERR_NOT_FOUND);
-  return state.result;
+  return capture.result;
 }
 
 static control_runtime_result_t dispatch_home_request(struct endpoint *client,

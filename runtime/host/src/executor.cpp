@@ -219,19 +219,24 @@ std::uint32_t Executor::s_adapterDeadlineBridge(
 
 wl_pump_event_disposition_t Executor::s_eventBridge(
     void* s_user_data, wl_ctx_t* s_context,
-    const wl_event_t* s_event) noexcept {
+    const wl_event_t* s_event, wl_time_ms_t s_now_ms) noexcept {
     auto& s_self = *static_cast<Executor*>(s_user_data);
     return s_self.m_hooks.m_on_event(s_self.m_hooks.m_user_data, *s_context,
-                                     *s_event);
+                                     *s_event, s_now_ms);
 }
 
 wl_pump_hooks_t Executor::s_pumpHooks() noexcept {
     return wl_pump_hooks_t{
-        .user_data = this,
+        .adapter_user_data = this,
         .service = m_hooks.m_service != nullptr ? &Executor::s_serviceBridge
                                                 : nullptr,
         .quiesce = m_hooks.m_quiesce != nullptr ? &Executor::s_quiesceBridge
                                                 : nullptr,
+        .adapter_deadline_hint =
+            m_hooks.m_adapter_deadline_hint != nullptr
+                ? &Executor::s_adapterDeadlineBridge
+                : nullptr,
+        .application_user_data = this,
         .application_progress =
             m_hooks.m_application_progress != nullptr
                 ? &Executor::s_applicationProgressBridge
@@ -239,10 +244,6 @@ wl_pump_hooks_t Executor::s_pumpHooks() noexcept {
         .application_deadline_hint =
             m_hooks.m_application_deadline_hint != nullptr
                 ? &Executor::s_applicationDeadlineBridge
-                : nullptr,
-        .adapter_deadline_hint =
-            m_hooks.m_adapter_deadline_hint != nullptr
-                ? &Executor::s_adapterDeadlineBridge
                 : nullptr,
         .on_event = m_hooks.m_on_event != nullptr ? &Executor::s_eventBridge
                                                   : nullptr,
