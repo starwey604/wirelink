@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 9U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 10U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -58,7 +58,10 @@ typedef struct {
   uint32_t operation_id;
   wl_tx_handle_t handle;
   size_t payload_length;
-  wl_rpc_server_response_t server_response;
+  union {
+    wl_rpc_server_request_t server_request;
+    wl_rpc_server_response_t server_response;
+  };
 } control_runtime_rpc_detail_t;
 
 typedef union {
@@ -91,10 +94,11 @@ typedef struct {
   wl_latest_view_t lease;
 } control_arm_mit_command_latest_view_t;
 
-/* The decoded request, its borrowed fields, and completion_identity are
- * valid only for the callback. Copy the identity and anything needed for an
- * asynchronous completion. A nonzero return abandons the pending operation. */
-typedef int32_t (*control_home_rpc_request_handler_fn)(void *user_data, const home_request_t *request, const wl_rpc_request_identity_t *completion_identity, wl_delivery_t delivery);
+/* The decoded request and its borrowed fields are valid only for the
+ * callback. Copy server_request for asynchronous completion. Its generation
+ * prevents a late completion from targeting a reused request identity. A
+ * nonzero return abandons this exact pending operation. */
+typedef int32_t (*control_home_rpc_request_handler_fn)(void *user_data, const home_request_t *request, const wl_rpc_server_request_t *server_request, wl_delivery_t delivery);
 typedef struct {
   home_request_t *request_scratch;
   home_response_t *response_scratch;
@@ -107,7 +111,7 @@ typedef struct {
   uint16_t client_timed_out;
   uint16_t server_pending_expired;
   uint16_t server_cache_expired;
-  wl_rpc_request_identity_t server_expired_identity;
+  wl_rpc_server_request_t server_expired_request;
 } control_runtime_poll_result_t;
 
 typedef struct {
@@ -205,13 +209,11 @@ wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint3
 control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t *client, home_response_t *response);
 wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id);
 
-/* completion_identity is copied from the request callback and uniquely scopes
- * completion to its Wirelink peer session. Completion writes operation ID and
- * status into a runtime-owned response cache. runtime_service() performs I/O. */
-control_runtime_result_t control_home_server_complete(wl_ctx_t *ctx, control_runtime_t *runtime, const wl_rpc_request_identity_t *completion_identity, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
-control_runtime_result_t control_home_server_reject(wl_ctx_t *ctx, control_runtime_t *runtime, const wl_rpc_request_identity_t *completion_identity, int32_t application_status, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
-/* Compatibility helper: replay is already queued; runtime_service() sends it. */
-control_runtime_result_t control_home_server_retry_cached(wl_ctx_t *ctx, const wl_rpc_server_response_t *cached);
+/* server_request is copied from the request callback and uniquely scopes this
+ * execution generation. Completion only caches owned response bytes;
+ * runtime_service() performs I/O. */
+control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
+control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
 
 #ifdef __cplusplus
 }

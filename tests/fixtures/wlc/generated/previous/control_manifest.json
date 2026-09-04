@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.1.0",
-    "codegen_abi": 9
+    "codegen_abi": 10
   },
   "module": "control",
   "identity": {

@@ -233,6 +233,17 @@ typedef struct wl_rpc_request_identity {
   uint64_t peer_session_id;
 } wl_rpc_request_identity_t;
 
+/*
+ * Generation-stamped authority for one accepted server execution. Copy this
+ * value when work completes asynchronously. Session discard, abandon, or
+ * expiry followed by slot reuse invalidates the old generation, so a late
+ * completion can never target a newer request with the same wire identity.
+ */
+typedef struct wl_rpc_server_request {
+  wl_rpc_request_identity_t identity;
+  uint64_t generation;
+} wl_rpc_server_request_t;
+
 typedef struct wl_rpc_server_config {
   wl_rpc_server_pending_slot_t *pending_slots;
   uint16_t pending_slot_count;
@@ -278,18 +289,21 @@ wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
  * REPLAY returns cached response bytes. CONFLICT means the operation ID is in
  * use by a different exact identity within the same peer session. The same
  * operation ID from another peer session is independent. All four are
- * successful classifications.
+ * successful classifications. NEW also reserves response-cache storage before
+ * the application handler may execute; completion therefore cannot fail with
+ * CACHE_FULL. out_request is nonzero only for NEW.
  */
 wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  const wl_rpc_request_identity_t *identity,
                                  wl_time_ms_t now_ms,
                                  wl_rpc_server_disposition_t *out_disposition,
+                                 wl_rpc_server_request_t *out_request,
                                  wl_rpc_server_response_t *out_replay);
 
 /* Complete an asynchronous or synchronous operation and cache/move its
  * response. identity must exactly match the token accepted by begin(). */
 wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
-                                    const wl_rpc_request_identity_t *identity,
+                                    const wl_rpc_server_request_t *request,
                                     int32_t application_status,
                                     const uint8_t *response_payload,
                                     size_t response_length, wl_time_ms_t now_ms,
@@ -297,7 +311,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
 
 /* Application rejection is a completed, replayable nonzero status. */
 wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
-                                  const wl_rpc_request_identity_t *identity,
+                                  const wl_rpc_server_request_t *request,
                                   int32_t application_status,
                                   const uint8_t *response_payload,
                                   size_t response_length, wl_time_ms_t now_ms,
@@ -344,7 +358,7 @@ wl_rpc_err_t wl_rpc_server_discard_session(
 
 /* Drop exact pending metadata without manufacturing or caching a response. */
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
-                                   const wl_rpc_request_identity_t *identity);
+                                   const wl_rpc_server_request_t *request);
 
 /*
  * Return one newly expired pending identity without discarding it. The caller
@@ -354,7 +368,7 @@ wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
  */
 wl_rpc_err_t wl_rpc_server_expired_acquire(
     wl_rpc_server_t *server, wl_time_ms_t now_ms,
-    wl_rpc_request_identity_t *out_identity);
+    wl_rpc_server_request_t *out_request);
 
 /* Expire delivered replay entries. Pending identities use expired_acquire(). */
 wl_rpc_err_t wl_rpc_server_poll(wl_rpc_server_t *server, wl_time_ms_t now_ms,

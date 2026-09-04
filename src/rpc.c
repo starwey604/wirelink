@@ -49,7 +49,9 @@ typedef struct {
 
 typedef struct {
   wl_rpc_request_identity_t identity;
+  uint64_t generation;
   wl_time_ms_t started_at;
+  uint16_t cache_index;
   uint8_t active;
   uint8_t expiry_reported;
 } wl_rpc_server_pending_impl_t;
@@ -66,7 +68,8 @@ typedef struct {
 } wl_rpc_server_cache_impl_t;
 
 enum {
-  WL_RPC_RESPONSE_DELIVERED = 0,
+  WL_RPC_RESPONSE_RESERVED = 0,
+  WL_RPC_RESPONSE_DELIVERED,
   WL_RPC_RESPONSE_READY,
   WL_RPC_RESPONSE_ACQUIRED,
   WL_RPC_RESPONSE_IN_FLIGHT,
@@ -715,6 +718,26 @@ static bool identity_key_equal(const wl_rpc_request_identity_t *left,
          left->peer_session_id == right->peer_session_id;
 }
 
+static bool request_valid(const wl_rpc_server_request_t *request) {
+  return request != NULL && request->generation != 0U &&
+         identity_valid(&request->identity);
+}
+
+static bool request_equal(const wl_rpc_server_request_t *request,
+                          const wl_rpc_server_pending_impl_t *pending) {
+  return request->generation == pending->generation &&
+         identity_equal(&request->identity, &pending->identity);
+}
+
+static uint64_t server_next_generation(wl_rpc_server_impl_t *server) {
+  uint64_t generation = server->next_generation++;
+
+  if (generation == 0U) {
+    generation = server->next_generation++;
+  }
+  return generation;
+}
+
 static bool generation_older(uint64_t left, uint64_t right) {
   return left != right && (right - left) < (UINT64_C(1) << 63);
 }
@@ -818,18 +841,23 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  const wl_rpc_request_identity_t *identity,
                                  wl_time_ms_t now_ms,
                                  wl_rpc_server_disposition_t *out_disposition,
+                                 wl_rpc_server_request_t *out_request,
                                  wl_rpc_server_response_t *out_replay) {
   wl_rpc_server_impl_t *impl;
   wl_rpc_server_pending_impl_t *free_pending = NULL;
+  wl_rpc_server_cache_impl_t *target = NULL;
+  uint16_t target_index = 0U;
   uint16_t i;
 
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
   }
   if (!identity_valid(identity) || out_disposition == NULL ||
+      out_request == NULL ||
       out_replay == NULL) {
     return WL_RPC_ERR_INVALID_ARG;
   }
+  memset(out_request, 0, sizeof(*out_request));
   memset(out_replay, 0, sizeof(*out_replay));
   impl = server_impl(server);
 
@@ -866,51 +894,8 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
   if (free_pending == NULL) {
     return WL_RPC_ERR_NO_SLOT;
   }
-  memset(free_pending, 0, sizeof(*free_pending));
-  free_pending->identity = *identity;
-  free_pending->started_at = now_ms;
-  free_pending->active = 1U;
-  *out_disposition = WL_RPC_SERVER_NEW;
-  return WL_RPC_OK;
-}
 
-wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
-                                    const wl_rpc_request_identity_t *identity,
-                                    int32_t application_status,
-                                    const uint8_t *response_payload,
-                                    size_t response_length, wl_time_ms_t now_ms,
-                                    wl_rpc_server_response_t *out_response) {
-  wl_rpc_server_impl_t *impl;
-  wl_rpc_server_pending_impl_t *pending = NULL;
-  wl_rpc_server_cache_impl_t *target = NULL;
-  uint16_t target_index = 0U;
-  uint16_t i;
-
-  if (!server_initialized(server)) {
-    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
-  }
-  if (!identity_valid(identity) || out_response == NULL ||
-      (response_length != 0U && response_payload == NULL)) {
-    return WL_RPC_ERR_INVALID_ARG;
-  }
-  impl = server_impl(server);
-  if (response_length > (size_t)impl->response_capacity) {
-    return WL_RPC_ERR_RESPONSE_TOO_LARGE;
-  }
-  for (i = 0U; i < impl->pending_slot_count; ++i) {
-    wl_rpc_server_pending_impl_t *candidate = server_pending(impl, i);
-    if (candidate->active != 0U &&
-        identity_key_equal(&candidate->identity, identity)) {
-      if (!identity_equal(&candidate->identity, identity)) {
-        return WL_RPC_ERR_OPERATION_CONFLICT;
-      }
-      pending = candidate;
-      break;
-    }
-  }
-  if (pending == NULL) {
-    return WL_RPC_ERR_NOT_FOUND;
-  }
+  /* Reserve stable response storage before the application may execute. */
   for (i = 0U; i < impl->cache_slot_count; ++i) {
     wl_rpc_server_cache_impl_t *candidate = server_cache(impl, i);
     if (candidate->active == 0U) {
@@ -919,10 +904,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
       break;
     }
   }
-  if (target == NULL) {
-    if (impl->cache_policy == WL_RPC_CACHE_REJECT_NEW) {
-      return WL_RPC_ERR_CACHE_FULL;
-    }
+  if (target == NULL && impl->cache_policy == WL_RPC_CACHE_EVICT_OLDEST) {
     for (i = 0U; i < impl->cache_slot_count; ++i) {
       wl_rpc_server_cache_impl_t *candidate = server_cache(impl, i);
       if (candidate->delivery_state != WL_RPC_RESPONSE_DELIVERED) {
@@ -934,9 +916,71 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
         target_index = i;
       }
     }
-    if (target == NULL) {
-      return WL_RPC_ERR_CACHE_FULL;
+  }
+  if (target == NULL) {
+    return WL_RPC_ERR_CACHE_FULL;
+  }
+
+  memset(target, 0, sizeof(*target));
+  target->identity = *identity;
+  target->generation = server_next_generation(impl);
+  target->active = 1U;
+  target->delivery_state = WL_RPC_RESPONSE_RESERVED;
+  memset(free_pending, 0, sizeof(*free_pending));
+  free_pending->identity = *identity;
+  free_pending->generation = target->generation;
+  free_pending->started_at = now_ms;
+  free_pending->cache_index = target_index;
+  free_pending->active = 1U;
+  out_request->identity = *identity;
+  out_request->generation = target->generation;
+  *out_disposition = WL_RPC_SERVER_NEW;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
+                                    const wl_rpc_server_request_t *request,
+                                    int32_t application_status,
+                                    const uint8_t *response_payload,
+                                    size_t response_length, wl_time_ms_t now_ms,
+                                    wl_rpc_server_response_t *out_response) {
+  wl_rpc_server_impl_t *impl;
+  wl_rpc_server_pending_impl_t *pending = NULL;
+  wl_rpc_server_cache_impl_t *target;
+  uint16_t target_index;
+  uint16_t i;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (!request_valid(request) || out_response == NULL ||
+      (response_length != 0U && response_payload == NULL)) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  impl = server_impl(server);
+  if (response_length > (size_t)impl->response_capacity) {
+    return WL_RPC_ERR_RESPONSE_TOO_LARGE;
+  }
+  for (i = 0U; i < impl->pending_slot_count; ++i) {
+    wl_rpc_server_pending_impl_t *candidate = server_pending(impl, i);
+    if (candidate->active != 0U && request_equal(request, candidate)) {
+      pending = candidate;
+      break;
     }
+  }
+  if (pending == NULL) {
+    return WL_RPC_ERR_NOT_FOUND;
+  }
+  target_index = pending->cache_index;
+  if (target_index >= impl->cache_slot_count) {
+    return WL_RPC_ERR_INVALID_STATE;
+  }
+  target = server_cache(impl, target_index);
+  if (target->active == 0U ||
+      target->delivery_state != WL_RPC_RESPONSE_RESERVED ||
+      target->generation != request->generation ||
+      !identity_equal(&target->identity, &request->identity)) {
+    return WL_RPC_ERR_INVALID_STATE;
   }
 
   if (response_length != 0U) {
@@ -944,10 +988,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
         &impl->response_storage[(size_t)target_index * impl->response_capacity],
         response_payload, response_length);
   }
-  memset(target, 0, sizeof(*target));
-  target->identity = pending->identity;
   target->response_length = response_length;
-  target->generation = impl->next_generation++;
   target->completed_at = now_ms;
   target->application_status = application_status;
   target->active = 1U;
@@ -958,7 +999,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
 }
 
 wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
-                                  const wl_rpc_request_identity_t *identity,
+                                  const wl_rpc_server_request_t *request,
                                   int32_t application_status,
                                   const uint8_t *response_payload,
                                   size_t response_length, wl_time_ms_t now_ms,
@@ -966,7 +1007,7 @@ wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
   if (application_status == 0) {
     return WL_RPC_ERR_INVALID_ARG;
   }
-  return wl_rpc_server_complete(server, identity, application_status,
+  return wl_rpc_server_complete(server, request, application_status,
                                 response_payload, response_length, now_ms,
                                 out_response);
 }
@@ -1124,10 +1165,19 @@ wl_rpc_err_t wl_rpc_server_discard_session(
   impl = server_impl(server);
   for (i = 0U; i < impl->pending_slot_count; ++i) {
     wl_rpc_server_pending_impl_t *pending = server_pending(impl, i);
+    wl_rpc_server_cache_impl_t *reserved;
 
     if (pending->active == 0U ||
         pending->identity.peer_session_id != peer_session_id) {
       continue;
+    }
+    reserved = pending->cache_index < impl->cache_slot_count
+                   ? server_cache(impl, pending->cache_index)
+                   : NULL;
+    if (reserved != NULL && reserved->active != 0U &&
+        reserved->delivery_state == WL_RPC_RESPONSE_RESERVED &&
+        reserved->generation == pending->generation) {
+      memset(reserved, 0, sizeof(*reserved));
     }
     memset(pending, 0, sizeof(*pending));
     ++out_result->pending_discarded;
@@ -1156,22 +1206,28 @@ wl_rpc_err_t wl_rpc_server_discard_session(
 }
 
 wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
-                                   const wl_rpc_request_identity_t *identity) {
+                                   const wl_rpc_server_request_t *request) {
   wl_rpc_server_impl_t *impl;
   uint16_t i;
 
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
   }
-  if (!identity_valid(identity)) {
+  if (!request_valid(request)) {
     return WL_RPC_ERR_INVALID_ARG;
   }
   impl = server_impl(server);
   for (i = 0U; i < impl->pending_slot_count; ++i) {
     wl_rpc_server_pending_impl_t *pending = server_pending(impl, i);
-    if (pending->active != 0U && identity_key_equal(&pending->identity, identity)) {
-      if (!identity_equal(&pending->identity, identity)) {
-        return WL_RPC_ERR_OPERATION_CONFLICT;
+    if (pending->active != 0U && request_equal(request, pending)) {
+      if (pending->cache_index < impl->cache_slot_count) {
+        wl_rpc_server_cache_impl_t *reserved =
+            server_cache(impl, pending->cache_index);
+        if (reserved->active != 0U &&
+            reserved->delivery_state == WL_RPC_RESPONSE_RESERVED &&
+            reserved->generation == pending->generation) {
+          memset(reserved, 0, sizeof(*reserved));
+        }
       }
       memset(pending, 0, sizeof(*pending));
       return WL_RPC_OK;
@@ -1182,17 +1238,17 @@ wl_rpc_err_t wl_rpc_server_abandon(wl_rpc_server_t *server,
 
 wl_rpc_err_t wl_rpc_server_expired_acquire(
     wl_rpc_server_t *server, wl_time_ms_t now_ms,
-    wl_rpc_request_identity_t *out_identity) {
+    wl_rpc_server_request_t *out_request) {
   wl_rpc_server_impl_t *impl;
   uint16_t i;
 
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
   }
-  if (out_identity == NULL) {
+  if (out_request == NULL) {
     return WL_RPC_ERR_INVALID_ARG;
   }
-  memset(out_identity, 0, sizeof(*out_identity));
+  memset(out_request, 0, sizeof(*out_request));
   impl = server_impl(server);
   if (impl->pending_timeout_ms == 0U) {
     return WL_RPC_ERR_NOT_FOUND;
@@ -1202,7 +1258,8 @@ wl_rpc_err_t wl_rpc_server_expired_acquire(
     if (pending->active != 0U && pending->expiry_reported == 0U &&
         elapsed(now_ms, pending->started_at, impl->pending_timeout_ms)) {
       pending->expiry_reported = 1U;
-      *out_identity = pending->identity;
+      out_request->identity = pending->identity;
+      out_request->generation = pending->generation;
       return WL_RPC_OK;
     }
   }
