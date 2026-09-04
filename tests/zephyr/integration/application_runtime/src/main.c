@@ -588,7 +588,6 @@ ZTEST(wirelink_application_runtime,
   control_runtime_result_t result;
   control_runtime_result_t terminal;
   wl_rpc_client_result_t client_result;
-  uint8_t encode_scratch[16];
   uint8_t cached_response[16];
   uint8_t expected_response[16];
   size_t expected_length = 0U;
@@ -656,14 +655,9 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(rpc_server.handler_calls, 1U);
 
   home_response_clear(&response);
-  result = control_home_server_complete(
-      &server->ctx, &rpc_server.instance.runtime, &rpc_server.last_identity,
-      &response,
-      (control_encode_scratch_t){
-          .data = encode_scratch,
-          .capacity = sizeof(encode_scratch),
-      },
-      7U);
+  result = control_home_server_complete(&rpc_server.instance.runtime,
+                                        &rpc_server.last_identity, &response,
+                                        7U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_OK);
   zassert_not_equal(rpc_detail(&result)->handle, 0U);
@@ -736,7 +730,6 @@ ZTEST(wirelink_application_runtime,
   control_runtime_result_t result;
   control_runtime_result_t terminal;
   wl_rpc_client_result_t client_result;
-  uint8_t encode_scratch[16];
   uint8_t cached_response[16];
   uint8_t expected_response[16];
   size_t expected_length = 0U;
@@ -763,15 +756,9 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(terminal.domain, CONTROL_RUNTIME_OK);
 
   home_response_clear(&response);
-  result =
-      control_home_server_reject(&server->ctx, &rpc_server.instance.runtime,
-                                 &rpc_server.last_identity, OPERATION_REJECTED,
-                                 &response,
-                                 (control_encode_scratch_t){
-                                     .data = encode_scratch,
-                                     .capacity = sizeof(encode_scratch),
-                                 },
-                                 23U);
+  result = control_home_server_reject(
+      &rpc_server.instance.runtime, &rpc_server.last_identity,
+      OPERATION_REJECTED, &response, 23U);
   zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->application_result, OPERATION_REJECTED);
   zassert_equal(response.operation_id, operation_id);

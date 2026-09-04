@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 10U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 11U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -210,10 +210,10 @@ control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t
 wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id);
 
 /* server_request is copied from the request callback and uniquely scopes this
- * execution generation. Completion only caches owned response bytes;
- * runtime_service() performs I/O. */
-control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
-control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, control_encode_scratch_t scratch, wl_time_ms_t now_ms);
+ * execution generation. Completion encodes directly into the response storage
+ * reserved by wl_rpc_server_begin(); runtime_service() performs I/O. */
+control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, home_response_t *response, wl_time_ms_t now_ms);
+control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, wl_time_ms_t now_ms);
 
 #ifdef __cplusplus
 }
