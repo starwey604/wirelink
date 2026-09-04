@@ -10,7 +10,7 @@
 #include <zephyr/device.h>
 #include <zephyr/sys/atomic.h>
 
-#include "wirelink/wirelink.h"
+#include "wirelink/port.h"
 
 #ifdef __cplusplus
 extern "C" {

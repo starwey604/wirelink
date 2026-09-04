@@ -11,7 +11,7 @@
 #include <string_view>
 #include <system_error>
 
-#include "wirelink/wirelink.h"
+#include "wirelink/port.h"
 #include "wirelink/adapter.h"
 
 namespace wirelink::asio

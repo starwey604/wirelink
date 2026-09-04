@@ -5,7 +5,9 @@
 
 #include <zephyr/ztest.h>
 
+#include "wirelink/frame.h"
 #include "wirelink/pump.h"
+#include "wirelink/port.h"
 
 struct fixture {
   wl_ctx_t ctx;

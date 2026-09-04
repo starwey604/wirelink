@@ -1,11 +1,11 @@
 # Wirelink v1 C API audit
 
-Status: completed against the `0.9.0` release candidate on 2026-08-31.
+Status: superseded as an ABI freeze by `api-boundary.md` during pre-1.0
+convergence. It remains a record of the 0.9 review and release checks.
 
-This audit fixes the C source and binary surface that may be carried into the
-1.x line. It was refreshed after the final pre-release compact-v1 and
-zero-copy RX/TX iteration; transmission units are now frozen by
-`conformance-v1.md`.
+The compact-v1 transmission units remain frozen by `conformance-v1.md`.
+Public C declarations may still change before 1.0; do not treat the historical
+layout list below as the final 1.x compatibility policy.
 
 ## Retained ABI boundary
 
@@ -73,17 +73,18 @@ speculatively afterward.
 
 ### Borrowed TX payload construction
 
-A claim/commit/abort family exposes the payload region in the final native TX
-unit so a WLC encoder writes directly into it. The claim is
+A claim/commit/abort family exposes retained payload construction storage so a
+WLC encoder writes directly into it. Native profiles use the final TX unit;
+stream and length-prefixed profiles use the core's retained payload region.
+The claim is
 consumer-owned, at most one may exist, ordinary send calls must reject an
 active claim, and a failed commit must leave either a retryable claim or a
 fully aborted claim—never ambiguous ownership. Reliable retransmission still
 uses Wirelink's stable encoded TX unit.
 
-This API removes both the generated-code temporary-to-Wirelink copy and the
-native payload staging copy. It does not
-promise that COBS framing itself can borrow application bytes; COBS output is
-necessarily a distinct encoded byte stream.
+This API removes the generated-code temporary-to-Wirelink copy and, for native
+packets, the payload staging copy. COBS output remains a distinct encoded byte
+stream.
 
 ### Poll scheduling hint
 

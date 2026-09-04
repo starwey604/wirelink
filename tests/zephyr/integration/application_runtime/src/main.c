@@ -8,7 +8,9 @@
 
 #include "control_runtime.h"
 #include "wirelink/fifo.h"
+#include "wirelink/frame.h"
 #include "wirelink/latest.h"
+#include "wirelink/port.h"
 #include "wirelink/rpc.h"
 
 #define APP_MAX_PAYLOAD 256U

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 enum { MAX_INPUT = 4096, MAX_PAYLOAD = 128 };

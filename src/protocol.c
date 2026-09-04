@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "wirelink/cobs.h"
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 #include "context.h"
@@ -168,7 +169,7 @@ static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   }
 }
 
-int wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
+wl_err_t wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -420,8 +421,8 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
   return WL_OK;
 }
 
-int wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
-                       size_t payload_len) {
+wl_err_t wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id,
+                            const uint8_t *payload, size_t payload_len) {
   wl_wire_packet_t pkt;
 
   if (ctx == NULL) {
@@ -444,8 +445,9 @@ int wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payloa
   return wl_send_frame_internal(ctx, &pkt, NULL, 0U, 0U);
 }
 
-int wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
-                     size_t payload_len, wl_tx_handle_t *out_handle) {
+wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id,
+                          const uint8_t *payload, size_t payload_len,
+                          wl_tx_handle_t *out_handle) {
   wl_wire_packet_t pkt;
 
   if (ctx == NULL || out_handle == NULL) {
@@ -473,9 +475,9 @@ int wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id, const uint8_t *payload,
   return wl_send_frame_internal(ctx, &pkt, out_handle, 1U, 0U);
 }
 
-int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
-                        wl_delivery_t delivery,
-                        wl_tx_payload_claim_t *out_claim) {
+wl_err_t wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
+                             wl_delivery_t delivery,
+                             wl_tx_payload_claim_t *out_claim) {
   uint8_t *payload;
 
   if (ctx == NULL || out_claim == NULL || message_id == 0U ||
@@ -486,9 +488,6 @@ int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
   memset(out_claim, 0, sizeof(*out_claim));
   if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
-  }
-  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_NATIVE_PACKET) {
-    return WL_ERR_NOT_SUPPORTED;
   }
   if (wl_ctx_impl(ctx)->tx_claim_active != 0U ||
       wl_ctx_impl(ctx)->tx_wait_state == WL_TX_WAIT_ACK ||
@@ -504,12 +503,19 @@ int wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
     return WL_ERR_QUEUE_FULL;
   }
 
-  payload = wl_ctx_impl(ctx)->storage.tx_unit +
-            wl_frame_packet_header_size(
-                WL_PACKET_DATA,
-                delivery == WL_DELIVERY_RELIABLE
-                    ? WL_PACKET_FLAG_RELIABLE
-                    : 0U);
+  if (wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_NATIVE_PACKET) {
+    payload = wl_ctx_impl(ctx)->storage.tx_unit +
+              wl_frame_packet_header_size(
+                  WL_PACKET_DATA,
+                  delivery == WL_DELIVERY_RELIABLE
+                      ? WL_PACKET_FLAG_RELIABLE
+                      : 0U);
+  } else {
+    /* Stream and length-prefixed envelopes still need a distinct encoded
+     * unit, but generated codecs can avoid an extra application scratch copy
+     * by constructing the payload directly in the retained staging region. */
+    payload = wl_ctx_impl(ctx)->storage.tx_payload;
+  }
   ++wl_ctx_impl(ctx)->tx_claim_token;
   if (wl_ctx_impl(ctx)->tx_claim_token == 0U) {
     ++wl_ctx_impl(ctx)->tx_claim_token;
@@ -532,9 +538,10 @@ static int tx_claim_matches(const wl_ctx_impl_t *impl,
          claim->span.data == impl->tx_claim_payload.data;
 }
 
-int wl_tx_payload_commit(wl_ctx_t *ctx,
-                         const wl_tx_payload_claim_t *claim,
-                         size_t payload_len, wl_tx_handle_t *out_handle) {
+wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
+                              const wl_tx_payload_claim_t *claim,
+                              size_t payload_len,
+                              wl_tx_handle_t *out_handle) {
   wl_wire_packet_t packet = {0};
   uint8_t reliable;
 
@@ -572,8 +579,8 @@ int wl_tx_payload_commit(wl_ctx_t *ctx,
   return wl_send_frame_internal(ctx, &packet, out_handle, reliable, 1U);
 }
 
-int wl_tx_payload_abort(wl_ctx_t *ctx,
-                        const wl_tx_payload_claim_t *claim) {
+wl_err_t wl_tx_payload_abort(wl_ctx_t *ctx,
+                             const wl_tx_payload_claim_t *claim) {
   if (ctx == NULL || claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -648,7 +655,7 @@ static int wl_feed_parse_wire(wl_ctx_t *ctx, const uint8_t *data, size_t len) {
   }
 }
 
-int wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
+wl_err_t wl_feed_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
   size_t accepted = 0U;
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -705,7 +712,7 @@ static int wl_feed_unit_raw(wl_ctx_t *ctx, const uint8_t *unit, size_t len) {
   return wl_feed_parse_wire(ctx, unit, len);
 }
 
-int wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span) {
+wl_err_t wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span) {
   if (ctx == NULL || out_span == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -718,7 +725,7 @@ int wl_rx_reserve(wl_ctx_t *ctx, wl_span_t *out_span) {
   return wl_rx_ring_producer_reserve(&wl_ctx_impl(ctx)->rx_ring, out_span);
 }
 
-int wl_rx_commit(wl_ctx_t *ctx, size_t len) {
+wl_err_t wl_rx_commit(wl_ctx_t *ctx, size_t len) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -731,8 +738,8 @@ int wl_rx_commit(wl_ctx_t *ctx, size_t len) {
   return wl_rx_ring_producer_commit(&wl_ctx_impl(ctx)->rx_ring, len);
 }
 
-int wl_rx_dma_claim(wl_ctx_t *ctx, size_t maximum_length,
-                    wl_rx_dma_claim_t *out_claim) {
+wl_err_t wl_rx_dma_claim(wl_ctx_t *ctx, size_t maximum_length,
+                         wl_rx_dma_claim_t *out_claim) {
   if (ctx == NULL || out_claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -745,8 +752,9 @@ int wl_rx_dma_claim(wl_ctx_t *ctx, size_t maximum_length,
   return wl_rx_ring_dma_claim(&wl_ctx_impl(ctx)->rx_ring, maximum_length, out_claim);
 }
 
-int wl_rx_dma_publish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim,
-                      size_t offset, size_t length) {
+wl_err_t wl_rx_dma_publish(wl_ctx_t *ctx,
+                           const wl_rx_dma_claim_t *claim, size_t offset,
+                           size_t length) {
   if (ctx == NULL || claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -759,7 +767,8 @@ int wl_rx_dma_publish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim,
   return wl_rx_ring_dma_publish(&wl_ctx_impl(ctx)->rx_ring, claim, offset, length);
 }
 
-int wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim) {
+wl_err_t wl_rx_dma_finish(wl_ctx_t *ctx,
+                          const wl_rx_dma_claim_t *claim) {
   if (ctx == NULL || claim == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -772,7 +781,7 @@ int wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim) {
   return wl_rx_ring_dma_finish(&wl_ctx_impl(ctx)->rx_ring, claim);
 }
 
-int wl_rx_dma_abort(wl_ctx_t *ctx) {
+wl_err_t wl_rx_dma_abort(wl_ctx_t *ctx) {
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
   }
@@ -792,8 +801,8 @@ void wl_rx_note_overflow(wl_ctx_t *ctx) {
   }
 }
 
-int wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
-                  size_t *out_accepted) {
+wl_err_t wl_feed_bytes(wl_ctx_t *ctx, const uint8_t *data, size_t len,
+                       size_t *out_accepted) {
   size_t accepted = 0U;
 
   if (ctx == NULL) {
@@ -947,7 +956,8 @@ static void wl_process_rx_units(wl_ctx_t *ctx) {
   }
 }
 
-int wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event) {
+wl_err_t wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms,
+                 wl_event_t *out_event) {
   if (ctx == NULL || out_event == NULL) {
     return WL_ERR_INVALID_ARG;
   }

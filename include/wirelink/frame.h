@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wirelink/profile.h"
 #include "wirelink/span.h"
 #include "wirelink/types.h"
 
@@ -32,21 +33,6 @@ extern "C" {
 /* COBS output plus the terminating zero delimiter. */
 #define WL_FRAME_MAX_COBS_LEN                                                \
   (WL_FRAME_MAX_RAW_LEN + (WL_FRAME_MAX_RAW_LEN / 254U) + 2U)
-
-typedef int32_t wl_envelope_type_t;
-enum {
-  WL_ENVELOPE_COBS_STREAM = 0,
-  WL_ENVELOPE_NATIVE_PACKET = 1,
-  WL_ENVELOPE_BUS_LENGTH16 = 2,
-};
-
-typedef int32_t wl_integrity_t;
-enum {
-  WL_INTEGRITY_NONE = 0,
-  WL_INTEGRITY_CRC16 = 1,
-  WL_INTEGRITY_CRC32C = 2,
-  WL_INTEGRITY_CRC32 = WL_INTEGRITY_CRC32C,
-};
 
 typedef int32_t wl_packet_type_t;
 enum {

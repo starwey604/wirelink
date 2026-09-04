@@ -23,7 +23,7 @@ static int wl_rx_work_pending(const wl_ctx_t *ctx, const wl_ctx_impl_t *impl) {
   return wl_rx_unit_consumer_has_data(ctx);
 }
 
-int wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
+wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
                      wl_poll_hint_t *out_hint) {
   const wl_ctx_impl_t *impl;
 

@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "wirelink/wirelink.h"
+#include "wirelink/link.h"
 
 #ifdef __cplusplus
 extern "C" {

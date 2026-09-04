@@ -2,12 +2,13 @@
 
 #include <string.h>
 
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 #include "context.h"
 #include "unit_rx.h"
 
-int wl_rx_unit_queue_init(wl_ctx_t *ctx,
+wl_err_t wl_rx_unit_queue_init(wl_ctx_t *ctx,
                           const wl_rx_unit_queue_config_t *config) {
   wl_rx_unit_queue_state_t *queue;
 
@@ -45,7 +46,7 @@ int wl_rx_unit_queue_init(wl_ctx_t *ctx,
   return WL_OK;
 }
 
-int wl_rx_unit_claim(wl_ctx_t *ctx, size_t maximum_length,
+wl_err_t wl_rx_unit_claim(wl_ctx_t *ctx, size_t maximum_length,
                      wl_rx_unit_claim_t *out_claim) {
   wl_rx_unit_queue_state_t *queue;
   uint32_t write;
@@ -97,7 +98,7 @@ static int claim_matches(const wl_rx_unit_queue_state_t *queue,
          claim->token == queue->claim_token && claim->span.data == expected;
 }
 
-int wl_rx_unit_commit(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim,
+wl_err_t wl_rx_unit_commit(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim,
                       size_t length) {
   wl_rx_unit_queue_state_t *queue;
   uint32_t write;
@@ -125,7 +126,8 @@ int wl_rx_unit_commit(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim,
   return WL_OK;
 }
 
-int wl_rx_unit_abort(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim) {
+wl_err_t wl_rx_unit_abort(wl_ctx_t *ctx,
+                          const wl_rx_unit_claim_t *claim) {
   wl_rx_unit_queue_state_t *queue;
 
   if (ctx == NULL || claim == NULL) {

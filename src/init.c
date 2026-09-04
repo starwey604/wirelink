@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "wirelink/cobs.h"
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 #include "context.h"
@@ -24,7 +25,7 @@ static size_t wl_max_unit_size(const wl_config_t *config) {
   }
 }
 
-int wl_config_requirements(const wl_config_t *config,
+wl_err_t wl_config_requirements(const wl_config_t *config,
                            wl_storage_requirements_t *out_requirements) {
   size_t unit;
   size_t control;
@@ -68,7 +69,7 @@ int wl_config_requirements(const wl_config_t *config,
   return WL_OK;
 }
 
-int wl_init(wl_ctx_t *ctx, const wl_config_t *config,
+wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
             const wl_storage_t *storage) {
   wl_storage_requirements_t requirements;
   if (ctx == NULL || storage == NULL ||

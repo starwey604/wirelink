@@ -5,6 +5,7 @@
 
 #include <zephyr/ztest.h>
 
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 struct sink_capture {

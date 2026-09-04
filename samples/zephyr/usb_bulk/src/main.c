@@ -19,6 +19,7 @@
 #include "control.h"
 #include "crc_internal.h"
 #include "wirelink/bulk.h"
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 #include "wirelink/zephyr/usb_bulk.h"
 

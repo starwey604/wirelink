@@ -225,7 +225,10 @@ if(WIRELINK_INSTALL)
     include/wirelink/fifo.h
     include/wirelink/frame.h
     include/wirelink/latest.h
+    include/wirelink/link.h
     include/wirelink/outbox.h
+    include/wirelink/port.h
+    include/wirelink/profile.h
     include/wirelink/pump.h
     include/wirelink/rpc.h
     include/wirelink/span.h

@@ -10,6 +10,8 @@
 #include "control_bindings.h"
 #include "crc_internal.h"
 #include "wirelink/bulk.h"
+#include "wirelink/frame.h"
+#include "wirelink/port.h"
 
 #define OBJECT_LENGTH (UINT64_C(1024) * UINT64_C(1024))
 #define CHUNK_SIZE 1024U

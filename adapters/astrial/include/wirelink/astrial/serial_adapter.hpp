@@ -13,7 +13,7 @@
 
 #include <tl/expected.hpp>
 
-#include "wirelink/wirelink.h"
+#include "wirelink/port.h"
 #include "wirelink/adapter.h"
 
 namespace wirelink::astrial

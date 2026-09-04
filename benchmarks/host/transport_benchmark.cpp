@@ -7,6 +7,7 @@
 #include "wirelink/astrial/usb_bulk_adapter.hpp"
 #include "wirelink/bulk.h"
 #include "wirelink/crc.h"
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 #include <algorithm>

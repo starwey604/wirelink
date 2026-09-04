@@ -3,7 +3,7 @@
 #ifndef WIRELINK_HOST_EXECUTOR_HPP
 #define WIRELINK_HOST_EXECUTOR_HPP
 
-#include "wirelink/wirelink.h"
+#include "wirelink/port.h"
 #include "wirelink/outbox.h"
 #include "wirelink/pump.h"
 

@@ -5,6 +5,8 @@
 
 #include <zephyr/ztest.h>
 
+#include "wirelink/cobs.h"
+#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 #include "context.h"
 
@@ -980,6 +982,43 @@ ZTEST(wirelink_protocol_unit, test_native_direct_tx_claim_uses_final_unit)
   zassert_ok(wl_tx_payload_claim(&ctx, 0x71U, WL_DELIVERY_UNRELIABLE,
                                   &aborted));
   zassert_ok(wl_tx_payload_abort(&ctx, &aborted));
+}
+
+ZTEST(wirelink_protocol_unit,
+      test_stream_direct_tx_claim_uses_retained_payload_storage)
+{
+  wl_ctx_t ctx = {0};
+  uint8_t rx_mem[128];
+  uint8_t tx_mem[128];
+  uint8_t raw[128];
+  size_t raw_len = 0U;
+  struct test_sink_capture cap = {0};
+  wl_sink_result_t script[] = {WL_SINK_STARTED};
+  wl_tx_payload_claim_t claim = {0};
+  wl_frame_view_t view = {0};
+  const uint8_t payload[] = {0x00U, 0x20U, 0x30U, 0x00U};
+  wl_config_t cfg = {
+    .max_payload_len = 32U,
+    .envelope = WL_ENVELOPE_COBS_STREAM,
+    .integrity = WL_INTEGRITY_NONE,
+    .session_id = UINT64_C(0x53545245414d5458),
+  };
+
+  init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
+                    sizeof(tx_mem), script, ARRAY_SIZE(script));
+  zassert_ok(wl_tx_payload_claim(&ctx, 0x72U, WL_DELIVERY_UNRELIABLE,
+                                  &claim));
+  zassert_not_null(claim.span.data);
+  zassert_true(claim.span.data < tx_mem || claim.span.data >= tx_mem + sizeof(tx_mem));
+  zassert_equal(claim.span.length, cfg.max_payload_len);
+  memcpy(claim.span.data, payload, sizeof(payload));
+  zassert_ok(wl_tx_payload_commit(&ctx, &claim, sizeof(payload), NULL));
+  zassert_equal(cap.last_data[cap.last_len - 1U], 0U);
+  zassert_ok(wl_cobs_decode(cap.last_data, cap.last_len - 1U, raw,
+                            sizeof(raw), &raw_len));
+  zassert_ok(wl_frame_decode(raw, raw_len, WL_INTEGRITY_NONE, &view));
+  zassert_equal(view.message_id, 0x72U);
+  zassert_mem_equal(view.payload.data, payload, sizeof(payload));
 }
 
 ZTEST(wirelink_protocol_unit,
