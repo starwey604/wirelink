@@ -3,7 +3,7 @@ include_guard(GLOBAL)
 # These values are consumed by functions that may be called from a parent
 # directory after Wirelink itself was added with add_subdirectory(). Keep them
 # in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.1.0" CACHE INTERNAL
+set(WIRELINK_WLC_VERSION "0.2.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
 set(WIRELINK_WLC_CODEGEN_ABI "10" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
@@ -64,27 +64,27 @@ function(_wirelink_wlc_release_asset out_asset out_hash out_executable)
   if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND
       _architecture STREQUAL "x86_64")
     set(_asset "wlc-windows-x86_64.zip")
-    set(_hash "244b1278a1522fa898c67b57e249fd611f4c9b0f675fd74db1030fad8dc35099")
+    set(_hash "4150d5bf8e3daa1e82703f053e0d5e8dc393094db27519d1717cf7a25ab803e6")
     set(_executable "wlc.exe")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
       _architecture STREQUAL "x86_64")
     set(_asset "wlc-linux-x86_64-musl.tar.gz")
-    set(_hash "c8cdf348cd2cdb984b9cea03301d3a1716399e4fbf4f8923bdee850b3c710cc8")
+    set(_hash "c38b50231d13ab5f0785e6eabb29fd3a0e771a678115dbfca3f0ae650af91c24")
     set(_executable "wlc")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
       _architecture STREQUAL "aarch64")
     set(_asset "wlc-linux-aarch64-musl.tar.gz")
-    set(_hash "63e7d7f9b0e83d020213fe296189ab725b491ba6417e02ce14acd51adb9466c5")
+    set(_hash "f869cad15ecf21ba2354c5eee2a1c73c262e4b27057a401505915a508465d25c")
     set(_executable "wlc")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
       _architecture STREQUAL "x86_64")
     set(_asset "wlc-macos-x86_64.tar.gz")
-    set(_hash "e94f46c6e946b8de0c916517941a3fb9418d16bcc523ceaf2b8df58cc2603a82")
+    set(_hash "b7187b0672ecac7b63c11706803446f442a93efaacd12db99722022c77fc0881")
     set(_executable "wlc")
   elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
       _architecture STREQUAL "aarch64")
     set(_asset "wlc-macos-aarch64.tar.gz")
-    set(_hash "ba0992f7534da2607da7af4cbe820a419c0045f3617883c8442a5d0f1db113d4")
+    set(_hash "bfd892cf7e43ef3df61f4ec4531e4f071b330a03b9300f16adc1a83e5684c561")
     set(_executable "wlc")
   else()
     message(FATAL_ERROR
