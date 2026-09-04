@@ -10,6 +10,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 - Added generated runtime pump hooks that share the owner's time sample,
   dispatch events, drain bounded RPC responses, and merge RPC deadlines.
+- Added generated role defaults and bounded-schema static runtime storage
+  recipes, removing guessed arenas from the first-integration path while
+  preserving custom sizing for unbounded or higher-capacity deployments.
 - Collapsed generated message sends and RPC starts into one typed operation
   each; generated code now encodes directly into claimed TX storage, rolls
   back failed RPC starts, and owns matching RPC terminal-event release.

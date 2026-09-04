@@ -136,8 +136,17 @@ decoding and application callbacks stay on the consumer.
 
 Set only the roles this endpoint owns. The controller example enables one RPC
 client slot; the device enables one pending server operation, one replay-cache
-entry, and the `Add` handler. Call `quickstart_runtime_requirements()`, provide
-aligned storage of the reported size, then call `quickstart_runtime_init()`.
+entry, and the `Add` handler. Start from `quickstart_runtime_config_defaults()`,
+then call `quickstart_runtime_config_enable_client()` or
+`quickstart_runtime_config_enable_server()`. Defaults never invent RPC expiry
+policy, so set nonzero pending/cache timeouts when the product requires them.
+
+Because every quickstart RPC payload has a schema bound, WLC emits
+`quickstart_runtime_default_storage_t`. Keep one beside the instance and pass
+`quickstart_runtime_default_storage_descriptor()` to init; schema growth then
+changes the C type instead of silently exceeding a guessed byte array. Advanced
+configurations with larger slot counts can still use
+`quickstart_runtime_requirements()` and a custom aligned arena.
 
 The instance and storage arena must remain at stable addresses. Initialize a
 `quickstart_runtime_pump_t` beside the runtime; it is caller-owned state, not a

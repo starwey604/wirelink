@@ -165,6 +165,23 @@ typedef struct {
   void *home_user_data;
 } control_runtime_config_t;
 
+#define CONTROL_RUNTIME_HAS_DEFAULT_STORAGE 1
+#define CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY \
+  (1U + \
+   ((sizeof(max_align_t) - 1U) + sizeof(joint_command_t) + (sizeof(max_align_t) - 1U)) + \
+   ((sizeof(max_align_t) - 1U) + ((sizeof(arm_mit_command_t) + (sizeof(max_align_t) - 1U)) * WL_LATEST_SLOT_COUNT)) + \
+   ((sizeof(max_align_t) - 1U) + sizeof(wl_rpc_client_slot_t)) + \
+   12U + \
+   ((sizeof(max_align_t) - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
+   ((sizeof(max_align_t) - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
+   12U + \
+   12U)
+
+typedef union {
+  max_align_t alignment;
+  uint8_t bytes[CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY];
+} control_runtime_default_storage_t;
+
 typedef struct {
   size_t storage_size;
   size_t storage_alignment;
@@ -185,9 +202,16 @@ typedef struct {
   union { home_request_t request; home_response_t response; } home_scratch;
 } control_runtime_instance_t;
 
+/* Mechanical defaults use one FIFO/RPC slot, generation/operation ID one,
+ * bounded encoded maxima, disabled roles, zero timeouts, and reject-new cache.
+ * Override policy fields after this call. */
+wl_err_t control_runtime_config_defaults(control_runtime_config_t *config);
+
+wl_err_t control_runtime_config_enable_client(control_runtime_config_t *config);
+wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config);
+control_runtime_storage_t control_runtime_default_storage_descriptor(control_runtime_default_storage_t *storage);
 int control_runtime_requirements(const control_runtime_config_t *config, control_runtime_requirements_t *out_requirements);
 int control_runtime_init(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage);
-
 /* With non-null ctx/event every RX outcome is consumed. Matching RPC TX
  * terminal events advance the runtime and reclaim the handle. Inspect
  * result.event_consumed before applying a fallback owner action. */

@@ -10,7 +10,6 @@
 
 #define APP_MAX_PAYLOAD 64U
 #define APP_UNIT_CAPACITY 96U
-#define APP_RUNTIME_CAPACITY 2048U
 
 typedef struct {
   wl_ctx_t link;
@@ -22,14 +21,9 @@ typedef struct {
   size_t outbound_length;
 } endpoint_t;
 
-typedef union {
-  max_align_t alignment;
-  uint8_t bytes[APP_RUNTIME_CAPACITY];
-} runtime_arena_t;
-
 typedef struct {
   quickstart_runtime_instance_t instance;
-  runtime_arena_t arena;
+  quickstart_runtime_default_storage_t arena;
   quickstart_runtime_pump_t pump;
   quickstart_runtime_result_t last_result;
 } application_runtime_t;
@@ -96,21 +90,11 @@ static void observe_runtime_result(
 
 static int runtime_init(application_runtime_t *runtime,
                         const quickstart_runtime_config_t *config) {
-  quickstart_runtime_requirements_t requirements;
   quickstart_runtime_storage_t storage;
   int result;
 
   memset(runtime, 0, sizeof(*runtime));
-  result = quickstart_runtime_requirements(config, &requirements);
-  if (result != WL_OK) {
-    return result;
-  }
-  if (requirements.storage_size > sizeof(runtime->arena.bytes) ||
-      requirements.storage_alignment > _Alignof(runtime_arena_t)) {
-    return WL_ERR_BUF_TOO_SMALL;
-  }
-  storage.data = runtime->arena.bytes;
-  storage.size = requirements.storage_size;
+  storage = quickstart_runtime_default_storage_descriptor(&runtime->arena);
   result = quickstart_runtime_init(&runtime->instance, config, &storage);
   if (result != WL_OK) {
     return result;
@@ -289,25 +273,26 @@ int main(void) {
   application_runtime_t controller_runtime;
   application_runtime_t device_runtime;
   add_server_t server = {0};
-  quickstart_runtime_config_t controller_config = {0};
-  quickstart_runtime_config_t device_config = {0};
+  quickstart_runtime_config_t controller_config;
+  quickstart_runtime_config_t device_config;
   int result;
 
-  controller_config.telemetry_latest_initial_generation = 1U;
-  controller_config.rpc_client_enabled = 1U;
-  controller_config.rpc_client_slot_count = 1U;
-  controller_config.rpc_client_response_capacity = 32U;
-  controller_config.rpc_client_next_operation_id = 1U;
-
-  device_config.telemetry_latest_initial_generation = 1U;
-  device_config.rpc_server_enabled = 1U;
-  device_config.rpc_server_pending_slot_count = 1U;
-  device_config.rpc_server_cache_slot_count = 1U;
-  device_config.rpc_server_response_capacity = 32U;
+  result = quickstart_runtime_config_defaults(&controller_config);
+  if (result == WL_OK) {
+    result = quickstart_runtime_config_enable_client(&controller_config);
+  }
+  if (result == WL_OK) {
+    result = quickstart_runtime_config_defaults(&device_config);
+  }
+  if (result == WL_OK) {
+    result = quickstart_runtime_config_enable_server(&device_config);
+  }
+  if (result != WL_OK) {
+    fprintf(stderr, "runtime configuration failed: %s\n", wl_err_str(result));
+    return 1;
+  }
   device_config.rpc_server_pending_timeout_ms = 1000U;
   device_config.rpc_server_cache_ttl_ms = 10000U;
-  device_config.rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
-  device_config.add_canonical_request_capacity = 32U;
   device_config.add_request_handler = handle_add;
   device_config.add_user_data = &server;
 

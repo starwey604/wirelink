@@ -42,18 +42,19 @@ service/quiesce/deadline callbacks without another wrapper object.
 
 ### Add role-focused runtime initialization
 
-The flat generated config mixes LATEST/FIFO, client, server, cache, timeout,
-scratch, and handler fields. Provide generated client/server default builders
-and named storage recipes. Report which field invalidated requirements rather
-than returning only `WL_ERR_INVALID_ARG` or `WL_ERR_BUF_TOO_SMALL`.
+Implemented for the common bounded case. Generated config defaults select one
+retained/RPC slot, bounded encoded capacities, generation/operation ID one,
+disabled roles, zero timeouts, and reject-new cache policy. Explicit client and
+server enable helpers leave business expiry policy and handlers to the caller.
+Field-specific requirements diagnostics remain future work.
 
 ### Support static sizing without guessed arenas
 
-`runtime_requirements()` and `wl_config_requirements()` are correct but only
-available at runtime. Static firmware examples must reserve a conservative
-array, check it, and carry an alignment union. Generate conservative capacity
-and alignment macros, or a configuration-to-storage declaration mechanism,
-so insufficient memory becomes a build failure.
+Implemented for profiles whose RPC request/response payloads all have static
+encoded maxima. WLC emits `*_RUNTIME_HAS_DEFAULT_STORAGE`, a conservative
+capacity macro, an aligned `*_runtime_default_storage_t`, and a descriptor
+helper. Unbounded profiles advertise `HAS=0` and retain the exact runtime
+requirements/custom-arena path rather than pretending to have a safe bound.
 
 ### Stop temporarily mutating RPC inputs
 

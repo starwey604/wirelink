@@ -29,6 +29,46 @@ static uint64_t control_rpc_request_fingerprint(const uint8_t *data, size_t leng
   return hash;
 }
 
+wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
+  if (config == NULL) return WL_ERR_INVALID_ARG;
+  memset(config, 0, sizeof(*config));
+  config->joint_command_fifo_capacity = 1U;
+  config->arm_mit_command_latest_initial_generation = 1U;
+  config->rpc_client_slot_count = 1U;
+  config->rpc_client_next_operation_id = 1U;
+  config->rpc_server_pending_slot_count = 1U;
+  config->rpc_server_cache_slot_count = 1U;
+  config->rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
+  config->rpc_client_response_capacity = 12U;
+  config->rpc_server_response_capacity = 12U;
+  config->home_canonical_request_capacity = 12U;
+  return WL_OK;
+}
+
+wl_err_t control_runtime_config_enable_client(control_runtime_config_t *config) {
+  if (config == NULL) return WL_ERR_INVALID_ARG;
+  if (config->rpc_client_slot_count == 0U || config->rpc_client_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
+  config->rpc_client_enabled = 1U;
+  return WL_OK;
+}
+
+wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config) {
+  if (config == NULL) return WL_ERR_INVALID_ARG;
+  if (config->rpc_server_pending_slot_count == 0U || config->rpc_server_cache_slot_count == 0U || config->rpc_server_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
+  if (config->home_canonical_request_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
+  config->rpc_server_enabled = 1U;
+  return WL_OK;
+}
+
+control_runtime_storage_t control_runtime_default_storage_descriptor(control_runtime_default_storage_t *storage) {
+  control_runtime_storage_t descriptor = {0};
+  if (storage != NULL) {
+    descriptor.data = storage->bytes;
+    descriptor.size = sizeof(storage->bytes);
+  }
+  return descriptor;
+}
+
 typedef struct {
   uint8_t *base;
   size_t size;
