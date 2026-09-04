@@ -98,8 +98,16 @@ cannot later fail merely because another operation filled the cache.
 
 ## Server response ownership and progress
 
-Completion transfers encoded response bytes into server-owned cache storage;
-it does not call the link. The owner loop acquires one ready response with
+For generated responses, `wl_rpc_server_response_prepare()` borrows the cache
+segment already reserved by `begin()`. Encode into that span and publish its
+encoded prefix with `wl_rpc_server_response_commit()`; this avoids a second
+response-sized scratch buffer and copy. A codec failure leaves the request
+pending. The borrow ends on commit, reject, abandon, expiry, or session discard
+and must never be written afterward. `complete()` and `reject()` remain copying
+convenience APIs for callers whose bytes already live elsewhere.
+
+Completion only makes owned bytes ready; it does not call the link. The owner
+loop acquires one ready response with
 `wl_rpc_server_response_acquire()` and then performs exactly one transition:
 
 - synchronous backpressure: `wl_rpc_server_response_defer()`;

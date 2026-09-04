@@ -267,6 +267,17 @@ typedef struct wl_rpc_server_response {
   uint64_t generation;
 } wl_rpc_server_response_t;
 
+/*
+ * A generation-scoped writable view of the cache storage reserved by begin().
+ * It is borrowed only while request remains pending and must not be retained or
+ * written after completion, rejection, abandon, expiry, or session discard.
+ */
+typedef struct wl_rpc_server_response_buffer {
+  wl_rpc_server_request_t request;
+  uint8_t *data;
+  size_t capacity;
+} wl_rpc_server_response_buffer_t;
+
 typedef struct wl_rpc_server_expiry {
   uint16_t pending_expired;
   uint16_t cache_expired;
@@ -300,8 +311,26 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  wl_rpc_server_request_t *out_request,
                                  wl_rpc_server_response_t *out_replay);
 
+/*
+ * Borrow the exact cache segment already reserved for request. Encode directly
+ * into data, then publish the encoded prefix with response_commit(). A codec
+ * failure needs no rollback: request remains pending and may be retried or
+ * abandoned. The returned generation token prevents stale commits after slot
+ * reuse; callers must also obey the borrowed-pointer lifetime above.
+ */
+wl_rpc_err_t wl_rpc_server_response_prepare(
+    wl_rpc_server_t *server, const wl_rpc_server_request_t *request,
+    wl_rpc_server_response_buffer_t *out_buffer);
+
+/* Publish bytes encoded in a matching prepared buffer without copying them. */
+wl_rpc_err_t wl_rpc_server_response_commit(
+    wl_rpc_server_t *server, const wl_rpc_server_response_buffer_t *buffer,
+    int32_t application_status, size_t response_length, wl_time_ms_t now_ms,
+    wl_rpc_server_response_t *out_response);
+
 /* Complete an asynchronous or synchronous operation and cache/move its
- * response. identity must exactly match the token accepted by begin(). */
+ * response. identity must exactly match the token accepted by begin(). This is
+ * the copying convenience API; generated codecs should use prepare/commit. */
 wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
                                     const wl_rpc_server_request_t *request,
                                     int32_t application_status,

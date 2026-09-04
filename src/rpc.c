@@ -938,6 +938,129 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
   return WL_RPC_OK;
 }
 
+static wl_rpc_err_t server_resolve_pending(
+    wl_rpc_server_impl_t *server, const wl_rpc_server_request_t *request,
+    wl_rpc_server_pending_impl_t **out_pending,
+    wl_rpc_server_cache_impl_t **out_cache, uint16_t *out_cache_index) {
+  wl_rpc_server_pending_impl_t *pending = NULL;
+  wl_rpc_server_cache_impl_t *cache;
+  uint16_t cache_index;
+  uint16_t i;
+
+  for (i = 0U; i < server->pending_slot_count; ++i) {
+    wl_rpc_server_pending_impl_t *candidate = server_pending(server, i);
+    if (candidate->active != 0U && request_equal(request, candidate)) {
+      pending = candidate;
+      break;
+    }
+  }
+  if (pending == NULL) {
+    return WL_RPC_ERR_NOT_FOUND;
+  }
+  cache_index = pending->cache_index;
+  if (cache_index >= server->cache_slot_count) {
+    return WL_RPC_ERR_INVALID_STATE;
+  }
+  cache = server_cache(server, cache_index);
+  if (cache->active == 0U ||
+      cache->delivery_state != WL_RPC_RESPONSE_RESERVED ||
+      cache->generation != request->generation ||
+      !identity_equal(&cache->identity, &request->identity)) {
+    return WL_RPC_ERR_INVALID_STATE;
+  }
+
+  *out_pending = pending;
+  *out_cache = cache;
+  *out_cache_index = cache_index;
+  return WL_RPC_OK;
+}
+
+static void server_commit_reserved(wl_rpc_server_impl_t *server,
+                                   wl_rpc_server_pending_impl_t *pending,
+                                   wl_rpc_server_cache_impl_t *cache,
+                                   uint16_t cache_index,
+                                   int32_t application_status,
+                                   size_t response_length,
+                                   wl_time_ms_t now_ms,
+                                   wl_rpc_server_response_t *out_response) {
+  cache->response_length = response_length;
+  cache->completed_at = now_ms;
+  cache->application_status = application_status;
+  cache->delivery_state = WL_RPC_RESPONSE_READY;
+  memset(pending, 0, sizeof(*pending));
+  response_from_cache(server, cache_index, out_response);
+}
+
+wl_rpc_err_t wl_rpc_server_response_prepare(
+    wl_rpc_server_t *server, const wl_rpc_server_request_t *request,
+    wl_rpc_server_response_buffer_t *out_buffer) {
+  wl_rpc_server_impl_t *impl;
+  wl_rpc_server_pending_impl_t *pending;
+  wl_rpc_server_cache_impl_t *cache;
+  uint16_t cache_index;
+  wl_rpc_err_t result;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (!request_valid(request) || out_buffer == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  memset(out_buffer, 0, sizeof(*out_buffer));
+  impl = server_impl(server);
+  result = server_resolve_pending(impl, request, &pending, &cache,
+                                  &cache_index);
+  if (result != WL_RPC_OK) {
+    return result;
+  }
+  (void)pending;
+  (void)cache;
+  out_buffer->request = *request;
+  out_buffer->data =
+      &impl->response_storage[(size_t)cache_index * impl->response_capacity];
+  out_buffer->capacity = impl->response_capacity;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_server_response_commit(
+    wl_rpc_server_t *server, const wl_rpc_server_response_buffer_t *buffer,
+    int32_t application_status, size_t response_length, wl_time_ms_t now_ms,
+    wl_rpc_server_response_t *out_response) {
+  wl_rpc_server_impl_t *impl;
+  wl_rpc_server_pending_impl_t *pending;
+  wl_rpc_server_cache_impl_t *cache;
+  uint8_t *expected_data;
+  uint16_t cache_index;
+  wl_rpc_err_t result;
+
+  if (!server_initialized(server)) {
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (buffer == NULL || !request_valid(&buffer->request) ||
+      out_response == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  impl = server_impl(server);
+  if (response_length > (size_t)impl->response_capacity) {
+    return WL_RPC_ERR_RESPONSE_TOO_LARGE;
+  }
+  result = server_resolve_pending(impl, &buffer->request, &pending, &cache,
+                                  &cache_index);
+  if (result != WL_RPC_OK) {
+    return result;
+  }
+  expected_data =
+      &impl->response_storage[(size_t)cache_index * impl->response_capacity];
+  if (buffer->data != expected_data ||
+      buffer->capacity != (size_t)impl->response_capacity) {
+    return WL_RPC_ERR_RESPONSE_MISMATCH;
+  }
+  server_commit_reserved(impl, pending, cache, cache_index,
+                         application_status, response_length, now_ms,
+                         out_response);
+  return WL_RPC_OK;
+}
+
 wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
                                     const wl_rpc_server_request_t *request,
                                     int32_t application_status,
@@ -945,10 +1068,11 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
                                     size_t response_length, wl_time_ms_t now_ms,
                                     wl_rpc_server_response_t *out_response) {
   wl_rpc_server_impl_t *impl;
-  wl_rpc_server_pending_impl_t *pending = NULL;
+  wl_rpc_server_pending_impl_t *pending;
   wl_rpc_server_cache_impl_t *target;
   uint16_t target_index;
-  uint16_t i;
+  uint8_t *target_data;
+  wl_rpc_err_t result;
 
   if (!server_initialized(server)) {
     return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
@@ -961,40 +1085,20 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
   if (response_length > (size_t)impl->response_capacity) {
     return WL_RPC_ERR_RESPONSE_TOO_LARGE;
   }
-  for (i = 0U; i < impl->pending_slot_count; ++i) {
-    wl_rpc_server_pending_impl_t *candidate = server_pending(impl, i);
-    if (candidate->active != 0U && request_equal(request, candidate)) {
-      pending = candidate;
-      break;
-    }
-  }
-  if (pending == NULL) {
-    return WL_RPC_ERR_NOT_FOUND;
-  }
-  target_index = pending->cache_index;
-  if (target_index >= impl->cache_slot_count) {
-    return WL_RPC_ERR_INVALID_STATE;
-  }
-  target = server_cache(impl, target_index);
-  if (target->active == 0U ||
-      target->delivery_state != WL_RPC_RESPONSE_RESERVED ||
-      target->generation != request->generation ||
-      !identity_equal(&target->identity, &request->identity)) {
-    return WL_RPC_ERR_INVALID_STATE;
+  result = server_resolve_pending(impl, request, &pending, &target,
+                                  &target_index);
+  if (result != WL_RPC_OK) {
+    return result;
   }
 
-  if (response_length != 0U) {
-    memmove(
-        &impl->response_storage[(size_t)target_index * impl->response_capacity],
-        response_payload, response_length);
+  target_data =
+      &impl->response_storage[(size_t)target_index * impl->response_capacity];
+  if (response_length != 0U && response_payload != target_data) {
+    memmove(target_data, response_payload, response_length);
   }
-  target->response_length = response_length;
-  target->completed_at = now_ms;
-  target->application_status = application_status;
-  target->active = 1U;
-  target->delivery_state = WL_RPC_RESPONSE_READY;
-  memset(pending, 0, sizeof(*pending));
-  response_from_cache(impl, target_index, out_response);
+  server_commit_reserved(impl, pending, target, target_index,
+                         application_status, response_length, now_ms,
+                         out_response);
   return WL_RPC_OK;
 }
 

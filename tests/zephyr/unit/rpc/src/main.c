@@ -525,6 +525,79 @@ ZTEST(wirelink_rpc, test_server_accepted_request_can_retry_completion) {
                 WL_RPC_OK);
 }
 
+ZTEST(wirelink_rpc, test_server_prepared_response_commits_without_copy) {
+  wl_rpc_request_identity_t identity_value = identity(1U, 1U);
+  wl_rpc_server_request_t accepted;
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_response_buffer_t buffer;
+  wl_rpc_server_response_t response;
+
+  server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 0U, 1U, 1U);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &identity_value, 0U,
+                                    &disposition, &accepted, &response),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_server_response_prepare(&servers.server, &accepted,
+                                               &buffer),
+                WL_RPC_OK);
+  zassert_equal(buffer.capacity, sizeof(servers.responses[0]));
+  zassert_mem_equal(&buffer.request, &accepted, sizeof(accepted));
+  buffer.data[0] = 0xa5U;
+  buffer.data[1] = 0x5aU;
+  zassert_equal(wl_rpc_server_response_commit(
+                    &servers.server, &buffer, -4, 2U, 1U, &response),
+                WL_RPC_OK);
+  zassert_equal(response.application_status, -4);
+  zassert_equal(response.response_length, 2U);
+  zassert_equal(response.response_data, buffer.data);
+  zassert_equal(response.response_data[0], 0xa5U);
+  zassert_equal(response.response_data[1], 0x5aU);
+}
+
+ZTEST(wirelink_rpc, test_server_prepared_response_validates_authority) {
+  wl_rpc_request_identity_t identity_value = identity(1U, 1U);
+  wl_rpc_server_request_t first;
+  wl_rpc_server_request_t second;
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_response_buffer_t stale;
+  wl_rpc_server_response_buffer_t current;
+  wl_rpc_server_response_buffer_t tampered;
+  wl_rpc_server_response_t response;
+
+  server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 0U, 1U, 1U);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &identity_value, 0U,
+                                    &disposition, &first, &response),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_server_response_prepare(&servers.server, &first, &stale),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_server_abandon(&servers.server, &first), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &identity_value, 1U,
+                                    &disposition, &second, &response),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_server_response_commit(
+                    &servers.server, &stale, 0, 0U, 2U, &response),
+                WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(wl_rpc_server_response_prepare(&servers.server, &second,
+                                               &current),
+                WL_RPC_OK);
+  tampered = current;
+  ++tampered.data;
+  zassert_equal(wl_rpc_server_response_commit(
+                    &servers.server, &tampered, 0, 0U, 2U, &response),
+                WL_RPC_ERR_RESPONSE_MISMATCH);
+  tampered = current;
+  --tampered.capacity;
+  zassert_equal(wl_rpc_server_response_commit(
+                    &servers.server, &tampered, 0, 0U, 2U, &response),
+                WL_RPC_ERR_RESPONSE_MISMATCH);
+  zassert_equal(wl_rpc_server_response_commit(
+                    &servers.server, &current, 0, current.capacity + 1U, 2U,
+                    &response),
+                WL_RPC_ERR_RESPONSE_TOO_LARGE);
+  zassert_equal(wl_rpc_server_response_commit(
+                    &servers.server, &current, 0, 0U, 2U, &response),
+                WL_RPC_OK);
+}
+
 ZTEST(wirelink_rpc, test_server_completion_token_prevents_aba) {
   wl_rpc_request_identity_t request = identity(1U, 1U);
   wl_rpc_server_request_t first;
