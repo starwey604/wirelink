@@ -15,7 +15,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 14U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 15U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -70,13 +70,14 @@ typedef union {
 
 /* Inspect detail only through the member selected by detail_kind. domain
  * classifies the outcome; zero-initialized unused detail fields retain their
- * corresponding success values. */
+ * corresponding success values. event_consumed is nonzero only when dispatch
+ * released an RX event or reclaimed a terminal TX handle. */
 typedef struct {
   control_runtime_domain_t domain;
   wl_event_type_t event_type;
   uint16_t message_id;
   control_runtime_detail_kind_t detail_kind;
-  uint8_t _reserved;
+  uint8_t event_consumed;
   control_runtime_detail_t detail;
 } control_runtime_result_t;
 
@@ -176,10 +177,9 @@ typedef struct {
 int control_runtime_requirements(const control_runtime_config_t *config, control_runtime_requirements_t *out_requirements);
 int control_runtime_init(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage);
 
-/* Terminal consumer for RX events: with non-null ctx/event every RX
- * outcome releases the event exactly once. Do not chain another dispatcher
- * or release it again. Matching RPC TX terminal events advance the runtime
- * and reclaim the handle. Unmatched non-RX events remain caller-owned. */
+/* With non-null ctx/event every RX outcome is consumed. Matching RPC TX
+ * terminal events advance the runtime and reclaim the handle. Inspect
+ * result.event_consumed before applying a fallback owner action. */
 control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_runtime_t *runtime, wl_time_ms_t now_ms);
 
 int control_joint_command_fifo_acquire(control_runtime_t *runtime, control_joint_command_fifo_view_t *out_view);

@@ -33,7 +33,7 @@ clocks.
 
 ## Build the runnable example
 
-From a source checkout with a compatible ABI 14 `wlc` executable:
+From a source checkout with a compatible ABI 15 `wlc` executable:
 
 ```sh
 cmake -S . -B build/quickstart \

@@ -29,6 +29,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### API and protocol hardening
 
+- Made pump event ownership explicit with `UNHANDLED`/`CONSUMED` callback
+  dispositions, and added the generated ABI 15 `event_consumed` result so a
+  generated RPC dispatcher and owner pump never reclaim the same event twice.
 - Made RPC server acceptance reserve bounded response storage before invoking
   application code, and replaced identity-only completion with generation-
   stamped request tokens so stale asynchronous completions cannot cross reuse.

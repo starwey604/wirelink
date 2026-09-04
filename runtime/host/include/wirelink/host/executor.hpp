@@ -29,13 +29,11 @@ struct ExecutorHooks {
     // WL_POLL_NO_DEADLINE_MS disables timed wakeups for this source.
     using DeadlineHintFn = std::uint32_t (*)(const void* s_user_data,
                                              wl_time_ms_t s_now_ms) noexcept;
-    // Terminal event dispatcher. For RX, the hook must call wl_event_release()
-    // exactly once before returning. For TX terminal events, the hook observes
-    // the event before the executor calls wl_tx_take(). Generated WLC runtime
-    // dispatchers naturally satisfy this contract. With no hook installed, the
-    // executor releases RX events itself.
-    using EventFn = void (*)(void* s_user_data, wl_ctx_t& s_context,
-                             const wl_event_t& s_event) noexcept;
+    // Return CONSUMED after releasing an RX event or taking a terminal TX
+    // handle. UNHANDLED delegates that owner action to the executor.
+    using EventFn = wl_pump_event_disposition_t (*)(
+        void* s_user_data, wl_ctx_t& s_context,
+        const wl_event_t& s_event) noexcept;
     void* m_user_data{};
     // Owner-pass order is adapter service, core event dispatch, application
     // progress, and queued TX dispatch. Deadline hints are queried only after a
@@ -143,8 +141,9 @@ private:
         const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
     static std::uint32_t s_adapterDeadlineBridge(
         const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
-    static void s_eventBridge(void* s_user_data, wl_ctx_t* s_context,
-                              const wl_event_t* s_event) noexcept;
+    static wl_pump_event_disposition_t s_eventBridge(
+        void* s_user_data, wl_ctx_t* s_context,
+        const wl_event_t* s_event) noexcept;
     wl_pump_hooks_t s_pumpHooks() noexcept;
     void s_run() noexcept;
     bool s_dispatchOne() noexcept;

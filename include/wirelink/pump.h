@@ -19,8 +19,12 @@ typedef uint8_t (*wl_pump_application_progress_fn)(void *user_data,
                                                     wl_time_ms_t now_ms);
 typedef uint32_t (*wl_pump_deadline_hint_fn)(const void *user_data,
                                              wl_time_ms_t now_ms);
-typedef void (*wl_pump_event_fn)(void *user_data, wl_ctx_t *ctx,
-                                 const wl_event_t *event);
+typedef enum wl_pump_event_disposition {
+  WL_PUMP_EVENT_UNHANDLED = 0,
+  WL_PUMP_EVENT_CONSUMED = 1,
+} wl_pump_event_disposition_t;
+typedef wl_pump_event_disposition_t (*wl_pump_event_fn)(
+    void *user_data, wl_ctx_t *ctx, const wl_event_t *event);
 
 typedef struct wl_pump_hooks {
   void *user_data;
@@ -30,9 +34,9 @@ typedef struct wl_pump_hooks {
   wl_pump_deadline_hint_fn application_deadline_hint;
   wl_pump_deadline_hint_fn adapter_deadline_hint;
   /*
-   * RX callbacks must release the borrowed event exactly once. Terminal TX
-   * callbacks run before the pump takes the handle. With no callback, RX is
-   * released and terminal TX is reclaimed automatically.
+   * Return CONSUMED only after releasing an RX event or taking a terminal TX
+   * handle. UNHANDLED asks the pump to perform that default owner action.
+   * Other event kinds have no pump-owned resource to discharge.
    */
   wl_pump_event_fn on_event;
 } wl_pump_hooks_t;

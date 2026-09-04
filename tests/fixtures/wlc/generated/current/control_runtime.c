@@ -346,6 +346,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       result.detail.rpc.rpc_result = wl_rpc_server_on_tx_event(runtime->rpc_server, event);
       if (result.detail.rpc.rpc_result == WL_RPC_OK) {
         result.detail.rpc.core_result = wl_tx_take(ctx, event->handle, &tx_result);
+        result.event_consumed = result.detail.rpc.core_result == WL_OK ? 1U : 0U;
         result.domain = result.detail.rpc.core_result == WL_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_CORE_ERROR;
         return result;
       }
@@ -358,6 +359,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       result.detail.rpc.rpc_result = wl_rpc_client_on_tx_event(runtime->rpc_client, event);
       if (result.detail.rpc.rpc_result == WL_RPC_OK) {
         result.detail.rpc.core_result = wl_tx_take(ctx, event->handle, &tx_result);
+        result.event_consumed = result.detail.rpc.core_result == WL_OK ? 1U : 0U;
         result.domain = result.detail.rpc.core_result == WL_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_CORE_ERROR;
       } else if (result.detail.rpc.rpc_result == WL_RPC_ERR_NOT_FOUND) result.domain = CONTROL_RUNTIME_NON_RX;
       else result.domain = CONTROL_RUNTIME_RPC_ERROR;
@@ -580,6 +582,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
 
 release_event:
   wl_event_release(ctx, event);
+  result.event_consumed = 1U;
   return result;
 }
 

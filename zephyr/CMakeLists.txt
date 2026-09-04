@@ -11,6 +11,7 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/frame.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/init.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/latest.c
+  ${ZEPHYR_CURRENT_MODULE_DIR}/src/pump.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/protocol.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/rpc.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/rx_ring_bipbuf.c

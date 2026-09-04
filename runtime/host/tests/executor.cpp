@@ -112,8 +112,9 @@ struct RxCapture {
         return WL_ERR_NO_DATA;
     }
 
-    static void onEvent(void* s_user_data, wl_ctx_t& s_context,
-                        const wl_event_t& s_event) noexcept {
+    static wl_pump_event_disposition_t onEvent(
+        void* s_user_data, wl_ctx_t& s_context,
+        const wl_event_t& s_event) noexcept {
         auto& s_self = *static_cast<RxCapture*>(s_user_data);
         {
             std::lock_guard<std::mutex> s_lock(s_self.mutex);
@@ -134,6 +135,7 @@ struct RxCapture {
                 });
             }
         }
+        return WL_PUMP_EVENT_CONSUMED;
     }
 
     static void quiesce(void* s_user_data) noexcept {

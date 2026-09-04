@@ -18,17 +18,10 @@ composition helpers, not from missing wire behavior.
 
 ### Make event ownership composable
 
-`wl_pump_step()` always takes a nonzero terminal TX handle after invoking its
-`void` event callback. A generated `*_runtime_dispatch_event()` also takes a
-matching RPC handle. Composition therefore relies on a harmless second
-`wl_tx_take()` whose `NOT_FOUND` result is discarded. RX ownership is similarly
-described in prose rather than represented by the callback type.
-
-Change the pump callback to return an explicit disposition such as
-`UNHANDLED`, `RX_RELEASED`, or `TX_RECLAIMED`, or provide a generated pump
-adapter with one authoritative owner. Add tests that compose the public pump
-and generated runtime without double release/take. This is the strongest
-candidate for one final ABI/codegen revision.
+Resolved in codegen ABI 15. `wl_pump_event_fn` now returns `UNHANDLED` or
+`CONSUMED`, and generated dispatch reports `result.event_consumed` after
+releasing RX or reclaiming a matching RPC terminal handle. A pump bridge can
+therefore delegate fallback ownership without a second release/take.
 
 ### Publish a self-consistent compiler/library pair
 

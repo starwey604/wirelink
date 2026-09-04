@@ -217,11 +217,12 @@ std::uint32_t Executor::s_adapterDeadlineBridge(
         s_self.m_hooks.m_user_data, s_now_ms);
 }
 
-void Executor::s_eventBridge(void* s_user_data, wl_ctx_t* s_context,
-                             const wl_event_t* s_event) noexcept {
+wl_pump_event_disposition_t Executor::s_eventBridge(
+    void* s_user_data, wl_ctx_t* s_context,
+    const wl_event_t* s_event) noexcept {
     auto& s_self = *static_cast<Executor*>(s_user_data);
-    s_self.m_hooks.m_on_event(s_self.m_hooks.m_user_data, *s_context,
-                              *s_event);
+    return s_self.m_hooks.m_on_event(s_self.m_hooks.m_user_data, *s_context,
+                                     *s_event);
 }
 
 wl_pump_hooks_t Executor::s_pumpHooks() noexcept {

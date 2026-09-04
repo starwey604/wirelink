@@ -42,6 +42,7 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
 
   for (index = 0U; index < event_budget; ++index) {
     wl_event_t event;
+    wl_pump_event_disposition_t disposition = WL_PUMP_EVENT_UNHANDLED;
     int poll_result = wl_poll(ctx, now_ms, &event);
 
     result.poll_result = poll_result;
@@ -58,8 +59,9 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
     if (is_rx_event(&event)) {
       ++result.rx_events;
       if (hooks != NULL && hooks->on_event != NULL) {
-        hooks->on_event(hooks->user_data, ctx, &event);
-      } else {
+        disposition = hooks->on_event(hooks->user_data, ctx, &event);
+      }
+      if (disposition == WL_PUMP_EVENT_UNHANDLED) {
         wl_event_release(ctx, &event);
       }
       continue;
@@ -69,9 +71,9 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
       continue;
     }
     if (hooks != NULL && hooks->on_event != NULL) {
-      hooks->on_event(hooks->user_data, ctx, &event);
+      disposition = hooks->on_event(hooks->user_data, ctx, &event);
     }
-    {
+    if (disposition == WL_PUMP_EVENT_UNHANDLED) {
       wl_tx_result_t ignored;
       (void)wl_tx_take(ctx, event.handle, &ignored);
     }

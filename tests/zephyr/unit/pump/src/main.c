@@ -27,6 +27,7 @@ struct hook_state {
   unsigned int events;
   unsigned int quiesced;
   wl_tx_handle_t terminal_handle;
+  int terminal_take_result;
 };
 
 static struct fixture test_fixture;
@@ -98,8 +99,9 @@ static int ordered_service(void *user_data) {
   return WL_OK;
 }
 
-static void ordered_event(void *user_data, wl_ctx_t *ctx,
-                          const wl_event_t *event) {
+static wl_pump_event_disposition_t ordered_event(void *user_data,
+                                                  wl_ctx_t *ctx,
+                                                  const wl_event_t *event) {
   struct hook_state *state = user_data;
 
   state->event_order = ++state->order;
@@ -107,6 +109,7 @@ static void ordered_event(void *user_data, wl_ctx_t *ctx,
   if (event->type == WL_EVT_UNRELIABLE_RX ||
       event->type == WL_EVT_RELIABLE_RX) {
     wl_event_release(ctx, event);
+    return WL_PUMP_EVENT_CONSUMED;
   } else {
     wl_tx_state_t tx_state = WL_TX_STATE_IDLE;
 
@@ -114,6 +117,17 @@ static void ordered_event(void *user_data, wl_ctx_t *ctx,
     zassert_ok(wl_tx_status(ctx, event->handle, &tx_state));
     zassert_equal(tx_state, WL_TX_STATE_FAILED);
   }
+  return WL_PUMP_EVENT_UNHANDLED;
+}
+
+static wl_pump_event_disposition_t consuming_event(
+    void *user_data, wl_ctx_t *ctx, const wl_event_t *event) {
+  struct hook_state *state = user_data;
+  wl_tx_result_t ignored;
+
+  state->terminal_handle = event->handle;
+  state->terminal_take_result = wl_tx_take(ctx, event->handle, &ignored);
+  return WL_PUMP_EVENT_CONSUMED;
 }
 
 static uint8_t ordered_application(void *user_data, wl_ctx_t *ctx,
@@ -210,6 +224,27 @@ ZTEST(wirelink_pump_unit, test_terminal_callback_precedes_handle_take) {
   zassert_ok(wl_pump_step(&fixture->ctx, 105U, 4U, &hooks, &result));
   zassert_equal(result.events, 1U);
   zassert_equal(state.terminal_handle, handle);
+  zassert_equal(wl_tx_status(&fixture->ctx, handle, &tx_state),
+                WL_ERR_NOT_FOUND);
+}
+
+ZTEST(wirelink_pump_unit, test_consumed_terminal_is_not_owned_by_pump) {
+  struct fixture *fixture = fixture_init(5U);
+  struct hook_state state = {0};
+  const wl_pump_hooks_t hooks = {
+      .user_data = &state,
+      .on_event = consuming_event,
+  };
+  wl_pump_result_t result;
+  wl_tx_handle_t handle = 0U;
+  wl_event_t ignored;
+  wl_tx_state_t tx_state;
+
+  zassert_equal(wl_poll(&fixture->ctx, 100U, &ignored), WL_ERR_NO_DATA);
+  zassert_ok(wl_send_reliable(&fixture->ctx, 7U, NULL, 0U, &handle));
+  zassert_ok(wl_pump_step(&fixture->ctx, 105U, 4U, &hooks, &result));
+  zassert_equal(state.terminal_handle, handle);
+  zassert_equal(state.terminal_take_result, WL_OK);
   zassert_equal(wl_tx_status(&fixture->ctx, handle, &tx_state),
                 WL_ERR_NOT_FOUND);
 }

@@ -11,6 +11,7 @@
 #include "wirelink/frame.h"
 #include "wirelink/latest.h"
 #include "wirelink/port.h"
+#include "wirelink/pump.h"
 #include "wirelink/rpc.h"
 
 #define APP_MAX_PAYLOAD 256U
@@ -498,21 +499,44 @@ static void rpc_init(void) {
   zassert_equal(rpc_server.instance.runtime.home.user_data, &rpc_server);
 }
 
+struct runtime_pump_state {
+  control_runtime_t *runtime;
+  wl_time_ms_t now_ms;
+  control_runtime_result_t result;
+};
+
+static wl_pump_event_disposition_t
+dispatch_with_pump(void *user_data, wl_ctx_t *ctx,
+                   const wl_event_t *event) {
+  struct runtime_pump_state *state = user_data;
+
+  state->result = control_runtime_dispatch_event(ctx, event, state->runtime,
+                                                  state->now_ms);
+  return state->result.event_consumed != 0U ? WL_PUMP_EVENT_CONSUMED
+                                            : WL_PUMP_EVENT_UNHANDLED;
+}
+
 static control_runtime_result_t
 finish_reliable_tx(struct endpoint *endpoint, control_runtime_t *runtime,
                    wl_time_ms_t now_ms, wl_tx_handle_t expected_handle) {
-  const wl_event_t event = poll_event(endpoint, now_ms, WL_EVT_TX_SUCCESS);
-  control_runtime_result_t result;
-  wl_tx_result_t tx_result;
+  struct runtime_pump_state state = {
+      .runtime = runtime,
+      .now_ms = now_ms,
+  };
+  const wl_pump_hooks_t hooks = {
+      .user_data = &state,
+      .on_event = dispatch_with_pump,
+  };
+  wl_pump_result_t pump_result;
+  wl_tx_state_t tx_state;
 
-  zassert_equal(event.handle, expected_handle);
-  result =
-      control_runtime_dispatch_event(&endpoint->ctx, &event, runtime, now_ms);
-  if (result.domain == CONTROL_RUNTIME_NON_RX) {
-    zassert_equal(wl_tx_take(&endpoint->ctx, event.handle, &tx_result), WL_OK);
-    zassert_equal(tx_result.state, WL_TX_STATE_SUCCESS);
-  }
-  return result;
+  zassert_ok(wl_pump_step(&endpoint->ctx, now_ms, 1U, &hooks, &pump_result));
+  zassert_equal(pump_result.events, 1U);
+  zassert_equal(state.result.event_type, WL_EVT_TX_SUCCESS);
+  zassert_equal(rpc_detail(&state.result)->handle, expected_handle);
+  zassert_equal(wl_tx_status(&endpoint->ctx, expected_handle, &tx_state),
+                WL_ERR_NOT_FOUND);
+  return state.result;
 }
 
 static control_runtime_result_t dispatch_home_request(struct endpoint *client,
