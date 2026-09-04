@@ -74,21 +74,27 @@ fingerprint. The fingerprint's collision quality is a product/schema
 responsibility. A zero peer session denotes an unscoped request, as required
 for transports or delivery modes that do not expose a reliable session.
 
-- `NEW` reserves pending metadata and permits handler execution.
+- `NEW` atomically reserves pending metadata and one response-cache slot, then
+  permits handler execution. If either pool is full, `begin()` returns a
+  capacity error and the handler is not called.
 - `PENDING_DUPLICATE` suppresses re-execution of an identical active request.
 - `REPLAY` returns bounded cached response bytes for immediate re-encoding.
 - `CONFLICT` reports reuse of the operation ID with any different identity in
   the same peer session. The same ID in a new peer session is `NEW`.
 
-`complete()`, `reject()`, and `abandon()` take the exact identity returned for
-the request, rather than an operation ID alone. This permits simultaneous
-pending operations with the same numeric ID from different peer sessions and
-prevents an old completion from targeting the new request. With
-`WL_RPC_CACHE_REJECT_NEW`, a full cache leaves the operation
-pending so the caller can retry completion after expiry or abandon it. With
-`WL_RPC_CACHE_EVICT_OLDEST`, completion replaces the oldest generation; age
-comparison remains valid across the generation counter wrap. Entries awaiting
-submission or reliable completion are never eviction candidates.
+`complete()`, `reject()`, and `abandon()` take the exact
+`wl_rpc_server_request_t` returned for the request. Its generation-stamped
+identity permits simultaneous operations with the same numeric ID from
+different peer sessions and prevents an old asynchronous completion from
+targeting a reused pending slot. The token becomes invalid after any terminal
+transition or session discard.
+
+With `WL_RPC_CACHE_REJECT_NEW`, a full cache rejects the request before handler
+execution. With `WL_RPC_CACHE_EVICT_OLDEST`, `begin()` may reserve the oldest
+delivered generation; age comparison remains valid across counter wrap.
+Entries awaiting submission or reliable completion are never eviction
+candidates. Because response storage is already reserved, a valid completion
+cannot later fail merely because another operation filled the cache.
 
 ## Server response ownership and progress
 
@@ -117,8 +123,8 @@ pending and cached identities and reports in-flight handles through an optional
 callback so the product can call `wl_tx_cancel()` and later `wl_tx_take()`.
 
 Pending timeout and cache TTL are independently wrap-safe. Zero disables each
-expiry. `wl_rpc_server_expired_acquire()` returns a timed-out pending identity
-without discarding it; the application must reject/complete it with a typed
+expiry. `wl_rpc_server_expired_acquire()` returns a timed-out pending request
+token without discarding it; the application must reject/complete it with a typed
 terminal response or explicitly abandon it. Eviction, expiry, session discard,
 or process restart ends replay protection, so this is not durable exactly-once
 execution; non-idempotent products need a persistent operation key or an

@@ -23,6 +23,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### API and protocol hardening
 
+- Made RPC server acceptance reserve bounded response storage before invoking
+  application code, and replaced identity-only completion with generation-
+  stamped request tokens so stale asynchronous completions cannot cross reuse.
 - Made every public enum-like type explicitly `int32_t`, recorded the Linux
   x86-64 v1 structure layout, and added an installed-package
   `-fshort-enums` CI gate plus a strict C++20 public-header consumer.

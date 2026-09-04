@@ -151,15 +151,17 @@ handle for the caller to cancel/drain and finally `wl_tx_take()`.
 `wl_rpc_server_begin()` classifies a request before the application handler
 runs:
 
-- `NEW` reserves bounded pending metadata and permits one execution;
+- `NEW` reserves bounded pending metadata and response storage before
+  permitting one execution;
 - `PENDING_DUPLICATE` suppresses re-execution;
 - `REPLAY` returns the cached response bytes; and
 - `CONFLICT` reports reuse of an operation ID by a different request identity
   within the same reliable peer session.
 
 The application can complete or reject a `NEW` operation immediately, retain
-it for later asynchronous completion, or explicitly abandon its pending
-metadata.
+its generation-stamped request token for later asynchronous completion, or
+explicitly abandon it. Capacity failure occurs before the handler runs; after
+`NEW`, the corresponding response slot is already reserved.
 
 Cancellation is best effort. It stops local waiting and may send a generated
 cancel message, but cannot retract a request already delivered to the peer.
