@@ -25,7 +25,7 @@ therefore delegate fallback ownership without a second release/take.
 
 ### Publish a self-consistent compiler/library pair
 
-Current source declares WLC `0.4.0` with codegen ABI 14, while the immutable
+Current source declares WLC `0.4.0` with codegen ABI 16, while the immutable
 `v0.4.0` release emits ABI 12 and Wirelink's download hashes still select those
 assets. Release WLC `0.5.0`, update its release smoke check from ABI 12, then
 pin its five host assets and hashes from Wirelink `0.10.0`. Verify an installed
@@ -58,10 +58,11 @@ requirements/custom-arena path rather than pretending to have a safe bound.
 
 ### Stop temporarily mutating RPC inputs
 
-Generated client start and server finish restore caller objects, but accept
-mutable pointers solely to inject operation ID/status during encoding. This is
-surprising and prevents genuinely read-only requests. Generate override-aware
-encoders or use owned scratch so public request/response inputs can be `const`.
+Implemented in codegen ABI 16. Generated client start and server
+complete/reject accept `const` inputs and shallow-copy them into one shared,
+typed runtime scratch union before injecting operation ID/status. Encoding is
+synchronous on the owner thread; no scratch pointer escapes and no per-service
+outbound buffer or heap allocation is added.
 
 ### Make result handling smaller and discoverable
 

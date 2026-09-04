@@ -262,6 +262,7 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     instance->runtime.home.user_data = config->home_user_data;
   }
   if (config->rpc_client_enabled != 0U) instance->runtime.home.response_scratch = &instance->home_scratch.response;
+  if (config->rpc_client_enabled != 0U || config->rpc_server_enabled != 0U) instance->runtime.rpc_encode_scratch = &instance->rpc_encode_scratch;
   return WL_OK;
 
 init_failed:
@@ -708,19 +709,22 @@ static control_runtime_result_t control_home_client_finish_start(control_runtime
   return result;
 }
 
-control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
+control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, const home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
   control_runtime_result_t result = control_runtime_result(NULL);
   control_send_result_t sent;
+  home_request_t *encoded_request;
   uint32_t operation_id = 0U;
-  bool had_operation_id;
-  uint32_t previous_operation_id;
   result.message_id = HOME_REQUEST_MESSAGE_ID;
   result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
   if (ctx == NULL || runtime == NULL || runtime->rpc_client == NULL || request == NULL) return result;
-  had_operation_id = request->has_operation_id;
-  previous_operation_id = request->operation_id;
-  if (had_operation_id && previous_operation_id != 0U) {
-    operation_id = previous_operation_id;
+  if (runtime->rpc_encode_scratch == NULL) {
+    result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;
+    return result;
+  }
+  encoded_request = &runtime->rpc_encode_scratch->home_request;
+  if ((const void *)request == (const void *)encoded_request) return result;
+  if (request->has_operation_id && request->operation_id != 0U) {
+    operation_id = request->operation_id;
     result.detail.rpc.rpc_result = wl_rpc_client_begin_with_id(runtime->rpc_client, operation_id, HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, timeout_ms, now_ms);
   } else {
     result.detail.rpc.rpc_result = wl_rpc_client_begin(runtime->rpc_client, HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, timeout_ms, now_ms, &operation_id);
@@ -730,11 +734,10 @@ control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtim
     result.domain = CONTROL_RUNTIME_RPC_ERROR;
     return result;
   }
-  request->has_operation_id = true;
-  request->operation_id = operation_id;
-  sent = control_home_request_send(ctx, request, WL_DELIVERY_RELIABLE);
-  request->has_operation_id = had_operation_id;
-  request->operation_id = previous_operation_id;
+  *encoded_request = *request;
+  encoded_request->has_operation_id = true;
+  encoded_request->operation_id = operation_id;
+  sent = control_home_request_send(ctx, encoded_request, WL_DELIVERY_RELIABLE);
   return control_home_client_finish_start(runtime, operation_id, sent);
 }
 
@@ -795,21 +798,24 @@ wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t op
   return wl_rpc_client_release(runtime->rpc_client, operation_id);
 }
 
-static control_runtime_result_t control_home_server_finish(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, wl_time_ms_t now_ms, bool reject) {
+static control_runtime_result_t control_home_server_finish(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms, bool reject) {
   control_runtime_result_t result = control_runtime_result(NULL);
   wl_rpc_server_response_buffer_t buffer = {0};
   wl_rpc_server_response_t cached = {0};
+  home_response_t *encoded_response;
   size_t encoded_length = 0U;
-  bool had_operation_id;
-  uint32_t previous_operation_id;
-  bool had_status;
-  int32_t previous_status;
   result.message_id = HOME_RESPONSE_MESSAGE_ID;
   result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
   result.detail.rpc.application_result = application_status;
   if (runtime == NULL || runtime->rpc_server == NULL || server_request == NULL || server_request->generation == 0U || server_request->identity.operation_id == 0U || server_request->identity.request_message_id != HOME_REQUEST_MESSAGE_ID || server_request->identity.response_message_id != HOME_RESPONSE_MESSAGE_ID || response == NULL) return result;
   result.detail.rpc.operation_id = server_request->identity.operation_id;
   result.detail.rpc.server_request = *server_request;
+  if (runtime->rpc_encode_scratch == NULL) {
+    result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;
+    return result;
+  }
+  encoded_response = &runtime->rpc_encode_scratch->home_response;
+  if ((const void *)response == (const void *)encoded_response) return result;
   if (reject && application_status == 0) {
     result.detail.rpc.rpc_result = WL_RPC_ERR_INVALID_ARG;
     result.domain = CONTROL_RUNTIME_RPC_ERROR;
@@ -820,19 +826,12 @@ static control_runtime_result_t control_home_server_finish(control_runtime_t *ru
     result.domain = CONTROL_RUNTIME_RPC_ERROR;
     return result;
   }
-  had_operation_id = response->has_operation_id;
-  previous_operation_id = response->operation_id;
-  had_status = response->has_status;
-  previous_status = (int32_t)response->status;
-  response->has_operation_id = true;
-  response->operation_id = server_request->identity.operation_id;
-  response->has_status = true;
-  response->status = application_status;
-  result.detail.rpc.codec_status = home_response_encode(response, buffer.data, buffer.capacity, &encoded_length);
-  response->has_operation_id = had_operation_id;
-  response->operation_id = previous_operation_id;
-  response->has_status = had_status;
-  response->status = previous_status;
+  *encoded_response = *response;
+  encoded_response->has_operation_id = true;
+  encoded_response->operation_id = server_request->identity.operation_id;
+  encoded_response->has_status = true;
+  encoded_response->status = application_status;
+  result.detail.rpc.codec_status = home_response_encode(encoded_response, buffer.data, buffer.capacity, &encoded_length);
   result.detail.rpc.payload_length = encoded_length;
   if (result.detail.rpc.codec_status != WL_CODEC_OK) {
     result.domain = CONTROL_RUNTIME_CODEC_ERROR;
@@ -851,11 +850,11 @@ static control_runtime_result_t control_home_server_finish(control_runtime_t *ru
   return result;
 }
 
-control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, home_response_t *response, wl_time_ms_t now_ms) {
+control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, const home_response_t *response, wl_time_ms_t now_ms) {
   return control_home_server_finish(runtime, server_request, 0, response, now_ms, false);
 }
 
-control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, wl_time_ms_t now_ms) {
+control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms) {
   return control_home_server_finish(runtime, server_request, application_status, response, now_ms, true);
 }
 

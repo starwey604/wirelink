@@ -16,7 +16,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 15U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 16U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -108,6 +108,13 @@ typedef struct {
   void *user_data;
 } control_home_rpc_t;
 
+/* Shared by synchronous RPC encoders. Runtime APIs are owner-thread
+ * operations and do not retain pointers to this scratch after return. */
+typedef union {
+  home_request_t home_request;
+  home_response_t home_response;
+} control_runtime_rpc_encode_scratch_t;
+
 typedef struct {
   uint16_t client_timed_out;
   uint16_t server_pending_expired;
@@ -128,6 +135,7 @@ typedef struct {
   wl_latest_t *arm_mit_command_latest;
   wl_rpc_client_t *rpc_client;
   wl_rpc_server_t *rpc_server;
+  control_runtime_rpc_encode_scratch_t *rpc_encode_scratch;
   control_home_rpc_t home;
 } control_runtime_t;
 
@@ -214,6 +222,7 @@ typedef struct {
   wl_latest_t arm_mit_command_latest;
   wl_rpc_client_t rpc_client;
   wl_rpc_server_t rpc_server;
+  control_runtime_rpc_encode_scratch_t rpc_encode_scratch;
   /* Dispatch is serialized; request and response decode scratch lifetimes do not overlap. */
   union { home_request_t request; home_response_t response; } home_scratch;
 } control_runtime_instance_t;
@@ -258,10 +267,10 @@ wl_pump_hooks_t control_runtime_pump_hooks(control_runtime_pump_t *pump);
 /* Allocates, encodes, and submits atomically from the caller's view. A
  * present nonzero request operation ID is used exactly, allowing an explicit
  * retry to address the server's bounded replay cache; absent or zero selects an
- * automatically allocated ID. The request is restored before return. A local
- * encode/submit failure releases the allocated RPC slot and returns operation_id
- * zero. */
-control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
+ * automatically allocated ID. The const request is copied into runtime-owned
+ * encode scratch before operation ID injection. A local encode/submit failure
+ * releases the allocated RPC slot and returns operation_id zero. */
+control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, const home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
 /* Nonblocking inspection returns generic metadata for this service. */
 wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client);
 /* Decode a retained response previously returned by client_inspect(). Borrowed
@@ -270,11 +279,11 @@ control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t
 wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id);
 
 /* server_request is copied from the request callback and uniquely scopes this
- * execution generation. Completion encodes directly into the response storage
- * reserved by wl_rpc_server_begin(); runtime_service() performs I/O and restores
- * the caller-owned response before return. */
-control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, home_response_t *response, wl_time_ms_t now_ms);
-control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, home_response_t *response, wl_time_ms_t now_ms);
+ * execution generation. Completion copies the const response into runtime-owned
+ * encode scratch before injecting operation ID/status. runtime_service() later
+ * submits the cached response bytes. */
+control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, const home_response_t *response, wl_time_ms_t now_ms);
+control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms);
 
 #ifdef __cplusplus
 }

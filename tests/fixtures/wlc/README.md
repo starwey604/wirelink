@@ -47,7 +47,9 @@ payload), network byte order, scalar float encoding, strict packed length
 rejection, generated typed bindings, LATEST coalescing, and reliable FIFO
 ordering/full-queue behavior. The generated RPC runtime owns operation/handle
 correlation, canonical request deduplication, exact cached response replay, and
-response retention across RX release. Its completion identity includes the
-reliable sender session, so a restarted peer may reuse an operation ID without
-replaying the preceding session's response. The previous revision intentionally
-lacks these additive messages and application patterns.
+response retention across RX release. Const client requests and server
+responses are encoded through one runtime-owned typed scratch union. Its
+completion identity includes the reliable sender session, so a restarted peer
+may reuse an operation ID without replaying the preceding session's response.
+The previous revision intentionally lacks these additive messages and
+application patterns.
