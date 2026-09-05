@@ -18,6 +18,7 @@ set(WIRELINK_SOURCES
   src/bulk_sender.c
   src/cobs.c
   src/crc.c
+  src/endpoint.c
   src/fifo.c
   src/frame.c
   src/init.c
@@ -250,6 +251,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/codec.h
     include/wirelink/crc.h
     include/wirelink/diagnostics.h
+    include/wirelink/endpoint.h
     include/wirelink/fifo.h
     include/wirelink/frame.h
     include/wirelink/latest.h

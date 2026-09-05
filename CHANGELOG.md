@@ -8,6 +8,14 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- Added ABI 19 generated default endpoints: statically owned link/runtime storage,
+  automatic dispatch/progress, profile-selected sending and copying LATEST/FIFO
+  reads. Advanced custom storage and borrowed reads remain available. Unbounded
+  or oversized selected messages explicitly disable the default assembly.
+- Added generic endpoint lifecycle/adapter integration and loopback endpoint
+  connection; ordinary examples no longer assemble storage descriptors or hooks.
+- Added `wlc codegen-abi` and configure-time compiler ABI checks; split WLC
+  installation from application tutorials without requiring a nested checkout.
 - Split WLC schema codec/binding generation from profile runtime generation;
   multiple named asymmetric runtimes can now share one codec target without
   duplicate symbols or unused retained storage.

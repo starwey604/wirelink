@@ -11,6 +11,7 @@ target_sources(testbinary PRIVATE
   src/main.c
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
+  ${WIRELINK_ROOT}/src/endpoint.c
   ${WIRELINK_ROOT}/src/frame.c
   ${WIRELINK_ROOT}/src/init.c
   ${WIRELINK_ROOT}/src/protocol.c

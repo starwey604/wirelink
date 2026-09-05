@@ -6,6 +6,7 @@
 #include <zephyr/ztest.h>
 
 #include "wirelink/frame.h"
+#include "wirelink/endpoint.h"
 #include "wirelink/pump.h"
 #include "wirelink/port.h"
 
@@ -308,6 +309,53 @@ ZTEST(wirelink_pump_unit, test_validation) {
                 WL_ERR_INVALID_ARG);
   zassert_equal(wl_pump_get_hint(&fixture->ctx, 0U, NULL, NULL),
                 WL_ERR_INVALID_ARG);
+}
+
+static int failing_endpoint_service(void *user_data) {
+  unsigned int *calls = user_data;
+  ++*calls;
+  return WL_ERR_INVALID_STATE;
+}
+
+static void endpoint_quiesced(void *user_data) {
+  unsigned int *calls = user_data;
+  ++*calls;
+}
+
+ZTEST(wirelink_pump_unit, test_endpoint_assembly_lifecycle_and_service_errors) {
+  wl_endpoint_t endpoint = {0};
+  wl_pump_hooks_t adapter = {0};
+  struct fixture *fixture = fixture_init(5U);
+  unsigned int calls = 0U;
+  const wl_storage_t storage = {
+    .tx_payload = fixture->tx_payload,
+    .tx_payload_size = sizeof(fixture->tx_payload),
+    .tx_unit = fixture->tx_unit,
+    .tx_unit_size = sizeof(fixture->tx_unit),
+    .control_unit = fixture->control_unit,
+    .control_unit_size = sizeof(fixture->control_unit),
+    .rx_fallback = fixture->rx_fallback,
+    .rx_fallback_size = sizeof(fixture->rx_fallback),
+  };
+  zassert_equal(wl_endpoint_step(&endpoint, 1U, 1U), WL_ERR_NOT_INITIALIZED);
+  zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, NULL));
+  zassert_equal(wl_endpoint_init(&endpoint, &fixture->config, &storage, NULL),
+                WL_ERR_INVALID_STATE);
+  adapter.adapter_user_data = &calls;
+  adapter.service = failing_endpoint_service;
+  adapter.quiesce = endpoint_quiesced;
+  zassert_ok(wl_endpoint_attach(&endpoint, &adapter));
+  zassert_equal(wl_endpoint_attach(&endpoint, &adapter), WL_ERR_BUSY);
+  zassert_equal(wl_endpoint_step(&endpoint, 1U, 4U), WL_ERR_INVALID_STATE);
+  zassert_equal(calls, 1U);
+  zassert_equal(wl_endpoint_last_step(&endpoint)->service_errors, 1U);
+  wl_endpoint_close(&endpoint);
+  wl_endpoint_close(&endpoint);
+  zassert_equal(calls, 2U);
+  zassert_is_null(wl_endpoint_link(&endpoint));
+  zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, NULL));
+  zassert_false(wl_endpoint_has_adapter(&endpoint));
+  wl_endpoint_close(&endpoint);
 }
 
 ZTEST_SUITE(wirelink_pump_unit, NULL, NULL, NULL, NULL, NULL);

@@ -5,7 +5,7 @@ include_guard(GLOBAL)
 # in the global CMake cache so function call-site scope cannot hide them.
 set(WIRELINK_WLC_VERSION "0.4.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_ABI "18" CACHE INTERNAL
+set(WIRELINK_WLC_CODEGEN_ABI "19" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Download the pinned WLC host compiler when it is not installed" ON)
@@ -41,6 +41,21 @@ function(_wirelink_wlc_validate_executable executable out_valid out_reason)
     set(${out_valid} FALSE PARENT_SCOPE)
     set(${out_reason}
       "reported '${_stdout}', expected '${_expected}'" PARENT_SCOPE)
+    return()
+  endif()
+
+  execute_process(
+    COMMAND "${executable}" codegen-abi
+    RESULT_VARIABLE _abi_result
+    OUTPUT_VARIABLE _abi
+    ERROR_QUIET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    TIMEOUT 10)
+  if(NOT _abi_result STREQUAL "0" OR NOT _abi STREQUAL "${WIRELINK_WLC_CODEGEN_ABI}")
+    set(${out_valid} FALSE PARENT_SCOPE)
+    set(${out_reason}
+      "does not provide codegen ABI ${WIRELINK_WLC_CODEGEN_ABI}; install the matching WLC build"
+      PARENT_SCOPE)
     return()
   endif()
 

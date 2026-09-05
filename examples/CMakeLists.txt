@@ -5,6 +5,16 @@ target_link_libraries(wirelink_bare_metal_loopback PRIVATE Wirelink::loopback)
 
 if(WIRELINK_BUILD_GETTING_STARTED)
   wirelink_wlc_generate_codec(
+    TARGET wirelink_temperature_codec
+    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/temperature.wl")
+  wirelink_wlc_generate_runtime(
+    TARGET wirelink_temperature_protocol
+    CODEC_TARGET wirelink_temperature_codec
+    PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/temperature.bind.wl")
+  add_executable(wirelink_latest_telemetry latest_telemetry.c)
+  target_link_libraries(wirelink_latest_telemetry PRIVATE
+    wirelink_temperature_protocol Wirelink::loopback)
+  wirelink_wlc_generate_codec(
     TARGET wirelink_quickstart_codec
     SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.wl")
   wirelink_wlc_generate_runtime(
@@ -20,6 +30,8 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink_bare_metal_loopback PRIVATE
     -Wall -Wextra -Wpedantic)
   if(TARGET wirelink_getting_started)
+    target_compile_options(wirelink_latest_telemetry PRIVATE
+      -Wall -Wextra -Wpedantic)
     target_compile_options(wirelink_getting_started PRIVATE
       -Wall -Wextra -Wpedantic)
   endif()
@@ -29,6 +41,8 @@ if(BUILD_TESTING)
   add_test(NAME wirelink_bare_metal_loopback
     COMMAND wirelink_bare_metal_loopback)
   if(TARGET wirelink_getting_started)
+    add_test(NAME wirelink_latest_telemetry
+      COMMAND wirelink_latest_telemetry)
     add_test(NAME wirelink_getting_started
       COMMAND wirelink_getting_started)
   endif()

@@ -46,6 +46,44 @@ static int endpoint_valid(wl_loopback_endpoint_t endpoint) {
          endpoint == WL_LOOPBACK_ENDPOINT_B;
 }
 
+static int loopback_endpoint_service(void *context) {
+  wl_loopback_service_result_t result;
+  return wl_loopback_service(context, 2U, &result);
+}
+
+static void loopback_endpoint_close(void *context) {
+  wl_loopback_quiesce(context);
+}
+
+static uint32_t loopback_endpoint_hint(const void *context, wl_time_ms_t now_ms) {
+  const wl_loopback_impl_t *impl = loopback_impl_const(context);
+  (void)now_ms;
+  return impl->started && (impl->directions[0].pending || impl->directions[1].pending)
+             ? 0U : WL_POLL_NO_DEADLINE_MS;
+}
+
+wl_err_t wl_loopback_connect(wl_loopback_t *loopback, wl_endpoint_t *endpoint_a,
+                            wl_endpoint_t *endpoint_b) {
+  wl_pump_hooks_t hooks = {0};
+  int result;
+  if (loopback == NULL || endpoint_a == endpoint_b) return WL_ERR_INVALID_ARG;
+  if (wl_endpoint_link(endpoint_a) == NULL || wl_endpoint_link(endpoint_b) == NULL)
+    return WL_ERR_NOT_INITIALIZED;
+  if (wl_endpoint_has_adapter(endpoint_a) || wl_endpoint_has_adapter(endpoint_b))
+    return WL_ERR_BUSY;
+  result = wl_loopback_init(loopback, wl_endpoint_link(endpoint_a),
+                            wl_endpoint_link(endpoint_b));
+  if (result != WL_OK) return result;
+  hooks.adapter_user_data = loopback;
+  hooks.service = loopback_endpoint_service;
+  hooks.quiesce = loopback_endpoint_close;
+  hooks.adapter_deadline_hint = loopback_endpoint_hint;
+  /* Preflight above makes attachment infallible on this single owner. */
+  (void)wl_endpoint_attach(endpoint_a, &hooks);
+  (void)wl_endpoint_attach(endpoint_b, &hooks);
+  return WL_OK;
+}
+
 static wl_sink_result_t loopback_sink(void *user_data, wl_io_token_t token,
                                       const uint8_t *data, size_t length) {
   wl_loopback_direction_t *direction = user_data;

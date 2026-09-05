@@ -2,7 +2,9 @@
 
 ## WLC compiler baseline
 
-The Rust compiler is developed in the adjacent `wlc/` worktree. It owns the
+The Rust compiler lives in a separate WLC repository; maintainers may keep a
+local `wlc/` worktree for convenience, but consumers do not require that layout.
+See [installation](installation.md) for the current matching compiler. It owns the
 versioned `.wl` grammar, AST, source-located validation, semantic model,
 compatibility checks, and deterministic C generator. The supported baseline
 constructs are `message`, `enum`, `optional`, `required`, `repeated`,

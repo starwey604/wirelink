@@ -7,6 +7,7 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_sender.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/cobs.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/crc.c
+  ${ZEPHYR_CURRENT_MODULE_DIR}/src/endpoint.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/fifo.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/frame.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/init.c

@@ -1,272 +1,210 @@
-# 构建一个 Wirelink Endpoint
+# 入门：让显示端读到最新温度
 
-本文建立两个内存 endpoint：一个方向发送允许丢失的 telemetry，另一个方向完成可靠的
-类型化 RPC。它相当于 libcsp 的 loopback client/server 示例，但抽象不同：Wirelink 是
-点对点 link engine，不是带地址的网络或 router。应用组合 endpoint、transport、session
-和可选的 WLC 生成 runtime。
+假设一个设备不断测量温度，另一个设备负责显示。显示端只关心现在的温度，
+不需要把每一个历史读数都显示一遍。本篇用 Wirelink 实现这件事。
 
-> 英文版 [`getting-started.md`](getting-started.md) 是规范来源。
+先不用开发板。我们在一个电脑程序里放一个“测温设备”和一个“显示端”，
+用内存模拟它们之间的连接。Wirelink 负责把温度结构体变成可传输的数据，
+并在另一端还原；程序决定什么时候发送、什么时候更新显示。
 
-## 心智模型
+这是教程第一篇。接下来是[请求设备完成一次计算](tutorial-rpc-cn.md)，
+最后是[接入自己的工程与硬件](tutorial-integration-cn.md)。
+无需先读 API 总览或协议规范。[English](getting-started.md)。
 
-```text
-typed messages and RPC       应用策略
-WLC-generated runtime        编码、路由、保留、关联
-Wirelink link                成帧、完整性、ACK、重试、去重
-port/adapter                  UART、USB、UDP、CAN packet 或测试 loopback
-```
+## 1. 先运行，看看结果
 
-一个 consumer 独占发送、poll、event release、transaction completion、runtime service
-和 adapter service。transport callback/ISR 可以是唯一 RX producer。Wirelink 不分配
-内存，也不创建 thread 或 clock。
-
-| libcsp 概念 | Wirelink 对应概念 |
-| --- | --- |
-| addressed node | 一个点对点 endpoint；不负责寻址 |
-| node incarnation | 可靠流量上的非零 `session_id` |
-| destination port | 稳定的 WLC message ID |
-| connection-less send | unreliable delivery |
-| reliable connection/request | reliable transaction 加可选 RPC |
-| interface/driver | 使用 public port API 的 adapter |
-| router task | 应用拥有的 poll/service loop |
-
-CRC 只检测意外损坏，不认证 peer。v1 也不提供加密、发现、广播、路由或访问控制；需要时
-把 link 放在已认证/加密的 transport 内。
-
-## 构建可运行示例
-
-在源码 checkout 中使用兼容 ABI 18 的 `wlc`：
+先完成[环境准备：安装 WLC](installation-cn.md)。运行示例只需要 C11 编译器、
+CMake 3.21 或更新版本，以及已经能从终端调用的匹配版 `wlc`。
+Wirelink 仓库内不需要有 WLC 源码；下面从 Wirelink 根目录执行：
 
 ```sh
 cmake -S . -B build/quickstart \
   -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_GETTING_STARTED=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
-cmake --build build/quickstart --target wirelink_getting_started
-./build/quickstart/examples/wirelink_getting_started
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+cmake --build build/quickstart --target wirelink_latest_telemetry
+./build/quickstart/examples/wirelink_latest_telemetry
 ```
 
 预期输出：
 
 ```text
-unreliable telemetry: sample=7 temperature=23.50 C
-reliable RPC: 20 + 22 = 42
+latest telemetry: sample=2 temperature=23.50 C
 ```
 
-完整程序是 [`getting_started.c`](../examples/getting_started.c)。内存 sink 代表 packet
-transport；移植时只需替换 sink 和 ingress path。
+程序发送了两次测量：第 1 次 23.00 °C，第 2 次 23.50 °C。
+两次都已经接收，但显示端此时才读取，所以只得到第 2 次。
+下面依次看消息定义、接收策略和完整程序。
 
-## 1. 定义应用协议
+## 2. 告诉双方“温度消息长什么样”
 
-[`quickstart.wl`](../examples/getting_started/quickstart.wl) 为 `Telemetry`、
-`AddRequest`、`AddResponse` 分配永久数字 ID；独立的
-[`quickstart.bind.wl`](../examples/getting_started/quickstart.bind.wl) 选择 runtime 行为：
+文件 [`temperature.wl`](../examples/getting_started/temperature.wl)：
 
 ```text
-latest Telemetry { delivery = unreliable; }
+version 1;
 
-rpc Add {
-  request = AddRequest;
-  response = AddResponse;
-  request_operation_id = operation_id;
-  response_operation_id = operation_id;
-  response_status = status;
-  request_delivery = reliable;
-  response_delivery = reliable;
+message Telemetry = 10 {
+  required uint32 sample = 1;
+  required int32 temperature_centi_c = 2;
 }
 ```
 
-可替代状态适合 unreliable：新 sample 使旧 sample 失去意义。需要链路确认时使用
-reliable；调用方需要应用结果、deadline、status 或有界 duplicate/replay 时使用 RPC。
+`Telemetry` 是我们给消息起的名字，意思是“遥测数据”，不是 Wirelink 的关键字。
+它包含采样编号 `sample` 和以百分之一摄氏度为单位的温度：
+`2350` 就是 23.50 °C。使用整数可以避免在消息定义中引入浮点换算问题。
 
-## 2. 生成并链接类型化 Runtime
+`message ... = 10` 中的 10 是消息类型编号，用来区分温度消息和其他消息。
+字段后面的 1、2 是字段编号，用来识别消息中的不同数据，**不是默认值**。
+`required` 表示消息必须包含这个字段；`uint32` 和 `int32` 是无符号、
+有符号的 32 位整数。`version 1` 选择消息定义语言的版本。
 
-使用已安装 Wirelink package 的应用只需要：
+这类描述消息结构的文件称为 **schema（消息定义）**。双方用同一份定义生成代码，
+就能按相同规则编码和解码；不直接把 C 结构体的内存原样发出去。
 
-```cmake
-find_package(Wirelink CONFIG REQUIRED)
-wirelink_wlc_generate_codec(
-  TARGET quickstart_codec
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.wl")
-wirelink_wlc_generate_runtime(
-  TARGET quickstart_protocol
-  CODEC_TARGET quickstart_codec
-  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.bind.wl")
-target_link_libraries(my_endpoint PRIVATE quickstart_protocol)
-```
+## 3. 告诉接收端“收到后怎么用”
 
-codec target 只拥有一份 data model、codec 和 typed send；每个 runtime target 只拥有对应
-profile 的 retained/RPC API。这允许同一进程中的 host/device 共用 schema，避免重复
-codec symbol 和未使用存储。生成 C 编译进 target；设备上不运行 WLC。
+文件 [`temperature.bind.wl`](../examples/getting_started/temperature.bind.wl)：
 
-## 3. 初始化 Endpoint 与 Session
+```text
+profile version 1;
 
-双方必须使用相同 envelope、integrity、payload bound 和 transmission-unit bound；v1
-通过带外配置这些 profile 值。按照 `wl_config_requirements()` 分配并保持 buffer，然后
-调用 `wl_init()`。
-
-session ID 是非零 boot/session incarnation，不是 node address。可靠 DATA/ACK 都携带它，
-让 peer 区分重传与重启前流量。从随机 boot nonce 或持久单调 boot counter 产生；旧 frame
-仍可能存在时不得复用。
-
-示例使用 native-packet 和固定静态数组。datagram 通过 `wl_feed_unit()` 输入完整 unit；
-byte stream 改用 `wl_feed_bytes()` 或 reserve/commit producer API。
-
-## 4. 绑定 Transport
-
-无硬件 bring-up 可绑定 loopback：
-
-```c
-wl_loopback_t transport;
-wl_loopback_init(&transport, &controller.link, &device.link);
-
-wl_loopback_service_result_t service;
-wl_loopback_service(&transport, 4U, &service);
-```
-
-adapter 异步借用 encoded unit，在每个方向模拟一个 unit 的背压，并在有界 `service()`
-中完成；不增加 payload buffer 或 heap。重初始化任一 link 前先 quiesce。
-
-硬件 adapter 通过 `wl_set_sink()` 注册一个 `wl_sink_fn`：同步消费返回
-`WL_SINK_SENT`；异步借用返回 `WL_SINK_STARTED`，之后恰好调用一次
-`wl_tx_complete()`；可重试背压返回 `WL_SINK_BUSY`；终态 I/O 失败返回
-`WL_SINK_FAILED`。sink 获得的指针到同步返回或异步 completion 前仍归 Wirelink。
-RX publish 只使工作 ready；解码与应用 callback 始终留在 consumer。
-
-## 5. 初始化应用 Runtime 存储
-
-只启用 endpoint 实际拥有的角色。controller 示例启用一个 RPC client slot；device 启用
-一个 pending operation、一个 replay-cache entry 和 `Add` handler。先调用
-`quickstart_runtime_config_defaults()`，再调用 client/server role helper。默认值不会替
-产品发明 RPC expiry 策略，需要时显式设置非零 pending/cache timeout。
-
-因为 quickstart RPC payload 都有 schema bound，WLC 会生成
-`quickstart_runtime_default_storage_t` 和 descriptor。把 arena 放在 instance 旁边；schema
-增长会直接改变 C type，不会悄悄超过猜测的 byte array。更大 slot count 可用
-`quickstart_runtime_requirements()` 配置自定义 aligned arena。instance 与 arena 地址必须
-保持稳定；pump 也是调用方状态，不是 thread/scheduler。
-
-bring-up 阶段使用 checked init 定位字段或容量错误：
-
-```c
-application_runtime_t runtime;
-quickstart_runtime_config_t config;
-quickstart_runtime_storage_t storage;
-quickstart_runtime_init_diagnostic_t diagnostic;
-
-quickstart_runtime_config_defaults(&config);
-quickstart_runtime_config_enable_client(&config);
-storage = quickstart_runtime_default_storage_descriptor(&runtime.arena);
-int rc = quickstart_runtime_init_checked(&runtime.instance, &config, &storage,
-                                         &diagnostic);
-if (rc != WL_OK) {
-  log_init_error(quickstart_runtime_init_issue_str(diagnostic.issue),
-                 diagnostic.field, diagnostic.required, diagnostic.provided);
+latest Telemetry {
+  delivery = unreliable;
 }
 ```
 
-配置确认后使用普通 `runtime_init()`。配合 function/data section 和 linker GC，未引用的
-checked validation 与字符串可从小固件中移除。
+这里有两个独立的选择：
 
-## 6. 驱动 Event 与 RPC
+| 写法 | 回答的问题 | 本例的选择 |
+| --- | --- | --- |
+| `latest Telemetry` | 应用还没来读时，新数据怎么存？ | 保留最新接收的温度，替换尚未读取的旧温度 |
+| `delivery = unreliable` | 这类消息以什么传输方式接收？ | 不等待接收确认，也不因丢失而重传 |
 
-构建生成的 application hook，按需填入独立 adapter callback，再执行一个有界 owner pass：
+`latest` 不等于 `unreliable`。前者是接收后的存储策略，后者是链路的传输方式。
+温度不断刷新，偶尔丢掉一次可以等下一次，所以本例把它们组合使用。
+LATEST 也可以接收可靠传输的消息；反过来，允许丢失的消息也不一定要存入 LATEST。
+
+这里的“最新”指最后接收并交给这个存储区的值。Wirelink 不会比较 `sample`
+或时间戳来替你判断哪次测量更晚。如果底层传输会乱序，筛掉旧采样是应用需要处理的事。
+
+`.bind.wl` 中的 `bind` 是 binding 的命名约定，用来标明“把消息绑定到什么使用方式”。
+它仍是文本文件，内容以 `profile version 1;` 开头，使用与 schema 不同的语法。
+它不是另一份消息结构，也不是必须使用这个后缀；生成命令通过 `PROFILE` 参数选择它。
+这样的文件称为 **binding profile（消息使用配置）**。
+
+分成两个文件，是因为“发送什么数据”和“收到后怎么处理”可以独立变化：
+测温设备只发送，显示端保存最新值，记录器可能想按顺序处理每次接收。
+它们可以共享消息定义，使用各自的处理配置。
+单纯生成编码/解码函数不需要 `.bind.wl`；本例为了自动生成 LATEST 的收取接口才用它。
+
+本例使用端点的 `send_telemetry()`，它直接采用这里声明的 `unreliable`，
+不用在每次发送时重复选择。高级的 codec 发送接口仍允许显式指定传输方式。
+
+## 4. 代码里只需要三个通信对象
+
+`temperature_endpoint_t` 是 WLC 根据消息定义和使用配置生成的端点类型，
+已经包含 Wirelink 连接状态、消息处理代码以及需要的静态存储。
+你不需要自己定义这个结构体，也不需要给内部缓冲区挑选字节数。
+
+`device` 和 `display` 是这个类型的两个实例，分别代表测温设备和显示端。
+它们不是网络地址。`static` 让对象从零初始化并在程序运行期间保持有效；
+已初始化的端点不能复制或移动。
+
+`cable` 是模拟连接，负责把两个端点连起来。硬件上会换成串口等适配器。
+`endpoint_handle()` 提供适配器连接所需的通用端点入口：
+它让同一个适配器也能连接由不同消息配置生成的端点。
+
+初始化中的 1、2 是本次模拟运行的非零会话标识。先把它们视为这个隔离实验的常量；
+可靠通信需要怎样处理重启，在第二篇解释。
+
+## 5. 完整 C 代码
+
+下面就是 [`examples/latest_telemetry.c`](../examples/latest_telemetry.c)，
+没有隐藏初始化函数。`CHECK` 是本示例的错误检查宏：结果不符合预期就打印行号并退出，
+不是 Wirelink API。`temperature_runtime.h` 是生成的头文件，其中也声明了默认端点接口。
 
 ```c
-quickstart_runtime_pump_t runtime_pump;
-quickstart_runtime_pump_init(&runtime_pump, &runtime.instance.runtime,
-                             observe_result, app);
-wl_pump_hooks_t hooks = quickstart_runtime_pump_hooks(&runtime_pump);
-hooks.adapter_user_data = transport;
-hooks.service = transport_service;
-hooks.quiesce = transport_quiesce;
-hooks.adapter_deadline_hint = transport_deadline;
+/* SPDX-License-Identifier: Apache-2.0 */
 
-wl_pump_result_t step;
-wl_pump_step(&endpoint.link, now_ms, 16U, &hooks, &step);
-```
+#include <stdio.h>
 
-bridge 共用 pump 的一次时间采样，release RX、回收匹配 RPC terminal、每 pass 最多 service
-一个 response，并合并 deadline。成功提交 response 会请求下一次有界 pass；背压等待
-transport 推进而不自旋。休眠前调用 `wl_pump_get_hint()`。自定义 owner loop 可直接调用
-dispatch/service，并先检查 `event_consumed` 再执行 fallback ownership。
+#include "temperature_runtime.h"
+#include "wirelink/loopback.h"
 
-处理结果使用生成 helper，不直接选 diagnostic union：
+/* Desktop example: print the failing expression and stop on unexpected errors. */
+#define CHECK(expression) do { \
+  if (!(expression)) { \
+    fprintf(stderr, "line %d: %s\n", __LINE__, #expression); \
+    return 1; \
+  } \
+} while (0)
 
-```c
-if (!quickstart_runtime_result_ok(&result)) {
-  log_error(quickstart_runtime_result_str(&result));
-  return;
-}
-const quickstart_runtime_rpc_detail_t *rpc =
-    quickstart_runtime_result_rpc_detail(&result);
-if (rpc != NULL) {
-  remember_operation(rpc->operation_id);
-}
-```
+int main(void) {
+  static temperature_endpoint_t device, display;
+  wl_loopback_t cable;
+  telemetry_t received;
 
-detail tag 不匹配时 accessor 返回 `NULL`。字符串只用于日志；控制流使用 `domain` 或类型化
-错误字段。
+  /* Fixed IDs are only for this isolated simulation. */
+  CHECK(temperature_endpoint_init(&device, 1U) == WL_OK);
+  CHECK(temperature_endpoint_init(&display, 2U) == WL_OK);
+  CHECK(wl_loopback_connect(&cable, temperature_endpoint_handle(&device),
+                           temperature_endpoint_handle(&display)) == WL_OK);
 
-可靠 server request 还会建立当前 peer session。首次绑定或切换设置
-`rpc->peer_changed`，应用 take 一次 observation：
+  for (uint32_t sample = 1U; sample <= 2U; ++sample) {
+    telemetry_t message;
+    telemetry_clear(&message);
+    message.has_sample = true;
+    message.sample = sample;
+    message.has_temperature_centi_c = true;
+    message.temperature_centi_c = sample == 1U ? 2300 : 2350;
 
-```c
-if (rpc != NULL && rpc->peer_changed != 0U) {
-  wl_rpc_peer_observation_t peer;
-  if (quickstart_runtime_peer_observation_take(
-          &runtime.instance.runtime, &peer) == WL_RPC_OK) {
-    revoke_old_peer_leases(peer.previous_session_id, peer.current_session_id);
+    CHECK(temperature_endpoint_send_telemetry(&device, &message).domain
+          == TEMPERATURE_SEND_OK);
+    /* Each endpoint advances transport and message handling in one call. */
+    CHECK(temperature_endpoint_step(&device, sample) == WL_OK);
+    CHECK(temperature_endpoint_step(&display, sample) == WL_OK);
   }
+
+  CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_OK);
+  CHECK(received.sample == 2U && received.temperature_centi_c == 2350);
+  printf("latest telemetry: sample=%u temperature=%.2f C\n",
+         (unsigned)received.sample, received.temperature_centi_c / 100.0);
+  CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_ERR_NO_DATA);
+
+  temperature_endpoint_close(&device);
+  temperature_endpoint_close(&display);
+  return 0;
 }
 ```
 
-切换会在新 handler 前清除旧 session 的 pending/cache，并请求取消 detached response。
-可靠非 RPC 流量若建立相同产品 session，应在应用它之前显式调用
-`quickstart_runtime_peer_observe()`。稳定 session 只做 inline comparison。
+## 6. 按一次温度更新理解调用过程
 
-RPC 用 `quickstart_add_client_start()` 启动并保存非零 operation ID，终态后
-inspect/decode，最后 `quickstart_add_client_release()`。用相同 ID 和 canonical request
-重试可命中有界 replay cache；cache eviction、expiry、session change 或 restart 会终止
-保护。
+`telemetry_clear()` 清空消息，再设置两个值和对应的 `has_...` 标志。
+标志表示“这个字段已填写”；数值零也是有效数据，不能代表缺失。
 
-## 7. 从 Loopback 移到硬件
+`temperature_endpoint_send_telemetry()` 编码并提交消息，传输方式来自 `.bind.wl`。
+`TEMPERATURE_SEND_OK` 只表示本地接受了发送，不证明显示端已经收到。
 
-保持 schema、runtime、owner loop 和 session 规则不变，只替换 adapter 和 ingress：
+Wirelink 不创建后台线程。对两个端点调用 `endpoint_step()`，
+才会推进模拟传输、处理收到的消息、回收发送完成状态。
+这里每次传入的 `sample` 也用作手动推进的模拟毫秒时刻；
+真实程序传入单调毫秒时钟，并持续在一个通信线程或主循环中运行它。
 
-- UART/serial stream：COBS envelope 加 byte/DMA publish；
-- USB、UDP、packet CAN：native-packet envelope 加 unit publish；
-- 自带 16-bit 长度的 bus：`WL_ENVELOPE_BUS_LENGTH16`。
+显示端的 `endpoint_read_telemetry()` 把最新值复制到你的 `received` 变量中。
+这份数据归你，可以继续保存或修改；不用手动归还借用指针。
+没有新数据时返回 `WL_ERR_NO_DATA`，并保持输出变量不变。它不是通信故障。
 
-在 core 外启动/停止 adapter；RX、TX completion、writable 时通知 owner；重初始化 endpoint
-storage 前 quiesce。
+默认的一轮推进有工作量上限，不保证一次调用处理完所有排队的消息。
+本例每次只发一条，所以依次推进两端就足够。关闭时对两个端点调用
+`endpoint_close()`，让已连接的适配器停止访问存储；共享的 `cable` 要活到两端都关闭。
+示例失败时直接结束电脑进程，长期运行的应用应在错误退出路径也关闭端点。
 
-## 8. 可选 Diagnostics
+## 下一步
 
-只在需要统一 bring-up 文本的 image 中链接：
+把第二次温度改成 `2410`，重新构建，应显示 24.10 °C。
+再把读取过程移到循环内、每次推进显示端之后，就能读到两次测量。
 
-```cmake
-target_link_libraries(my_endpoint PRIVATE Wirelink::diagnostics)
-```
-
-```c
-#include <wirelink/diagnostics.h>
-
-char text[256];
-wl_rx_counters_t counters;
-wl_diag_writer_t writer;
-
-wl_rx_get_counters(&endpoint.link, &counters);
-wl_diag_writer_init(&writer, text, sizeof(text));
-if (wl_diag_format_rx_counters(&writer, &counters) == WL_OK) {
-  product_log(text);
-}
-```
-
-formatter 不拥有 I/O 或 heap。更多 snapshot 见 [`diagnostics.md`](diagnostics.md)。
-
-## 设计参照
-
-本文采用 libcsp 对 init、buffer、send/receive、interface 和 loopback client/server 的分层
-方式。Wirelink 刻意停在 libcsp 的 node address、socket、routing table、router task 和
-标准网络 service 之下。
+如果业务改成“让设备执行命令，并告诉我结果”，继续读
+[第二篇：请求设备完成一次计算](tutorial-rpc-cn.md)。
+想调整缓冲区、接入 DMA 或定制调度时，再读[集成篇](tutorial-integration-cn.md)；
+这些不是运行本例的前置知识。

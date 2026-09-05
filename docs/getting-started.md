@@ -1,329 +1,219 @@
-# Build a Wirelink endpoint
+# Getting started: display the latest temperature
 
-This guide builds two in-memory endpoints, sends lossy telemetry in one
-direction, and completes a reliable typed RPC in the other. It is Wirelink's
-equivalent of libcsp's loopback client/server example, but the abstraction is
-different: Wirelink is a point-to-point link engine, not an addressed network
-or router. An application combines an endpoint, a transport, a session, and an
-optional WLC-generated runtime.
+Imagine a device measuring temperature and a display showing its current reading.
+The display does not need to show every historical measurement. This tutorial
+implements that application with Wirelink.
 
-## Mental model
+No board is needed. One desktop program contains both the sensor and display;
+an in-memory connection transfers their messages. Wirelink encodes a temperature
+structure and reconstructs it at the other end. Your program chooses when to
+send and when to refresh the display.
 
-```text
-typed messages and RPC       application policy
-WLC-generated runtime        encode, route, retain, correlate
-Wirelink link                frame, integrity, ACK, retry, deduplicate
-port/adapter                  UART, USB, UDP, CAN packet, or test loopback
-```
+This is lesson one. Continue with [requesting a calculation](tutorial-rpc.md),
+then [using your own project and hardware](tutorial-integration.md).
+No API or protocol reference is prerequisite. [中文](getting-started-cn.md).
 
-One consumer owns sending, polling, event release, transaction completion,
-runtime service, and adapter service. A transport callback or ISR may be the
-single RX producer. Wirelink allocates no memory and creates no threads or
-clocks.
+## 1. Run it first
 
-| libcsp concept | Wirelink equivalent |
-| --- | --- |
-| addressed node | one point-to-point endpoint; addressing is out of scope |
-| node incarnation | nonzero `session_id` on reliable traffic |
-| destination port | stable WLC message ID |
-| connection-less send | unreliable delivery |
-| reliable connection/request | reliable transaction plus optional RPC |
-| interface and driver | adapter using the public port API |
-| router task | application-owned poll/service loop |
-
-CRC detects accidental corruption; it does not authenticate a peer. Wirelink
-v1 also has no encryption, discovery, broadcast, routing, or access control.
-Put the link inside an authenticated/encrypted transport when required.
-
-## Build the runnable example
-
-From a source checkout with a compatible ABI 18 `wlc` executable:
+First follow [environment setup: install WLC](installation.md). Running the example
+requires a C11 compiler, CMake 3.21 or newer, and a matching `wlc` on your PATH.
+There is no requirement for WLC sources inside the Wirelink checkout.
+Run these commands at the Wirelink root:
 
 ```sh
 cmake -S . -B build/quickstart \
   -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_GETTING_STARTED=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
-cmake --build build/quickstart --target wirelink_getting_started
-./build/quickstart/examples/wirelink_getting_started
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+cmake --build build/quickstart --target wirelink_latest_telemetry
+./build/quickstart/examples/wirelink_latest_telemetry
 ```
 
-Expected output is:
+Expected output:
 
 ```text
-unreliable telemetry: sample=7 temperature=23.50 C
-reliable RPC: 20 + 22 = 42
+latest telemetry: sample=2 temperature=23.50 C
 ```
 
-The complete program is
-[`examples/getting_started.c`](../examples/getting_started.c). Its in-memory
-sink represents a packet transport; replacing that sink and ingress path is
-the only transport-specific step.
+The program sends sample 1 at 23.00 °C and sample 2 at 23.50 °C.
+Both arrive before the display reads, so it gets only sample 2.
+Next we explain the definitions, reception policy, and complete program.
 
-## 1. Define the application protocol
+## 2. Describe a temperature message
 
-[`quickstart.wl`](../examples/getting_started/quickstart.wl) assigns permanent
-numeric IDs to `Telemetry`, `AddRequest`, and `AddResponse`. The separate
-[`quickstart.bind.wl`](../examples/getting_started/quickstart.bind.wl) selects
-runtime behavior:
+[`temperature.wl`](../examples/getting_started/temperature.wl):
 
 ```text
-latest Telemetry { delivery = unreliable; }
+version 1;
 
-rpc Add {
-  request = AddRequest;
-  response = AddResponse;
-  request_operation_id = operation_id;
-  response_operation_id = operation_id;
-  response_status = status;
-  request_delivery = reliable;
-  response_delivery = reliable;
+message Telemetry = 10 {
+  required uint32 sample = 1;
+  required int32 temperature_centi_c = 2;
 }
 ```
 
-Use unreliable delivery for replaceable state where a newer sample makes an
-older one irrelevant. Use reliable delivery when link acknowledgement matters.
-Use RPC when the caller needs an application result, deadline, status, or
-bounded duplicate/replay handling.
+`Telemetry` is our message name, not a Wirelink keyword. Its fields are a sample
+number and a temperature in hundredths of a degree Celsius: 2350 means 23.50 °C.
+Integers keep floating-point conversion out of the message definition.
 
-## 2. Generate and link the typed runtime
+The 10 identifies the message type. The 1 and 2 identify fields within that
+message; they are not default values. `required` means the field must be present.
+`uint32` and `int32` are unsigned and signed 32-bit integers. `version 1`
+selects the definition language version.
 
-An application consuming an installed Wirelink package needs only:
+This file is a **schema**, a description of the messages. Generating both ends
+from the same schema gives them matching encoding rules; we do not transmit
+the raw memory layout of a C struct.
 
-```cmake
-find_package(Wirelink CONFIG REQUIRED)
-wirelink_wlc_generate_codec(
-  TARGET quickstart_codec
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.wl")
-wirelink_wlc_generate_runtime(
-  TARGET quickstart_protocol
-  CODEC_TARGET quickstart_codec
-  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.bind.wl")
-target_link_libraries(my_endpoint PRIVATE quickstart_protocol)
-```
+## 3. Describe what happens after reception
 
-The codec target owns the data model, codecs, and typed send functions exactly
-once. Each runtime target owns only its profile-specific retained-message and
-RPC APIs. This permits host/device roles to share a schema in one process
-without duplicate codec symbols or unused retained storage. Generated C is
-compiled into the targets; WLC does not run on the device.
+[`temperature.bind.wl`](../examples/getting_started/temperature.bind.wl):
 
-## 3. Initialize an endpoint and session
+```text
+profile version 1;
 
-Choose the same envelope, integrity mode, payload bound, and transmission-unit
-bound at both ends. These profile values are configured out of band in
-protocol v1. Allocate the buffers returned by `wl_config_requirements()`, keep
-them alive, and initialize the link with `wl_init()`.
-
-A session ID is a nonzero boot/session incarnation, not a node address. It is
-included in reliable DATA and ACK frames so a peer can distinguish retransmits
-from traffic sent before a reboot. Provision it from a random boot nonce or a
-persistent monotonic boot counter; do not reuse it while old frames may remain
-in the transport.
-
-The example uses the native-packet envelope and fixed static arrays for
-clarity. A datagram transport feeds each complete unit through
-`wl_feed_unit()`. A byte stream uses `wl_feed_bytes()` or the reserve/commit
-producer API instead.
-
-## 4. Bind the transport
-
-For hardware-free bring-up, bind both native-packet links to the supported
-loopback adapter:
-
-```c
-wl_loopback_t transport;
-wl_loopback_init(&transport, &controller.link, &device.link);
-
-wl_loopback_service_result_t service;
-wl_loopback_service(&transport, 4U, &service);
-```
-
-The adapter borrows each encoded unit asynchronously, models one-unit
-backpressure in each direction, and completes it during a bounded `service()`
-pass. It adds no payload buffer or heap allocation. Quiesce it before either
-link's storage is reinitialized.
-
-Hardware adapters implement the same port contract by registering one
-`wl_sink_fn` with `wl_set_sink()`:
-
-- return `WL_SINK_SENT` when the bytes were consumed synchronously;
-- return `WL_SINK_STARTED` when the transport borrows them asynchronously,
-  then call `wl_tx_complete()` exactly once;
-- return `WL_SINK_BUSY` for retryable backpressure; or
-- return `WL_SINK_FAILED` for a terminal I/O failure.
-
-The sink-provided byte pointer remains owned by Wirelink until synchronous
-return or asynchronous completion. RX publication only makes work available;
-decoding and application callbacks stay on the consumer.
-
-## 5. Initialize application runtime storage
-
-Set only the roles this endpoint owns. The controller example enables one RPC
-client slot; the device enables one pending server operation, one replay-cache
-entry, and the `Add` handler. Start from `quickstart_runtime_config_defaults()`,
-then call `quickstart_runtime_config_enable_client()` or
-`quickstart_runtime_config_enable_server()`. Defaults never invent RPC expiry
-policy, so set nonzero pending/cache timeouts when the product requires them.
-
-Because every quickstart RPC payload has a schema bound, WLC emits
-`quickstart_runtime_default_storage_t`. Keep one beside the instance and pass
-`quickstart_runtime_default_storage_descriptor()` to init; schema growth then
-changes the C type instead of silently exceeding a guessed byte array. Advanced
-configurations with larger slot counts can still use
-`quickstart_runtime_requirements()` and a custom aligned arena.
-
-The instance and storage arena must remain at stable addresses. Initialize a
-`quickstart_runtime_pump_t` beside the runtime; it is caller-owned state, not a
-thread or scheduler.
-
-During bring-up, replace the final init call with the checked form to identify
-the exact invalid field or undersized arena:
-
-```c
-application_runtime_t runtime;
-quickstart_runtime_config_t config;
-quickstart_runtime_storage_t storage;
-quickstart_runtime_init_diagnostic_t diagnostic;
-
-quickstart_runtime_config_defaults(&config);
-quickstart_runtime_config_enable_client(&config);
-storage = quickstart_runtime_default_storage_descriptor(&runtime.arena);
-int rc = quickstart_runtime_init_checked(&runtime.instance, &config, &storage,
-                                         &diagnostic);
-if (rc != WL_OK) {
-  log_init_error(quickstart_runtime_init_issue_str(diagnostic.issue),
-                 diagnostic.field, diagnostic.required, diagnostic.provided);
+latest Telemetry {
+  delivery = unreliable;
 }
 ```
 
-The ordinary `quickstart_runtime_init()` has the same runtime outcome and is
-the preferred small firmware path after configuration is proven. With the
-usual function/data sections and linker garbage collection, leaving the
-checked function unreferenced removes its validation and strings.
+These are two independent choices:
 
-## 6. Drive events and RPC progress
+| Setting | Question | Choice in this example |
+| --- | --- | --- |
+| `latest Telemetry` | What if another value arrives before the application reads? | Replace the unread value with the most recently received value |
+| `delivery = unreliable` | Which delivery mode does this receive path accept? | No acknowledgement or retransmission |
 
-Build the generated application hooks once, optionally fill the separate
-adapter callback fields, and execute one bounded owner pass:
+LATEST is a storage policy. Unreliable is a delivery mode. We combine them
+because another temperature measurement will soon replace a lost one.
+LATEST can also retain reliable messages; unreliable messages need not use LATEST.
 
-```c
-quickstart_runtime_pump_t runtime_pump;
-quickstart_runtime_pump_init(&runtime_pump, &runtime.instance.runtime,
-                             observe_result, app);
-wl_pump_hooks_t hooks = quickstart_runtime_pump_hooks(&runtime_pump);
-hooks.adapter_user_data = transport;
-hooks.service = transport_service;
-hooks.quiesce = transport_quiesce;
-hooks.adapter_deadline_hint = transport_deadline;
+“Latest” means last received and published into this storage, not greatest
+`sample` or timestamp. Wirelink does not compare those fields. Applications
+using a transport that reorders packets must decide how to reject old samples.
 
-wl_pump_result_t step;
-wl_pump_step(&endpoint.link, now_ms, 16U, &hooks, &step);
-```
+The `bind` in `.bind.wl` is a filename convention for a **binding profile**:
+a configuration binding messages to handling policies. It uses its own syntax,
+starting with `profile version 1;`. It is not a second message definition.
+The suffix is not mandatory; the generator selects this file through its
+`PROFILE` argument.
 
-The bridge uses the pump's single time sample, releases RX events, reclaims
-matching RPC terminals, services at most one queued response per pass, and
-merges RPC deadlines. A successful response submission requests another
-bounded pass; backpressure waits for transport progress instead of spinning.
-Call `wl_pump_get_hint()` before sleeping. Advanced owner loops may still call
-the generated dispatch/service functions directly and use `event_consumed`
-before applying fallback ownership.
+Separating the files lets a sensor send, a display retain the newest value,
+and a recorder process received values in order, using a shared message schema
+and different handling configurations. Encoding/decoding alone needs no
+`.bind.wl`; we add it to generate the LATEST receive API.
 
-For ordinary result handling, use the generated helpers instead of selecting
-the diagnostic union directly:
+The endpoint's `send_telemetry()` follows this configured delivery mode, so ordinary
+sending does not repeat the choice. Advanced codec sends still accept an explicit mode.
 
-```c
-if (!quickstart_runtime_result_ok(&result)) {
-  log_error(quickstart_runtime_result_str(&result));
-  return;
-}
-const quickstart_runtime_rpc_detail_t *rpc =
-    quickstart_runtime_result_rpc_detail(&result);
-if (rpc != NULL) {
-  remember_operation(rpc->operation_id);
-}
-```
+## 4. Only three communication objects
 
-The detail accessor returns `NULL` when the result has a different detail tag.
-Result strings are intended for logs; branch on `domain` or typed error fields,
-not on their text.
+WLC generates `temperature_endpoint_t` from the schema and binding profile.
+It includes link state, message handling, and the required static buffers.
+You neither define its structure nor guess buffer sizes.
 
-A reliable server request also establishes the generated runtime's current
-peer session. The first binding and every transition set `rpc->peer_changed`.
-Take the stored observation once to update product state outside RPC:
+`device` and `display` are two instances, not network addresses. `static`
+zero-initializes them and keeps them alive throughout the program. Do not copy
+or move an initialized endpoint.
+
+`cable` is the simulated connection, later replaceable with a hardware adapter.
+`endpoint_handle()` supplies the common endpoint interface used by adapters,
+including connections between differently generated endpoint types.
+
+The 1 and 2 are nonzero session identifiers for this isolated simulation.
+Reboot handling for reliable communication is introduced in lesson two.
+
+## 5. Complete C program
+
+This is [`examples/latest_telemetry.c`](../examples/latest_telemetry.c), with no
+hidden initializer. `CHECK` prints the failing expression's line and exits
+this desktop example; it is not a Wirelink API.
+The generated `temperature_runtime.h` also declares the default endpoint interface.
 
 ```c
-if (rpc != NULL && rpc->peer_changed != 0U) {
-  wl_rpc_peer_observation_t peer;
-  if (quickstart_runtime_peer_observation_take(
-          &runtime.instance.runtime, &peer) == WL_RPC_OK) {
-    revoke_old_peer_leases(peer.previous_session_id, peer.current_session_id);
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include <stdio.h>
+
+#include "temperature_runtime.h"
+#include "wirelink/loopback.h"
+
+/* Desktop example: print the failing expression and stop on unexpected errors. */
+#define CHECK(expression) do { \
+  if (!(expression)) { \
+    fprintf(stderr, "line %d: %s\n", __LINE__, #expression); \
+    return 1; \
+  } \
+} while (0)
+
+int main(void) {
+  static temperature_endpoint_t device, display;
+  wl_loopback_t cable;
+  telemetry_t received;
+
+  /* Fixed IDs are only for this isolated simulation. */
+  CHECK(temperature_endpoint_init(&device, 1U) == WL_OK);
+  CHECK(temperature_endpoint_init(&display, 2U) == WL_OK);
+  CHECK(wl_loopback_connect(&cable, temperature_endpoint_handle(&device),
+                           temperature_endpoint_handle(&display)) == WL_OK);
+
+  for (uint32_t sample = 1U; sample <= 2U; ++sample) {
+    telemetry_t message;
+    telemetry_clear(&message);
+    message.has_sample = true;
+    message.sample = sample;
+    message.has_temperature_centi_c = true;
+    message.temperature_centi_c = sample == 1U ? 2300 : 2350;
+
+    CHECK(temperature_endpoint_send_telemetry(&device, &message).domain
+          == TEMPERATURE_SEND_OK);
+    /* Each endpoint advances transport and message handling in one call. */
+    CHECK(temperature_endpoint_step(&device, sample) == WL_OK);
+    CHECK(temperature_endpoint_step(&display, sample) == WL_OK);
   }
+
+  CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_OK);
+  CHECK(received.sample == 2U && received.temperature_centi_c == 2350);
+  printf("latest telemetry: sample=%u temperature=%.2f C\n",
+         (unsigned)received.sample, received.temperature_centi_c / 100.0);
+  CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_ERR_NO_DATA);
+
+  temperature_endpoint_close(&device);
+  temperature_endpoint_close(&display);
+  return 0;
 }
 ```
 
-The transition discards pending/cached work from the old session and requests
-cancellation of detached reliable responses before the new request handler is
-called. If reliable non-RPC traffic establishes the same product session,
-observe it explicitly with `quickstart_runtime_peer_observe()` before applying
-that message. Steady-session RPC dispatch uses an inline comparison and avoids
-the observer path.
+## 6. Follow one measurement
 
-Start an RPC with `quickstart_add_client_start()`, retain its returned nonzero
-operation ID, inspect/decode the terminal response, and finally call
-`quickstart_add_client_release()`. A retry may put that ID back into the same
-canonical request to address the peer's bounded replay cache. Cache eviction,
-expiry, session change, or restart ends this protection.
+Clear the message, then set values and their `has_...` presence flags.
+Zero is valid data, so cannot stand for a missing field.
 
-## 7. Move from loopback to hardware
+`temperature_endpoint_send_telemetry()` encodes and submits using the delivery
+mode from `.bind.wl`. `TEMPERATURE_SEND_OK` means local acceptance, not reception.
 
-Keep the schema, runtime, owner loop, and session rules unchanged. Replace
-`Wirelink::loopback` with a platform adapter and select its matching ingress
-mode:
+Wirelink creates no thread. Calling each endpoint's `endpoint_step()` advances
+transport, handles incoming messages, and reclaims send completions.
+Here `sample` also acts as a manually advanced millisecond clock. Real applications
+supply a monotonic clock and keep driving endpoints from one owner thread or loop.
 
-- UART/serial stream: COBS envelope plus byte or DMA publication;
-- USB, UDP, or packet CAN: native-packet envelope plus unit publication;
-- a bus that supplies a 16-bit length: `WL_ENVELOPE_BUS_LENGTH16`.
+`endpoint_read_telemetry()` copies the newest value into your `received` variable.
+You own that copy and may retain or modify it; no pointer lease needs releasing.
+Without a new value, it returns `WL_ERR_NO_DATA` and leaves the output unchanged.
+That is not a communication failure.
 
-Start and stop the adapter outside the core, notify the owner on RX, TX
-completion, and writability, and quiesce it before reinitializing endpoint
-storage.
+Each step has a work budget, so it need not drain an arbitrary queue in one call.
+One message per iteration makes stepping both ends sufficient here.
+Close both endpoints with `endpoint_close()`; attached adapters stop accessing
+storage. Keep a shared cable alive until both endpoints close.
+Unexpected failures exit this desktop process; long-running applications also
+close endpoints on error paths.
 
-## 8. Add optional diagnostics
+## Next
 
-Link `Wirelink::diagnostics` only in images that need consistent bring-up text.
-Snapshot state through its owning API, append it to a caller buffer, and hand
-the result to the product logger:
+Change the second temperature to 2410 and rebuild to display 24.10 °C.
+Move reading inside the loop, after stepping the display, to observe both samples.
 
-```cmake
-target_link_libraries(my_endpoint PRIVATE Wirelink::diagnostics)
-```
-
-```c
-#include <wirelink/diagnostics.h>
-
-char text[256];
-wl_rx_counters_t counters;
-wl_diag_writer_t writer;
-
-wl_rx_get_counters(&endpoint.link, &counters);
-wl_diag_writer_init(&writer, text, sizeof(text));
-if (wl_diag_format_rx_counters(&writer, &counters) == WL_OK) {
-  product_log(text);
-}
-```
-
-The formatter owns no I/O or heap. See [`diagnostics.md`](diagnostics.md) for
-the covered link, adapter, retained, Bulk, and RPC snapshots.
-
-## Design reference
-
-The presentation follows libcsp's separation of initialization, buffers,
-send/receive flow, interfaces, and a default loopback client/server example:
-
-- [The basics of CSP](https://libcsp.github.io/libcsp/basic.html)
-- [Client and server example](https://libcsp.github.io/libcsp/example.html)
-- [How to install LibCSP](https://libcsp.github.io/libcsp/INSTALL.html)
-
-Wirelink deliberately stops below libcsp's node addresses, sockets, routing
-table, router task, and standard network services.
+Continue with [requesting a calculation](tutorial-rpc.md) for commands and results.
+Read [integration](tutorial-integration.md) when changing memory layout, using DMA,
+or customizing scheduling; those are not prerequisites for this example.

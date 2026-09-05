@@ -6,14 +6,19 @@ release. This document is the API map to review, not a list of every prototype.
 
 ## Suggested Review Order
 
+New to Wirelink? First read the application-led tutorials:
+[latest temperature](getting-started.md), [RPC calculation](tutorial-rpc.md),
+then [project and hardware integration](tutorial-integration.md).
+The order below is for reviewing the API after using those examples.
+
 1. Read this document through **Pre-1.0 Review Points** to decide whether the
    library boundary and ownership model are acceptable.
-2. Walk through [`getting-started.md`](getting-started.md) and compare each
-   concept with the compiled [`getting_started.c`](../examples/getting_started.c).
+2. Compare the tutorials with compiled [`latest_telemetry.c`](../examples/latest_telemetry.c)
+   and [`getting_started.c`](../examples/getting_started.c).
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](../wlc/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -157,7 +162,29 @@ Each component exposes init, lifecycle operations, state/stat snapshots, and
 where needed a side-effect-free deadline hint. Reset is externally serialized
 and is invalid while a borrow/claim remains active.
 
-## WLC-Generated Surface (ABI 18)
+## Default Endpoint Assembly
+
+Ordinary applications use a generated `*_endpoint_t`, not a hand-written struct
+of buffer pointers. The type contains a generic `wl_endpoint_t`, runtime state,
+and statically sized storage. Its private members are not application API.
+`*_endpoint_init()` supplies native-packet/CRC32C defaults; `init_config()` allows
+explicit transport settings, RPC roles, policies, and callbacks. Objects must
+start zero-initialized and must not move until closed.
+
+`endpoint_send_<message>()` adopts the retained profile's delivery mode;
+`endpoint_read_<message>()` copies LATEST/FIFO values and releases their leases.
+`endpoint_step()` composes adapter service, dispatch, terminal reclamation, and
+runtime progress with a bounded event budget. It does not create a thread.
+`endpoint_handle()` is the supported adapter entry, and `endpoint_runtime()`
+provides advanced borrowed-read/RPC access. Do not separately consume events
+or TX handles already owned by this default loop.
+
+The bound covers profile-selected messages; unrelated unbounded messages do not
+force allocation. Unbounded or oversized selected messages set
+`HAS_DEFAULT_ENDPOINT=0`. Larger queues, custom arenas, or DMA placement use the
+existing manual storage path. See [design and limits](default-endpoint.md).
+
+## WLC-Generated Surface (ABI 19)
 
 WLC deliberately splits three concerns:
 
@@ -168,7 +195,8 @@ WLC deliberately splits three concerns:
 
 Use one codec target and generate separate named host/device runtimes against
 it. Generated artifacts must match compiler version, codegen ABI, schema
-identity, and binding-profile identity. ABI 18 runtime families are:
+identity, and binding-profile identity. ABI 19 includes the default endpoint
+facade above; advanced runtime families remain:
 
 | Family | Generated pattern |
 | --- | --- |

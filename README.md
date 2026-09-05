@@ -11,8 +11,10 @@ discovery, routing, broadcast, authentication, encryption, or access control.
 Use an authenticated transport when the physical link is not trusted.
 
 New users should start with [`docs/getting-started.md`](docs/getting-started.md),
-which builds a hardware-free endpoint pair and demonstrates unreliable typed
-telemetry plus a reliable RPC.
+which displays the latest temperature with a complete hardware-free program.
+The [Chinese tutorial](docs/getting-started-cn.md) follows the same sequence.
+Install WLC independently using [environment setup](docs/installation.md)
+([中文](docs/installation-cn.md)); no nested WLC checkout is required.
 
 The current release is the `0.9.0` release candidate for the v1 wire protocol
 and C API. Exact wire bytes are frozen by the
@@ -24,12 +26,13 @@ is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
 ## Documentation path
 
-1. Build the allocation-free pair in
-   [`getting-started.md`](docs/getting-started.md).
+1. Display the latest temperature in [`getting-started.md`](docs/getting-started.md),
+   request a calculation in [`tutorial-rpc.md`](docs/tutorial-rpc.md), then build
+   your own project with [`tutorial-integration.md`](docs/tutorial-integration.md).
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    then integrate its wakeups with [`development.md`](docs/development.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](wlc/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and

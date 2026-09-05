@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "wirelink/adapter.h"
+#include "wirelink/endpoint.h"
 #include "wirelink/alignment.h"
 #include "wirelink/port.h"
 
@@ -41,6 +42,13 @@ typedef struct wl_loopback_service_result {
  */
 wl_err_t wl_loopback_init(wl_loopback_t *loopback, wl_ctx_t *endpoint_a,
                           wl_ctx_t *endpoint_b);
+
+/* Default assembly: connect two endpoints and install bounded transport
+ * service/close hooks. Both endpoints must have no adapter attached. They
+ * and loopback must share one owner; close both before releasing loopback.
+ * The cable must be unused, or quiesced with all former endpoints closed. */
+wl_err_t wl_loopback_connect(wl_loopback_t *loopback, wl_endpoint_t *endpoint_a,
+                            wl_endpoint_t *endpoint_b);
 
 /*
  * Attempt at most unit_budget pending unit deliveries. A destination with an

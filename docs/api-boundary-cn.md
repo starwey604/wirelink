@@ -9,13 +9,17 @@
 
 ## 建议阅读顺序
 
+第一次接触 Wirelink，请先按场景读三篇教程：[最新温度](getting-started-cn.md)、
+[请求一次计算](tutorial-rpc-cn.md)、[接入自己的工程与硬件](tutorial-integration-cn.md)。
+下面的顺序用于跑过示例后的 API 审阅，不是入门前置要求。
+
 1. 先读完本文，尤其是末尾的“1.0 前待审阅问题”，判断库边界和所有权模型。
-2. 阅读 [`getting-started-cn.md`](getting-started-cn.md)，并逐项对照可编译的
-   [`getting_started.c`](../examples/getting_started.c)。
+2. 将教程与可编译的 [`latest_telemetry.c`](../examples/latest_telemetry.c) 和
+   [`getting_started.c`](../examples/getting_started.c) 对照。
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](../wlc/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、
@@ -150,7 +154,25 @@ pump 是同步辅助器，不是 scheduler 或 task。应用仍然拥有 wake �
 每个组件都提供 init、生命周期操作、state/stat snapshot；需要时还提供无副作用的
 deadline hint。reset 必须由外部串行化，存在 borrow/claim 时不得 reset。
 
-## WLC 生成接口（ABI 18）
+## 默认端点组装
+
+普通应用声明生成的 `*_endpoint_t`，无需自己定义缓冲区容器。它包含通用
+`wl_endpoint_t`、消息 runtime 和静态存储，内部成员不是应用 API。
+`endpoint_init()` 使用整包传输/CRC32C 默认配置；`init_config()` 允许选择传输、
+RPC 角色、超时策略和回调。对象首次使用前必须零初始化，关闭前不能移动。
+
+`endpoint_send_<message>()` 采用 retained profile 的传输方式；
+`endpoint_read_<message>()` 复制 LATEST/FIFO 值并内部归还借用。
+`endpoint_step()` 推进已连接适配器、消息分发、完成回收和 runtime，具有工作量上限，
+不创建线程。`endpoint_handle()` 是适配器入口，`endpoint_runtime()` 提供高级访问。
+不要重复处理默认调度已经接管的事件或发送句柄。
+
+容量只根据 profile 选中的消息推导；无关的无界消息不扩大端点。
+选中消息无界或超过单帧能力时，`HAS_DEFAULT_ENDPOINT=0`。
+更大队列、外部 arena 或 DMA 放置仍走高级自定义存储路径。
+详见[设计与限制](default-endpoint-cn.md)。
+
+## WLC 生成接口（ABI 19）
 
 WLC 有意拆分三类职责：
 
@@ -160,7 +182,7 @@ WLC 有意拆分三类职责：
 
 同一 codec target 可供多个独立命名的 host/device runtime 共用。生成产物必须同时
 匹配 compiler version、codegen ABI、schema identity 和 binding-profile identity。
-ABI 18 的 runtime API family 如下：
+ABI 19 增加上述默认端点入口；高级 runtime API family 仍包括：
 
 | 类别 | 生成模式 |
 | --- | --- |

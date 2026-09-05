@@ -3,6 +3,9 @@
 
 #include "control_bindings.h"
 #include <wirelink/pump.h>
+#include <wirelink/endpoint.h>
+#include <wirelink/frame.h>
+#include <string.h>
 #include <wirelink/fifo.h>
 #include <wirelink/latest.h>
 #include <wirelink/rpc.h>
@@ -16,7 +19,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 18U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 19U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -339,6 +342,209 @@ wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t op
  * submits the cached response bytes. */
 control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, const home_response_t *response, wl_time_ms_t now_ms);
 control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms);
+
+/* Default endpoint assembly. Members named private_state are not application
+ * API. Zero-initialize once, keep at a stable address, close before reuse.
+ * All profile-selected messages must have finite one-frame bounds. */
+#define CONTROL_HAS_DEFAULT_ENDPOINT 1
+#define CONTROL_ENDPOINT_MAX_PAYLOAD 138U
+/* Reserve for any supported envelope using CRC32C (the largest checksum). */
+#define CONTROL_ENDPOINT_RAW_CAPACITY (CONTROL_ENDPOINT_MAX_PAYLOAD + WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
+#define CONTROL_ENDPOINT_UNIT_CAPACITY (CONTROL_ENDPOINT_RAW_CAPACITY + CONTROL_ENDPOINT_RAW_CAPACITY / 254U + 2U)
+#define CONTROL_ENDPOINT_CONTROL_CAPACITY (WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC + 2U)
+
+typedef struct {
+  wl_config_t link;
+  control_runtime_config_t runtime;
+  size_t event_budget;
+  control_runtime_result_fn on_result;
+  void *user_data;
+} control_endpoint_config_t;
+
+typedef struct {
+  struct {
+    wl_endpoint_t owner;
+    control_runtime_instance_t instance;
+    control_runtime_default_storage_t arena;
+    control_runtime_pump_t pump;
+    control_runtime_result_t result;
+    control_runtime_result_fn on_result;
+    void *user_data;
+    size_t event_budget;
+    uint8_t tx_payload[CONTROL_ENDPOINT_MAX_PAYLOAD];
+    uint8_t tx_unit[CONTROL_ENDPOINT_UNIT_CAPACITY];
+    uint8_t control_unit[CONTROL_ENDPOINT_CONTROL_CAPACITY];
+    uint8_t rx_fallback[CONTROL_ENDPOINT_UNIT_CAPACITY];
+    uint8_t rx_fifo[CONTROL_ENDPOINT_UNIT_CAPACITY];
+  } private_state;
+} control_endpoint_t;
+
+/* Config descriptors can be temporary; callbacks/user_data must outlive use.
+ * No retry/expiry policy is invented. RPC roles remain explicitly selected. */
+static inline wl_err_t control_endpoint_config_defaults(
+    control_endpoint_config_t *config, uint64_t session_id) {
+  if (config == NULL || session_id == 0U) return WL_ERR_INVALID_ARG;
+  memset(config, 0, sizeof(*config));
+  config->link.max_payload_len = CONTROL_ENDPOINT_MAX_PAYLOAD;
+  config->link.envelope = WL_ENVELOPE_NATIVE_PACKET;
+  config->link.integrity = WL_INTEGRITY_CRC32C;
+  config->link.session_id = session_id;
+  config->event_budget = 16U;
+  return control_runtime_config_defaults(&config->runtime);
+}
+
+static inline wl_endpoint_t *control_endpoint_handle(control_endpoint_t *endpoint) {
+  return endpoint != NULL ? &endpoint->private_state.owner : NULL;
+}
+
+/* Advanced integration only: do not also dispatch/take events consumed by step. */
+static inline control_runtime_t *control_endpoint_runtime(control_endpoint_t *endpoint) {
+  return endpoint != NULL && wl_endpoint_link(control_endpoint_handle(endpoint)) != NULL
+      ? &endpoint->private_state.instance.runtime : NULL;
+}
+
+static inline void control_endpoint_record(void *context,
+                                      const control_runtime_result_t *result) {
+  control_endpoint_t *endpoint = (control_endpoint_t *)context;
+  control_runtime_result_t terminal;
+  if (result->domain == CONTROL_RUNTIME_NON_RX) {
+    if (result->event_type != WL_EVT_TX_TIMEOUT && result->event_type != WL_EVT_TX_FAILED)
+      return; /* Normal transport completion is not an application failure. */
+    terminal = *result;
+    terminal.domain = CONTROL_RUNTIME_CORE_ERROR;
+    result = &terminal;
+  }
+  /* Retain the first failure even if later events in the same pass succeed. */
+  if (control_runtime_result_ok(&endpoint->private_state.result))
+    endpoint->private_state.result = *result;
+  if (endpoint->private_state.on_result != NULL)
+    endpoint->private_state.on_result(endpoint->private_state.user_data, result);
+}
+
+static inline wl_err_t control_endpoint_init_config(
+    control_endpoint_t *endpoint, const control_endpoint_config_t *config) {
+  wl_storage_t link_storage;
+  control_runtime_storage_t storage;
+  wl_pump_hooks_t hooks;
+  int result;
+  if (endpoint == NULL || config == NULL || config->event_budget == 0U)
+    return WL_ERR_INVALID_ARG;
+  if (wl_endpoint_link(control_endpoint_handle(endpoint)) != NULL)
+    return WL_ERR_INVALID_STATE;
+  memset(&link_storage, 0, sizeof(link_storage));
+  link_storage.tx_payload = endpoint->private_state.tx_payload;
+  link_storage.tx_payload_size = sizeof(endpoint->private_state.tx_payload);
+  link_storage.tx_unit = endpoint->private_state.tx_unit;
+  link_storage.tx_unit_size = sizeof(endpoint->private_state.tx_unit);
+  link_storage.control_unit = endpoint->private_state.control_unit;
+  link_storage.control_unit_size = sizeof(endpoint->private_state.control_unit);
+  link_storage.rx_fallback = endpoint->private_state.rx_fallback;
+  link_storage.rx_fallback_size = sizeof(endpoint->private_state.rx_fallback);
+  link_storage.rx_fifo = endpoint->private_state.rx_fifo;
+  link_storage.rx_fifo_size = sizeof(endpoint->private_state.rx_fifo);
+  storage = control_runtime_default_storage_descriptor(&endpoint->private_state.arena);
+  result = control_runtime_init(&endpoint->private_state.instance, &config->runtime, &storage);
+  if (result != WL_OK) return result;
+  result = control_runtime_pump_init(&endpoint->private_state.pump,
+      &endpoint->private_state.instance.runtime, control_endpoint_record, endpoint);
+  if (result != WL_OK) return result;
+  hooks = control_runtime_pump_hooks(&endpoint->private_state.pump);
+  result = wl_endpoint_init(&endpoint->private_state.owner, &config->link,
+                            &link_storage, &hooks);
+  if (result != WL_OK) return result;
+  endpoint->private_state.on_result = config->on_result;
+  endpoint->private_state.user_data = config->user_data;
+  endpoint->private_state.event_budget = config->event_budget;
+  memset(&endpoint->private_state.result, 0, sizeof(endpoint->private_state.result));
+  return WL_OK;
+}
+
+static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint, uint64_t session_id) {
+  control_endpoint_config_t config;
+  int result = control_endpoint_config_defaults(&config, session_id);
+  return result == WL_OK ? control_endpoint_init_config(endpoint, &config) : result;
+}
+
+/* One bounded owner pass: service transport, dispatch and release events,
+ * advance RPC work. NO_DATA/backpressure during transport service is normal.
+ * Inspect endpoint_result/last_step for details when this returns an error. */
+static inline wl_err_t control_endpoint_step(control_endpoint_t *endpoint, wl_time_ms_t now_ms) {
+  int result;
+  if (endpoint == NULL) return WL_ERR_INVALID_ARG;
+  memset(&endpoint->private_state.result, 0, sizeof(endpoint->private_state.result));
+  result = wl_endpoint_step(&endpoint->private_state.owner, now_ms,
+                             endpoint->private_state.event_budget);
+  if (result != WL_OK) return result;
+  if (endpoint->private_state.pump.last_service_result != WL_RPC_OK) {
+    if (control_runtime_result_ok(&endpoint->private_state.result)) {
+      endpoint->private_state.result.domain = CONTROL_RUNTIME_RPC_ERROR;
+      endpoint->private_state.result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
+      endpoint->private_state.result.detail.rpc.rpc_result = endpoint->private_state.pump.last_service_result;
+    }
+    return WL_ERR_INVALID_STATE;
+  }
+  return control_runtime_result_ok(&endpoint->private_state.result)
+      ? WL_OK : WL_ERR_INVALID_STATE;
+}
+
+static inline const control_runtime_result_t *control_endpoint_result(const control_endpoint_t *endpoint) {
+  return endpoint != NULL ? &endpoint->private_state.result : NULL;
+}
+
+static inline void control_endpoint_close(control_endpoint_t *endpoint) {
+  wl_endpoint_close(control_endpoint_handle(endpoint));
+}
+/* Delivery follows this binding. Use codec sends to override explicitly. */
+static inline control_send_result_t control_endpoint_send_joint_command(control_endpoint_t *endpoint, const joint_command_t *message) {
+  return control_joint_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_RELIABLE);
+}
+
+/* Copy an owned value and release its lease internally. NO_DATA leaves out unchanged. */
+static inline wl_err_t control_endpoint_read_joint_command(control_endpoint_t *endpoint, joint_command_t *out) {
+  control_joint_command_fifo_view_t view;
+  control_runtime_t *runtime = control_endpoint_runtime(endpoint);
+  int result;
+  if (out == NULL) return WL_ERR_INVALID_ARG;
+  if (runtime == NULL) return WL_ERR_NOT_INITIALIZED;
+  result = control_joint_command_fifo_acquire(runtime, &view);
+  if (result != WL_OK) return result;
+  *out = *view.value;
+  return control_joint_command_fifo_release(runtime, &view);
+}
+
+/* Delivery follows this binding. Use codec sends to override explicitly. */
+static inline control_send_result_t control_endpoint_send_arm_mit_command(control_endpoint_t *endpoint, const arm_mit_command_t *message) {
+  return control_arm_mit_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_UNRELIABLE);
+}
+
+/* Copy an owned value and release its lease internally. NO_DATA leaves out unchanged. */
+static inline wl_err_t control_endpoint_read_arm_mit_command(control_endpoint_t *endpoint, arm_mit_command_t *out) {
+  control_arm_mit_command_latest_view_t view;
+  control_runtime_t *runtime = control_endpoint_runtime(endpoint);
+  int result;
+  if (out == NULL) return WL_ERR_INVALID_ARG;
+  if (runtime == NULL) return WL_ERR_NOT_INITIALIZED;
+  result = control_arm_mit_command_latest_acquire(runtime, &view);
+  if (result != WL_OK) return result;
+  *out = *view.value;
+  return control_arm_mit_command_latest_release(runtime, &view);
+}
+
+static inline control_runtime_result_t control_endpoint_home_start(control_endpoint_t *endpoint, const home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
+  return control_home_client_start(wl_endpoint_link(control_endpoint_handle(endpoint)), control_endpoint_runtime(endpoint), request, timeout_ms, now_ms);
+}
+
+static inline wl_rpc_err_t control_endpoint_home_inspect(control_endpoint_t *endpoint, uint32_t operation_id, wl_rpc_client_result_t *result) {
+  return control_home_client_inspect(control_endpoint_runtime(endpoint), operation_id, result);
+}
+
+static inline wl_rpc_err_t control_endpoint_home_release(control_endpoint_t *endpoint, uint32_t operation_id) {
+  return control_home_client_release(control_endpoint_runtime(endpoint), operation_id);
+}
+
+static inline control_runtime_result_t control_endpoint_home_complete(control_endpoint_t *endpoint, const wl_rpc_server_request_t *request, const home_response_t *response, wl_time_ms_t now_ms) {
+  return control_home_server_complete(control_endpoint_runtime(endpoint), request, response, now_ms);
+}
 
 #ifdef __cplusplus
 }

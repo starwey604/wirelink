@@ -6,6 +6,7 @@
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
 #include <wirelink/diagnostics.h>
+#include <wirelink/endpoint.h>
 #include <wirelink/fifo.h>
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>

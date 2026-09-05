@@ -46,8 +46,19 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
+      # The internal ABI 19 compiler is not a published release asset yet.
+      - name: Check out matching standalone WLC
+        uses: actions/checkout@v5
+        with:
+          repository: starwey604/wlc
+          ref: 31df0e0dae644f380b57e9b2d69a96aa56be0f58
+          path: .tools/wlc
+
+      - name: Build matching WLC
+        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
+
       - name: Configure WLC package consumer
-        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
 
       - name: Build WLC package consumer
         run: cmake --build wlc-consumer-build --config Release --parallel
