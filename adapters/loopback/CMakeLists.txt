@@ -10,7 +10,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     -Wall -Wextra -Wpedantic)
 endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND wirelink_IS_TOP_LEVEL)
   add_executable(wirelink_loopback_test tests/loopback.c)
   target_link_libraries(wirelink_loopback_test PRIVATE Wirelink::loopback)
   if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
