@@ -118,10 +118,10 @@ learning path. Generated API reference pages remain optional future work.
 
 ### Offer optional diagnostic helpers
 
-libcsp examples expose interface and connection tables. Wirelink should not add
-global registries, but a caller-supplied formatter for link, RX, adapter, RPC,
-FIFO, and LATEST counters would make bring-up logs consistent without adding
-I/O or allocation to the core.
+Implemented as the separately linked `Wirelink::diagnostics` target. Its
+caller-owned writer emits stable key/value records for RX, adapters, RPC,
+FIFO, LATEST, outbox, and Bulk without a heap, I/O, or global registry. The
+core and normal firmware images do not link it.
 
 ### State security and topology exclusions early
 

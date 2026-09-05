@@ -45,6 +45,7 @@ set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 # The portable in-memory adapter is a separate target so embedded consumers
 # pay no code or state cost unless they explicitly link it.
 add_subdirectory(adapters/loopback)
+add_subdirectory(diagnostics)
 
 if(MSVC)
   target_compile_options(wirelink PUBLIC /utf-8)
@@ -101,6 +102,8 @@ option(WIRELINK_BUILD_FIFO_BENCHMARK
   "Build the host SPSC FIFO and command-flow benchmark" OFF)
 option(WIRELINK_BUILD_BULK_BENCHMARK
   "Build the host sequential bulk runtime benchmark" OFF)
+option(WIRELINK_BUILD_RPC_PEER_BENCHMARK
+  "Build the host generated-RPC peer fast-path benchmark" OFF)
 option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
@@ -184,6 +187,10 @@ if(WIRELINK_BUILD_BULK_BENCHMARK)
   add_subdirectory(benchmarks/bulk)
 endif()
 
+if(WIRELINK_BUILD_RPC_PEER_BENCHMARK)
+  add_subdirectory(benchmarks/rpc_peer)
+endif()
+
 if(WIRELINK_BUILD_FUZZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "WIRELINK_BUILD_FUZZERS requires Clang")
@@ -217,6 +224,13 @@ if(WIRELINK_INSTALL)
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+  install(TARGETS wirelink_diagnostics
+    EXPORT WirelinkTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
   if(TARGET wirelink_host)
     install(TARGETS wirelink_host
       EXPORT WirelinkTargets
@@ -235,6 +249,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/cobs.h
     include/wirelink/codec.h
     include/wirelink/crc.h
+    include/wirelink/diagnostics.h
     include/wirelink/fifo.h
     include/wirelink/frame.h
     include/wirelink/latest.h

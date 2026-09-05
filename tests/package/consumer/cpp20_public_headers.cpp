@@ -5,6 +5,7 @@
 #include <wirelink/cobs.h>
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
+#include <wirelink/diagnostics.h>
 #include <wirelink/fifo.h>
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
@@ -38,6 +39,7 @@ static_assert(std::is_standard_layout_v<wl_bulk_status_t>);
 static_assert(std::is_standard_layout_v<wl_poll_hint_t>);
 static_assert(std::is_standard_layout_v<wl_loopback_t>);
 static_assert(std::is_standard_layout_v<wl_loopback_service_result_t>);
+static_assert(std::is_standard_layout_v<wl_diag_writer_t>);
 static_assert(sizeof(wl_loopback_t) == WL_LOOPBACK_STORAGE_SIZE);
 static_assert(sizeof(wl_poll_hint_t) == 8U);
 static_assert(alignof(wl_poll_hint_t) == alignof(std::uint32_t));

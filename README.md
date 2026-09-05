@@ -34,7 +34,8 @@ is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and
    [`bulk-performance.md`](docs/bulk-performance.md).
-5. Use [`protocol.md`](docs/protocol.md),
+5. Add allocation-free bring-up logs with
+   [`diagnostics.md`](docs/diagnostics.md), then use [`protocol.md`](docs/protocol.md),
    [`compatibility.md`](docs/compatibility.md), and
    [`conformance-v1.md`](docs/conformance-v1.md) as references.
 
@@ -61,6 +62,10 @@ The core targets are `wirelink` and its namespaced alias
 The installed `Wirelink::loopback` target connects two native-packet contexts
 with bounded asynchronous completion and backpressure; see
 [`docs/loopback.md`](docs/loopback.md).
+The installed `Wirelink::diagnostics` target formats caller-supplied counter
+snapshots without heap allocation or I/O; see
+[`docs/diagnostics.md`](docs/diagnostics.md). Neither optional target adds code
+to firmware that links only `Wirelink::wirelink`.
 
 To install and consume the core as a CMake package:
 

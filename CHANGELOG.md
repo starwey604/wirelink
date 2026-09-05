@@ -70,6 +70,12 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Performance and validation
 
+- Added the separately linked, allocation-free `Wirelink::diagnostics` target
+  for deterministic key/value snapshots of RX, adapter, retained queue,
+  outbox, Bulk, and RPC state; truncation reports its exact required capacity.
+- Made generated reliable-RPC dispatch compare the established peer session
+  inline, avoiding the observer/cancellation call on steady-state requests;
+  added an isolated host benchmark for the guarded path.
 - Replaced the frame encoder's maximum-sized raw stack buffer with direct and
   span-streamed encoding while preserving exact v1 bytes and overlapping input
   support; the ESP32-S3 stack frame fell from 2,128 to 96 bytes.

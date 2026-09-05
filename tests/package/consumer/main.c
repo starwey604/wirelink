@@ -6,6 +6,7 @@
 #include <wirelink/cobs.h>
 #include <wirelink/codec.h>
 #include <wirelink/crc.h>
+#include <wirelink/diagnostics.h>
 #include <wirelink/fifo.h>
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
@@ -211,6 +212,9 @@ _Static_assert(sizeof(wl_rx_dma_claim_t) == 24U &&
 #endif
 
 int main(void) {
+  char diagnostic_text[128];
+  wl_diag_writer_t diagnostic_writer;
+  const wl_rx_counters_t diagnostic_counters = {.malformed = 1U};
   wl_ctx_t context = {0};
   wl_config_t config = {
       .max_payload_len = 32U,
@@ -313,7 +317,12 @@ int main(void) {
       wl_rpc_client_init(&rpc_client, &rpc_config) != WL_RPC_OK ||
       wl_rpc_client_begin(&rpc_client, 1U, 2U, 10U, 0U, &operation_id) !=
           WL_RPC_OK ||
-      operation_id == 0U) {
+      operation_id == 0U ||
+      wl_diag_writer_init(&diagnostic_writer, diagnostic_text,
+                          sizeof(diagnostic_text)) != WL_OK ||
+      wl_diag_format_rx_counters(&diagnostic_writer, &diagnostic_counters) !=
+          WL_OK ||
+      diagnostic_writer.length == 0U) {
     return 1;
   }
   return 0;

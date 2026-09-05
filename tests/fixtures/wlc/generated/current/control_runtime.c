@@ -630,7 +630,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
         result.domain = CONTROL_RUNTIME_MISSING_ROUTE;
         break;
       }
-      if (event->peer_session_id != 0U) {
+      if (event->peer_session_id != 0U && runtime->rpc_peer.session_id != event->peer_session_id) {
         wl_rpc_peer_observation_t observation = {0};
         result.detail.rpc.rpc_result = control_runtime_peer_observe(ctx, runtime, event->peer_session_id, &observation);
         if (result.detail.rpc.rpc_result != WL_RPC_OK) {

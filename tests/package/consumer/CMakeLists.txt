@@ -8,6 +8,7 @@ find_package(Wirelink 0.9 CONFIG REQUIRED)
 add_executable(wirelink_package_consumer main.c)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::loopback)
+target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::diagnostics)
 set_target_properties(wirelink_package_consumer PROPERTIES
   C_STANDARD 11
   C_STANDARD_REQUIRED YES
@@ -25,7 +26,7 @@ add_test(NAME wirelink_package_consumer COMMAND wirelink_package_consumer)
 
 add_executable(wirelink_package_consumer_cpp20 cpp20_public_headers.cpp)
 target_link_libraries(wirelink_package_consumer_cpp20
-  PRIVATE Wirelink::wirelink)
+  PRIVATE Wirelink::wirelink Wirelink::diagnostics)
 set_target_properties(wirelink_package_consumer_cpp20 PROPERTIES
   CXX_STANDARD 20
   CXX_STANDARD_REQUIRED YES
