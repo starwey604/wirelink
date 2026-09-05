@@ -88,17 +88,21 @@ An application consuming an installed Wirelink package needs only:
 
 ```cmake
 find_package(Wirelink CONFIG REQUIRED)
-wirelink_wlc_generate(
+wirelink_wlc_generate_codec(
+  TARGET quickstart_codec
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.wl")
+wirelink_wlc_generate_runtime(
   TARGET quickstart_protocol
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.wl"
+  CODEC_TARGET quickstart_codec
   PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/quickstart.bind.wl")
 target_link_libraries(my_endpoint PRIVATE quickstart_protocol)
 ```
 
-Generation produces codecs, typed send functions, retained-message accessors,
-RPC client/server functions, and a manifest containing schema, profile, and
-codegen ABI identities. Generated C is compiled into the target; WLC does not
-run on the device.
+The codec target owns the data model, codecs, and typed send functions exactly
+once. Each runtime target owns only its profile-specific retained-message and
+RPC APIs. This permits host/device roles to share a schema in one process
+without duplicate codec symbols or unused retained storage. Generated C is
+compiled into the targets; WLC does not run on the device.
 
 ## 3. Initialize an endpoint and session
 

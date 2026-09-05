@@ -4,9 +4,12 @@ add_executable(wirelink_bare_metal_loopback bare_metal_loopback.c)
 target_link_libraries(wirelink_bare_metal_loopback PRIVATE Wirelink::loopback)
 
 if(WIRELINK_BUILD_GETTING_STARTED)
-  wirelink_wlc_generate(
+  wirelink_wlc_generate_codec(
+    TARGET wirelink_quickstart_codec
+    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.wl")
+  wirelink_wlc_generate_runtime(
     TARGET wirelink_quickstart_protocol
-    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.wl"
+    CODEC_TARGET wirelink_quickstart_codec
     PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.bind.wl")
   add_executable(wirelink_getting_started getting_started.c)
   target_link_libraries(wirelink_getting_started PRIVATE

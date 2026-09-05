@@ -8,6 +8,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- Split WLC schema codec/binding generation from profile runtime generation;
+  multiple named asymmetric runtimes can now share one codec target without
+  duplicate symbols or unused retained storage.
 - Added generated runtime pump hooks that share the owner's time sample,
   dispatch events, drain bounded RPC responses, and merge RPC deadlines.
 - Added generated role defaults and bounded-schema static runtime storage

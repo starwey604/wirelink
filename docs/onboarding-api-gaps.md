@@ -84,12 +84,12 @@ the core and firmware images pay no cost unless the target is linked.
 
 ### Allow asymmetric roles without duplicate generated codecs
 
-A binding profile describes receive retention, but a single-process loopback
-cannot easily link two profile variants of the same schema because each target
-also emits the same codec/binding symbols. Using one shared profile initializes
-an unused telemetry mailbox on the sender. Split schema codec generation from
-profile runtime generation, or allow retained routes to be disabled per
-runtime instance.
+Implemented. `wirelink_wlc_generate_codec()` owns schema codec/binding symbols
+once, while each `wirelink_wlc_generate_runtime()` call emits only one profile
+runtime. `RUNTIME_NAME` provides distinct filenames and C namespaces when two
+asymmetric roles share a process. The installed package consumer links two
+profile runtimes against one codec target and verifies that the sender does not
+acquire the receiver's retained routes.
 
 ### Standardize adapter lifecycle and ingress selection
 

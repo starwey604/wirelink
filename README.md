@@ -56,21 +56,28 @@ A relocatable `wirelink.pc` file is installed for pkg-config consumers. The
 optional Astrial adapter remains source-integrated because Astrial does not yet
 publish an installed CMake package target.
 
-The installed package also exposes `wirelink_wlc_generate()` for build-time
-schema compilation. WLC is always a host executable, including during a
+The installed package exposes separate codec and runtime generation targets.
+WLC is always a host executable, including during a
 cross-build. A normal online build does not require Rust or a separately
 installed compiler:
 
 ```cmake
 find_package(Wirelink 0.9 CONFIG REQUIRED)
 
-wirelink_wlc_generate(
-  TARGET fci_arm_protocol
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/schema/fci_arm.wl"
+wirelink_wlc_generate_codec(
+  TARGET fci_arm_codec
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/schema/fci_arm.wl")
+wirelink_wlc_generate_runtime(
+  TARGET fci_arm_host
+  CODEC_TARGET fci_arm_codec
   PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/schema/host.bind.wl")
 
-target_link_libraries(my_application PRIVATE fci_arm_protocol)
+target_link_libraries(my_application PRIVATE fci_arm_host)
 ```
+
+Generate additional role runtimes against `fci_arm_codec`; set a distinct
+`RUNTIME_NAME` when more than one role is linked into the same process.
+`wirelink_wlc_generate()` remains as a single-runtime convenience wrapper.
 
 WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
 `WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names

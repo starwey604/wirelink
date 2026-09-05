@@ -20,7 +20,7 @@ cargo test --manifest-path wlc/Cargo.toml
 ```
 
 Consumer builds use the released host compiler instead of building this Rust
-worktree. `wirelink_wlc_generate()` resolves a per-call executable, a
+worktree. `wirelink_wlc_generate_codec()` resolves a per-call executable, a
 project-wide executable, or a compatible `wlc` on the host `PATH` before
 downloading the pinned release. The fallback selects from
 `CMAKE_HOST_SYSTEM_NAME`/`CMAKE_HOST_SYSTEM_PROCESSOR`, verifies a source-pinned
@@ -35,12 +35,18 @@ manifest is checked at build time before generated C compilation; updating WLC
 therefore requires updating the version, per-host archive hashes, expected ABI,
 fixtures, and package-consumer tests together.
 
-WLC emits a codec pair (`<module>.h/.c`) and an optional binding pair
+WLC emits a codec pair (`<module>.h/.c`) and a binding pair
 (`<module>_bindings.h/.c`). The codec exposes allocation-free clear,
 encoded-size, encode, and decode functions and depends only on
 `wirelink/codec.h`. The separately linkable binding translation unit adds
 typed routing, scratch sends, and native direct sends against the public core
 API. Both compile as ISO C11; no Rust runtime is present on the target.
+
+`wirelink_wlc_generate_runtime()` consumes an existing codec target and emits
+only `<runtime-name>_runtime.h/.c`. Several profile targets can therefore link
+one codec target. A distinct `RUNTIME_NAME` gives each runtime its own C
+namespace; its generated code continues to call the shared codec/binding
+symbols. Codec and runtime manifests are verified independently.
 
 `wlc` uses `miette` for source-aware user diagnostics, `thiserror` for typed
 library errors, `clap` for its CLI, and `insta` for future reviewed codegen
