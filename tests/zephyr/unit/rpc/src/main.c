@@ -9,6 +9,8 @@
 
 wl_rpc_err_t wl_rpc_test_server_set_next_generation(wl_rpc_server_t *server,
                                                     uint64_t generation);
+wl_rpc_err_t wl_rpc_test_client_set_next_generation(wl_rpc_client_t *client,
+                                                    uint64_t generation);
 
 struct client_fixture {
   wl_rpc_client_t client;
@@ -905,6 +907,143 @@ ZTEST(wirelink_rpc, test_server_exposes_expired_identity_before_release) {
                                      15U, &response),
                 WL_RPC_OK);
   server_mark_next_sent();
+}
+
+ZTEST(wirelink_rpc, test_client_handle_rejects_reused_id_and_wrong_owner) {
+  struct client_fixture other = {0};
+  wl_rpc_client_config_t config = {
+      .slots = other.slots,
+      .slot_count = ARRAY_SIZE(other.slots),
+      .response_storage = &other.responses[0][0],
+      .response_storage_size = sizeof(other.responses),
+      .response_capacity_per_slot = sizeof(other.responses[0]),
+  };
+  wl_rpc_client_handle_t first, copied, second;
+  wl_rpc_client_result_t result;
+
+  client_init(1U);
+  zassert_equal(wl_rpc_client_init(&other.client, &config), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_begin_with_id(&clients.client, 7U, 10U, 11U,
+                                            100U, 0U), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_begin_with_id(&other.client, 7U, 10U, 11U,
+                                            100U, 0U), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 7U, &first), WL_RPC_OK);
+  copied = first;
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &copied, &result),
+                WL_RPC_OK);
+  zassert_equal(result.operation_id, 7U);
+  zassert_equal(wl_rpc_client_get_by_handle(&other.client, &first, &result),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_cancel_handle(&other.client, &first),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_release_handle(&clients.client, &first),
+                WL_RPC_ERR_INVALID_STATE);
+  zassert_equal(wl_rpc_client_cancel_handle(&clients.client, &copied), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release_handle(&clients.client, &first), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_begin_with_id(&clients.client, 7U, 10U, 11U,
+                                            100U, 0U), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 7U, &second), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &first, &result),
+                WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(wl_rpc_client_cancel_handle(&clients.client, &first),
+                WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(wl_rpc_client_release_handle(&clients.client, &first),
+                WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &second, &result),
+                WL_RPC_OK);
+  zassert_equal(result.state, WL_RPC_CLIENT_QUEUED);
+  zassert_equal(wl_rpc_client_cancel(&clients.client, 7U), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release(&clients.client, 7U), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &second, &result),
+                WL_RPC_ERR_NOT_FOUND);
+}
+
+ZTEST(wirelink_rpc, test_client_handles_route_reversed_and_late_responses) {
+  wl_rpc_client_handle_t first, second;
+  wl_rpc_client_result_t result;
+  const uint8_t payload = 42U;
+
+  client_init(1U);
+  for (uint32_t id = 1U; id <= 2U; ++id) {
+    zassert_equal(wl_rpc_client_begin_with_id(&clients.client, id, 10U, 11U,
+                                              100U, 0U), WL_RPC_OK);
+    zassert_equal(wl_rpc_client_tx_completed(&clients.client, id), WL_RPC_OK);
+  }
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 1U, &first), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 2U, &second), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_on_response(&clients.client, 11U, 2U, 0,
+                                          &payload, 1U), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &first, &result),
+                WL_RPC_OK);
+  zassert_equal(result.state, WL_RPC_CLIENT_WAIT_RESPONSE);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &second, &result),
+                WL_RPC_OK);
+  zassert_equal(result.state, WL_RPC_CLIENT_COMPLETED);
+  zassert_equal(result.response_data[0], payload);
+  zassert_equal(wl_rpc_client_release_handle(&clients.client, &second), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_on_response(&clients.client, 11U, 2U, 0,
+                                          &payload, 1U), WL_RPC_ERR_NOT_FOUND);
+  zassert_equal(wl_rpc_client_on_response(&clients.client, 12U, 1U, 0,
+                                          &payload, 1U), WL_RPC_ERR_RESPONSE_MISMATCH);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &first, &result),
+                WL_RPC_OK);
+  zassert_equal(result.state, WL_RPC_CLIENT_WAIT_RESPONSE);
+  zassert_equal(wl_rpc_client_on_response(&clients.client, 11U, 1U, 0,
+                                          &payload, 1U), WL_RPC_OK);
+}
+
+ZTEST(wirelink_rpc, test_client_handle_validation_preserves_outputs) {
+  wl_rpc_client_handle_t handle = {0}, expected = {0};
+  wl_rpc_client_result_t result = {0}, expected_result = {0};
+  wl_rpc_client_t uninitialized = {0};
+
+  client_init(1U);
+  memset(&handle, 0xA5, sizeof(handle));
+  memcpy(&expected, &handle, sizeof(expected));
+  memset(&result, 0x5A, sizeof(result));
+  memcpy(&expected_result, &result, sizeof(expected_result));
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 1U, NULL),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 0U, &handle),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, 1U, &handle),
+                WL_RPC_ERR_NOT_FOUND);
+  zassert_mem_equal(&handle, &expected, sizeof(handle));
+  memset(&handle, 0, sizeof(handle));
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &handle, &result),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, NULL, &result),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &handle, NULL),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_equal(wl_rpc_client_get_by_handle(&uninitialized, &handle, &result),
+                WL_RPC_ERR_NOT_INITIALIZED);
+  zassert_equal(wl_rpc_client_get_by_handle(NULL, &handle, &result),
+                WL_RPC_ERR_INVALID_ARG);
+  zassert_mem_equal(&result, &expected_result, sizeof(result));
+}
+
+ZTEST(wirelink_rpc, test_client_handle_generation_never_wraps) {
+  wl_rpc_client_handle_t last;
+  wl_rpc_client_result_t result;
+  uint32_t operation_id;
+
+  client_init(1U);
+  zassert_equal(wl_rpc_test_client_set_next_generation(&clients.client,
+                                                      UINT64_MAX), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_begin(&clients.client, 10U, 11U, 100U, 0U,
+                                     &operation_id), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_get_handle(&clients.client, operation_id, &last),
+                WL_RPC_OK);
+  zassert_equal(wl_rpc_client_begin(&clients.client, 10U, 11U, 100U, 0U,
+                                     &operation_id), WL_RPC_ERR_NO_SLOT);
+  zassert_equal(wl_rpc_client_get_by_handle(&clients.client, &last, &result),
+                WL_RPC_OK);
+  zassert_equal(result.state, WL_RPC_CLIENT_QUEUED);
+  zassert_equal(wl_rpc_client_cancel_handle(&clients.client, &last), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_release_handle(&clients.client, &last), WL_RPC_OK);
+  zassert_equal(wl_rpc_client_begin(&clients.client, 10U, 11U, 100U, 0U,
+                                     &operation_id), WL_RPC_ERR_NO_SLOT);
 }
 
 ZTEST_SUITE(wirelink_rpc, NULL, NULL, NULL, NULL, NULL);

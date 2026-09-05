@@ -12,6 +12,7 @@
 typedef struct {
   wl_rpc_client_slot_t *slots;
   uint8_t *response_storage;
+  uint64_t next_generation;
   uint32_t next_operation_id;
   uint32_t magic;
   uint16_t slot_count;
@@ -20,6 +21,7 @@ typedef struct {
 
 typedef struct {
   size_t response_length;
+  uint64_t generation;
   uint32_t operation_id;
   wl_time_ms_t started_at;
   uint32_t timeout_ms;
@@ -32,6 +34,12 @@ typedef struct {
   uint16_t response_message_id;
   uint8_t link_delivery_confirmed;
 } wl_rpc_client_slot_impl_t;
+
+typedef struct {
+  const wl_rpc_client_t *owner;
+  uint64_t generation;
+  uint16_t index;
+} wl_rpc_client_handle_impl_t;
 
 typedef struct {
   wl_rpc_server_pending_slot_t *pending_slots;
@@ -77,6 +85,9 @@ enum {
 
 _Static_assert(sizeof(wl_rpc_client_impl_t) <= WL_RPC_CLIENT_STORAGE_SIZE,
                "WL_RPC_CLIENT_STORAGE_SIZE is too small");
+_Static_assert(sizeof(wl_rpc_client_handle_impl_t) <=
+                   WL_RPC_CLIENT_HANDLE_STORAGE_SIZE,
+               "WL_RPC_CLIENT_HANDLE_STORAGE_SIZE is too small");
 _Static_assert(_Alignof(wl_rpc_client_impl_t) <= _Alignof(wl_rpc_client_t),
                "wl_rpc_client_t alignment is too small");
 _Static_assert(sizeof(wl_rpc_client_slot_impl_t) <=
@@ -258,6 +269,8 @@ const char *wl_rpc_err_str(wl_rpc_err_t error) {
     return "response too large";
   case WL_RPC_ERR_CACHE_FULL:
     return "response cache full";
+  case WL_RPC_ERR_MALFORMED_METADATA:
+    return "malformed RPC metadata";
   default:
     return "unknown rpc error";
   }
@@ -288,6 +301,7 @@ wl_rpc_err_t wl_rpc_client_init(wl_rpc_client_t *client,
   wl_rpc_client_impl_t *impl = client_impl(client);
   impl->slots = config->slots;
   impl->response_storage = config->response_storage;
+  impl->next_generation = 1U;
   impl->next_operation_id =
       config->next_operation_id == 0U ? 1U : config->next_operation_id;
   impl->slot_count = config->slot_count;
@@ -311,6 +325,9 @@ wl_rpc_err_t wl_rpc_client_begin_with_id(
   }
 
   impl = client_impl(client);
+  if (impl->next_generation == 0U) {
+    return WL_RPC_ERR_NO_SLOT; /* Never resurrect an ancient handle on wrap. */
+  }
   if (client_find(impl, operation_id, NULL) != NULL) {
     return WL_RPC_ERR_OPERATION_CONFLICT;
   }
@@ -320,6 +337,7 @@ wl_rpc_err_t wl_rpc_client_begin_with_id(
   }
 
   memset(slot, 0, sizeof(*slot));
+  slot->generation = impl->next_generation++;
   slot->operation_id = operation_id;
   slot->request_message_id = request_message_id;
   slot->response_message_id = response_message_id;
@@ -618,6 +636,24 @@ wl_rpc_err_t wl_rpc_client_cancel(wl_rpc_client_t *client,
   return WL_RPC_OK;
 }
 
+static void client_result(const wl_rpc_client_impl_t *impl,
+                           const wl_rpc_client_slot_impl_t *slot,
+                           uint16_t index, wl_rpc_client_result_t *out_result) {
+  memset(out_result, 0, sizeof(*out_result));
+  out_result->operation_id = slot->operation_id;
+  out_result->request_message_id = slot->request_message_id;
+  out_result->response_message_id = slot->response_message_id;
+  out_result->state = slot->state;
+  out_result->tx_handle = slot->tx_handle;
+  out_result->link_result = slot->link_result;
+  out_result->application_status = slot->application_status;
+  out_result->runtime_error = slot->runtime_error;
+  out_result->link_delivery_confirmed = slot->link_delivery_confirmed;
+  out_result->response_data =
+      &impl->response_storage[(size_t)index * impl->response_capacity];
+  out_result->response_length = slot->response_length;
+}
+
 wl_rpc_err_t wl_rpc_client_get(const wl_rpc_client_t *client,
                                uint32_t operation_id,
                                wl_rpc_client_result_t *out_result) {
@@ -636,19 +672,96 @@ wl_rpc_err_t wl_rpc_client_get(const wl_rpc_client_t *client,
   if (slot == NULL) {
     return WL_RPC_ERR_NOT_FOUND;
   }
-  memset(out_result, 0, sizeof(*out_result));
-  out_result->operation_id = slot->operation_id;
-  out_result->request_message_id = slot->request_message_id;
-  out_result->response_message_id = slot->response_message_id;
-  out_result->state = slot->state;
-  out_result->tx_handle = slot->tx_handle;
-  out_result->link_result = slot->link_result;
-  out_result->application_status = slot->application_status;
-  out_result->runtime_error = slot->runtime_error;
-  out_result->link_delivery_confirmed = slot->link_delivery_confirmed;
-  out_result->response_data =
-      &impl->response_storage[(size_t)index * impl->response_capacity];
-  out_result->response_length = slot->response_length;
+  client_result(impl, slot, index, out_result);
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_client_get_handle(const wl_rpc_client_t *client,
+                                      uint32_t operation_id,
+                                      wl_rpc_client_handle_t *out_handle) {
+  const wl_rpc_client_slot_impl_t *slot;
+  wl_rpc_client_handle_impl_t value = {0};
+
+  if (!client_initialized(client)) {
+    return client == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (operation_id == 0U || out_handle == NULL) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  slot = client_find_const(client_impl_const(client), operation_id,
+                            &value.index);
+  if (slot == NULL) return WL_RPC_ERR_NOT_FOUND;
+  value.owner = client;
+  value.generation = slot->generation;
+  memset(out_handle, 0, sizeof(*out_handle));
+  memcpy(out_handle->private_bytes, &value, sizeof(value));
+  return WL_RPC_OK;
+}
+
+static wl_rpc_err_t client_handle_index(const wl_rpc_client_t *client,
+                                         const wl_rpc_client_handle_t *handle,
+                                         uint16_t *out_index) {
+  wl_rpc_client_handle_impl_t value;
+  const wl_rpc_client_impl_t *impl;
+  const wl_rpc_client_slot_impl_t *slot;
+
+  if (!client_initialized(client)) {
+    return client == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  }
+  if (handle == NULL) return WL_RPC_ERR_INVALID_ARG;
+  memcpy(&value, handle->private_bytes, sizeof(value));
+  impl = client_impl_const(client);
+  if (value.owner != client || value.generation == 0U ||
+      value.index >= impl->slot_count) {
+    return WL_RPC_ERR_INVALID_ARG;
+  }
+  slot = client_slot_const(impl, value.index);
+  if (slot->state == WL_RPC_CLIENT_FREE ||
+      slot->generation != value.generation) {
+    return WL_RPC_ERR_NOT_FOUND;
+  }
+  *out_index = value.index;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_client_get_by_handle(
+    const wl_rpc_client_t *client, const wl_rpc_client_handle_t *handle,
+    wl_rpc_client_result_t *out_result) {
+  uint16_t index;
+  wl_rpc_err_t error;
+
+  if (out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
+  error = client_handle_index(client, handle, &index);
+  if (error != WL_RPC_OK) return error;
+  client_result(client_impl_const(client),
+                  client_slot_const(client_impl_const(client), index), index,
+                  out_result);
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_client_cancel_handle(
+    wl_rpc_client_t *client, const wl_rpc_client_handle_t *handle) {
+  uint16_t index;
+  wl_rpc_err_t error = client_handle_index(client, handle, &index);
+  wl_rpc_client_slot_impl_t *slot;
+
+  if (error != WL_RPC_OK) return error;
+  slot = client_slot(client_impl(client), index);
+  if (client_terminal(slot->state)) return WL_RPC_ERR_INVALID_STATE;
+  slot->state = WL_RPC_CLIENT_CANCELLED;
+  return WL_RPC_OK;
+}
+
+wl_rpc_err_t wl_rpc_client_release_handle(
+    wl_rpc_client_t *client, const wl_rpc_client_handle_t *handle) {
+  uint16_t index;
+  wl_rpc_err_t error = client_handle_index(client, handle, &index);
+  wl_rpc_client_slot_impl_t *slot;
+
+  if (error != WL_RPC_OK) return error;
+  slot = client_slot(client_impl(client), index);
+  if (!client_terminal(slot->state)) return WL_RPC_ERR_INVALID_STATE;
+  memset(slot, 0, sizeof(*slot));
   return WL_RPC_OK;
 }
 
@@ -1449,6 +1562,13 @@ wl_rpc_err_t wl_rpc_server_get_deadline_hint(const wl_rpc_server_t *server,
 }
 
 #ifdef WL_RPC_TEST_HOOKS
+wl_rpc_err_t wl_rpc_test_client_set_next_generation(wl_rpc_client_t *client,
+                                                    uint64_t generation) {
+  if (!client_initialized(client)) return WL_RPC_ERR_NOT_INITIALIZED;
+  client_impl(client)->next_generation = generation;
+  return WL_RPC_OK;
+}
+
 wl_rpc_err_t wl_rpc_test_server_set_next_generation(wl_rpc_server_t *server,
                                                     uint64_t generation) {
   if (!server_initialized(server)) {

@@ -25,6 +25,7 @@ enum {
   WL_RPC_ERR_RESPONSE_MISMATCH = -1006,
   WL_RPC_ERR_RESPONSE_TOO_LARGE = -1007,
   WL_RPC_ERR_CACHE_FULL = -1008,
+  WL_RPC_ERR_MALFORMED_METADATA = -1009,
 };
 
 const char *wl_rpc_err_str(wl_rpc_err_t error);
@@ -78,6 +79,16 @@ typedef union wl_rpc_client_slot {
   wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_CLIENT_SLOT_STORAGE_SIZE];
 } wl_rpc_client_slot_t;
+
+/* Copyable authority for one client slot generation, not a wire call ID.
+ * Contents are private. Handles belong to one initialized client at a stable
+ * address; reinitializing/destroying that client ends every handle's lifetime.
+ * Generated endpoints additionally guard their own close/reinit lifetime. */
+#define WL_RPC_CLIENT_HANDLE_STORAGE_SIZE 32U
+typedef union wl_rpc_client_handle {
+  wl_max_align_t align;
+  uint8_t private_bytes[WL_RPC_CLIENT_HANDLE_STORAGE_SIZE];
+} wl_rpc_client_handle_t;
 
 typedef union wl_rpc_server {
   wl_max_align_t align;
@@ -204,6 +215,21 @@ wl_rpc_err_t wl_rpc_client_get(const wl_rpc_client_t *client,
 /* Only terminal operations may be released and their ID reused locally. */
 wl_rpc_err_t wl_rpc_client_release(wl_rpc_client_t *client,
                                    uint32_t operation_id);
+
+/* Capturing a handle scans retained IDs. Outputs are unchanged on error.
+ * Subsequent handle lookups are constant-time and reject cross-client/stale slots.
+ * Like the ID-based API, all accesses belong to the single communication owner.
+ */
+wl_rpc_err_t wl_rpc_client_get_handle(const wl_rpc_client_t *client,
+                                      uint32_t operation_id,
+                                      wl_rpc_client_handle_t *out_handle);
+wl_rpc_err_t wl_rpc_client_get_by_handle(
+    const wl_rpc_client_t *client, const wl_rpc_client_handle_t *handle,
+    wl_rpc_client_result_t *out_result);
+wl_rpc_err_t wl_rpc_client_cancel_handle(
+    wl_rpc_client_t *client, const wl_rpc_client_handle_t *handle);
+wl_rpc_err_t wl_rpc_client_release_handle(
+    wl_rpc_client_t *client, const wl_rpc_client_handle_t *handle);
 
 typedef struct wl_rpc_request_identity {
   uint32_t operation_id;
