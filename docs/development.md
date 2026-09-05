@@ -436,11 +436,12 @@ and executes all unit and integration scenarios on
 ## Packaging and examples
 
 `WIRELINK_INSTALL` defaults on only when Wirelink is the top-level project.
-It installs the core and portable loopback archives, public headers, a
-relocatable CMake package, a pkg-config file for the core, and the license.
-Private RX state and hardware adapters are not installed. Until the project
-reaches 1.0, generated package compatibility is restricted to the same `0.x`
-minor release.
+It installs the core, portable loopback, and optional diagnostics archives,
+public headers, a relocatable CMake package, a pkg-config file for the core,
+and the license. The host executor is installed when enabled. Private RX state
+and hardware adapters are not installed. Until the project reaches 1.0,
+generated package compatibility is restricted to the same `0.x` minor
+release.
 
 `WIRELINK_BUILD_EXAMPLES` also defaults on only for top-level builds. The
 bare-metal and typed quickstart examples use `Wirelink::loopback`; the former
@@ -459,9 +460,10 @@ threading, multiplexing, and storage rules are frozen in
 the core's single-consumer state machine and borrowed-event ownership intact.
 `wirelink/bulk.h` retains only constant-size transfer state: source bytes are
 read while an action is encoded, and received Chunk bytes are consumed by a
-synchronous caller sink before the RX event is released. Cross-thread session
-executors remain future work; bulk transfer does not add fields to the v1 link
-header.
+synchronous caller sink before the RX event is released. The optional C++20
+host executor provides the owner-thread/wake/outbox composition; embedded
+executors remain platform-owned. Bulk transfer does not add fields to the v1
+link header.
 
 ## Integration platform matrix
 

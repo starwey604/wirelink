@@ -1,8 +1,8 @@
 # Wirelink application-layer contract
 
-Status: **implemented baseline for typed routing, `LATEST`, `FIFO`, RPC, and
-sequential bulk transfer**. Cross-thread session executors remain a design
-contract.
+Status: **implemented baseline for typed routing, `LATEST`, `FIFO`, RPC,
+sequential bulk transfer, and the optional C++20 host executor**. Embedded task
+and queue integration remains platform-owned.
 
 This document fixes the boundary between the frozen Wirelink v1 link protocol
 and the allocation-free application facilities built above it. It is not a
@@ -50,11 +50,11 @@ The existing core ownership rules remain unchanged:
   consumer, but never run generated decoders or application handlers.
 
 A threaded session runtime uses a dedicated consumer task or executor. Calls
-from other threads enter a caller-supplied bounded command queue; only the
-consumer invokes Wirelink. The queue may be SPSC when there is one client
-producer. Multiple producers require an MPSC implementation, a critical
-section, or an external executor chosen by the platform layer. The C core does
-not acquire a hidden lock.
+from other threads enter a bounded command queue; only the consumer invokes
+Wirelink. The optional `Wirelink::host` C++20 target implements this pattern
+with an owner thread, SPSC RX feed, wake semaphore, and fixed coalescing
+outbox. Embedded products provide the corresponding RTOS task and queue. The C
+core does not acquire a hidden lock.
 
 The consumer drains work in this order:
 
@@ -186,6 +186,14 @@ After cache eviction or restart, exactly-once behavior is no longer assured.
 Non-idempotent or safety-critical operations require a persistent product-level
 operation key or must themselves be idempotent.
 
+ABI 18 generated runtimes automatically observe the peer session before a
+reliable RPC request handler runs. A transition discards the old session's
+pending/cache state and detached responses; `*_peer_observation_take()` lets
+the product revoke its own leases. Reliable non-RPC traffic that establishes
+the same authority boundary must call generated `*_runtime_peer_observe()`
+explicitly. Multi-peer routing still requires one context/runtime per peer or
+a product-owned peer table around the low-level RPC engine.
+
 ## 5. Allocation-free storage model
 
 Initialization must calculate or validate every long-lived byte of storage:
@@ -211,6 +219,12 @@ its own fixed-size opaque sender and receiver contexts. Future command-queue
 and session APIs must follow the same pattern and must not append fields to the
 frozen `wl_config_t`, `wl_storage_t`, or `wl_event_t` structures.
 
+For WLC-generated retained/RPC profiles, the assembly API supplies mechanical
+defaults, role enable helpers, exact requirements, and a default aligned arena
+when every payload is statically bounded. `*_runtime_init_checked()` is the
+bring-up path for field/capacity diagnostics; ordinary `*_runtime_init()` keeps
+the firmware path smaller once configuration is proven.
+
 ## 6. Error and health domains
 
 A session-facing error preserves its source domain:
@@ -229,6 +243,10 @@ session behavior. A health snapshot should combine last-valid-RX time,
 transport connection state, core counter deltas, route drops, RPC outcomes,
 and application errors without treating ordinary unreliable loss as a
 disconnect.
+
+The optional `Wirelink::diagnostics` target formats these existing snapshots
+into caller-owned key/value text. It does not add a registry, logging backend,
+clock, allocation, or counters of its own.
 
 ## 7. Multiplexing and transport selection
 

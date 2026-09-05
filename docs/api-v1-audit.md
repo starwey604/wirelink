@@ -2,6 +2,8 @@
 
 Status: superseded as an ABI freeze by `api-boundary.md` during pre-1.0
 convergence. It remains a record of the 0.9 review and release checks.
+Review the current target/header map, generated ABI 18 surface, and open API
+questions in [`api-boundary.md`](api-boundary.md) before using this history.
 
 The compact-v1 transmission units remain frozen by `conformance-v1.md`.
 Public C declarations may still change before 1.0; do not treat the historical

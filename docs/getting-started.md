@@ -177,6 +177,31 @@ The instance and storage arena must remain at stable addresses. Initialize a
 `quickstart_runtime_pump_t` beside the runtime; it is caller-owned state, not a
 thread or scheduler.
 
+During bring-up, replace the final init call with the checked form to identify
+the exact invalid field or undersized arena:
+
+```c
+application_runtime_t runtime;
+quickstart_runtime_config_t config;
+quickstart_runtime_storage_t storage;
+quickstart_runtime_init_diagnostic_t diagnostic;
+
+quickstart_runtime_config_defaults(&config);
+quickstart_runtime_config_enable_client(&config);
+storage = quickstart_runtime_default_storage_descriptor(&runtime.arena);
+int rc = quickstart_runtime_init_checked(&runtime.instance, &config, &storage,
+                                         &diagnostic);
+if (rc != WL_OK) {
+  log_init_error(quickstart_runtime_init_issue_str(diagnostic.issue),
+                 diagnostic.field, diagnostic.required, diagnostic.provided);
+}
+```
+
+The ordinary `quickstart_runtime_init()` has the same runtime outcome and is
+the preferred small firmware path after configuration is proven. With the
+usual function/data sections and linker garbage collection, leaving the
+checked function unreferenced removes its validation and strings.
+
 ## 6. Drive events and RPC progress
 
 Build the generated application hooks once, optionally fill the separate
@@ -223,6 +248,27 @@ The detail accessor returns `NULL` when the result has a different detail tag.
 Result strings are intended for logs; branch on `domain` or typed error fields,
 not on their text.
 
+A reliable server request also establishes the generated runtime's current
+peer session. The first binding and every transition set `rpc->peer_changed`.
+Take the stored observation once to update product state outside RPC:
+
+```c
+if (rpc != NULL && rpc->peer_changed != 0U) {
+  wl_rpc_peer_observation_t peer;
+  if (quickstart_runtime_peer_observation_take(
+          &runtime.instance.runtime, &peer) == WL_RPC_OK) {
+    revoke_old_peer_leases(peer.previous_session_id, peer.current_session_id);
+  }
+}
+```
+
+The transition discards pending/cached work from the old session and requests
+cancellation of detached reliable responses before the new request handler is
+called. If reliable non-RPC traffic establishes the same product session,
+observe it explicitly with `quickstart_runtime_peer_observe()` before applying
+that message. Steady-session RPC dispatch uses an inline comparison and avoids
+the observer path.
+
 Start an RPC with `quickstart_add_client_start()`, retain its returned nonzero
 operation ID, inspect/decode the terminal response, and finally call
 `quickstart_add_client_release()`. A retry may put that ID back into the same
@@ -242,6 +288,33 @@ mode:
 Start and stop the adapter outside the core, notify the owner on RX, TX
 completion, and writability, and quiesce it before reinitializing endpoint
 storage.
+
+## 8. Add optional diagnostics
+
+Link `Wirelink::diagnostics` only in images that need consistent bring-up text.
+Snapshot state through its owning API, append it to a caller buffer, and hand
+the result to the product logger:
+
+```cmake
+target_link_libraries(my_endpoint PRIVATE Wirelink::diagnostics)
+```
+
+```c
+#include <wirelink/diagnostics.h>
+
+char text[256];
+wl_rx_counters_t counters;
+wl_diag_writer_t writer;
+
+wl_rx_get_counters(&endpoint.link, &counters);
+wl_diag_writer_init(&writer, text, sizeof(text));
+if (wl_diag_format_rx_counters(&writer, &counters) == WL_OK) {
+  product_log(text);
+}
+```
+
+The formatter owns no I/O or heap. See [`diagnostics.md`](diagnostics.md) for
+the covered link, adapter, retained, Bulk, and RPC snapshots.
 
 ## Design reference
 

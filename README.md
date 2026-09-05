@@ -39,6 +39,13 @@ is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
    [`compatibility.md`](docs/compatibility.md), and
    [`conformance-v1.md`](docs/conformance-v1.md) as references.
 
+For a pre-1.0 API review, start with
+[`api-boundary.md`](docs/api-boundary.md), validate that model against the
+compiled quickstart, then inspect the focused adapter, schema, RPC, retained,
+Bulk, and compatibility documents linked from it. The historical
+[`api-v1-audit.md`](docs/api-v1-audit.md) is evidence from the earlier 0.9
+review, not the current surface definition.
+
 The portable allocation-free loopback adapter provides hardware-free packet
 bring-up. Platform adapters cover Zephyr asynchronous UART DMA plus Astrial
 serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C

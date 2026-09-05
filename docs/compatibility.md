@@ -27,9 +27,12 @@ envelope, integrity mode, MTU, and payload limit.
 ## C source and binary interface
 
 The installed public surface consists of the headers listed by the install
-rule under `include/wirelink/` and the `Wirelink::wirelink` CMake target.
-Headers such as `rx_ring_state.h` and all files under `src/` are private even
-when visible in a source checkout.
+rule under `include/wirelink/` and the `Wirelink::wirelink`,
+`Wirelink::loopback`, and `Wirelink::diagnostics` CMake targets. The latter two
+are separately linked and do not enlarge a core-only firmware. `Wirelink::host`
+is installed only when that optional C++20 runtime is built. Headers such as
+`rx_ring_state.h` and all files under `src/` are private even when visible in a
+source checkout.
 
 `wl_ctx_t` is opaque, statically allocatable, and aligned through `max_align_t`.
 `WL_CONTEXT_STORAGE_SIZE` and that alignment are reserved for the v1 library

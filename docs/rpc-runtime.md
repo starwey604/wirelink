@@ -130,13 +130,20 @@ also advances client/server deadlines and submits at most one cached response
 per call. Products should call it after event dispatch and application
 completion, then combine its deadline result with `wl_poll_get_hint()`.
 
-For a point-to-point peer, zero-initialize `wl_rpc_peer_t` and pass every
-observed nonzero session to `wl_rpc_peer_observe()`. On a transition it
-atomically discards the old session's RPC state before publishing the new ID,
-and reports in-flight handles through an optional cancellation callback. The
-observation tells the product when to revoke its own leases and non-RPC work.
-Multi-peer products can instead call `wl_rpc_server_discard_session()`
-directly for each departed peer.
+An ABI 18 WLC-generated server automatically observes the nonzero session on
+each reliable RPC request. It performs only an inline equality check in the
+steady state. On first binding or transition it calls the low-level observer,
+discards old-session pending/cache state, requests cancellation of detached
+responses, and sets `result.detail.rpc.peer_changed`. The application calls
+`*_runtime_peer_observation_take()` once to revoke product leases and non-RPC
+work. Call `*_runtime_peer_observe()` explicitly before reliable non-RPC
+traffic that establishes the same product session.
+
+Manual low-level RPC users instead zero-initialize `wl_rpc_peer_t` and pass
+each observed session to `wl_rpc_peer_observe()` themselves, including the
+cancellation callback. Multi-peer products can call
+`wl_rpc_server_discard_session()` directly for each departed peer; the
+generated single-peer tracker is not a routing or peer-table abstraction.
 
 Pending timeout and cache TTL are independently wrap-safe. Zero disables each
 expiry. `wl_rpc_server_expired_acquire()` returns a timed-out pending request
