@@ -45,6 +45,9 @@ compiled quickstart, then inspect the focused adapter, schema, RPC, retained,
 Bulk, and compatibility documents linked from it. The historical
 [`api-v1-audit.md`](docs/api-v1-audit.md) is evidence from the earlier 0.9
 review, not the current surface definition.
+The corresponding Chinese review route starts at
+[`api-boundary-cn.md`](docs/api-boundary-cn.md); English documents and public
+headers remain normative.
 
 The portable allocation-free loopback adapter provides hardware-free packet
 bring-up. Platform adapters cover Zephyr asynchronous UART DMA plus Astrial
