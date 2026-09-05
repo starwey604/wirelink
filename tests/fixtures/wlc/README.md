@@ -51,5 +51,6 @@ response retention across RX release. Const client requests and server
 responses are encoded through one runtime-owned typed scratch union. Its
 completion identity includes the reliable sender session, so a restarted peer
 may reuse an operation ID without replaying the preceding session's response.
-The previous revision intentionally lacks these additive messages and
-application patterns.
+Generated result helpers provide the common success check, diagnostic text,
+and tag-checked retained/RPC detail access. The previous revision intentionally
+lacks these additive messages and application patterns.

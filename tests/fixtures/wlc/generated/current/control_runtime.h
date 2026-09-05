@@ -16,7 +16,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 16U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 17U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -81,6 +81,23 @@ typedef struct {
   uint8_t event_consumed;
   control_runtime_detail_t detail;
 } control_runtime_result_t;
+
+/* Convenience helpers preserve the full diagnostic result. Detail accessors
+ * return null unless detail_kind selects the requested member. Result strings
+ * are diagnostic text and must not be parsed as a stable machine interface. */
+static inline bool control_runtime_result_ok(const control_runtime_result_t *result) {
+  return result != NULL && result->domain == CONTROL_RUNTIME_OK;
+}
+
+const char *control_runtime_result_str(const control_runtime_result_t *result);
+
+static inline const control_runtime_retained_detail_t *control_runtime_result_retained_detail(const control_runtime_result_t *result) {
+  return result != NULL && result->detail_kind == CONTROL_RUNTIME_DETAIL_RETAINED ? &result->detail.retained : NULL;
+}
+
+static inline const control_runtime_rpc_detail_t *control_runtime_result_rpc_detail(const control_runtime_result_t *result) {
+  return result != NULL && result->detail_kind == CONTROL_RUNTIME_DETAIL_RPC ? &result->detail.rpc : NULL;
+}
 
 /* The typed value remains borrowed until the matching release. */
 typedef struct {

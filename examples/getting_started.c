@@ -197,6 +197,7 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   add_response_t response;
   add_response_t decoded;
   quickstart_runtime_result_t result;
+  const quickstart_runtime_rpc_detail_t *rpc_detail;
   wl_pump_result_t step;
   wl_pump_hooks_t hooks;
   wl_rpc_client_result_t client;
@@ -210,20 +211,20 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   result = quickstart_add_client_start(
       &controller->link, &controller_runtime->instance.runtime, &request, 100U,
       10U);
-  if (result.domain != QUICKSTART_RUNTIME_OK ||
-      result.detail_kind != QUICKSTART_RUNTIME_DETAIL_RPC ||
-      result.detail.rpc.operation_id == 0U) {
+  rpc_detail = quickstart_runtime_result_rpc_detail(&result);
+  if (!quickstart_runtime_result_ok(&result) || rpc_detail == NULL ||
+      rpc_detail->operation_id == 0U) {
     return 1;
   }
-  operation_id = result.detail.rpc.operation_id;
+  operation_id = rpc_detail->operation_id;
 
   /* Request, request ACK, and the client's terminal TX event. */
   if (deliver(controller, device) != WL_OK ||
       poll_dispatch(device, device_runtime, 11U, &result) != WL_OK ||
-      result.domain != QUICKSTART_RUNTIME_OK || server->calls != 1U ||
+      !quickstart_runtime_result_ok(&result) || server->calls != 1U ||
       deliver(device, controller) != WL_OK ||
       poll_dispatch(controller, controller_runtime, 12U, &result) != WL_OK ||
-      result.domain != QUICKSTART_RUNTIME_OK) {
+      !quickstart_runtime_result_ok(&result)) {
     return 2;
   }
 
@@ -233,7 +234,7 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   result = quickstart_add_server_complete(
       &device_runtime->instance.runtime, &server->request, &response, 13U);
   hooks = quickstart_runtime_pump_hooks(&device_runtime->pump);
-  if (result.domain != QUICKSTART_RUNTIME_OK ||
+  if (!quickstart_runtime_result_ok(&result) ||
       wl_pump_step(&device->link, 13U, 1U, &hooks, &step) != WL_OK ||
       device_runtime->pump.last_service_result != WL_RPC_OK ||
       device_runtime->pump.last_service.responses_submitted != 1U) {
@@ -243,10 +244,10 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   /* Response, response ACK, and the server's terminal TX event. */
   if (deliver(device, controller) != WL_OK ||
       poll_dispatch(controller, controller_runtime, 14U, &result) != WL_OK ||
-      result.domain != QUICKSTART_RUNTIME_OK ||
+      !quickstart_runtime_result_ok(&result) ||
       deliver(controller, device) != WL_OK ||
       poll_dispatch(device, device_runtime, 15U, &result) != WL_OK ||
-      result.domain != QUICKSTART_RUNTIME_OK) {
+      !quickstart_runtime_result_ok(&result)) {
     return 4;
   }
 
@@ -258,7 +259,7 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
     return 5;
   }
   result = quickstart_add_client_decode(&client, &decoded);
-  if (result.domain != QUICKSTART_RUNTIME_OK || !decoded.has_sum ||
+  if (!quickstart_runtime_result_ok(&result) || !decoded.has_sum ||
       decoded.sum != 42 || quickstart_add_client_release(
                                &controller_runtime->instance.runtime,
                                operation_id) != WL_RPC_OK) {

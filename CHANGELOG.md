@@ -35,6 +35,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### API and protocol hardening
 
+- Added generated ABI 17 result helpers for success checks, diagnostic text,
+  and tag-checked retained/RPC detail access without weakening the complete
+  diagnostic result contract.
 - Split pump adapter and application callback contexts so generated runtime
   hooks compose directly with platform lifecycle callbacks.
 - Made pump event ownership explicit with `UNHANDLED`/`CONSUMED` callback

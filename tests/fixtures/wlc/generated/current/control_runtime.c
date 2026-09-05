@@ -12,6 +12,25 @@ static control_runtime_result_t control_runtime_result(const wl_event_t *event) 
   return result;
 }
 
+const char *control_runtime_result_str(const control_runtime_result_t *result) {
+  if (result == NULL) return "null result";
+  switch (result->domain) {
+    case CONTROL_RUNTIME_OK: return "ok";
+    case CONTROL_RUNTIME_NON_RX: return "non-rx event";
+    case CONTROL_RUNTIME_UNKNOWN_MESSAGE: return "unknown message";
+    case CONTROL_RUNTIME_MISSING_ROUTE: return "missing route";
+    case CONTROL_RUNTIME_MISSING_SCRATCH: return "missing scratch";
+    case CONTROL_RUNTIME_DELIVERY_MISMATCH: return "delivery mismatch";
+    case CONTROL_RUNTIME_CODEC_ERROR: return "codec error";
+    case CONTROL_RUNTIME_STORAGE_ERROR: return "storage error";
+    case CONTROL_RUNTIME_RPC_ERROR: return "rpc error";
+    case CONTROL_RUNTIME_CORE_ERROR: return "core error";
+    case CONTROL_RUNTIME_APPLICATION_ERROR: return "application error";
+    case CONTROL_RUNTIME_INVALID_ARGUMENT: return "invalid argument";
+    default: return "unknown runtime result";
+  }
+}
+
 static uint64_t control_rpc_request_fingerprint(const uint8_t *data, size_t length) {
   static const uint8_t domain[] = "wlc.rpc.canonical-request.v1";
   uint64_t hash = UINT64_C(0xcbf29ce484222325);

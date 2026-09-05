@@ -75,14 +75,18 @@ static runtime_storage_buffer_t requirements_storage;
 
 static const control_runtime_retained_detail_t *
 retained_detail(const control_runtime_result_t *result) {
-  zassert_equal(result->detail_kind, CONTROL_RUNTIME_DETAIL_RETAINED);
-  return &result->detail.retained;
+  const control_runtime_retained_detail_t *detail =
+      control_runtime_result_retained_detail(result);
+  zassert_not_null(detail);
+  return detail;
 }
 
 static const control_runtime_rpc_detail_t *
 rpc_detail(const control_runtime_result_t *result) {
-  zassert_equal(result->detail_kind, CONTROL_RUNTIME_DETAIL_RPC);
-  return &result->detail.rpc;
+  const control_runtime_rpc_detail_t *detail =
+      control_runtime_result_rpc_detail(result);
+  zassert_not_null(detail);
+  return detail;
 }
 
 static control_runtime_config_t retained_runtime_config(uint32_t capacity) {

@@ -25,7 +25,7 @@ therefore delegate fallback ownership without a second release/take.
 
 ### Publish a self-consistent compiler/library pair
 
-Current source declares WLC `0.4.0` with codegen ABI 16, while the immutable
+Current source declares WLC `0.4.0` with codegen ABI 17, while the immutable
 `v0.4.0` release emits ABI 12 and Wirelink's download hashes still select those
 assets. Release WLC `0.5.0`, update its release smoke check from ABI 12, then
 pin its five host assets and hashes from Wirelink `0.10.0`. Verify an installed
@@ -66,10 +66,13 @@ outbound buffer or heap allocation is added.
 
 ### Make result handling smaller and discoverable
 
-The generated domain/detail/result union is precise but verbose for normal
-paths. Add helpers such as `*_runtime_result_ok()`, `*_runtime_result_str()`,
-and checked accessors for RPC/retained details. Keep the full diagnostic result
-for advanced users.
+Implemented in codegen ABI 17. Every profile emits
+`*_runtime_result_ok()` and diagnostic `*_runtime_result_str()` helpers, plus
+checked retained/RPC detail accessors only for the variants present in that
+profile. Accessors return null on a mismatched tag; the complete result remains
+available for advanced diagnostics. Unreferenced diagnostic strings are kept
+outside the inline hot path and can be removed by normal function/data-section
+linker garbage collection.
 
 ### Provide a supported loopback adapter
 

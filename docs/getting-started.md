@@ -33,7 +33,7 @@ clocks.
 
 ## Build the runnable example
 
-From a source checkout with a compatible ABI 16 `wlc` executable:
+From a source checkout with a compatible ABI 17 `wlc` executable:
 
 ```sh
 cmake -S . -B build/quickstart \
@@ -178,6 +178,25 @@ bounded pass; backpressure waits for transport progress instead of spinning.
 Call `wl_pump_get_hint()` before sleeping. Advanced owner loops may still call
 the generated dispatch/service functions directly and use `event_consumed`
 before applying fallback ownership.
+
+For ordinary result handling, use the generated helpers instead of selecting
+the diagnostic union directly:
+
+```c
+if (!quickstart_runtime_result_ok(&result)) {
+  log_error(quickstart_runtime_result_str(&result));
+  return;
+}
+const quickstart_runtime_rpc_detail_t *rpc =
+    quickstart_runtime_result_rpc_detail(&result);
+if (rpc != NULL) {
+  remember_operation(rpc->operation_id);
+}
+```
+
+The detail accessor returns `NULL` when the result has a different detail tag.
+Result strings are intended for logs; branch on `domain` or typed error fields,
+not on their text.
 
 Start an RPC with `quickstart_add_client_start()`, retain its returned nonzero
 operation ID, inspect/decode the terminal response, and finally call
