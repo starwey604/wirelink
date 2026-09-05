@@ -46,9 +46,9 @@ Next we explain the definitions, reception policy, and complete program.
 ```text
 version 1;
 
-message Telemetry = 10 {
-  required uint32 sample = 1;
-  required int32 temperature_centi_c = 2;
+message Telemetry @id(10) {
+  required uint32 sample @id(1);
+  required int32 temperature_centi_c @id(2);
 }
 ```
 
@@ -56,10 +56,12 @@ message Telemetry = 10 {
 number and a temperature in hundredths of a degree Celsius: 2350 means 23.50 °C.
 Integers keep floating-point conversion out of the message definition.
 
-The 10 identifies the message type. The 1 and 2 identify fields within that
-message; they are not default values. `required` means the field must be present.
+`message Telemetry @id(10)` gives the message type its number, 10. The field
+attributes `@id(1)` and `@id(2)` identify its two fields. These are stable
+identifiers, not measurements; keep existing numbers when rearranging fields.
+`required` means the field must be present.
 `uint32` and `int32` are unsigned and signed 32-bit integers. `version 1`
-selects the definition language version.
+marks the first revision of this message definition.
 
 This file is a **schema**, a description of the messages. Generating both ends
 from the same schema gives them matching encoding rules; we do not transmit

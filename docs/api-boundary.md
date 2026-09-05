@@ -18,7 +18,7 @@ The order below is for reviewing the API after using those examples.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -184,7 +184,14 @@ force allocation. Unbounded or oversized selected messages set
 `HAS_DEFAULT_ENDPOINT=0`. Larger queues, custom arenas, or DMA placement use the
 existing manual storage path. See [design and limits](default-endpoint.md).
 
-## WLC-Generated Surface (ABI 19)
+Managed RPC adds generated `*_call_t`, `*_result_t`, and `*_request_token_t`:
+business messages contain no operation/status metadata. `endpoint_*_call()` starts
+a call, `inspect()` returns its typed result, `release/cancel()` manage it, and
+`complete/reject()` reply. Private-in-use handles validate endpoint ownership and
+lifetime. Explicit field mappings remain a separate interoperability mode; the
+two payload formats cannot be mixed. See the [RPC contract](rpc-runtime.md).
+
+## WLC-Generated Surface (ABI 20)
 
 WLC deliberately splits three concerns:
 
@@ -195,7 +202,7 @@ WLC deliberately splits three concerns:
 
 Use one codec target and generate separate named host/device runtimes against
 it. Generated artifacts must match compiler version, codegen ABI, schema
-identity, and binding-profile identity. ABI 19 includes the default endpoint
+identity, and binding-profile identity. ABI 20 adds managed RPC to the default endpoint
 facade above; advanced runtime families remain:
 
 | Family | Generated pattern |
@@ -247,6 +254,11 @@ append fields to closed v1 configuration/event structures. See
 [`compatibility.md`](compatibility.md).
 
 ## Pre-1.0 Review Points
+
+Managed RPC may need to echo a client session identity to guarantee response
+freshness across client reconstruction. Local handle generations do not solve
+wire-ID reuse with stale replies; see the [RPC contract](rpc-runtime.md). Such a
+change would affect RPC payloads, independently of the compact-v1 link frame.
 
 The following are intentionally visible for the API review rather than hidden
 behind documentation:

@@ -8,30 +8,36 @@ integrity trailer 和 link ACK。生成 codec 不负责重传，也不会把链�
 
 ## 1. Schema 源码
 
-`.wl` grammar 保持如下：
+payload 编码仍为 v1。新源码推荐用 `@id(n)` 显式标记编号；已有 schema 的 `= n`
+写法继续支持：
 
 ```text
 schema         = "version" positive-integer ";" item+
 item           = declaration | reservation
 declaration    = message | enum
 reservation    = "reserved" positive-integer ";"
-message        = "message" identifier "=" positive-integer
+id-attribute   = "@" "id" "(" positive-integer ")" | "=" positive-integer
+message        = "message" identifier id-attribute
                  "{" (field | reservation)* "}"
 field          = optional-field | required-field | repeated-field
                  | packed-field | required-packed-field
-optional-field = "optional" type identifier "=" positive-integer
+optional-field = "optional" type identifier id-attribute
                  ("[" "default" "=" literal "]")? ";"
-required-field = "required" type identifier "=" positive-integer ";"
-repeated-field = "repeated" type identifier "=" positive-integer ";"
+required-field = "required" type identifier id-attribute ";"
+repeated-field = "repeated" type identifier id-attribute ";"
 packed-field   = "packed" packed-type identifier "[" positive-integer "]"
-                 "=" positive-integer ";"
+                 id-attribute ";"
 required-packed-field = "required" "packed" packed-type identifier
-                        "[" positive-integer "]" "=" positive-integer ";"
+                        "[" positive-integer "]" id-attribute ";"
 type            = identifier | bounded-length-type
 bounded-length-type = ("bytes" | "string") "<" positive-integer ">"
 packed-type    = "float32" | "float64" | "fixed32" | "fixed64"
-enum           = "enum" identifier "=" positive-integer "{" enum-item* "}"
+enum           = "enum" identifier id-attribute "{" enum-item* "}"
 ```
+
+`@id(n)` 用于 message/enum 声明编号和字段编号；枚举值仍写 `NAME = integer;`，
+可选字段默认值仍写 `[default = literal]`。两种编号拼法产生相同的语义模型、标识摘要、
+生成 C 和编码字节；仅修改拼法不需要递增 schema revision。编号不会按声明顺序自动分配。
 
 v1 没有隐式 ID、map、`oneof`、service、extension 或 schema 级 reliability。可靠性由
 binding profile 或发送 API 选择。packed 是固定数量 numeric array，不是通用 repeated。
@@ -74,8 +80,10 @@ binary32/binary64，使用 `memcpy` 搬运 bits，保证 signed zero、infinity�
 
 ## 2. Wire Format
 
-payload 是零个或多个 tagged field，没有 payload header 或 schema revision；DATA
-`message_id` 选择 decoder。每个字段以 unsigned LEB128 key 开始：
+业务 codec 的 payload 是零个或多个 tagged field，没有 payload header 或 schema revision；
+DATA `message_id` 选择 decoder。托管 RPC 会在这些字节前添加自己的通信元数据，接收时
+先由 RPC runtime 取出，再调用 codec；见 [RPC runtime](rpc-runtime-cn.md)。
+每个字段以 unsigned LEB128 key 开始：
 
 ```text
 key = (field_number << 3) | wire_type
@@ -130,34 +138,34 @@ runtime。它们是独立 translation unit，因此 codec-only target 不会引�
 ```wl
 version 1;
 
-enum MotorMode = 1 {
+enum MotorMode @id(1) {
   MOTOR_MODE_DISABLED = 0;
   MOTOR_MODE_CURRENT = 1;
   MOTOR_MODE_POSITION = 2;
 }
 
-message MotorCommand = 16 {
-  required uint32 operation_id = 1;
-  required MotorMode mode = 2;
-  optional fixed32 target_milliamps = 3;
-  optional bytes<64> vendor_extension = 4;
+message MotorCommand @id(16) {
+  required uint32 operation_id @id(1);
+  required MotorMode mode @id(2);
+  optional fixed32 target_milliamps @id(3);
+  optional bytes<64> vendor_extension @id(4);
 }
 
-message SensorSample = 17 {
-  optional uint32 sensor_id = 1;
-  optional int32 value_milliunits = 2;
+message SensorSample @id(17) {
+  optional uint32 sensor_id @id(1);
+  optional int32 value_milliunits @id(2);
 }
 
-message TelemetryBatch = 18 {
-  repeated SensorSample samples = 1;
-  optional string<31> source = 2 [default = "board"];
-  optional uint64 timestamp_us = 3;
+message TelemetryBatch @id(18) {
+  repeated SensorSample samples @id(1);
+  optional string<31> source @id(2) [default = "board"];
+  optional uint64 timestamp_us @id(3);
 }
 
-message ArmMitCommand = 19 {
-  required packed float32 controls[30] = 1;
-  required uint16 sequence = 2;
-  required float32 dt_s = 3;
+message ArmMitCommand @id(19) {
+  required packed float32 controls[30] @id(1);
+  required uint16 sequence @id(2);
+  required float32 dt_s @id(3);
 }
 ```
 

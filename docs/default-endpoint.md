@@ -1,6 +1,7 @@
 # Default endpoints: design and boundaries
 
-Status: internal development, codegen ABI 19. Wire bytes are unchanged; no new
+Status: internal development, codegen ABI 20. Existing mapped RPC and codec bytes
+are unchanged; the new managed RPC mode has its own metadata prefix. No new
 package is released. [中文](default-endpoint-cn.md). Start with the
 [temperature tutorial](getting-started.md) for ordinary use.
 
@@ -24,7 +25,8 @@ application contracts. Publicly allocatable types need not expose their pointer 
 ## Sizing and defaults
 
 The payload bound is the maximum encoded size among profile-selected retained
-messages and RPC requests/responses, at least one byte. Unrelated large messages
+messages and RPC requests/responses, including the managed RPC 12-byte prefix,
+at least one byte. Unrelated large messages
 do not contribute. Init defaults to native packets and CRC32C. Buffers reserve
 for every supported envelope and one stream RX packet, allowing envelope changes
 without guessed arrays. Packet-only users pay for unused stream storage;
@@ -43,6 +45,13 @@ constraints or use advanced custom storage. Codec/runtime targets remain separat
 multiple named endpoints may share one codec.
 
 ## Progress, errors, lifecycle
+
+Managed RPC business messages need no operation/status fields. Use a generated
+`*_call_t` with `endpoint_*_call/inspect/release/cancel`; inspection gives a typed
+result. Server `complete/reject` takes a copyable generated reply token, not an
+application-managed number. Handles and tokens are private-in-use and scoped to
+their endpoint incarnation. Existing explicit field mappings retain their older
+API/encoding for interoperability. See the [RPC contract](rpc-runtime.md).
 
 No threads, clocks, or heap are created. A step runs on one owner with a default
 budget of 16 events, including attached adapter service, event release, TX-terminal

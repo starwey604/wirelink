@@ -1,6 +1,7 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 19。此轮不改变线上消息格式，不发布新包。
+状态：内部开发，生成 ABI 20。既有映射 RPC 与 codec 字节不变；新增托管 RPC
+使用独立的元数据前缀。本轮不发布新包。
 [English](default-endpoint.md)。入门使用见 [getting-started-cn.md](getting-started-cn.md)。
 
 ## 应用只组装业务对象
@@ -21,7 +22,13 @@ WLC 为具有有限消息上限的 profile 生成 `*_endpoint_t`。声明一个�
 
 ## 存储推导与默认值
 
-payload 上限取 profile 中 LATEST/FIFO 消息及 RPC 请求/响应的最大编码上限，最小为 1。
+托管 RPC 的业务消息不含内部编号／状态字段。生成的 `*_call_t` 配合
+`endpoint_*_call/inspect/release/cancel` 使用，查询直接得到类型化结果；
+服务端 `complete/reject` 接收可以复制的回复 token。句柄与 token 检查端点归属及生命周期，
+用户无需读取内部编号。旧显式字段映射保留为兼容模式，详见 [RPC 合同](rpc-runtime-cn.md)。
+
+payload 上限取 profile 中 LATEST/FIFO 消息及 RPC 请求/响应的最大编码上限，
+包含托管 RPC 的 12 字节前缀，最小为 1。
 无关的大消息不计入。默认初始化使用 native-packet 和 CRC32C；静态缓冲区也预留
 其他支持封装的最坏开销以及一包容量的串口接收缓冲区，切换封装不必重新猜数组大小。
 这会给只用 packet 的端点保留少量未使用的 stream 存储；追求最小内存的部署可用高级组装。

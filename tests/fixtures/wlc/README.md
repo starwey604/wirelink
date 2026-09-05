@@ -58,3 +58,8 @@ revoke product state outside the RPC runtime.
 
 ABI 19 also emits the default endpoint facade for bounded profile-selected
 messages. The unrelated BulkChunk bound does not enlarge this endpoint.
+
+ABI 20 retains this fixture's explicit mapped RPC and frozen codec bytes.
+Managed RPC and `@id(n)` are covered separately by the compiler's
+`managed_rpc`/`schema_ids` tests and the getting-started examples; do not migrate
+these conformance schemas merely to demonstrate the new default API.

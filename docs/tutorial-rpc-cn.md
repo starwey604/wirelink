@@ -1,67 +1,54 @@
 # 第二篇：请求设备完成一次计算
 
-上一篇[最新温度显示](getting-started-cn.md)只有单向更新。现在控制端要问设备：
-“请计算 20 + 22，并把结果告诉我。”控制端需要知道结果属于哪次请求，
-也需要在设备没回应时结束等待。这就是 **RPC（远程过程调用）**：
-在连接另一端请求一次操作，并等待它的应用层结果。
+上一篇[最新温度显示](getting-started-cn.md)只发送测量值。现在控制端想问设备：
+“请计算 20 + 22，并告诉我结果。”这种发起操作、等待对端结果的交互叫
+**RPC（远程过程调用）**。本篇继续用内存连接，无需开发板。[English](tutorial-rpc.md)。
 
-本篇继续使用内存连接。完整示例还保留上一篇的温度发送，然后完成一次加法。
-[English](tutorial-rpc.md)。
+## 1. 先运行
 
-## 1. 先分清“送到了”和“算完了”
+使用上一篇的构建目录；如果更新过源码，先按[安装篇](installation-cn.md)换成匹配的 WLC：
 
-可靠传输会让接收方发回 **ACK（接收确认）**。如果确认迟迟没到，
-链路可在配置允许的次数内重发。ACK 证明的是链路接收，不是业务执行成功。
+```sh
+cmake --build build/quickstart --target wirelink_getting_started
+./build/quickstart/examples/wirelink_getting_started
+```
 
-RPC 另外发送一条响应：例如“这次计算成功，结果是 42”。
-因此本例有请求、请求的 ACK、响应、响应的 ACK。
-请求和响应均选可靠传输，但 RPC 与可靠传输不是同一个概念。
+预期输出：
 
-## 2. 增加请求和响应消息
+```text
+unreliable telemetry: sample=7 temperature=23.50 C
+reliable RPC: 20 + 22 = 42
+```
+
+程序先发送一次温度，然后请求设备计算加法。接下来只关注这次计算。
+
+## 2. 消息只描述业务参数
 
 完整 [`quickstart.wl`](../examples/getting_started/quickstart.wl)：
 
 ```text
 version 1;
 
-enum AddStatus = 1 {
-  ADD_OK = 0;
-  ADD_REJECTED = 1;
+message Telemetry @id(10) {
+  required uint32 sample @id(1);
+  required int32 temperature_centi_c @id(2);
 }
 
-message Telemetry = 10 {
-  required uint32 sample = 1;
-  required int32 temperature_centi_c = 2;
+message AddRequest @id(20) {
+  required int32 left @id(1);
+  required int32 right @id(2);
 }
 
-message AddRequest = 20 {
-  optional uint32 operation_id = 1;
-  required int32 left = 2;
-  required int32 right = 3;
-}
-
-message AddResponse = 21 {
-  optional uint32 operation_id = 1;
-  optional AddStatus status = 2;
-  required int32 sum = 3;
+message AddResponse @id(21) {
+  required int32 sum @id(1);
 }
 ```
 
-`AddRequest` 携带两个加数，`AddResponse` 携带结果。
-消息编号 20 和 21 标识两种消息；它们不标识某一次计算。
-`AddStatus` 是业务状态枚举，0 表示成功，1 表示应用拒绝。
-本例只演示成功路径。
+`AddRequest` 的两个加数是输入，`AddResponse` 的 `sum` 是输出。
+`@id(20)` 和 `@id(21)` 区分请求、响应这两种消息，不代表第几次调用。
+请求中没有调用编号，响应中也不需要为 Wirelink 预留编号或状态字段。
 
-同一时刻可能有多次调用，因此还需要一个**调用编号**：
-请求带编号 7，响应也带编号 7，控制端才能把这份结果交给正确的调用。
-这就是本例的 `operation_id`。
-
-这些元数据在 schema 中标为 `optional`，方便应用只填写业务参数。
-生成的 RPC 启动函数会补入调用编号，完成函数会补入对应编号及成功状态。
-这不表示收到的 RPC 消息可以缺少它们：RPC 接收路径会检查编号非零，
-响应还必须有状态字段。普通编码器和 RPC 检查的是不同层次的约束。
-
-## 3. 将两个消息组合成一个 RPC
+## 3. 告诉 Wirelink 哪两个消息构成一次调用
 
 完整 [`quickstart.bind.wl`](../examples/getting_started/quickstart.bind.wl)：
 
@@ -75,110 +62,26 @@ latest Telemetry {
 rpc Add {
   request = AddRequest;
   response = AddResponse;
-  request_operation_id = operation_id;
-  response_operation_id = operation_id;
-  response_status = status;
   request_delivery = reliable;
   response_delivery = reliable;
 }
 ```
 
-`rpc Add` 给服务起名 `Add`；`request`、`response` 指定它使用的消息类型；
-最后两行选择请求和响应各自的传输方式。
+`rpc Add` 给服务起名，`request` 和 `response` 指定输入、输出类型。
+最后两行选择它们的传输方式；本例都使用可靠传输。
 
-中间三行是**字段映射，不是运行时赋值**：
+Wirelink 自动为每次调用分配内部编号、随请求发送、随响应带回并进行匹配。
+这些信息由 RPC 管理，不需要出现在业务结构体里。我们把这种默认方式称为**托管 RPC**。
+普通业务代码只保存发起调用时返回的句柄，稍后用它查看结果。句柄可以理解为
+“这次调用的领取凭据”：不要读取或修改其内部成员。
 
-| 配置项 | 右侧名称在哪个消息里查找 | 意义 |
-| --- | --- | --- |
-| `request_operation_id = operation_id` | `AddRequest` | 从这个字段获取请求的调用编号 |
-| `response_operation_id = operation_id` | `AddResponse` | 从这个字段获取响应对应的调用编号 |
-| `response_status = status` | `AddResponse` | 从这个字段获取业务执行状态 |
+## 4. 完整程序
 
-**两边可以“不等”吗？需要区分字段名和字段值。**
+两个端点仍由 WLC 生成。本次通过配置启用客户端、服务端角色，并给服务端指定加法处理函数。
+`calculator_t` 只是本例的业务上下文，用来传递设备端点和模拟时刻，不包含通信缓冲区。
+`CHECK` 是示例错误检查宏，失败就结束电脑进程，不是 Wirelink API。
 
-字段名可以不同。例如接入已有协议，请求中的编号已经叫 `request_id`，
-响应中叫 `reply_to`，就可以写：
-
-```text
-request_operation_id = request_id;
-response_operation_id = reply_to;
-```
-
-前提是消息定义中确实有这些字段，且调用编号字段是非重复的 `uint32`。
-请求和响应是不同消息，字段编号也可以不同。
-分开映射允许复用这样的消息定义，不强迫每个项目使用同一个字段名。
-
-但同一次调用的**数值必须相同**。请求的 `request_id = 7`，
-响应就应为 `reply_to = 7`。如果响应是 8，它不能完成编号 7 的调用；
-是否匹配另一条调用或被拒绝，取决于当前有哪些待处理调用。
-
-新项目统一叫 `operation_id` 最直观。当前语法仍要求显式写出两个映射。
-普通使用生成的 `client_start()` / `server_complete()` 时，
-应用无需自己复制这个编号。
-
-## 4. 为可靠通信认识一个新概念：重启后的身份
-
-想象设备重启了，但连接里还残留着重启前的包或确认。
-如果新旧包只靠容易重新从头计数的序号来区分，就可能把旧确认当成新请求的确认。
-
-`session_id` 用来标识“这是本次启动或本次通信实例的流量”。
-可靠数据包和确认包携带相关会话标识，使协议能区分旧会话的流量。
-**非零**只是数值不能为 0，因为 0 被接口保留为无效值。
-
-它不是用来选择“把包发给哪个设备”的地址。Wirelink 连接的是两端，
-本身不提供按节点地址寻路。本例用 0x1001、0x2002 表示两个隔离的模拟端，
-方便输出和测试可重复；真实设备不能每次重启都照抄这些固定值。
-
-一种做法是每次启动生成一个新的非零随机数，常称为 **boot nonce**，
-也就是“这次启动使用的随机标识”；另一种做法是在持久存储中维护启动计数，
-每次启动先递增再使用。目标都是避免旧包仍可能存在时复用同一个标识。
-随机方案还要考虑碰撞概率；它不是认证密码或加密密钥。
-
-## 5. 运行示例，再按业务过程阅读
-
-沿用上一篇已经配置的构建目录：
-
-```sh
-cmake --build build/quickstart --target wirelink_getting_started
-./build/quickstart/examples/wirelink_getting_started
-```
-
-```text
-unreliable telemetry: sample=7 temperature=23.50 C
-reliable RPC: 20 + 22 = 42
-```
-
-两个端点仍是生成的 `quickstart_endpoint_t`。这次用
-`endpoint_config_defaults()` / `endpoint_init_config()` 设置额外策略：
-控制端启用 client（发起请求），设备端启用 server（接收请求）。
-`config.link` 配置连接，`config.runtime` 配置消息处理；它们只是初始化参数，
-不是需要独立驱动的对象。端点仍自动管理存储和通信推进。
-
-一次调用的流程是：
-
-1. 控制端填写两个加数，调用 `quickstart_endpoint_add_start(..., 100U, 10U)`。
-   100 是最多等待 100 毫秒，10 是当前毫秒时刻；保存返回的调用编号。
-2. 设备推进通信后调用 `handle_add()`。本例计算很快，所以回调中直接算出结果，
-   然后调用 `quickstart_endpoint_add_complete()` 准备响应。
-3. 两端继续调用 `endpoint_step()`，完成请求确认、响应发送和接收。
-4. 用 `endpoint_add_inspect()` 查看调用状态；到
-   `WL_RPC_CLIENT_COMPLETED` 后，用 `quickstart_add_client_decode()` 取出结果。
-5. 用 `endpoint_add_release()` 释放调用占用的位置。失败/超时终态也要回收。
-
-`calculator_t` 是本例的业务上下文，只给处理函数传入设备端点和模拟时刻，
-不包含 Wirelink 缓冲区。`request` 指针只在回调期间借用；
-慢任务应复制所需参数和请求凭据，然后让通信 owner 在工作完成后提交响应。
-
-`runtime_result_ok()` 检查一步操作是否成功；`runtime_result_rpc_detail()`
-取得编号等 RPC 详情。这与“整次调用已完成”不同，后者通过 inspect 判断。
-当前结果类型仍沿用 runtime 命名，但普通调用不需要创建独立 runtime。
-
-示例从 10 到 29 手动推进模拟毫秒，不是建议的任务周期。
-真实应用使用单调时钟、持续推进，并根据状态或唤醒提示安排工作。
-
-## 6. 完整程序
-
-[`examples/getting_started.c`](../examples/getting_started.c)：
+下面是完整 [`examples/getting_started.c`](../examples/getting_started.c)：
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
@@ -202,21 +105,23 @@ typedef struct {
 } calculator_t;
 
 static int32_t handle_add(void *context, const add_request_t *request,
-                          const wl_rpc_server_request_t *token,
+                          const quickstart_add_request_token_t *token,
                           wl_delivery_t delivery) {
   calculator_t *calculator = context;
   add_response_t response;
-  quickstart_runtime_result_t result;
   const int64_t sum = (int64_t)request->left + request->right;
   (void)delivery;
-  if (sum < INT32_MIN || sum > INT32_MAX) return -1;
+  if (sum < INT32_MIN || sum > INT32_MAX) {
+    /* Business rejection: no fabricated sum or status field is needed. */
+    return quickstart_endpoint_add_reject(calculator->device, token, 1,
+                                          calculator->now_ms);
+  }
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
   /* Preparing a response is synchronous; endpoint_step sends it later. */
-  result = quickstart_endpoint_add_complete(calculator->device, token,
-                                            &response, calculator->now_ms);
-  return quickstart_runtime_result_ok(&result) ? 0 : -1;
+  return quickstart_endpoint_add_complete(calculator->device, token,
+                                          &response, calculator->now_ms);
 }
 
 int main(void) {
@@ -226,11 +131,8 @@ int main(void) {
   wl_loopback_t cable;
   telemetry_t telemetry, received;
   add_request_t request;
-  add_response_t response;
-  quickstart_runtime_result_t result;
-  const quickstart_runtime_rpc_detail_t *detail;
-  wl_rpc_client_result_t operation;
-  uint32_t operation_id;
+  quickstart_add_result_t operation;
+  quickstart_add_call_t call;
 
   CHECK(quickstart_endpoint_config_defaults(&client_config, 0x1001U) == WL_OK);
   CHECK(quickstart_endpoint_config_defaults(&server_config, 0x2002U) == WL_OK);
@@ -265,21 +167,18 @@ int main(void) {
   request.left = 20;
   request.has_right = true;
   request.right = 22;
-  result = quickstart_endpoint_add_start(&controller, &request, 100U, 10U);
-  detail = quickstart_runtime_result_rpc_detail(&result);
-  CHECK(quickstart_runtime_result_ok(&result) && detail != NULL);
-  operation_id = detail->operation_id;
+  CHECK(quickstart_endpoint_add_call(&controller, &request, 100U, 10U,
+                                    &call) == WL_RPC_OK);
 
   /* Simulated milliseconds. Real applications use their monotonic clock. */
   for (calculator.now_ms = 10U; calculator.now_ms < 30U; ++calculator.now_ms) {
     CHECK(quickstart_endpoint_step(&controller, calculator.now_ms) == WL_OK);
     CHECK(quickstart_endpoint_step(&device, calculator.now_ms) == WL_OK);
   }
-  CHECK(quickstart_endpoint_add_inspect(&controller, operation_id, &operation) == WL_RPC_OK);
+  CHECK(quickstart_endpoint_add_inspect(&controller, &call, &operation) == WL_RPC_OK);
   CHECK(operation.state == WL_RPC_CLIENT_COMPLETED);
-  result = quickstart_add_client_decode(&operation, &response);
-  CHECK(quickstart_runtime_result_ok(&result) && response.sum == 42);
-  CHECK(quickstart_endpoint_add_release(&controller, operation_id) == WL_RPC_OK);
+  CHECK(operation.response_valid && operation.response.sum == 42);
+  CHECK(quickstart_endpoint_add_release(&controller, &call) == WL_RPC_OK);
 
   quickstart_endpoint_close(&controller);
   quickstart_endpoint_close(&device);
@@ -289,23 +188,54 @@ int main(void) {
 }
 ```
 
-## 7. 从成功示例走向真实命令
+## 5. 顺着一次调用阅读
 
-示例中的 `ack_timeout_ms = 20` 是等待链路确认的时间，`max_retries = 2`
-是最多重传两次；调用的 100 毫秒则限制应用等待整个 RPC 的时间，两者用途不同。
-服务端的 1000 毫秒限制待处理请求保留时间，10000 毫秒限制完成响应的缓存寿命。
-这些都是演示策略，需根据设备的实际处理时间设置。
+1. 控制端只填写 `left`、`right` 及对应的 `has_...` 标志，然后调用
+   `quickstart_endpoint_add_call(..., 100U, 10U, &call)`。100 是等待上限（毫秒），
+   10 是当前时刻；成功表示请求已在本地提交，`call` 用于后续查结果。
+2. 两端持续调用 `endpoint_step()`。设备收到请求后，Wirelink 调用 `handle_add()`。
+   函数计算结果，再用 `endpoint_add_complete()` 准备响应；后续推进负责发送。
+3. 控制端用 `endpoint_add_inspect(&controller, &call, &operation)` 查看状态。
+   查询返回 `WL_RPC_OK` 只表示查询成功；`operation.state` 才说明调用是否完成。
+   成功完成且 `response_valid` 为真时，直接读取 `operation.response.sum`。
+4. 不再需要结果时调用 `endpoint_add_release()` 回收位置。失败、取消和超时等终态也要释放。
+   释放后不能再使用旧句柄；关闭、重新初始化端点也会让旧句柄失效。
 
-完成响应的缓存用于处理“请求执行了，但响应丢失后又收到同一个请求”：
-在缓存仍有效时，可以重发已有结果。使用同一调用编号重试时，请求内容也必须一致。
-缓存容量有限，而且会过期；设备重启、会话变化也会结束这种保护。
-RPC 不保证跨重启永久只执行一次。尤其是开锁、扣款等有副作用的命令，
-超时只表示调用方没有及时取得结果，不能据此断言设备未执行。
+这里用循环变量模拟单调递增的毫秒时钟；真实程序持续在同一个通信线程或主循环中推进端点。
+示例配置的会话标识 `0x1001`、`0x2002` 只适用于隔离模拟。
+设备重启时如何选择新标识，放在[集成篇](tutorial-integration-cn.md#session-identity)说明。
 
-生成的接收路径会观察可靠 RPC 请求携带的对端会话；会话变化时先清理旧会话的
-RPC 待处理和缓存状态，再调用新请求的处理函数。
-如果应用还维护权限或控制权等状态，应另外处理这次变化，
-接口见[集成篇](tutorial-integration-cn.md)。
+默认静态端点为客户端保留一个调用位置：上一次调用释放后再发下一次。
+库的 RPC 引擎支持多调用并存；需要更多位置时使用集成篇的自定义存储，
+而不是让业务自己分配编号。多个调用的回复可以乱序，库按调用匹配。
 
-下一篇：[把示例接入自己的工程与硬件](tutorial-integration-cn.md)。
-需要逐项查询客户端/服务端状态约束时，再读 [RPC 参考](rpc-runtime-cn.md)。
+## 6. 算不出来、等不到结果，分别怎么办
+
+本例先用 64 位整数计算，避免两个 32 位加数相加发生溢出。
+超出结果范围时，处理函数调用 `endpoint_add_reject(..., 1, now)`：
+这里的 1 是本例约定的“结果超出范围”，不是 Wirelink 的编号。
+控制端会得到 `WL_RPC_CLIENT_APPLICATION_ERROR`、`application_status == 1`，
+以及 `response_valid == false`；不需要制造一个无意义的 `sum`。
+
+处理函数返回 0 表示本地处理正常，既可以已经回复，也可以把工作留待稍后完成。
+返回非零表示本地处理失败，不会自动替你回复业务拒绝。
+慢任务应复制需要的业务参数和 `quickstart_add_request_token_t`，工作结束后在通信 owner 上
+用同一个 token 调用 `complete()` 或 `reject()`；token 本身不需要拆解。
+
+可靠传输的 ACK 只证明链路接收，不证明设备已经算完。没有收到应用响应而超过等待上限时，
+调用进入 `WL_RPC_CLIENT_TIMED_OUT`；主动调用 `endpoint_add_cancel()` 则进入取消状态。
+**取消或超时不保证设备没有执行，也不会远程撤销业务操作。** 是否重试由业务决定。
+对于扣款、运动等不能重复执行的操作，要另外设计业务幂等或状态查询。
+
+对于已经取消、超时或释放且内部编号未复用的调用，迟到响应会被忽略并留下诊断。
+需要查看异常包或迟到回复时可以配置诊断回调，但正常应用不需要自己比较内部编号。
+跨客户端重建时的旧响应隔离仍有限制，见 [RPC 合同](rpc-runtime-cn.md)。
+
+## 下一步
+
+把加数改成 `INT32_MAX` 和 `1`，并把结果检查改成上述拒绝状态，观察失败路径。
+然后阅读[集成篇](tutorial-integration-cn.md)，了解如何接到真实串口、配置存储和调度。
+
+已有协议使用 `operation_id` 字段映射时，仍可选择兼容方式；它不是默认入门 API。
+两种 RPC 格式不能直接互通，升级需同步通信双方。
+字段映射、12 字节 RPC 元数据以及重放保证的边界见 [RPC 合同](rpc-runtime-cn.md)。

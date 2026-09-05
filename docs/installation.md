@@ -11,7 +11,7 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-Default endpoints currently require **WLC 0.4.0 with codegen ABI 19**, an internal
+The tutorials' ID attributes and managed RPC require **WLC 0.4.0 with codegen ABI 20**, an internal
 development build. An older release with the same package version is not enough.
 No new package or tag is published by this iteration.
 
@@ -23,7 +23,7 @@ Without a matching binary, independently obtain and install the WLC source:
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout 31df0e0dae644f380b57e9b2d69a96aa56be0f58
+git -C wlc-source checkout 6c992decc4b200d258bd8c7409a8896ab37a17e8
 cargo install --path wlc-source --locked --force
 ```
 
@@ -40,8 +40,9 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.4.0` and `19`. Codegen ABI identifies generated C interfaces/layouts,
-not the wire protocol; the message bytes have not changed. A missing command or
+Expect `wlc 0.4.0` and `20`. Codegen ABI identifies generated C interfaces/layouts,
+not the wire protocol. Managed RPC uses a new RPC payload format and requires
+matching peers; existing mapped RPC and business codecs keep their bytes. A missing command or
 different ABI means a different compiler build is needed. CMake checks both
 values before generation rather than leaving a header mismatch for firmware compilation.
 

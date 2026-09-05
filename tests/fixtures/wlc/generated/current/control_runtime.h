@@ -19,7 +19,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 19U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 20U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -371,6 +371,7 @@ typedef struct {
     control_runtime_result_fn on_result;
     void *user_data;
     size_t event_budget;
+
     uint8_t tx_payload[CONTROL_ENDPOINT_MAX_PAYLOAD];
     uint8_t tx_unit[CONTROL_ENDPOINT_UNIT_CAPACITY];
     uint8_t control_unit[CONTROL_ENDPOINT_CONTROL_CAPACITY];
@@ -431,6 +432,7 @@ static inline wl_err_t control_endpoint_init_config(
     return WL_ERR_INVALID_ARG;
   if (wl_endpoint_link(control_endpoint_handle(endpoint)) != NULL)
     return WL_ERR_INVALID_STATE;
+
   memset(&link_storage, 0, sizeof(link_storage));
   link_storage.tx_payload = endpoint->private_state.tx_payload;
   link_storage.tx_payload_size = sizeof(endpoint->private_state.tx_payload);
@@ -445,6 +447,7 @@ static inline wl_err_t control_endpoint_init_config(
   storage = control_runtime_default_storage_descriptor(&endpoint->private_state.arena);
   result = control_runtime_init(&endpoint->private_state.instance, &config->runtime, &storage);
   if (result != WL_OK) return result;
+
   result = control_runtime_pump_init(&endpoint->private_state.pump,
       &endpoint->private_state.instance.runtime, control_endpoint_record, endpoint);
   if (result != WL_OK) return result;
@@ -472,8 +475,10 @@ static inline wl_err_t control_endpoint_step(control_endpoint_t *endpoint, wl_ti
   int result;
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
   memset(&endpoint->private_state.result, 0, sizeof(endpoint->private_state.result));
+
   result = wl_endpoint_step(&endpoint->private_state.owner, now_ms,
                              endpoint->private_state.event_budget);
+
   if (result != WL_OK) return result;
   if (endpoint->private_state.pump.last_service_result != WL_RPC_OK) {
     if (control_runtime_result_ok(&endpoint->private_state.result)) {

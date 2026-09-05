@@ -8,6 +8,17 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- Added ABI 20 managed RPC: business-only schemas, automatic metadata framing,
+  typed call handles/results and reply tokens, and body-free business rejections.
+  Mapped RPC remains an explicit interoperability mode with unchanged encoding;
+  switching modes requires coordinated peer upgrades. Managed payload bounds
+  include a 12-byte prefix and omit the old typed injection scratch.
+- Added generation-checked, constant-time client handle access within the existing
+  core storage budgets. Managed endpoint handles also guard close/reinit lifetime;
+  unknown/late managed replies remain diagnostic without failing unrelated calls.
+- Added explicit `@id(n)` schema attributes. Legacy `= n` remains supported with
+  identical generated artifacts, semantic identities and encoded bytes. Reworked
+  the English/Chinese RPC tutorial around business requests and typed results.
 - Added ABI 19 generated default endpoints: statically owned link/runtime storage,
   automatic dispatch/progress, profile-selected sending and copying LATEST/FIFO
   reads. Advanced custom storage and borrowed reads remain available. Unbounded

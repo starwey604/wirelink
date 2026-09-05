@@ -46,12 +46,12 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
-      # The internal ABI 19 compiler is not a published release asset yet.
+      # The internal ABI 20 compiler is not a published release asset yet.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 31df0e0dae644f380b57e9b2d69a96aa56be0f58
+          ref: 6c992decc4b200d258bd8c7409a8896ab37a17e8
           path: .tools/wlc
 
       - name: Build matching WLC

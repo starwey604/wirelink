@@ -11,7 +11,7 @@ WLC 是独立的消息代码生成工具。在电脑上运行它，把 `.wl` 定
 
 ## 2. 获取与 Wirelink 匹配的 WLC
 
-当前默认端点功能处于内部开发阶段，需要 **WLC 0.4.0、生成 ABI 19**。
+当前教程的 `@id(n)` 和托管 RPC 需要 **WLC 0.4.0、生成 ABI 20**，仍处于内部开发阶段。
 这不表示旧的同版本发行包已经包含新功能。此轮没有发布新包或新 tag。
 
 如果已经拿到配套的内部预编译 WLC，把它解压到一个固定目录，并将可执行文件所在目录
@@ -22,7 +22,7 @@ WLC 是独立的消息代码生成工具。在电脑上运行它，把 `.wl` 定
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout 31df0e0dae644f380b57e9b2d69a96aa56be0f58
+git -C wlc-source checkout 6c992decc4b200d258bd8c7409a8896ab37a17e8
 cargo install --path wlc-source --locked --force
 ```
 
@@ -38,8 +38,9 @@ wlc --version
 wlc codegen-abi
 ```
 
-本轮期望分别输出 `wlc 0.4.0` 和 `19`。
-ABI 是生成 C 接口与布局的修订编号，不是线上协议版本；双方消息的字节格式没有因此改变。
+本轮期望分别输出 `wlc 0.4.0` 和 `20`。
+ABI 是生成 C 接口与布局的修订编号，不是线上协议版本。
+本轮托管 RPC 使用新的 RPC payload 格式，两端需配套升级；旧映射模式和业务 codec 字节不变。
 若没有 `codegen-abi` 命令或输出不匹配，需要更换配套 WLC。
 CMake 也会在生成前检查这两项，避免到编译固件时才发现头文件不匹配。
 

@@ -19,21 +19,23 @@ typedef struct {
 } calculator_t;
 
 static int32_t handle_add(void *context, const add_request_t *request,
-                          const wl_rpc_server_request_t *token,
+                          const quickstart_add_request_token_t *token,
                           wl_delivery_t delivery) {
   calculator_t *calculator = context;
   add_response_t response;
-  quickstart_runtime_result_t result;
   const int64_t sum = (int64_t)request->left + request->right;
   (void)delivery;
-  if (sum < INT32_MIN || sum > INT32_MAX) return -1;
+  if (sum < INT32_MIN || sum > INT32_MAX) {
+    /* Business rejection: no fabricated sum or status field is needed. */
+    return quickstart_endpoint_add_reject(calculator->device, token, 1,
+                                          calculator->now_ms);
+  }
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
   /* Preparing a response is synchronous; endpoint_step sends it later. */
-  result = quickstart_endpoint_add_complete(calculator->device, token,
-                                            &response, calculator->now_ms);
-  return quickstart_runtime_result_ok(&result) ? 0 : -1;
+  return quickstart_endpoint_add_complete(calculator->device, token,
+                                          &response, calculator->now_ms);
 }
 
 int main(void) {
@@ -43,11 +45,8 @@ int main(void) {
   wl_loopback_t cable;
   telemetry_t telemetry, received;
   add_request_t request;
-  add_response_t response;
-  quickstart_runtime_result_t result;
-  const quickstart_runtime_rpc_detail_t *detail;
-  wl_rpc_client_result_t operation;
-  uint32_t operation_id;
+  quickstart_add_result_t operation;
+  quickstart_add_call_t call;
 
   CHECK(quickstart_endpoint_config_defaults(&client_config, 0x1001U) == WL_OK);
   CHECK(quickstart_endpoint_config_defaults(&server_config, 0x2002U) == WL_OK);
@@ -82,21 +81,18 @@ int main(void) {
   request.left = 20;
   request.has_right = true;
   request.right = 22;
-  result = quickstart_endpoint_add_start(&controller, &request, 100U, 10U);
-  detail = quickstart_runtime_result_rpc_detail(&result);
-  CHECK(quickstart_runtime_result_ok(&result) && detail != NULL);
-  operation_id = detail->operation_id;
+  CHECK(quickstart_endpoint_add_call(&controller, &request, 100U, 10U,
+                                    &call) == WL_RPC_OK);
 
   /* Simulated milliseconds. Real applications use their monotonic clock. */
   for (calculator.now_ms = 10U; calculator.now_ms < 30U; ++calculator.now_ms) {
     CHECK(quickstart_endpoint_step(&controller, calculator.now_ms) == WL_OK);
     CHECK(quickstart_endpoint_step(&device, calculator.now_ms) == WL_OK);
   }
-  CHECK(quickstart_endpoint_add_inspect(&controller, operation_id, &operation) == WL_RPC_OK);
+  CHECK(quickstart_endpoint_add_inspect(&controller, &call, &operation) == WL_RPC_OK);
   CHECK(operation.state == WL_RPC_CLIENT_COMPLETED);
-  result = quickstart_add_client_decode(&operation, &response);
-  CHECK(quickstart_runtime_result_ok(&result) && response.sum == 42);
-  CHECK(quickstart_endpoint_add_release(&controller, operation_id) == WL_RPC_OK);
+  CHECK(operation.response_valid && operation.response.sum == 42);
+  CHECK(quickstart_endpoint_add_release(&controller, &call) == WL_RPC_OK);
 
   quickstart_endpoint_close(&controller);
   quickstart_endpoint_close(&device);

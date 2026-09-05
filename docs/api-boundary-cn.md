@@ -19,7 +19,7 @@
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、
@@ -172,7 +172,13 @@ RPC 角色、超时策略和回调。对象首次使用前必须零初始化，�
 更大队列、外部 arena 或 DMA 放置仍走高级自定义存储路径。
 详见[设计与限制](default-endpoint-cn.md)。
 
-## WLC 生成接口（ABI 19）
+托管 RPC 默认使用生成的 `*_call_t`、`*_result_t` 和 `*_request_token_t`：
+业务消息无需编号／状态字段，`endpoint_*_call()` 发起，`inspect()` 直接取得类型化结果，
+`release/cancel()` 管理调用，`complete/reject()` 回复。句柄和 token 不暴露业务需要管理的编号，
+会验证端点归属与生命周期。旧字段映射是独立的兼容模式，两种格式不能混用。
+详见 [RPC 合同](rpc-runtime-cn.md)。
+
+## WLC 生成接口（ABI 20）
 
 WLC 有意拆分三类职责：
 
@@ -182,7 +188,7 @@ WLC 有意拆分三类职责：
 
 同一 codec target 可供多个独立命名的 host/device runtime 共用。生成产物必须同时
 匹配 compiler version、codegen ABI、schema identity 和 binding-profile identity。
-ABI 19 增加上述默认端点入口；高级 runtime API family 仍包括：
+ABI 20 增加默认托管 RPC；原有默认端点和高级 runtime API family 仍包括：
 
 | 类别 | 生成模式 |
 | --- | --- |
@@ -240,5 +246,8 @@ identity 是彼此独立的兼容域。Compact-v1 字节向量已经冻结；生
   header；
 - 对可靠非 RPC 流量手动执行 peer observation 是否足够易发现，还是应引入统一的
   session object。
+- 托管 RPC 是否应在响应中回送客户端会话标识，以提供跨客户端重建的响应新鲜度；
+  当前本地句柄代次不解决线上旧响应与复用编号的混淆，见 [RPC 合同](rpc-runtime-cn.md)。
 
-这些问题在 1.0 前都可以调整源码 API，而不会改变 Compact-v1 的线上字节格式。
+上述设计在 1.0 前仍可调整。RPC 元数据的演进可能改变 RPC payload，
+但不需要改变 Compact-v1 链路帧格式。

@@ -81,10 +81,10 @@ cmake --build /path/to/temperature-display/build
 
 输出应仍然是 `latest telemetry: sample=2 temperature=23.50 C`。
 这里 WLC 只在构建时运行，部署的是可执行程序或编译进固件的 C 代码。
-本开发分支需要生成 ABI 19 的 WLC，按[安装篇](installation-cn.md)独立安装并加入 PATH。
+本开发分支需要生成 ABI 20 的 WLC，按[安装篇](installation-cn.md)独立安装并加入 PATH。
 
 只使用类型化发送、自己处理接收的工程可以只链接 codec。
-需要接收辅助功能时再链接相应 runtime；更多角色拆分和命名选项见 [WLC 指南](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README-cn.md)。
+需要接收辅助功能时再链接相应 runtime；更多角色拆分和命名选项见 [WLC 指南](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README-cn.md)。
 
 ## 3. 不要把两种“配置”混为一谈
 
@@ -101,7 +101,7 @@ cmake --build /path/to/temperature-display/build
 | `integrity`，完整性校验 | 如何检测传输中的意外字节损坏 | 两端约定相同模式，例如 CRC32C |
 | `max_payload_len`，payload bound | 编码后一条消息内容最多多少字节 | 覆盖要发送/接收的消息，不含包头和校验 |
 | `max_transmission_unit` | 底层允许的完整包有多大 | 覆盖消息、包头、校验和封装开销 |
-| `session_id` | 区分这次启动与旧启动的可靠流量 | 按[第二篇](tutorial-rpc-cn.md)设计非零启动标识 |
+| `session_id` | 区分这次启动与旧启动的可靠流量 | 按下文选择非零启动标识 |
 | `ack_timeout_ms`、`max_retries` | 可靠发送等多久重试、最多重试几次 | 考虑传输延迟、对端调度和故障恢复要求 |
 
 “带外配置”就是你在固件/主机程序里预先约定这些值；Wirelink v1 不会自动交换和协商它们。
@@ -124,6 +124,27 @@ DMA 特定内存区域、更深接收队列、更多并发槽等需求仍可使�
 
 CRC 检测损坏，不认证发送者，也不加密内容。
 需要防窃听或验证对方身份时，应在产品的传输/安全层解决。
+
+<a id="session-identity"></a>
+
+### 真实设备重启后如何选择会话标识
+
+想象设备重启了，但连接里还残留着重启前的包或确认。
+如果新旧包只靠容易重新从头计数的序号来区分，就可能把旧确认当成新请求的确认。
+
+`session_id` 用来标识“这是本次启动或本次通信实例的流量”。
+可靠数据包和确认包携带相关会话标识，使协议能区分旧会话的流量。
+**非零**只是数值不能为 0，因为 0 被接口保留为无效值。
+
+它不是用来选择“把包发给哪个设备”的地址。Wirelink 连接的是两端，
+本身不提供按节点地址寻路。本例用 0x1001、0x2002 表示两个隔离的模拟端，
+方便输出和测试可重复；真实设备不能每次重启都照抄这些固定值。
+
+一种做法是每次启动生成一个新的非零随机数，常称为 **boot nonce**，
+也就是“这次启动使用的随机标识”；另一种做法是在持久存储中维护启动计数，
+每次启动先递增再使用。目标都是避免旧包仍可能存在时复用同一个标识。
+随机方案还要考虑碰撞概率；它不是认证密码或加密密钥。
+
 
 ## 4. 把内存连接换成真实传输
 
@@ -213,7 +234,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 无需按顺序读完所有参考文件：
 
 - 想审阅公开 API 的划分和所有权：读 [API 边界](api-boundary-cn.md)。
-- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README-cn.md)。
+- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README-cn.md)。
 - 想了解保留最新值或队列的限制：读 [LATEST](latest-mailbox-cn.md) 与 [FIFO](fifo-cn.md)。
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。

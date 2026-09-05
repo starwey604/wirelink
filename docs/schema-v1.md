@@ -10,30 +10,38 @@ implements retransmission or treats a link ACK as an application result.
 
 ## 1. Schema source
 
-The existing `.wl` grammar is retained:
+The payload encoding remains v1. New source uses explicit `@id(n)` attributes;
+the previous `= n` spelling remains accepted for existing schemas:
 
 ```text
 schema         = "version" positive-integer ";" item+
 item           = declaration | reservation
 declaration    = message | enum
 reservation    = "reserved" positive-integer ";"
-message        = "message" identifier "=" positive-integer
+id-attribute   = "@" "id" "(" positive-integer ")" | "=" positive-integer
+message        = "message" identifier id-attribute
                  "{" (field | reservation)* "}"
 field          = optional-field | required-field | repeated-field
                  | packed-field | required-packed-field
-optional-field = "optional" type identifier "=" positive-integer
+optional-field = "optional" type identifier id-attribute
                  ("[" "default" "=" literal "]")? ";"
-required-field = "required" type identifier "=" positive-integer ";"
-repeated-field = "repeated" type identifier "=" positive-integer ";"
+required-field = "required" type identifier id-attribute ";"
+repeated-field = "repeated" type identifier id-attribute ";"
 packed-field   = "packed" packed-type identifier "[" positive-integer "]"
-                 "=" positive-integer ";"
+                 id-attribute ";"
 required-packed-field = "required" "packed" packed-type identifier
-                        "[" positive-integer "]" "=" positive-integer ";"
+                        "[" positive-integer "]" id-attribute ";"
 type            = identifier | bounded-length-type
 bounded-length-type = ("bytes" | "string") "<" positive-integer ">"
 packed-type    = "float32" | "float64" | "fixed32" | "fixed64"
-enum           = "enum" identifier "=" positive-integer "{" enum-item* "}"
+enum           = "enum" identifier id-attribute "{" enum-item* "}"
 ```
+
+`@id(n)` applies to message/enum declaration IDs and message field numbers.
+Enum values still use `NAME = integer;`; optional defaults still use
+`[default = literal]`. The two ID spellings produce identical semantic models,
+identities, generated C and encoded bytes. Changing only the spelling does not
+require a schema revision increment. IDs are never allocated from source order.
 
 There are no implicit IDs, maps, `oneof`, services, extensions, or
 schema-level reliability annotations in v1. Reliability is selected by the
@@ -113,9 +121,10 @@ fit its bound in encoded UTF-8 bytes at schema-analysis time.
 
 ## 2. Wire format
 
-A payload is a sequence of zero or more tagged fields. There is no payload
+A business codec payload is a sequence of zero or more tagged fields. There is no payload
 header and no schema revision field: the Wirelink DATA `message_id` chooses the
-generated decoder.
+generated decoder. Managed RPC adds its own metadata before these codec bytes;
+the RPC runtime removes it before decoding. See [RPC runtime](rpc-runtime.md).
 
 Each field begins with an unsigned-LEB128 key:
 
@@ -292,34 +301,34 @@ or application-runtime symbols into its link.
 ```wl
 version 1;
 
-enum MotorMode = 1 {
+enum MotorMode @id(1) {
   MOTOR_MODE_DISABLED = 0;
   MOTOR_MODE_CURRENT = 1;
   MOTOR_MODE_POSITION = 2;
 }
 
-message MotorCommand = 16 {
-  required uint32 operation_id = 1;
-  required MotorMode mode = 2;
-  optional fixed32 target_milliamps = 3;
-  optional bytes<64> vendor_extension = 4;
+message MotorCommand @id(16) {
+  required uint32 operation_id @id(1);
+  required MotorMode mode @id(2);
+  optional fixed32 target_milliamps @id(3);
+  optional bytes<64> vendor_extension @id(4);
 }
 
-message SensorSample = 17 {
-  optional uint32 sensor_id = 1;
-  optional int32 value_milliunits = 2;
+message SensorSample @id(17) {
+  optional uint32 sensor_id @id(1);
+  optional int32 value_milliunits @id(2);
 }
 
-message TelemetryBatch = 18 {
-  repeated SensorSample samples = 1;
-  optional string<31> source = 2 [default = "board"];
-  optional uint64 timestamp_us = 3;
+message TelemetryBatch @id(18) {
+  repeated SensorSample samples @id(1);
+  optional string<31> source @id(2) [default = "board"];
+  optional uint64 timestamp_us @id(3);
 }
 
-message ArmMitCommand = 19 {
-  required packed float32 controls[30] = 1;
-  required uint16 sequence = 2;
-  required float32 dt_s = 3;
+message ArmMitCommand @id(19) {
+  required packed float32 controls[30] @id(1);
+  required uint16 sequence @id(2);
+  required float32 dt_s @id(3);
 }
 ```
 

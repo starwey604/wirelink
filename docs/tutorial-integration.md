@@ -85,11 +85,11 @@ cmake --build /path/to/temperature-display/build
 
 Expect `latest telemetry: sample=2 temperature=23.50 C` again.
 WLC runs at build time; generated C becomes part of the executable or firmware.
-This development branch needs codegen ABI 19; install WLC independently on PATH
+This development branch needs codegen ABI 20; install WLC independently on PATH
 as described in [environment setup](installation.md).
 
 Projects using typed sending and custom reception can link only the codec.
-Add runtimes as needed. See the [WLC guide](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README.md) for role separation
+Add runtimes as needed. See the [WLC guide](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md) for role separation
 and naming options.
 
 ## 3. Two different configurations
@@ -108,7 +108,7 @@ call these settings a link profile; they are not the binding-profile file.
 | `integrity` | Detection of accidental byte corruption | Agree on a mode, for example CRC32C |
 | `max_payload_len`, payload bound | Maximum encoded message size without headers/checksum | Cover messages sent and received |
 | `max_transmission_unit` | Maximum complete transport packet size | Include headers, checksum, and envelope overhead |
-| `session_id` | Distinguish reliable traffic from this boot and older boots | Use the nonzero identity policy from [lesson two](tutorial-rpc.md) |
+| `session_id` | Distinguish reliable traffic from this boot and older boots | Use the nonzero identity policy below |
 | `ack_timeout_ms`, `max_retries` | How long to wait before retrying and how often | Account for transport delay, scheduling, and recovery needs |
 
 “Out of band” means your programs agree on settings beforehand; v1 does not
@@ -135,6 +135,28 @@ Default endpoints do not resize automatically at runtime.
 
 CRC detects corruption; it neither authenticates senders nor encrypts content.
 Implement those requirements in your product's transport/security layer.
+
+<a id="session-identity"></a>
+
+### Choosing session identities across real reboots
+
+Suppose a device restarts while old packets or acknowledgements remain in the
+connection. Reusing sequence numbers alone could let an old ACK confirm new work.
+
+`session_id` identifies one boot or communication instance. Reliable data
+and acknowledgements carry the relevant session identity so the protocol can
+distinguish old-session traffic. Nonzero means simply that 0 is reserved as invalid.
+
+It is not an address selecting which device receives a packet. Wirelink connects
+two ends and provides no node-address routing. The isolated example uses fixed
+0x1001 and 0x2002 values for repeatability, not a production reboot policy.
+
+One approach generates a fresh nonzero random value each boot, often called a
+**boot nonce**: a random identifier for this startup. Another increments a
+persistent boot counter before using it. Avoid reusing an identity while old
+traffic might survive; random generation must account for collision probability.
+This identifier is not authentication or an encryption key.
+
 
 ## 4. Replace loopback with real transport
 
@@ -228,7 +250,7 @@ You have now received state, requested work, and integrated a build and driver.
 Use references as needed:
 
 - [API boundaries](api-boundary.md) for public interfaces and ownership.
-- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README.md) for more message definitions.
+- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md) for more message definitions.
 - [LATEST](latest-mailbox.md) and [FIFO](fifo.md) for retained-storage limits.
 - [RPC runtime](rpc-runtime.md) for failures and retries.
 - Bulk in [application-layer](application-layer.md) for large objects.

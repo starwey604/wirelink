@@ -21,8 +21,10 @@ Run its focused checks from the repository root with:
 cargo test --manifest-path wlc/Cargo.toml
 ```
 
-Consumer builds use the released host compiler instead of building this Rust
-worktree. `wirelink_wlc_generate_codec()` resolves a per-call executable, a
+Consumer builds use an independently installed matching compiler rather than
+requiring this development worktree. Current internal ABI 20 is not a released
+asset; disable auto-download and use the matching source build.
+`wirelink_wlc_generate_codec()` resolves a per-call executable, a
 project-wide executable, or a compatible `wlc` on the host `PATH` before
 downloading the pinned release. The fallback selects from
 `CMAKE_HOST_SYSTEM_NAME`/`CMAKE_HOST_SYSTEM_PROCESSOR`, verifies a source-pinned
@@ -58,7 +60,7 @@ recorded in `wlc/README.md` before adoption.
 ## WLC semantic baseline
 
 `analyze_schema` resolves parsed field types and produces an ID-sorted semantic
-model. ID allocation is explicit: schemas must never receive implicit message,
+model. IDs use `@id(n)` (legacy `= n` remains equivalent). Schemas must never receive implicit message,
 enum, or field numbers. `check_compatibility` compares two such models; deleted
 declaration IDs require top-level `reserved N;`, while deleted fields require
 the same declaration inside their message. Reserved IDs are permanent.

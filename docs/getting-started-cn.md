@@ -43,9 +43,9 @@ latest telemetry: sample=2 temperature=23.50 C
 ```text
 version 1;
 
-message Telemetry = 10 {
-  required uint32 sample = 1;
-  required int32 temperature_centi_c = 2;
+message Telemetry @id(10) {
+  required uint32 sample @id(1);
+  required int32 temperature_centi_c @id(2);
 }
 ```
 
@@ -53,10 +53,11 @@ message Telemetry = 10 {
 它包含采样编号 `sample` 和以百分之一摄氏度为单位的温度：
 `2350` 就是 23.50 °C。使用整数可以避免在消息定义中引入浮点换算问题。
 
-`message ... = 10` 中的 10 是消息类型编号，用来区分温度消息和其他消息。
-字段后面的 1、2 是字段编号，用来识别消息中的不同数据，**不是默认值**。
+`message Telemetry @id(10)` 表示温度消息的类型编号是 10，用来区分不同消息。
+字段上的 `@id(1)`、`@id(2)` 则给这条消息里的两个字段编号。它们是稳定的标识，
+不是测量值；后续调整字段排列时，不要改变已有编号。
 `required` 表示消息必须包含这个字段；`uint32` 和 `int32` 是无符号、
-有符号的 32 位整数。`version 1` 选择消息定义语言的版本。
+有符号的 32 位整数。`version 1` 表示这是这份消息定义的第一版。
 
 这类描述消息结构的文件称为 **schema（消息定义）**。双方用同一份定义生成代码，
 就能按相同规则编码和解码；不直接把 C 结构体的内存原样发出去。

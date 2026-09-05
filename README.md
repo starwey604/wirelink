@@ -32,7 +32,7 @@ is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    then integrate its wakeups with [`development.md`](docs/development.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/31df0e0dae644f380b57e9b2d69a96aa56be0f58/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and
