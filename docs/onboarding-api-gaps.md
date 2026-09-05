@@ -76,11 +76,11 @@ linker garbage collection.
 
 ### Provide a supported loopback adapter
 
-The first example has to invent a one-unit sink and manually shuttle ACK and
-DATA units. A no-allocation in-memory packet adapter would give tests and new
-users a standard, hardware-free starting point analogous to libcsp loopback.
-It should model backpressure and asynchronous completion, not only the happy
-path.
+Implemented as the separately linkable and installed `Wirelink::loopback`
+target. It connects two native-packet contexts with one borrowed asynchronous
+unit per direction, bounded fair service, explicit RX backpressure, common
+adapter counters, and deterministic quiesce. Both compiled examples use it;
+the core and firmware images pay no cost unless the target is linked.
 
 ### Allow asymmetric roles without duplicate generated codecs
 

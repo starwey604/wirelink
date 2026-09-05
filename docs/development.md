@@ -430,13 +430,15 @@ and executes all unit and integration scenarios on
 ## Packaging and examples
 
 `WIRELINK_INSTALL` defaults on only when Wirelink is the top-level project.
-It installs the core archive, public headers, a relocatable CMake package, a
-pkg-config file, and the license. Private RX state and platform adapters are
-not installed. Until the project reaches 1.0, generated package compatibility
-is restricted to the same `0.x` minor release.
+It installs the core and portable loopback archives, public headers, a
+relocatable CMake package, a pkg-config file for the core, and the license.
+Private RX state and hardware adapters are not installed. Until the project
+reaches 1.0, generated package compatibility is restricted to the same `0.x`
+minor release.
 
 `WIRELINK_BUILD_EXAMPLES` also defaults on only for top-level builds. The
-bare-metal loopback is registered with CTest. The typed Astrial example is
+bare-metal and typed quickstart examples use `Wirelink::loopback`; the former
+is registered with CTest. The typed Astrial example is
 added only when `WIRELINK_BUILD_ASTRIAL_ADAPTER=ON`. The Zephyr UART/DMA sample
 is a standalone Zephyr application and therefore is built with `west`, not by
 top-level CMake.

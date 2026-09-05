@@ -9,6 +9,7 @@
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
 #include <wirelink/link.h>
+#include <wirelink/loopback.h>
 #include <wirelink/port.h>
 #include <wirelink/profile.h>
 #include <wirelink/rpc.h>
@@ -35,6 +36,9 @@ static_assert(std::is_standard_layout_v<wl_bulk_receiver_t>);
 static_assert(std::is_standard_layout_v<wl_bulk_sender_t>);
 static_assert(std::is_standard_layout_v<wl_bulk_status_t>);
 static_assert(std::is_standard_layout_v<wl_poll_hint_t>);
+static_assert(std::is_standard_layout_v<wl_loopback_t>);
+static_assert(std::is_standard_layout_v<wl_loopback_service_result_t>);
+static_assert(sizeof(wl_loopback_t) == WL_LOOPBACK_STORAGE_SIZE);
 static_assert(sizeof(wl_poll_hint_t) == 8U);
 static_assert(alignof(wl_poll_hint_t) == alignof(std::uint32_t));
 static_assert(sizeof(wl_codec_status_t) == sizeof(std::int32_t));

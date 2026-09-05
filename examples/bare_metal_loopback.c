@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "wirelink/wirelink.h"
+#include "wirelink/loopback.h"
 
 #define EXAMPLE_MAX_PAYLOAD 64U
 #define EXAMPLE_STORAGE_SIZE 128U
@@ -15,25 +15,7 @@ typedef struct {
   uint8_t tx_unit[EXAMPLE_STORAGE_SIZE];
   uint8_t control_unit[EXAMPLE_STORAGE_SIZE];
   uint8_t rx_fallback[EXAMPLE_STORAGE_SIZE];
-  uint8_t outbound[EXAMPLE_STORAGE_SIZE];
-  size_t outbound_length;
 } endpoint_t;
-
-static wl_sink_result_t capture_unit(void *user_data, wl_io_token_t token,
-                                     const uint8_t *data, size_t length) {
-  endpoint_t *endpoint = user_data;
-
-  (void)token;
-  if (endpoint->outbound_length != 0U) {
-    return WL_SINK_BUSY;
-  }
-  if (length > sizeof(endpoint->outbound)) {
-    return WL_SINK_FAILED;
-  }
-  memcpy(endpoint->outbound, data, length);
-  endpoint->outbound_length = length;
-  return WL_SINK_SENT;
-}
 
 static int endpoint_init(endpoint_t *endpoint, uint64_t session_id) {
   const wl_config_t config = {
@@ -59,41 +41,29 @@ static int endpoint_init(endpoint_t *endpoint, uint64_t session_id) {
 
   memset(endpoint, 0, sizeof(*endpoint));
   result = wl_init(&endpoint->link, &config, &storage);
-  if (result != WL_OK) {
-    return result;
-  }
-  return wl_set_sink(&endpoint->link, capture_unit, endpoint);
-}
-
-/* A packet transport calls wl_feed_unit() once for each received datagram. */
-static int deliver(endpoint_t *source, endpoint_t *destination) {
-  int result;
-
-  if (source->outbound_length == 0U) {
-    return WL_ERR_NO_DATA;
-  }
-  result = wl_feed_unit(&destination->link, source->outbound,
-                        source->outbound_length);
-  source->outbound_length = 0U;
   return result;
 }
 
 int main(void) {
   endpoint_t controller;
   endpoint_t actuator;
+  wl_loopback_t loopback;
+  wl_loopback_service_result_t service;
   const uint8_t command[] = {0x01U, 0x02U, 0x00U, 0x04U};
   wl_tx_handle_t handle;
   wl_tx_result_t tx_result;
   wl_event_t event;
 
   if (endpoint_init(&controller, UINT64_C(0x1001)) != WL_OK ||
-      endpoint_init(&actuator, UINT64_C(0x2002)) != WL_OK) {
+      endpoint_init(&actuator, UINT64_C(0x2002)) != WL_OK ||
+      wl_loopback_init(&loopback, &controller.link, &actuator.link) != WL_OK) {
     return 1;
   }
 
   if (wl_send_reliable(&controller.link, 0x42U, command, sizeof(command),
                        &handle) != WL_OK ||
-      deliver(&controller, &actuator) != WL_OK) {
+      wl_loopback_service(&loopback, 1U, &service) != WL_OK ||
+      service.delivered != 1U) {
     return 2;
   }
 
@@ -107,7 +77,8 @@ int main(void) {
   /* The borrowed payload remains valid until this explicit release. */
   wl_event_release(&actuator.link, &event);
 
-  if (deliver(&actuator, &controller) != WL_OK) {
+  if (wl_loopback_service(&loopback, 1U, &service) != WL_OK ||
+      service.delivered != 1U) {
     return 4;
   }
   memset(&event, 0, sizeof(event));
@@ -120,6 +91,7 @@ int main(void) {
     return 6;
   }
 
+  wl_loopback_quiesce(&loopback);
   puts("reliable native-packet round trip succeeded");
   return 0;
 }

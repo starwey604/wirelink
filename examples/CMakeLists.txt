@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 add_executable(wirelink_bare_metal_loopback bare_metal_loopback.c)
-target_link_libraries(wirelink_bare_metal_loopback PRIVATE Wirelink::wirelink)
+target_link_libraries(wirelink_bare_metal_loopback PRIVATE Wirelink::loopback)
 
 if(WIRELINK_BUILD_GETTING_STARTED)
   wirelink_wlc_generate(
@@ -10,7 +10,7 @@ if(WIRELINK_BUILD_GETTING_STARTED)
     PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.bind.wl")
   add_executable(wirelink_getting_started getting_started.c)
   target_link_libraries(wirelink_getting_started PRIVATE
-    wirelink_quickstart_protocol)
+    wirelink_quickstart_protocol Wirelink::loopback)
 endif()
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

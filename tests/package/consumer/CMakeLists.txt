@@ -7,6 +7,7 @@ find_package(Wirelink 0.9 CONFIG REQUIRED)
 
 add_executable(wirelink_package_consumer main.c)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink)
+target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::loopback)
 set_target_properties(wirelink_package_consumer PROPERTIES
   C_STANDARD 11
   C_STANDARD_REQUIRED YES

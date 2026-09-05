@@ -120,7 +120,24 @@ producer API instead.
 
 ## 4. Bind the transport
 
-Register one `wl_sink_fn` with `wl_set_sink()`:
+For hardware-free bring-up, bind both native-packet links to the supported
+loopback adapter:
+
+```c
+wl_loopback_t transport;
+wl_loopback_init(&transport, &controller.link, &device.link);
+
+wl_loopback_service_result_t service;
+wl_loopback_service(&transport, 4U, &service);
+```
+
+The adapter borrows each encoded unit asynchronously, models one-unit
+backpressure in each direction, and completes it during a bounded `service()`
+pass. It adds no payload buffer or heap allocation. Quiesce it before either
+link's storage is reinitialized.
+
+Hardware adapters implement the same port contract by registering one
+`wl_sink_fn` with `wl_set_sink()`:
 
 - return `WL_SINK_SENT` when the bytes were consumed synchronously;
 - return `WL_SINK_STARTED` when the transport borrows them asynchronously,
@@ -206,8 +223,9 @@ expiry, session change, or restart ends this protection.
 
 ## 7. Move from loopback to hardware
 
-Keep the schema, runtime, owner loop, and session rules unchanged. Replace the
-memory sink with a platform adapter and select its matching ingress mode:
+Keep the schema, runtime, owner loop, and session rules unchanged. Replace
+`Wirelink::loopback` with a platform adapter and select its matching ingress
+mode:
 
 - UART/serial stream: COBS envelope plus byte or DMA publication;
 - USB, UDP, or packet CAN: native-packet envelope plus unit publication;

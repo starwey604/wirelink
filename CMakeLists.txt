@@ -42,6 +42,10 @@ target_include_directories(wirelink PUBLIC
 )
 set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 
+# The portable in-memory adapter is a separate target so embedded consumers
+# pay no code or state cost unless they explicitly link it.
+add_subdirectory(adapters/loopback)
+
 if(MSVC)
   target_compile_options(wirelink PUBLIC /utf-8)
   target_compile_options(wirelink PRIVATE /experimental:c11atomics)
@@ -206,6 +210,13 @@ if(WIRELINK_INSTALL)
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
+  install(TARGETS wirelink_loopback
+    EXPORT WirelinkTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
   if(TARGET wirelink_host)
     install(TARGETS wirelink_host
       EXPORT WirelinkTargets
@@ -228,6 +239,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/frame.h
     include/wirelink/latest.h
     include/wirelink/link.h
+    include/wirelink/loopback.h
     include/wirelink/outbox.h
     include/wirelink/port.h
     include/wirelink/profile.h

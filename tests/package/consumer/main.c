@@ -10,6 +10,7 @@
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
 #include <wirelink/link.h>
+#include <wirelink/loopback.h>
 #include <wirelink/port.h>
 #include <wirelink/profile.h>
 #include <wirelink/rpc.h>
@@ -36,6 +37,10 @@ _Static_assert(sizeof(wl_event_type_t) == sizeof(int32_t),
                "public event ABI must not depend on -fshort-enums");
 _Static_assert(sizeof(wl_sink_result_t) == sizeof(int32_t),
                "public sink ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_loopback_endpoint_t) == sizeof(int32_t),
+               "loopback endpoint ABI must not depend on -fshort-enums");
+_Static_assert(sizeof(wl_loopback_t) == WL_LOOPBACK_STORAGE_SIZE,
+               "loopback opaque storage size changed");
 _Static_assert(sizeof(wl_codec_status_t) == sizeof(int32_t),
                "public codec ABI must not depend on -fshort-enums");
 _Static_assert(sizeof(wl_rpc_err_t) == sizeof(int32_t),
@@ -217,6 +222,8 @@ int main(void) {
   };
   wl_config_t observed = {0};
   wl_poll_hint_t poll_hint = {0};
+  wl_loopback_t loopback = {0};
+  wl_adapter_stats_t loopback_stats = {0};
   wl_storage_requirements_t requirements = {0};
   uint8_t tx_payload[32];
   uint8_t tx_unit[WL_FRAME_MAX_RAW_LEN];
@@ -284,6 +291,8 @@ int main(void) {
       observed.max_retries != config.max_retries ||
       observed.ack_timeout_ms != config.ack_timeout_ms ||
       observed.max_transmission_unit != config.max_transmission_unit ||
+      wl_loopback_get_stats(&loopback, WL_LOOPBACK_ENDPOINT_A,
+                            &loopback_stats) != WL_ERR_NOT_INITIALIZED ||
       wl_latest_init(&latest, &latest_config, &latest_storage) != WL_OK ||
       wl_latest_write_claim(&latest, &latest_claim) != WL_OK ||
       wl_fifo_init(&fifo, &fifo_config, &fifo_storage) != WL_OK ||

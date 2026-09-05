@@ -17,7 +17,8 @@ and pre-1.0 limits are documented in
 and remaining pre-1.0 API decisions are in
 [`docs/api-v1-audit.md`](docs/api-v1-audit.md).
 
-Platform adapters currently cover Zephyr asynchronous UART DMA plus Astrial
+The portable allocation-free loopback adapter provides hardware-free packet
+bring-up. Platform adapters cover Zephyr asynchronous UART DMA plus Astrial
 serial and native USB bulk ports on Linux, macOS, and Windows. WLC-generated C
 codecs and bindings turn typed schemas into payloads, route borrowed RX events,
 and submit typed messages. Allocation-free `LATEST`, ordered SPSC `FIFO`, RPC,
@@ -35,6 +36,10 @@ The core targets are `wirelink` and its namespaced alias
 `Wirelink::wirelink`. Applications provide all persistent storage to
 `wl_init()`, drive time through `wl_poll()`, and bind a transport sink through
 `wl_set_sink()`.
+
+The installed `Wirelink::loopback` target connects two native-packet contexts
+with bounded asynchronous completion and backpressure; see
+[`docs/loopback.md`](docs/loopback.md).
 
 To install and consume the core as a CMake package:
 
@@ -145,8 +150,8 @@ the consumer, so timeout processing remains responsible for servicing TX.
 ## Examples
 
 - [`examples/bare_metal_loopback.c`](examples/bare_metal_loopback.c) is an
-  allocation-free native-packet reliable exchange between two static C
-  contexts.
+  allocation-free native-packet reliable exchange using the supported
+  loopback adapter between two static C contexts.
 - [`examples/astrial_typed_serial.cpp`](examples/astrial_typed_serial.cpp)
   encodes a generated six-joint `ArmCommand` and submits it through Astrial.
 - [`samples/zephyr/uart_dma`](samples/zephyr/uart_dma) is a full-duplex

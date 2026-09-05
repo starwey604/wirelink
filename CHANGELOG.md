@@ -35,6 +35,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### API and protocol hardening
 
+- Added the installed allocation-free `Wirelink::loopback` adapter with
+  borrowed asynchronous units, bounded fair service, explicit backpressure,
+  common counters, and deterministic quiesce.
 - Added generated ABI 17 result helpers for success checks, diagnostic text,
   and tag-checked retained/RPC detail access without weakening the complete
   diagnostic result contract.

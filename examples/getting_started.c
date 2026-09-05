@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "quickstart_runtime.h"
-#include "wirelink/port.h"
+#include "wirelink/loopback.h"
 
 #define APP_MAX_PAYLOAD 64U
 #define APP_UNIT_CAPACITY 96U
@@ -17,8 +17,6 @@ typedef struct {
   uint8_t tx_unit[APP_UNIT_CAPACITY];
   uint8_t control_unit[APP_UNIT_CAPACITY];
   uint8_t rx_fallback[APP_UNIT_CAPACITY];
-  uint8_t outbound[APP_UNIT_CAPACITY];
-  size_t outbound_length;
 } endpoint_t;
 
 typedef struct {
@@ -34,22 +32,6 @@ typedef struct {
   int32_t right;
   uint32_t calls;
 } add_server_t;
-
-static wl_sink_result_t memory_sink(void *user_data, wl_io_token_t token,
-                                    const uint8_t *data, size_t length) {
-  endpoint_t *endpoint = user_data;
-
-  (void)token;
-  if (endpoint->outbound_length != 0U) {
-    return WL_SINK_BUSY;
-  }
-  if (length > sizeof(endpoint->outbound)) {
-    return WL_SINK_FAILED;
-  }
-  memcpy(endpoint->outbound, data, length);
-  endpoint->outbound_length = length;
-  return WL_SINK_SENT;
-}
 
 static int endpoint_init(endpoint_t *endpoint, uint64_t session_id) {
   const wl_config_t config = {
@@ -75,10 +57,7 @@ static int endpoint_init(endpoint_t *endpoint, uint64_t session_id) {
 
   memset(endpoint, 0, sizeof(*endpoint));
   result = wl_init(&endpoint->link, &config, &storage);
-  if (result != WL_OK) {
-    return result;
-  }
-  return wl_set_sink(&endpoint->link, memory_sink, endpoint);
+  return result;
 }
 
 static void observe_runtime_result(
@@ -104,14 +83,14 @@ static int runtime_init(application_runtime_t *runtime,
       runtime);
 }
 
-static int deliver(endpoint_t *source, endpoint_t *destination) {
-  size_t length = source->outbound_length;
+static int deliver(wl_loopback_t *loopback) {
+  wl_loopback_service_result_t service;
+  int result = wl_loopback_service(loopback, 1U, &service);
 
-  if (length == 0U) {
-    return WL_ERR_NO_DATA;
+  if (result != WL_OK) {
+    return result;
   }
-  source->outbound_length = 0U;
-  return wl_feed_unit(&destination->link, source->outbound, length);
+  return service.delivered == 1U ? WL_OK : WL_ERR_NO_DATA;
 }
 
 static int poll_dispatch(endpoint_t *endpoint, application_runtime_t *runtime,
@@ -155,7 +134,8 @@ static int32_t handle_add(void *user_data, const add_request_t *request,
 
 static int run_unreliable(endpoint_t *device, endpoint_t *controller,
                           application_runtime_t *device_runtime,
-                          application_runtime_t *controller_runtime) {
+                          application_runtime_t *controller_runtime,
+                          wl_loopback_t *loopback) {
   telemetry_t telemetry;
   quickstart_send_result_t sent;
   quickstart_runtime_result_t dispatched;
@@ -169,7 +149,7 @@ static int run_unreliable(endpoint_t *device, endpoint_t *controller,
   sent = quickstart_telemetry_send(&device->link, &telemetry,
                                    WL_DELIVERY_UNRELIABLE);
   if (sent.domain != QUICKSTART_SEND_OK ||
-      deliver(device, controller) != WL_OK ||
+      deliver(loopback) != WL_OK ||
       poll_dispatch(controller, controller_runtime, 1U, &dispatched) != WL_OK ||
       dispatched.domain != QUICKSTART_RUNTIME_OK ||
       quickstart_telemetry_latest_acquire(&controller_runtime->instance.runtime,
@@ -192,7 +172,7 @@ static int run_unreliable(endpoint_t *device, endpoint_t *controller,
 static int run_rpc(endpoint_t *controller, endpoint_t *device,
                    application_runtime_t *controller_runtime,
                    application_runtime_t *device_runtime,
-                   add_server_t *server) {
+                   add_server_t *server, wl_loopback_t *loopback) {
   add_request_t request;
   add_response_t response;
   add_response_t decoded;
@@ -219,10 +199,10 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   operation_id = rpc_detail->operation_id;
 
   /* Request, request ACK, and the client's terminal TX event. */
-  if (deliver(controller, device) != WL_OK ||
+  if (deliver(loopback) != WL_OK ||
       poll_dispatch(device, device_runtime, 11U, &result) != WL_OK ||
       !quickstart_runtime_result_ok(&result) || server->calls != 1U ||
-      deliver(device, controller) != WL_OK ||
+      deliver(loopback) != WL_OK ||
       poll_dispatch(controller, controller_runtime, 12U, &result) != WL_OK ||
       !quickstart_runtime_result_ok(&result)) {
     return 2;
@@ -242,10 +222,10 @@ static int run_rpc(endpoint_t *controller, endpoint_t *device,
   }
 
   /* Response, response ACK, and the server's terminal TX event. */
-  if (deliver(device, controller) != WL_OK ||
+  if (deliver(loopback) != WL_OK ||
       poll_dispatch(controller, controller_runtime, 14U, &result) != WL_OK ||
       !quickstart_runtime_result_ok(&result) ||
-      deliver(controller, device) != WL_OK ||
+      deliver(loopback) != WL_OK ||
       poll_dispatch(device, device_runtime, 15U, &result) != WL_OK ||
       !quickstart_runtime_result_ok(&result)) {
     return 4;
@@ -273,6 +253,7 @@ int main(void) {
   endpoint_t device;
   application_runtime_t controller_runtime;
   application_runtime_t device_runtime;
+  wl_loopback_t loopback;
   add_server_t server = {0};
   quickstart_runtime_config_t controller_config;
   quickstart_runtime_config_t device_config;
@@ -302,6 +283,9 @@ int main(void) {
     result = endpoint_init(&device, UINT64_C(0x2002));
   }
   if (result == WL_OK) {
+    result = wl_loopback_init(&loopback, &controller.link, &device.link);
+  }
+  if (result == WL_OK) {
     result = runtime_init(&controller_runtime, &controller_config);
   }
   if (result == WL_OK) {
@@ -313,16 +297,17 @@ int main(void) {
   }
 
   if (run_unreliable(&device, &controller, &device_runtime,
-                     &controller_runtime) != 0) {
+                     &controller_runtime, &loopback) != 0) {
     fputs("unreliable example failed\n", stderr);
     return 2;
   }
   if (run_rpc(&controller, &device, &controller_runtime, &device_runtime,
-              &server) != 0) {
+              &server, &loopback) != 0) {
     fputs("RPC example failed\n", stderr);
     return 3;
   }
 
+  wl_loopback_quiesce(&loopback);
   puts("unreliable telemetry: sample=7 temperature=23.50 C");
   puts("reliable RPC: 20 + 22 = 42");
   return 0;
