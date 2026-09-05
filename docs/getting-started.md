@@ -31,9 +31,13 @@ clocks.
 | interface and driver | adapter using the public port API |
 | router task | application-owned poll/service loop |
 
+CRC detects accidental corruption; it does not authenticate a peer. Wirelink
+v1 also has no encryption, discovery, broadcast, routing, or access control.
+Put the link inside an authenticated/encrypted transport when required.
+
 ## Build the runnable example
 
-From a source checkout with a compatible ABI 17 `wlc` executable:
+From a source checkout with a compatible ABI 18 `wlc` executable:
 
 ```sh
 cmake -S . -B build/quickstart \

@@ -53,4 +53,7 @@ completion identity includes the reliable sender session, so a restarted peer
 may reuse an operation ID without replaying the preceding session's response.
 Generated result helpers provide the common success check, diagnostic text,
 and tag-checked retained/RPC detail access. The previous revision intentionally
-lacks these additive messages and application patterns.
+lacks these additive messages and application patterns. ABI 18 also provides
+optional checked initialization diagnostics and automatically observes
+reliable RPC peer-session changes; applications can take the observation to
+revoke product state outside the RPC runtime.

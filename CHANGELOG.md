@@ -38,6 +38,13 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### API and protocol hardening
 
+- Added generated ABI 18 checked runtime initialization diagnostics and
+  automatic reliable-RPC peer-session transitions, including stale RPC state
+  disposal, detached-response cancellation, and an observation hook for
+  product lease revocation.
+- Documented one adapter lifecycle and ingress-selection contract across
+  loopback, Zephyr UART/USB, Astrial, and UDP integrations, and added an ordered
+  onboarding path with explicit security and topology exclusions.
 - Added the installed allocation-free `Wirelink::loopback` adapter with
   borrowed asynchronous units, bounded fair service, explicit backpressure,
   common counters, and deterministic quiesce.

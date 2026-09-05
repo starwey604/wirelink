@@ -48,6 +48,10 @@ static uint64_t control_rpc_request_fingerprint(const uint8_t *data, size_t leng
   return hash;
 }
 
+static void control_runtime_cancel_peer_tx(void *context, wl_tx_handle_t handle) {
+  if (context != NULL) (void)wl_tx_cancel((wl_ctx_t *)context, handle);
+}
+
 wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
   memset(config, 0, sizeof(*config));
@@ -86,6 +90,37 @@ control_runtime_storage_t control_runtime_default_storage_descriptor(control_run
     descriptor.size = sizeof(storage->bytes);
   }
   return descriptor;
+}
+
+const char *control_runtime_init_issue_str(control_runtime_init_issue_t issue) {
+  switch (issue) {
+    case CONTROL_RUNTIME_INIT_OK: return "ok";
+    case CONTROL_RUNTIME_INIT_NULL_ARGUMENT: return "null argument";
+    case CONTROL_RUNTIME_INIT_ROLE_ENABLE: return "role enable must be zero or one";
+    case CONTROL_RUNTIME_INIT_RETAINED_CAPACITY: return "retained capacity is zero";
+    case CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY: return "RPC client capacity is zero";
+    case CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY: return "RPC server capacity is zero";
+    case CONTROL_RUNTIME_INIT_RPC_TIMEOUT: return "RPC timeout exceeds wrap-safe range";
+    case CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY: return "unknown RPC cache policy";
+    case CONTROL_RUNTIME_INIT_RPC_CANONICAL_CAPACITY: return "canonical request capacity is zero";
+    case CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW: return "runtime layout size overflow";
+    case CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL: return "runtime storage is too small";
+    case CONTROL_RUNTIME_INIT_STORAGE_NULL: return "runtime storage data is null";
+    case CONTROL_RUNTIME_INIT_STORAGE_ALIGNMENT: return "runtime storage is misaligned";
+    case CONTROL_RUNTIME_INIT_STORAGE_OVERLAP: return "runtime storage overlaps the instance";
+    case CONTROL_RUNTIME_INIT_COMPONENT: return "runtime component initialization failed";
+    default: return "unknown runtime initialization issue";
+  }
+}
+
+static int control_runtime_init_failure(control_runtime_init_diagnostic_t *diagnostic, control_runtime_init_issue_t issue, const char *field, size_t required, size_t provided, int result) {
+  if (diagnostic != NULL) {
+    diagnostic->issue = issue;
+    diagnostic->field = field;
+    diagnostic->required = required;
+    diagnostic->provided = provided;
+  }
+  return result;
 }
 
 typedef struct {
@@ -190,6 +225,38 @@ int control_runtime_requirements(const control_runtime_config_t *config, control
   return control_runtime_layout(&config_copy, NULL, SIZE_MAX, NULL, out_requirements);
 }
 
+static int control_runtime_init_validate(const control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage, control_runtime_requirements_t *requirements, control_runtime_init_diagnostic_t *diagnostic) {
+  uintptr_t instance_address;
+  uintptr_t storage_address;
+  int result;
+  if (diagnostic != NULL) memset(diagnostic, 0, sizeof(*diagnostic));
+  if (instance == NULL || config == NULL || storage == NULL || requirements == NULL || diagnostic == NULL)
+    return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_NULL_ARGUMENT, instance == NULL ? "instance" : config == NULL ? "config" : storage == NULL ? "storage" : requirements == NULL ? "requirements" : "diagnostic", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->joint_command_fifo_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RETAINED_CAPACITY, "joint_command_fifo_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_client_enabled > 1U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "rpc_client_enabled", 1U, config->rpc_client_enabled, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled > 1U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "rpc_server_enabled", 1U, config->rpc_server_enabled, WL_ERR_INVALID_ARG);
+  if (config->rpc_client_enabled != 0U && config->rpc_client_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY, "rpc_client_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_client_enabled != 0U && config->rpc_client_response_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY, "rpc_client_response_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->rpc_server_pending_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_pending_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->rpc_server_cache_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_cache_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->rpc_server_response_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_response_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->rpc_server_pending_timeout_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_pending_timeout_ms", UINT32_C(0x7fffffff), config->rpc_server_pending_timeout_ms, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->rpc_server_cache_ttl_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_cache_ttl_ms", UINT32_C(0x7fffffff), config->rpc_server_cache_ttl_ms, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->rpc_server_cache_policy != WL_RPC_CACHE_REJECT_NEW && config->rpc_server_cache_policy != WL_RPC_CACHE_EVICT_OLDEST) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY, "rpc_server_cache_policy", 0U, (size_t)config->rpc_server_cache_policy, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled != 0U && config->home_canonical_request_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CANONICAL_CAPACITY, "home_canonical_request_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
+  result = control_runtime_requirements(config, requirements);
+  if (result != WL_OK) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW, "config", 0U, 0U, result);
+  if (storage->size < requirements->storage_size) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL, "storage.size", requirements->storage_size, storage->size, WL_ERR_BUF_TOO_SMALL);
+  if (requirements->storage_size != 0U) {
+    if (storage->data == NULL) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_NULL, "storage.data", requirements->storage_size, 0U, WL_ERR_INVALID_ARG);
+    if (((uintptr_t)storage->data & (requirements->storage_alignment - 1U)) != 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_ALIGNMENT, "storage.data", requirements->storage_alignment, (size_t)((uintptr_t)storage->data & (requirements->storage_alignment - 1U)), WL_ERR_INVALID_ARG);
+    instance_address = (uintptr_t)(const void *)instance;
+    storage_address = (uintptr_t)storage->data;
+    if ((storage_address <= instance_address && instance_address - storage_address < requirements->storage_size) || (instance_address < storage_address && storage_address - instance_address < sizeof(*instance))) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_OVERLAP, "storage.data", requirements->storage_size, storage->size, WL_ERR_INVALID_ARG);
+  }
+  return WL_OK;
+}
+
 int control_runtime_init(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage) {
   control_runtime_config_t config_copy;
   control_runtime_storage_t storage_copy;
@@ -287,6 +354,33 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
 init_failed:
   memset(instance, 0, sizeof(*instance));
   return result;
+}
+
+int control_runtime_init_checked(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage, control_runtime_init_diagnostic_t *out_diagnostic) {
+  control_runtime_requirements_t requirements;
+  int result = control_runtime_init_validate(instance, config, storage, &requirements, out_diagnostic);
+  if (result != WL_OK) return result;
+  result = control_runtime_init(instance, config, storage);
+  if (result != WL_OK) return control_runtime_init_failure(out_diagnostic, CONTROL_RUNTIME_INIT_COMPONENT, "component", 0U, 0U, result);
+  return WL_OK;
+}
+
+wl_rpc_err_t control_runtime_peer_observe(wl_ctx_t *ctx, control_runtime_t *runtime, uint64_t peer_session_id, wl_rpc_peer_observation_t *out_observation) {
+  wl_rpc_err_t result;
+  if (out_observation != NULL) memset(out_observation, 0, sizeof(*out_observation));
+  if (ctx == NULL || runtime == NULL || runtime->rpc_server == NULL || peer_session_id == 0U || out_observation == NULL) return WL_RPC_ERR_INVALID_ARG;
+  result = wl_rpc_peer_observe(runtime->rpc_server, &runtime->rpc_peer, peer_session_id, control_runtime_cancel_peer_tx, ctx, out_observation);
+  if (result == WL_RPC_OK && out_observation->changed != 0U) runtime->rpc_peer_observation = *out_observation;
+  return result;
+}
+
+wl_rpc_err_t control_runtime_peer_observation_take(control_runtime_t *runtime, wl_rpc_peer_observation_t *out_observation) {
+  if (out_observation != NULL) memset(out_observation, 0, sizeof(*out_observation));
+  if (runtime == NULL || out_observation == NULL) return WL_RPC_ERR_INVALID_ARG;
+  if (runtime->rpc_peer_observation.changed == 0U) return WL_RPC_ERR_NOT_FOUND;
+  *out_observation = runtime->rpc_peer_observation;
+  memset(&runtime->rpc_peer_observation, 0, sizeof(runtime->rpc_peer_observation));
+  return WL_RPC_OK;
 }
 
 wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_poll_result_t *out_result) {
@@ -535,6 +629,15 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       if (runtime->rpc_server == NULL) {
         result.domain = CONTROL_RUNTIME_MISSING_ROUTE;
         break;
+      }
+      if (event->peer_session_id != 0U) {
+        wl_rpc_peer_observation_t observation = {0};
+        result.detail.rpc.rpc_result = control_runtime_peer_observe(ctx, runtime, event->peer_session_id, &observation);
+        if (result.detail.rpc.rpc_result != WL_RPC_OK) {
+          result.domain = CONTROL_RUNTIME_RPC_ERROR;
+          break;
+        }
+        if (observation.changed != 0U) result.detail.rpc.peer_changed = 1U;
       }
       if (runtime->home.request_scratch == NULL || runtime->home.canonical_request_scratch.data == NULL) {
         result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;

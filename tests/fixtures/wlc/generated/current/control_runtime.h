@@ -16,7 +16,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 17U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 18U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -57,6 +57,7 @@ typedef struct {
   wl_rpc_server_disposition_t rpc_disposition;
   uint32_t operation_id;
   wl_tx_handle_t handle;
+  uint8_t peer_changed;
   size_t payload_length;
   union {
     wl_rpc_server_request_t server_request;
@@ -152,6 +153,8 @@ typedef struct {
   wl_latest_t *arm_mit_command_latest;
   wl_rpc_client_t *rpc_client;
   wl_rpc_server_t *rpc_server;
+  wl_rpc_peer_t rpc_peer;
+  wl_rpc_peer_observation_t rpc_peer_observation;
   control_runtime_rpc_encode_scratch_t *rpc_encode_scratch;
   control_home_rpc_t home;
 } control_runtime_t;
@@ -244,6 +247,34 @@ typedef struct {
   union { home_request_t request; home_response_t response; } home_scratch;
 } control_runtime_instance_t;
 
+typedef int32_t control_runtime_init_issue_t;
+enum {
+  CONTROL_RUNTIME_INIT_OK = 0,
+  CONTROL_RUNTIME_INIT_NULL_ARGUMENT,
+  CONTROL_RUNTIME_INIT_ROLE_ENABLE,
+  CONTROL_RUNTIME_INIT_RETAINED_CAPACITY,
+  CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY,
+  CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY,
+  CONTROL_RUNTIME_INIT_RPC_TIMEOUT,
+  CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY,
+  CONTROL_RUNTIME_INIT_RPC_CANONICAL_CAPACITY,
+  CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW,
+  CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL,
+  CONTROL_RUNTIME_INIT_STORAGE_NULL,
+  CONTROL_RUNTIME_INIT_STORAGE_ALIGNMENT,
+  CONTROL_RUNTIME_INIT_STORAGE_OVERLAP,
+  CONTROL_RUNTIME_INIT_COMPONENT
+};
+
+typedef struct {
+  control_runtime_init_issue_t issue;
+  const char *field;
+  size_t required;
+  size_t provided;
+} control_runtime_init_diagnostic_t;
+
+const char *control_runtime_init_issue_str(control_runtime_init_issue_t issue);
+
 /* Mechanical defaults use one FIFO/RPC slot, generation/operation ID one,
  * bounded encoded maxima, disabled roles, zero timeouts, and reject-new cache.
  * Override policy fields after this call. */
@@ -253,6 +284,8 @@ wl_err_t control_runtime_config_enable_client(control_runtime_config_t *config);
 wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config);
 control_runtime_storage_t control_runtime_default_storage_descriptor(control_runtime_default_storage_t *storage);
 int control_runtime_requirements(const control_runtime_config_t *config, control_runtime_requirements_t *out_requirements);
+/* Checked initialization reports the exact rejected field and capacity values. */
+int control_runtime_init_checked(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage, control_runtime_init_diagnostic_t *out_diagnostic);
 int control_runtime_init(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage);
 /* With non-null ctx/event every RX outcome is consumed. Matching RPC TX
  * terminal events advance the runtime and reclaim the handle. Inspect
@@ -265,6 +298,11 @@ int control_joint_command_fifo_release(control_runtime_t *runtime, control_joint
 int control_arm_mit_command_latest_acquire(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *out_view);
 int control_arm_mit_command_latest_release(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *view);
 
+/* Observe a nonzero point-to-point peer before non-RPC traffic is handled. */
+wl_rpc_err_t control_runtime_peer_observe(wl_ctx_t *ctx, control_runtime_t *runtime, uint64_t peer_session_id, wl_rpc_peer_observation_t *out_observation);
+/* A reliable server request automatically observes its peer session before
+ * dispatch. Take a changed observation to revoke product leases/non-RPC work. */
+wl_rpc_err_t control_runtime_peer_observation_take(control_runtime_t *runtime, wl_rpc_peer_observation_t *out_observation);
 /* Advance configured RPC deadlines without performing I/O. At most one
  * expired server identity is returned per call and remains pending until the
  * application completes, rejects, or abandons it. */

@@ -25,7 +25,7 @@ therefore delegate fallback ownership without a second release/take.
 
 ### Publish a self-consistent compiler/library pair
 
-Current source declares WLC `0.4.0` with codegen ABI 17, while the immutable
+Current source declares WLC `0.4.0` with codegen ABI 18, while the immutable
 `v0.4.0` release emits ABI 12 and Wirelink's download hashes still select those
 assets. Release WLC `0.5.0`, update its release smoke check from ABI 12, then
 pin its five host assets and hashes from Wirelink `0.10.0`. Verify an installed
@@ -46,7 +46,9 @@ Implemented for the common bounded case. Generated config defaults select one
 retained/RPC slot, bounded encoded capacities, generation/operation ID one,
 disabled roles, zero timeouts, and reject-new cache policy. Explicit client and
 server enable helpers leave business expiry policy and handlers to the caller.
-Field-specific requirements diagnostics remain future work.
+ABI 18 adds the optional `*_runtime_init_checked()` path with a rejected field,
+required/provided values, and issue text. The ordinary initializer remains the
+smaller production path when those diagnostics are not linked.
 
 ### Support static sizing without guessed arenas
 
@@ -93,27 +95,26 @@ acquire the receiver's retained routes.
 
 ### Standardize adapter lifecycle and ingress selection
 
-The core port contract is small, but UART, USB, Astrial, and UDP adapters expose
-different start/service/wait/quiesce shapes. Define a documented common
-lifecycle table and provide one minimal recipe per envelope. Preserve typed
-platform adapters rather than adding virtual dispatch to the C core.
+Implemented in [`adapters.md`](adapters.md). UART, USB, Astrial, UDP, and
+loopback retain typed platform APIs while sharing an initialize, activate,
+owner-service, and quiesce contract plus one-ingress-path rule. No virtual
+dispatch or OS abstraction was added to the C core.
 
 ## P2: Improve operational usability
 
 ### Document session provisioning and peer transitions
 
-The core correctly refuses session zero, but cannot create a boot-unique ID
-without a clock, RNG, or persistence. Supply platform recipes and a small
-validation helper. Provide a generated integration path for
-`wl_rpc_peer_observe()` so session changes consistently revoke cached RPC and
-product leases.
+Implemented for point-to-point RPC in ABI 18. Reliable request dispatch
+automatically observes the nonzero peer session, discards old pending/cache
+state, and cancels detached responses. `*_runtime_peer_observation_take()`
+lets product code revoke leases or other authority. Session creation remains a
+platform responsibility because the core owns no RNG, clock, or persistence.
 
 ### Add an indexed documentation entry point
 
-README currently links many normative and performance documents but has no
-learning path. Link the quickstart first, then concepts, transports, schemas,
-RPC, bulk, performance, and protocol reference. Consider generated public API
-reference pages, while keeping ownership rules in narrative documentation.
+Implemented in the repository README: quickstart, adapter lifecycle, schema,
+application patterns, performance, and protocol references now form an ordered
+learning path. Generated API reference pages remain optional future work.
 
 ### Offer optional diagnostic helpers
 
@@ -124,10 +125,9 @@ I/O or allocation to the core.
 
 ### State security and topology exclusions early
 
-Wirelink v1 provides integrity checks, not authentication, encryption,
-addressing, discovery, routing, broadcast, or access control. Put this near the
-quickstart decision table so users do not infer libcsp-like network or security
-semantics from the comparison.
+Implemented near the README introduction and quickstart decision table.
+Wirelink explicitly excludes authentication, encryption, addressing,
+discovery, routing, broadcast, and access control.
 
 ## Explicit non-goals
 

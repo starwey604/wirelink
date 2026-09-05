@@ -5,6 +5,11 @@ desktop systems. It provides explicit framing, CRC integrity, stop-and-wait
 reliability, borrowed RX payloads, and direct SPSC/DMA ingress without owning
 hardware, threads, a heap, or a clock.
 
+Wirelink is a point-to-point link and typed application runtime, not a routed
+network or security layer. Version 1 does not provide node addressing,
+discovery, routing, broadcast, authentication, encryption, or access control.
+Use an authenticated transport when the physical link is not trusted.
+
 New users should start with [`docs/getting-started.md`](docs/getting-started.md),
 which builds a hardware-free endpoint pair and demonstrates unreliable typed
 telemetry plus a reliable RPC.
@@ -13,9 +18,25 @@ The current release is the `0.9.0` release candidate for the v1 wire protocol
 and C API. Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in
-[`docs/compatibility.md`](docs/compatibility.md). The completed C surface audit
-and remaining pre-1.0 API decisions are in
-[`docs/api-v1-audit.md`](docs/api-v1-audit.md).
+[`docs/compatibility.md`](docs/compatibility.md). The C surface contract is in
+[`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
+is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
+
+## Documentation path
+
+1. Build the allocation-free pair in
+   [`getting-started.md`](docs/getting-started.md).
+2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
+   then integrate its wakeups with [`development.md`](docs/development.md).
+3. Define typed payloads and roles using
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](wlc/README.md).
+4. Add retained state, RPC, or objects with
+   [`application-layer.md`](docs/application-layer.md),
+   [`rpc-runtime.md`](docs/rpc-runtime.md), and
+   [`bulk-performance.md`](docs/bulk-performance.md).
+5. Use [`protocol.md`](docs/protocol.md),
+   [`compatibility.md`](docs/compatibility.md), and
+   [`conformance-v1.md`](docs/conformance-v1.md) as references.
 
 The portable allocation-free loopback adapter provides hardware-free packet
 bring-up. Platform adapters cover Zephyr asynchronous UART DMA plus Astrial
