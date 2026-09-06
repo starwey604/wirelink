@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_runtime.h"
+#include "telemetry_endpoint.h"
 #include "tutorial_host.h"
 
 int main(int argc, char **argv) {

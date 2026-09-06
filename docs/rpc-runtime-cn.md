@@ -6,7 +6,7 @@
 [RPC 教程](tutorial-rpc-cn.md)中的生成端点；本文先说明托管 RPC 的通信与所有权边界，
 后半部分是高级底层接口。
 
-## 托管 RPC 与已有协议映射（生成 ABI 22）
+## 托管 RPC 与已有协议映射（生成 ABI 23）
 
 RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unreliable)` 覆盖。
 显式 `@delivery(reliable)`、省略默认、旧 `request_delivery = reliable` 等价，
@@ -39,7 +39,22 @@ RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unre
 没变，也要同步升级两端，或为新格式使用不同消息编号。模式和元数据版本进入 profile identity。
 仅把 schema 的 `= n` 改成 `@id(n)` 则不改变标识摘要或字节。
 
-## 默认调用与回复的所有权
+## 普通异步调用的所有权
+
+普通入口是 `<runtime>_endpoint.h` 和 `endpoint_<service>_async()`：请求为自持值，
+接受前快照；完成时先准备自持结果、回收调用，再通知 callback。失败提交无回调，
+已接受调用在持续推进或有序 close 下恰好通知一次。超时必须为 1..2³¹−1 毫秒且包含排队。
+取消使用可选 `wl_rpc_call_t`；常规路径没有 inspect/release。
+`config.on_<service>` 的即时 handler 返回零表示成功、非零表示业务拒绝。
+普通结果的指针只在回调内有效，复制结构体即可长期保存，见[默认端点](default-endpoint-cn.md)。
+
+默认托管端点为四槽最近结果策略；`config.advanced` 保留专家覆盖，严格缓存选 REJECT_NEW。
+同步等待和可选分配器尚未实现。下文手动调用和 deferred token 是明确的高级选择，
+不能把高级 handler 的非零返回规则套用到即时 handler。
+
+## 高级手动调用与延迟回复的所有权
+
+使用这些端点助手前，显式包含 `<runtime>_advanced.h`。
 
 默认端点初始化时配置一次 `wl_clock_t`。call/complete/reject 内部取时间；
 step 中的立即回复复用本轮时间，首次或空闲后调用都无需先 step。
@@ -69,10 +84,10 @@ handler 返回零表示本地正常接手（也允许稍后完成）；用 `*_co
 读到 `NOT_FOUND` 或 `INVALID_STATE`，但不会让另一条调用失败。畸形元数据、错误响应类型和
 codec 错误仍作为明确的分发错误报告。
 
-默认端点只有一个客户端槽；需要并发时使用自定义 runtime 存储。首次由编号捕获句柄需要扫描，
+默认托管端点容量可在编译时配置，默认四槽；高级 runtime 可独立提供存储。首次由编号捕获句柄需要扫描，
 后续底层句柄查询／取消／释放为 O(1)。底层句柄仅在单次 client 初始化生命周期内有效。
 代次状态仍装在原有的 64 字节 client／slot 存储中，不引入全局计数器、堆、线程或时钟。
-纯托管 runtime 不再分配旧的类型化编码暂存区：请求直接写入链路 TX claim，响应直接写入
+高级手动托管 runtime 的请求直接写入链路 TX claim；普通异步路径先编码到有界请求队列，再复制到 TX claim。响应直接写入
 预留的缓存区。链路与响应容量自动包含 12 字节前缀；请求指纹只覆盖业务规范编码，在本地计算，
 不作为字段发送。
 

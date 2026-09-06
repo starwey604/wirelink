@@ -100,7 +100,7 @@ latest Telemetry {
 不用自己定义结构体或填写内部缓冲区。每个程序只拥有自己的一个端点。
 它从 `telemetry.wl` 得到业务名称；目录编号 `00` 不进入 API。
 
-`telemetry_runtime.h` 是生成头文件。`tutorial_host.h` 则是
+`telemetry_endpoint.h` 是生成头文件。`tutorial_host.h` 则是
 [公开的示例支持代码](../examples/common/tutorial_host.h)，不是生成文件或核心 API：
 
 - `example_udp_open()` 在本机打开 UDP，并把适配器接到已初始化的端点。
@@ -120,7 +120,7 @@ latest Telemetry {
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_runtime.h"
+#include "telemetry_endpoint.h"
 #include "tutorial_host.h"
 
 int main(int argc, char **argv) {
@@ -162,7 +162,7 @@ int main(int argc, char **argv) {
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_runtime.h"
+#include "telemetry_endpoint.h"
 #include "tutorial_host.h"
 
 int main(int argc, char **argv) {

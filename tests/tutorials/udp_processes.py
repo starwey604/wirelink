@@ -91,6 +91,7 @@ def rpc(args, mode):
     client = None
     first_request = None
     requests = responses = 0
+    dropped_acks = 0
     try:
         server.ready("server ready")
         command = [args.client, str(client_port), str(client_proxy.getsockname()[1])]
@@ -112,6 +113,10 @@ def rpc(args, mode):
                 # never synthesize a Wirelink ACK or RPC result in Python.
                 is_data = len(data) >= 4 and data[0] == 0xA5
                 message_id = int.from_bytes(data[2:4], "big") if is_data else 0
+                if not from_client and data and data[0] == 0xA6 and mode in (
+                        "response_before_ack", "drop_ack_response"):
+                    dropped_acks += 1
+                    continue
                 if from_client and message_id == 20:
                     requests += 1
                     if mode == "blackhole" or (mode == "drop_request" and requests == 1):
@@ -121,7 +126,7 @@ def rpc(args, mode):
                         continue
                 if not from_client and message_id == 21:
                     responses += 1
-                    if mode == "drop_response" and responses == 1:
+                    if mode in ("drop_response", "drop_ack_response") and responses == 1:
                         continue
                 outgoing.sendto(data, destination)
                 if mode == "duplicate" and message_id in (20, 21):
@@ -149,6 +154,10 @@ def rpc(args, mode):
             raise RuntimeError("test did not observe a request retransmission")
         if mode == "drop_response" and responses < 2:
             raise RuntimeError("test did not observe a response retransmission")
+        if mode in ("response_before_ack", "drop_ack_response") and dropped_acks == 0:
+            raise RuntimeError("test did not drop the real request ACK")
+        if mode == "drop_ack_response" and responses < 2:
+            raise RuntimeError("test did not lose both an ACK and an executed request's response")
         print(f"RPC {mode}: OK ({requests} requests, {responses} responses)")
     finally:
         if client:
@@ -165,7 +174,8 @@ def main():
     args = parser.parse_args()
     telemetry(args)
     print("Telemetry: OK")
-    for mode in ("normal", "reject", "drop_request", "drop_response", "duplicate", "reorder", "blackhole"):
+    for mode in ("normal", "reject", "drop_request", "drop_response", "duplicate",
+                 "reorder", "response_before_ack", "drop_ack_response", "blackhole"):
         rpc(args, mode)
 
 

@@ -5,7 +5,7 @@ v1 frame header. New applications should use the generated managed RPC endpoint
 described in the [RPC tutorial](tutorial-rpc.md). The following sections specify
 its wire/ownership boundary, then the advanced low-level engine.
 
-## Managed RPC and mapped interoperability (codegen ABI 22)
+## Managed RPC and mapped interoperability (codegen ABI 23)
 
 Request and response delivery independently default to reliable. Override a
 binding with `@delivery(unreliable)`. Omitted defaults, explicit reliable
@@ -47,7 +47,26 @@ upgrade both peers together or allocate distinct message IDs. The managed mode
 and metadata revision contribute to the binding-profile identity. Merely replacing
 schema `= n` with `@id(n)` changes neither identity nor bytes.
 
-## Default call and reply ownership
+## Ordinary asynchronous ownership
+
+The ordinary entry is `<runtime>_endpoint.h` and `endpoint_<service>_async()`.
+Owned requests are snapshotted before admission; completion prepares an owned
+result and releases the call before notifying. Failed admission never notifies;
+accepted calls notify once under continued driving or orderly close. Deadlines
+are 1..2³¹−1 ms and include queue time. Optional `wl_rpc_call_t` enables cancellation;
+there is no ordinary inspect/release. Immediate `config.on_<service>` handlers
+return zero for success, nonzero for business rejection. Callback pointers expire
+on return, but a struct copy is independent; see [default endpoint](default-endpoint.md).
+
+Managed defaults provide four slots and a finite recent-result cache.
+`config.advanced` retains expert overrides; choose REJECT_NEW for strict retention.
+Synchronous waiting and allocator creation are not implemented yet. The manual
+calls and deferred tokens below are explicit advanced choices. In particular,
+their nonzero-handler-return rule does not apply to immediate handlers.
+
+## Advanced manual calls and deferred reply ownership
+
+Explicitly include `<runtime>_advanced.h` for these endpoint helpers.
 
 Configure `wl_clock_t` once on the default endpoint. Call/complete/reject sample
 it internally; replies during a step reuse that pass's time. There is no
@@ -86,12 +105,15 @@ and already-terminal-call replies are ignored by the managed runtime with
 an optional `on_result` observer. They do not fail another call. Malformed metadata,
 wrong response types, and codec errors remain explicit dispatch errors.
 
-The default endpoint has one client slot; custom runtime storage enables more.
+Managed default capacity is compile-time configurable (four slots by default);
+advanced runtime storage can be supplied independently.
 ID-to-handle capture scans active slots, but later core handle lookup/cancel/release
 is O(1). Core handles are scoped to one initialization lifetime. Generation tracking
 fits the existing 64-byte client and slot storage; it creates no global counter,
 heap, thread, or clock. Managed-only runtimes omit the old typed encoding scratch:
-requests encode into the link TX claim, replies into their reserved cache segment.
+advanced manual requests encode into the TX claim. Ordinary asynchronous requests
+first encode into a bounded request queue, then copy into the TX claim. Replies
+encode into their reserved cache segment.
 Static link/response capacities include the 12-byte prefix; canonical-request
 fingerprints cover only business codec bytes and are computed, not transmitted.
 

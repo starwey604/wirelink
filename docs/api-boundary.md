@@ -18,7 +18,7 @@ The order below is for reviewing the API after using those examples.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -192,21 +192,22 @@ force allocation. Unbounded or oversized selected messages set
 `HAS_DEFAULT_ENDPOINT=0`. Larger queues, custom arenas, or DMA placement use the
 existing manual storage path. See [design and limits](default-endpoint.md).
 
-Managed RPC adds generated `*_call_t`, `*_result_t`, and `*_request_token_t`:
-business messages contain no operation/status metadata. `endpoint_*_call()` starts
-a call, `inspect()` returns its typed result, `release/cancel()` manage it, and
-`complete/reject()` reply. Private-in-use handles validate endpoint ownership and
-lifetime. Explicit field mappings remain a separate interoperability mode; the
-two payload formats cannot be mixed. See the [RPC contract](rpc-runtime.md).
+Ordinary managed RPC uses owned `*_value_t`, `endpoint_*_async()` and completion
+callbacks, with automatic request snapshots and call reclamation. Register
+`config.on_<service>` for immediate response/rejection. Optional `wl_rpc_call_t`
+is for cancellation only; inspect/release is not required. Defaults use four
+bounded slots and a recent-result cache. Manual calls/tokens and
+`config.advanced` are expert paths; see [default endpoint](default-endpoint.md).
+Explicit field mappings remain a separate interoperability mode..
 
-## WLC-Generated Surface (ABI 22)
+## WLC-Generated Surface (ABI 23)
 
-WLC deliberately splits three concerns:
+WLC deliberately splits these entries:
 
-1. `<module>.h/.c`: message model, clear/encode/decode, size bounds;
+1. `<module>_values.h`: owned business values; `<module>.h/.c`: advanced borrowed model and shared codec;
 2. `<module>_bindings.h/.c`: typed direct router and typed send operations;
-3. `<runtime>_runtime.h/.c`: only the retained/RPC policy selected by one
-   binding profile.
+3. `<runtime>_endpoint.h`: ordinary entry (transitive runtime layout dependency);
+4. `<runtime>_runtime.h/.c`: advanced retained/RPC assembly and implementation.
 
 Use one codec target and generate separate named host/device runtimes against
 it. Generated artifacts must match compiler version, codegen ABI, schema

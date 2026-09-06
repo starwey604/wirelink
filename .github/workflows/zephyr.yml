@@ -48,21 +48,22 @@ jobs:
           --outdir twister-out
 
       # Exercise the same generated-code sample used for the H7 clock check.
-      # ABI 22 has no release asset: build the matching standalone host compiler.
+      # ABI 23 has no release asset: build the matching standalone host compiler.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: b2789461929de1c687bf562e8636f5ad343a15b3
+          ref: 26a07a49597cd06b455ea1060e5b7902d39ea061
           path: .tools/wlc
 
       - name: Build matching WLC
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
-      - name: Run generated endpoint clock sample
+      - name: Run generated endpoint clock and ownership samples
         run: >-
           west twister
           -T ${{ github.workspace }}/wirelink/samples/zephyr/endpoint_clock
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_usability
           -p native_sim
           -p qemu_cortex_m3
           -p qemu_riscv32

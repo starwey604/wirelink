@@ -105,7 +105,7 @@ WLC generates `telemetry_endpoint_t`, including communication state and bounded
 static storage. Each process owns one endpoint; no hand-written buffer assembly
 is needed. The business name comes from `telemetry.wl`, not the directory's `00`.
 
-`telemetry_runtime.h` is generated. [tutorial_host.h](../examples/common/tutorial_host.h)
+`telemetry_endpoint.h` is generated. [tutorial_host.h](../examples/common/tutorial_host.h)
 is ordinary, public example support, not a generated file or core API:
 
 - `example_udp_open()` attaches localhost UDP to the initialized endpoint.
@@ -128,7 +128,7 @@ Python does not implement either peer.
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_runtime.h"
+#include "telemetry_endpoint.h"
 #include "tutorial_host.h"
 
 int main(int argc, char **argv) {
@@ -170,7 +170,7 @@ not remote receipt. During each interval, step the endpoint before waiting.
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_runtime.h"
+#include "telemetry_endpoint.h"
 #include "tutorial_host.h"
 
 int main(int argc, char **argv) {

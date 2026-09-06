@@ -1,96 +1,88 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 22。既有映射 RPC 与 codec 字节不变；新增托管 RPC
-使用独立的元数据前缀。本轮不发布新包。
-[English](default-endpoint.md)。入门使用见 [getting-started-cn.md](getting-started-cn.md)。
+状态：内部开发，生成 ABI 23；本轮不发布、合并 main 或改变线上格式。
+入门顺序：[安装](installation-cn.md) → [遥测](getting-started-cn.md) →
+[RPC](tutorial-rpc-cn.md) → [集成](tutorial-integration-cn.md)。[English](default-endpoint.md)。
 
-## 应用只组装业务对象
+## 普通业务入口
 
-WLC 为具有有限消息上限的 profile 生成 `*_endpoint_t`。声明一个零初始化的
-静态对象，调用 `endpoint_init()`，连接适配器，就能使用类型化的发送、读取、RPC
-和 `endpoint_step()`。应用不再定义缓冲区容器或分别初始化 runtime、arena、pump。
+WLC 为有界、单帧 profile 生成 `<runtime>_endpoint.h`。
+声明一个零初始化且地址稳定的 `*_endpoint_t`，初始化时提供 session 和 clock，
+连接适配器后使用 send/read、异步 RPC 和 step。不要访问 `private_state`。
 
-| 层次 | 负责内容 | 对外入口 |
-| --- | --- | --- |
-| Wirelink 通用端点 | 连接状态、owner hooks、每轮推进与关闭 | `wirelink/endpoint.h`，主要供生成器和适配器 |
-| WLC 默认端点 | 按消息/使用配置推导存储，组合 runtime，类型化操作 | `*_endpoint_t` 及 `*_endpoint_*()` |
-| 适配器 | 驱动生命周期、输入发布、发送完成与唤醒 | `endpoint_handle()` → `wl_endpoint_link()` / `attach()` |
-| 业务代码 | 消息内容、执行结果、时钟和运行调度 | send/read/RPC/step |
+该头文件因静态 C 布局而包含 runtime 头；它是推荐的阅读入口，不声称隐藏了所有
+传递声明。手动端点 call/inspect/release、complete/reject 助手需显式包含
+`<runtime>_advanced.h`；高级存储装配和借用视图位于 runtime/codec 头中。
+只需要业务数据时包含独立的 `<codec>_values.h`，没有 runtime 装配依赖。
 
-`private_state` 和通用端点中 `private_*` 成员只用于静态布局，不是可修改的应用契约。
-公开类型使静态分配成为可能，不要求用户了解成员之间的指针关系。
+| 层次 | 责任 |
+| --- | --- |
+| 通用端点 | owner、时钟采样、适配器挂载、事件推进和关闭 |
+| WLC 默认端点 | 静态存储推导、类型化业务转换、RPC 提交和通知 |
+| 适配器 | 输入发布、发送完成、唤醒和停止驱动 |
+| 应用 | 消息内容、handler、时钟来源、调度时机 |
 
-## 存储推导与默认值
+## 普通 RPC 合同
 
-托管 RPC 的业务消息不含内部编号／状态字段。生成的 `*_call_t` 配合
-`endpoint_*_call/inspect/release/cancel` 使用，查询直接得到类型化结果；
-服务端 `complete/reject` 接收可以复制的回复 token。句柄与 token 检查端点归属及生命周期，
-用户无需读取内部编号。旧显式字段映射保留为兼容模式，详见 [RPC 合同](rpc-runtime-cn.md)。
+`endpoint_<service>_async(endpoint, request, timeout, callback, context, optional_call)`
+在接受前编码请求快照；返回 `WL_OK` 表示接受，`WL_ERR_BUSY` 表示本地满载。
+失败提交无回调。timeout 必须在 1..2³¹−1 毫秒内，包含排队等待，不在重试时重新计时。
 
-payload 上限取 profile 中 LATEST/FIFO 消息及 RPC 请求/响应的最大编码上限，
-包含托管 RPC 的 12 字节前缀，最小为 1。
-无关的大消息不计入。默认初始化使用 native-packet 和 CRC32C；静态缓冲区也预留
-其他支持封装的最坏开销以及一包容量的串口接收缓冲区，切换封装不必重新猜数组大小。
-这会给只用 packet 的端点保留少量未使用的 stream 存储；追求最小内存的部署可用高级组装。
+框架先解码为自持结果、回收调用槽，再通知 callback；链路 TX 的借用和终态独立排空。
+回调得到 `wl_rpc_completion_t`，仅成功时得到 typed response。
+指针只在回调期间有效，结构体赋值则产生独立副本，无需 `release` 或析构。
+有界 string/bytes 用 `length` 和内嵌 `data[]`，字符串长度是字节数。
 
-默认 runtime 使用已有的有限槽位布局：FIFO 一槽、RPC 一客户端槽、一待处理服务端槽、
-一缓存槽。RPC 角色默认关闭，不猜测产品重试/过期策略。通过
-`endpoint_config_defaults()` 获得初始化参数，修改 `config.link`、`config.runtime`、
-`event_budget`、`on_result`、`user_data`，并填写必需的 `config.clock`，再调用 `endpoint_init_config()`。
-初始化参数可以是临时对象，回调上下文必须在使用期间有效。
+`config.on_<service>` 注册即时 handler：接收 const request、填写 response，返回 0
+表示成功，非零仅表示业务拒绝。可选 `<service>_user_data` 不承担框架回包职责。
+需要慢任务时显式选择 `config.advanced.<service>_request_handler` 的延迟 token 模式；
+同一个服务不能同时注册两种 handler。
 
-选中消息无界或超过当前单帧 2048 字节能力时，`*_HAS_DEFAULT_ENDPOINT=0`，
-不生成一个假装足够大的对象。用消息长度约束收敛定义，或继续使用高级外部存储接口。
-已有的 codec/runtime 构建目标仍分开，多个命名端点可共享一份 codec。
+## 配置与 RAM
 
-## 执行、错误和关闭
+普通 client 能力初始化时就绪；注册 handler 自动启用 server。常规代码无需 enable 角色。
+默认 native-packet、CRC32C、ACK 等待 100 ms、最多重传 4 次、每轮事件预算 16。
+这些是可覆盖的起点，不是所有设备/链路的最佳参数。
 
-端点不创建线程或堆，核心也不选择操作系统时钟。通过
-`endpoint_init(endpoint, session, clock)` 或 `config.clock` 一次性传入 `wl_clock_t`。
-描述符会被复制，其上下文必须活到 close 完成。`endpoint_step(endpoint)` 只取一次时间，
-回调中的回复复用这一时间；日常调用、回复、休眠提示都不再传 `now_ms`。
-高级 runtime 和裸 link 仍显式传时间，详见[时钟契约](endpoint-clock-cn.md)。
-一轮在一个 owner 上执行，默认预算
-为 16 个事件；已连接适配器的 service、事件释放、发送终态回收和 RPC 推进都在其中。
-返回成功不等于业务请求已经完成，应使用 RPC inspect；没有工作也是正常成功。
-可靠发送失败与应用分发错误会向上返回，不会伪装成空闲。
+托管 RPC 默认四个 client/pending/cache 槽、pending 1000 ms、cache TTL 10000 ms，
+FIFO 默认仍一槽。缓存策略 EVICT_OLDEST 仅淘汰已送达的响应，保护待处理、待发和在途结果。
+TTL 是最长保留时间，不保证整个窗口不淘汰。严格保留使用
+`config.advanced.rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW`；
+缓存不足在服务端诊断，客户端按原截止时间结束，不伪造业务拒绝或新的远端 BUSY 报文。
 
-`endpoint_result()` 保存本轮首个 runtime 错误，后续成功事件不覆盖它；下一轮重新开始。
-core/service 的详细结果通过 `wl_endpoint_last_step(endpoint_handle(...))` 查询。
-需要每个消息结果或会话变化通知时配置 `on_result`；正常的非 RPC 发送成功不通知成错误。
-无确认的传输仍不承诺对端送达。
+通过构建定义 `<PREFIX>_ENDPOINT_RPC_CAPACITY=1` 等缩小静态槽数；必须对所有使用
+该端点的翻译单元一致设置，不能仅给某个 .c 定义。运行时 count 不得大于静态容量。
+`config.advanced`、`config.link` 是专家覆盖入口，默认响应存储和队列不能无限扩张。
 
-首次使用必须零初始化。已初始化时再次 init 返回错误，不能隐式清掉正在使用的状态。
-`endpoint_close()` 停止已附加适配器并使端点失效，可以重复调用；随后允许重新初始化。
-调用前应归还高级路径借出的视图、结束业务对 runtime 存储的使用。
-连接、端点、runtime 存储均不能在活跃时复制/移动。
+payload 上限包含托管 RPC 12 字节元数据；仅 profile 选中消息参与计算。
+队列按最大请求而非最大响应预留；多个服务共用最大请求/响应暂存 union。
+可靠链路仍只有一个 TX 槽。近 2 KiB 响应会显著增大 endpoint，见[实施记录](rpc-usability-progress-cn.md)。
+选中消息无界或超过单帧能力时 `HAS_DEFAULT_ENDPOINT=0`，应收敛 schema 或使用高级装配。
 
-loopback 的 connect 自动连接两端并安装 service/close/hint。两端共享同一 owner；
-关闭任意一端会停止整条模拟连接，必须关闭两端后才能释放 cable。
-其他硬件适配器保留现有驱动入口，由集成代码安装适配器 hooks。
-直接绕过 attach 绑定驱动时，调用方仍需自己停止驱动，close 无法替未知驱动释放资源。
+## 调度、诊断与关闭
 
-## 复制与高级入口
+端点没有堆或线程，core 不选择 OS 时钟。一轮 step 采样一次时钟，回调内提交复用它；
+高级 runtime/link 仍显式传时间，不能并行驱动同一 owner。
+step 成功只代表推进正常，不代表某个 RPC 已完成。
+`endpoint_result()` 保存本轮首个分发/运行错误；详细推进信息见
+`wl_endpoint_last_step(endpoint_handle(...))`。`config.on_result` 接收诊断，
+每调用结果则走自己的 callback。缓存回复遇到普通 TX 背压会保留并重试。
 
-`endpoint_read_*()` 适用于可保留的、无借用指针的消息，复制一次到调用方变量，
-内部 acquire/release；无新值时不修改输出。需要免复制时通过 `endpoint_runtime()`
-使用原有的借用 API。发送仍走原有的直接编码路径，不新增整包复制。
+回调允许提交或取消调用，不允许递归 step、同步 close 或重建本端点。
+在 owner 安全点调用 `endpoint_close()`，它先停止适配器，再完成剩余通知。
+返回后没有框架回调或已附加适配器的借用访问，可以重建；重复 close 安全。
+直接用通用 `wl_endpoint_close(handle)` 会跳过生成层通知，
+普通应用必须调用生成的 close，再释放适配器对象。不能移动活跃 endpoint。
 
-默认推进自动回收可靠发送终态。不要再手动 take 返回的 TX handle。
-需要独占管理这些句柄、自定义存储位置、更多队列容量或手动事件分发时，
-采用高级 link/runtime 组装，而不是修改端点内部字段。
+loopback 的两端共享一个 owner，关闭任一端会停止连接；两端都关闭后才可释放 cable。
+绕过 attach 私自绑定的驱动仍由集成者停止。高级借出视图须先归还。
+取消和超时不撤销远端副作用，最近结果缓存也不是无限期 exactly-once 保证。
 
-## 验证范围
+## 高级路径与验证
 
-新增生成器用例用真实核心验证 LATEST 合并、可靠 FIFO、RPC 完成、
-多 runtime 共用 codec、所有封装/校验组合的初始化容量、关闭/重开、非法配置、
-未知路由后跟有效消息时的首错保留，以及可靠消息超时。
-C11/C++20 头文件检查和已有 Cortex-M runtime 体积门限保留。
-Zephyr pump 单测覆盖通用端点生命周期及适配器 service 错误传播。
-时钟回归、FFI、安装包和待完成的实板验证记录见[时钟演进](endpoint-clock-evolution.md)。
-## 业务值入口
+原 `call/inspect/release`、deferred token、value/view 转换保留供明确的高级需求，
+不与普通异步调用混用同一次调用的资源。零复制大数据、定制 arena、手动事件分发使用高级装配。
+LATEST/FIFO 当前仍限制可保留的无借用消息；本轮没有顺便扩展 IDL 或流式传输。
 
-codec target 同时导出 `<module>_values.h`：有界 `<message>_value_t` 拥有内嵌
-string/bytes 和嵌套数据，结构体赋值得到独立副本。这个头文件不声明借用消息视图
-或 runtime 装配。只有高级借用 codec 和显式 value/view 转换才需要 `<module>.h`。
-端点迁移状态见[实施记录](rpc-usability-progress-cn.md)；ABI 22 先确立数据所有权边界。
+软件与 H1 准备证据见[实施记录](rpc-usability-progress-cn.md)。
+M3 同步等待、M4 分配器创建层、M5 产品迁移均不属于本轮。

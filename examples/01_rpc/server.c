@@ -1,22 +1,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <limits.h>
-#include "calculator_runtime.h"
+#include "calculator_endpoint.h"
 #include "tutorial_host.h"
 
-static int32_t add(void *context, const add_request_t *request,
-                   const calculator_add_request_token_t *token, wl_delivery_t delivery) {
-  calculator_endpoint_t *server = context;
+static int32_t add(void *context, const add_request_value_t *request,
+                   add_response_value_t *response) {
   const int64_t sum = (int64_t)request->left + request->right;
-  (void)delivery;
+  (void)context;
   printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
   fflush(stdout);
   if (sum < INT32_MIN || sum > INT32_MAX)
-    return calculator_endpoint_add_reject(server, token, 1);
-  add_response_t response;
-  add_response_clear(&response);
-  response.has_sum = true;
-  response.sum = (int32_t)sum;
-  return calculator_endpoint_add_complete(server, token, &response);
+    return 1; /* Business rejection; framework errors are separate. */
+  response->has_sum = true;
+  response->sum = (int32_t)sum;
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -26,13 +23,7 @@ int main(int argc, char **argv) {
   CHECK(example_ports(argc, argv, &local, &peer));
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
   config.clock = example_clock();
-  CHECK(calculator_runtime_config_enable_server(&config.runtime) == WL_OK);
-  config.link.ack_timeout_ms = 100U;
-  config.link.max_retries = 4U;
-  config.runtime.rpc_server_pending_timeout_ms = 1000U;
-  config.runtime.rpc_server_cache_ttl_ms = 10000U;
-  config.runtime.add_request_handler = add;
-  config.runtime.add_user_data = &server;
+  config.on_add = add;
   CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&server), local, peer);
   CHECK(udp != NULL);
@@ -42,6 +33,7 @@ int main(int argc, char **argv) {
     CHECK(calculator_endpoint_step(&server) == WL_OK);
     CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
+  CHECK(calculator_endpoint_close(&server) == WL_OK);
   example_udp_close(udp);
   return 0;
 }

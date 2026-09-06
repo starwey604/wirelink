@@ -8,6 +8,17 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- ABI 23 adds the ordinary owned-value asynchronous RPC endpoint: bounded
+  request snapshots, queue-inclusive deadlines, per-call completion, automatic
+  call reclamation and optional cancellation handles. Link TX leases drain
+  independently, including response-before-ACK and local cancellation.
+- Generate immediate response/rejection handlers, inferred endpoint roles and
+  four-slot recent-result defaults. Evict only delivered responses; preserve
+  strict reject-new policy in `config.advanced` and compile-time capacity tuning.
+  Separate ordinary `*_endpoint.h` from manual `*_advanced.h` endpoint helpers.
+  Migrate bilingual RPC tutorials, UDP processes and native C/C++/Python tests.
+  Prepare standalone H1 Zephyr validation without flashing or product migration.
+  Normal managed metadata, schemas and frozen frame bytes remain unchanged.
 - ABI 22 adds standalone generated `<module>_values.h` business values with
   inline bounded string/bytes storage, recursively owned nested messages and
   explicit advanced value/view conversion. Value decode/conversion failures

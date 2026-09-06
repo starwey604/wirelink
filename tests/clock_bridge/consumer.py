@@ -12,7 +12,6 @@ for name, args, return_type in [
     ("step", [c.c_void_p], c.c_int),
     ("advance", [c.c_void_p, c.c_uint32], c.c_int),
     ("result", [c.c_void_p, c.POINTER(c.c_int32)], c.c_int),
-    ("release", [c.c_void_p], c.c_int),
     ("reads", [c.c_void_p], c.c_uint32),
     ("handled", [c.c_void_p], c.c_uint32),
 ]:
@@ -42,12 +41,12 @@ for native in (0, 1):
         value = c.c_int32()
         before = reads(pair)
         check(result(pair, c.byref(value)) == 1 and value.value == 42)
-        check(release(pair) == 0 and reads(pair) == before)
+        check(reads(pair) == before)  # Completion already recycled the call.
         if not native:
             check(advance(pair, 100000) == 0)  # New request after an idle gap.
         check(start(pair, 2147483647, 1, 1000) == 0)
         pump(pair)
-        check(result(pair, c.byref(value)) == 2 and release(pair) == 0)
+        check(result(pair, c.byref(value)) == 2)
         check(handled(pair) == 2)
         before = reads(pair)
         close(pair)
@@ -68,7 +67,7 @@ try:
     check(result(pair, c.byref(value)) == 0)
     check(advance(pair, 1) == 0)
     pump(pair)
-    check(result(pair, c.byref(value)) == 3 and release(pair) == 0)
+    check(result(pair, c.byref(value)) == 3)
 finally:
     destroy(pair)
 print("Python -> exported C -> generated endpoint: OK (native/manual/wrap/reject/close)")

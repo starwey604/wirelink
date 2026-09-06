@@ -19,7 +19,7 @@
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、
@@ -179,23 +179,24 @@ ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `n
 更大队列、外部 arena 或 DMA 放置仍走高级自定义存储路径。
 详见[设计与限制](default-endpoint-cn.md)。
 
-托管 RPC 默认使用生成的 `*_call_t`、`*_result_t` 和 `*_request_token_t`：
-业务消息无需编号／状态字段，`endpoint_*_call()` 发起，`inspect()` 直接取得类型化结果，
-`release/cancel()` 管理调用，`complete/reject()` 回复。句柄和 token 不暴露业务需要管理的编号，
-会验证端点归属与生命周期。旧字段映射是独立的兼容模式，两种格式不能混用。
-详见 [RPC 合同](rpc-runtime-cn.md)。
+普通托管 RPC 使用自持 `*_value_t`、`endpoint_*_async()` 和完成回调；
+自动快照请求并回收调用。服务端注册 `config.on_<service>`，返回业务响应或拒绝码。
+需要取消才领取 `wl_rpc_call_t`，不要求 inspect/release。默认四槽有界提交与最近结果缓存；
+手动 call/token 和 `config.advanced` 是高级入口，详见[默认端点](default-endpoint-cn.md)。
+已有字段映射仍为独立的互操作模式。
 
-## WLC 生成接口（ABI 22）
+## WLC 生成接口（ABI 23）
 
-WLC 有意拆分三类职责：
+WLC 有意拆分以下入口：
 
-1. `<module>.h/.c`：消息模型、clear/encode/decode、大小上限；
+1. `<module>_values.h`：自持业务值；`<module>.h/.c`：高级借用模型和共享编解码；
 2. `<module>_bindings.h/.c`：类型化直接 router 和类型化发送操作；
-3. `<runtime>_runtime.h/.c`：一个 binding profile 选择的 retained/RPC 策略。
+3. `<runtime>_endpoint.h`：普通应用入口，静态布局传递依赖 runtime 头；
+4. `<runtime>_runtime.h/.c`：高级 retained/RPC 装配及实现。
 
 同一 codec target 可供多个独立命名的 host/device runtime 共用。生成产物必须同时
 匹配 compiler version、codegen ABI、schema identity 和 binding-profile identity。
-ABI 20 增加默认托管 RPC；原有默认端点和高级 runtime API family 仍包括：
+ABI 20 增加默认托管 RPC；以下表格为高级 runtime API family：
 
 | 类别 | 生成模式 |
 | --- | --- |

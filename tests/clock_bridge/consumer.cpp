@@ -19,8 +19,8 @@ int main() {
     const auto reads = clock_bridge_reads(pair.get());
     std::int32_t sum{};
     if (clock_bridge_result(pair.get(), &sum) != 1 || sum != 42) return 6;
-    if (clock_bridge_release(pair.get()) != 0) return 7;
     clock_bridge_close(pair.get());
+    if (clock_bridge_result(pair.get(), &sum) != 1 || sum != 42) return 7;
     if (clock_bridge_step(pair.get()) != -1 || clock_bridge_reads(pair.get()) != reads) return 8;
   }
   std::puts("C++ -> exported C -> generated endpoint: OK (native/manual clocks)");

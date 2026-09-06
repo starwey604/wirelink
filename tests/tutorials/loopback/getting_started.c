@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "quickstart_runtime.h"
+#include "quickstart_advanced.h"
 #include "wirelink/loopback.h"
 
 #define CHECK(expression) do { \
@@ -52,16 +52,16 @@ int main(void) {
 
   CHECK(quickstart_endpoint_config_defaults(&client_config, 0x1001U) == WL_OK);
   CHECK(quickstart_endpoint_config_defaults(&server_config, 0x2002U) == WL_OK);
-  CHECK(quickstart_runtime_config_enable_client(&client_config.runtime) == WL_OK);
-  CHECK(quickstart_runtime_config_enable_server(&server_config.runtime) == WL_OK);
+  CHECK(quickstart_runtime_config_enable_client(&client_config.advanced) == WL_OK);
+  CHECK(quickstart_runtime_config_enable_server(&server_config.advanced) == WL_OK);
   client_config.link.ack_timeout_ms = 20U;
   client_config.link.max_retries = 2U;
   server_config.link.ack_timeout_ms = 20U;
   server_config.link.max_retries = 2U;
-  server_config.runtime.rpc_server_pending_timeout_ms = 1000U;
-  server_config.runtime.rpc_server_cache_ttl_ms = 10000U;
-  server_config.runtime.add_request_handler = handle_add;
-  server_config.runtime.add_user_data = &calculator;
+  server_config.advanced.rpc_server_pending_timeout_ms = 1000U;
+  server_config.advanced.rpc_server_cache_ttl_ms = 10000U;
+  server_config.advanced.add_request_handler = handle_add;
+  server_config.advanced.add_user_data = &calculator;
   client_config.clock = server_config.clock = (wl_clock_t){read_clock, &calculator};
   CHECK(quickstart_endpoint_init_config(&controller, &client_config) == WL_OK);
   CHECK(quickstart_endpoint_init_config(&device, &server_config) == WL_OK);

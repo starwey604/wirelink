@@ -13,8 +13,8 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 ## 2. 获取与 Wirelink 匹配的 WLC
 
-当前教程需要下文固定提交的 **WLC 0.4.0、生成 ABI 22**，包括初始化时配置时钟、
-`@delivery(...)` 和默认可靠语法。ABI 22 改变生成 C 接口／布局，不改变 schema 编码或帧字节。
+当前教程需要下文固定提交的 **WLC 0.4.0、生成 ABI 23**，包括初始化时配置时钟、
+`@delivery(...)` 和默认可靠语法。ABI 23 改变生成 C 接口／布局，不改变 schema 编码或帧字节。
 这不表示旧的同版本发行包已经包含新功能。此轮没有发布新包或新 tag。
 
 如果已经拿到配套的内部预编译 WLC，把它解压到一个固定目录，并将可执行文件所在目录
@@ -25,7 +25,7 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout b2789461929de1c687bf562e8636f5ad343a15b3
+git -C wlc-source checkout 26a07a49597cd06b455ea1060e5b7902d39ea061
 cargo install --path wlc-source --locked --force
 ```
 
@@ -41,7 +41,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-本轮期望分别输出 `wlc 0.4.0` 和 `21`。
+本轮期望分别输出 `wlc 0.4.0` 和 `23`。
 ABI 是生成 C 接口与布局的修订编号，不是线上协议版本。
 托管与旧映射 RPC 的 payload 格式不同，切换模式需两端配套升级；本轮时钟注入不改变字节，
 但必须一起重建核心和生成消费者。

@@ -25,7 +25,6 @@ CLOCK_EXPORT int clock_bridge_step(void *bridge);
 CLOCK_EXPORT int clock_bridge_advance(void *bridge, uint32_t delta_ms);
 /* 0 pending, 1 complete, 2 business rejection, 3 timeout, -1 other error. */
 CLOCK_EXPORT int clock_bridge_result(void *bridge, int32_t *sum);
-CLOCK_EXPORT int clock_bridge_release(void *bridge);
 CLOCK_EXPORT uint32_t clock_bridge_reads(const void *bridge);
 CLOCK_EXPORT uint32_t clock_bridge_handled(const void *bridge);
 #ifdef __cplusplus

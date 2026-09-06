@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+sample:
+  name: Wirelink ordinary RPC ownership
+  description: Async completion, owned values, queue deadlines and one-slot chaining
+common:
+  tags: [wirelink, wlc, rpc]
+  platform_allow: [native_sim, qemu_cortex_m3, qemu_riscv32, qemu_x86_64]
+  timeout: 60
+  harness: console
+  harness_config:
+    type: one_line
+    regex: ['RPC_H1 ALL PASS']
+tests:
+  sample.wirelink.rpc_usability:
+    # Two near-2-KiB/four-slot endpoints plus Zephyr exceed this M3's 64-KiB RAM.
+    platform_exclude: [qemu_cortex_m3]
+    integration_platforms: [native_sim, qemu_riscv32, qemu_x86_64]
+  sample.wirelink.rpc_usability.one_slot:
+    integration_platforms: [native_sim, qemu_cortex_m3, qemu_riscv32, qemu_x86_64]
+    extra_args: [WIRELINK_RPC_TEST_CAPACITY=1]

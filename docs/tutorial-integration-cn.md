@@ -83,10 +83,10 @@ cmake --build /path/to/temperature-display/build --config Release
 Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 
 独立消费者不需要 Asio 源码路径：安装的 UDP 库已编译好，不把 Asio 头文件暴露给应用。
-WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 22 编译器。
+WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 23 编译器。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
-[WLC 指南](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README-cn.md)。
+[WLC 指南](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README-cn.md)。
 
 ## 3. 不要把两种“配置”混为一谈
 
@@ -114,7 +114,9 @@ WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定
 默认端点根据 profile 中的消息推导 payload 上限，并为各封装的最大开销、
 一包的串口接收字节和消息 runtime 预留存储。配置以 `endpoint_config_defaults()` 开始，
 改 `config.link.envelope` 等字段，再调用 `endpoint_init_config()`。
-RPC 角色、超时和 handler 仍通过 `config.runtime` 选择，不会自动替产品决定重试策略。
+普通 client 已在初始化时准备，`config.on_<service>` 注册即时服务。
+容量/缓存等专家覆盖位于 `config.advanced`，链路调优位于 `config.link`；
+默认参数只是起点，详见[默认端点](default-endpoint-cn.md)。
 
 `*_HAS_DEFAULT_ENDPOINT` 为 1 时有完整默认类型；被 profile 选中的消息无界或超出
 单帧 2048 字节能力时为 0。未被 profile 选中的大消息不会放大端点。
@@ -240,7 +242,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 无需按顺序读完所有参考文件：
 
 - 想审阅公开 API 的划分和所有权：读 [API 边界](api-boundary-cn.md)。
-- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README-cn.md)。
+- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README-cn.md)。
 - 想了解保留最新值或队列的限制：读 [LATEST](latest-mailbox-cn.md) 与 [FIFO](fifo-cn.md)。
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。

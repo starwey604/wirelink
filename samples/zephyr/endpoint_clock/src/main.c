@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
-#include "calculator_runtime.h"
+#include "calculator_advanced.h"
 #include "wirelink/loopback.h"
 
 #define CHECK(x) do { if (!(x)) { printk("CLOCK_HIL FAIL line=%u: %s\n", \
@@ -39,13 +39,13 @@ static int configure(int selected_mode) {
   CHECK(calculator_endpoint_config_defaults(&a, 1U) == WL_OK);
   CHECK(calculator_endpoint_config_defaults(&b, 2U) == WL_OK);
   a.clock = b.clock = (wl_clock_t){read_clock, NULL};
-  CHECK(calculator_runtime_config_enable_client(&a.runtime) == WL_OK);
-  CHECK(calculator_runtime_config_enable_server(&b.runtime) == WL_OK);
+  CHECK(calculator_runtime_config_enable_client(&a.advanced) == WL_OK);
+  CHECK(calculator_runtime_config_enable_server(&b.advanced) == WL_OK);
   a.link.ack_timeout_ms = b.link.ack_timeout_ms = 20U;
   a.link.max_retries = b.link.max_retries = 2U;
-  b.runtime.rpc_server_pending_timeout_ms = 1000U;
-  b.runtime.rpc_server_cache_ttl_ms = 10000U;
-  b.runtime.add_request_handler = add;
+  b.advanced.rpc_server_pending_timeout_ms = 1000U;
+  b.advanced.rpc_server_cache_ttl_ms = 10000U;
+  b.advanced.add_request_handler = add;
   CHECK(calculator_endpoint_init_config(&client, &a) == WL_OK);
   CHECK(calculator_endpoint_init_config(&server, &b) == WL_OK);
   CHECK(wl_loopback_connect(&cable, calculator_endpoint_handle(&client),

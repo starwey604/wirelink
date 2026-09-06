@@ -82,29 +82,40 @@ rpc Add {
 这个覆盖只影响请求方向，响应仍可靠。属性属于消息的使用配置，不属于消息定义。
 默认可靠不代表无限重试、没有超时或业务只执行一次；重试次数与等待时间仍由运行配置选择。
 
-Wirelink 自动给调用分配内部编号，随请求发送、随响应带回并匹配。
-应用保存返回的 **调用句柄**，就像领取这次结果的凭据，不需要比较或修改内部编号。
-这就是默认的托管 RPC。
+Wirelink 自动给每次调用分配内部编号并匹配响应，应用不需要保存或比较它。
+普通接口在完成时通知应用并回收调用资源；只有需要主动取消时才领取可选句柄。
 
-## 4. 客户端：提交参数，等待结果
+## 4. 客户端：提交参数，完成时接收结果
 
-完整 [`client.c`](../examples/01_rpc/client.c)：
+完整 [client.c](../examples/01_rpc/client.c)：
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "calculator_runtime.h"
+#include "calculator_endpoint.h"
 #include "tutorial_host.h"
+
+typedef struct {
+  bool done;
+  wl_rpc_completion_t result;
+  add_response_value_t response;
+} addition_t;
+
+static void completed(void *context, const wl_rpc_completion_t *result,
+                       const add_response_value_t *response) {
+  addition_t *addition = context;
+  addition->result = *result;
+  if (response != NULL) addition->response = *response;
+  addition->done = true;
+}
 
 int main(int argc, char **argv) {
   static calculator_endpoint_t client;
-  calculator_endpoint_config_t config;
-  calculator_add_call_t call;
-  calculator_add_result_t result;
-  add_request_t request;
+  addition_t addition = {0};
+  add_request_value_t request;
   uint16_t local = 49100, peer = 49101;
   CHECK(argc == 1 || argc == 3 || argc == 5);
   CHECK(example_ports(argc == 5 ? 3 : argc, argv, &local, &peer));
-  add_request_clear(&request);
+  add_request_value_clear(&request);
   request.has_left = request.has_right = true;
   request.left = 20;
   request.right = 22;
@@ -113,82 +124,69 @@ int main(int argc, char **argv) {
     CHECK(example_int32(argv[4], &request.right));
   }
 
-  CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
-  config.clock = example_clock();
-  CHECK(calculator_runtime_config_enable_client(&config.runtime) == WL_OK);
-  config.link.ack_timeout_ms = 100U;
-  config.link.max_retries = 4U;
-  CHECK(calculator_endpoint_init_config(&client, &config) == WL_OK);
+  CHECK(calculator_endpoint_init(&client, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
-  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, &call) == WL_RPC_OK);
+  CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
+      completed, &addition, NULL) == WL_OK);
 
-  for (;;) {
+  while (!addition.done && example_running()) {
     const int step = calculator_endpoint_step(&client);
     if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
-    CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
-    if (result.state == WL_RPC_CLIENT_COMPLETED ||
-        result.state == WL_RPC_CLIENT_APPLICATION_ERROR ||
-        result.state == WL_RPC_CLIENT_TIMED_OUT ||
-        result.state == WL_RPC_CLIENT_LINK_FAILED ||
-        result.state == WL_RPC_CLIENT_CANCELLED) break;
-    if (!example_running()) CHECK(calculator_endpoint_add_cancel(&client, &call) == WL_RPC_OK);
-    CHECK(example_udp_wait(udp, 200U) == WL_OK);
+    if (!addition.done) CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
-  if (result.state == WL_RPC_CLIENT_COMPLETED && result.response_valid) {
-    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)result.response.sum);
-  } else if (result.state == WL_RPC_CLIENT_APPLICATION_ERROR) {
-    printf("addition rejected: status=%ld\n", (long)result.application_status);
+  CHECK(calculator_endpoint_close(&client) == WL_OK); /* Also completes a call interrupted by Ctrl-C. */
+  if (addition.result.status == WL_RPC_SUCCESS) {
+    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)addition.response.sum);
+  } else if (addition.result.status == WL_RPC_REJECTED) {
+    printf("addition rejected: status=%ld\n", (long)addition.result.rejection);
   } else {
-    fprintf(stderr, "RPC failed: state=%ld\n", (long)result.state);
+    fprintf(stderr, "RPC failed: %s\n", wl_rpc_status_str(addition.result.status));
   }
-  CHECK(calculator_endpoint_add_release(&client, &call) == WL_RPC_OK);
   example_udp_close(udp);
-  return result.state == WL_RPC_CLIENT_COMPLETED ||
-         result.state == WL_RPC_CLIENT_APPLICATION_ERROR ? 0 : 1;
+  return addition.result.status == WL_RPC_SUCCESS ||
+         addition.result.status == WL_RPC_REJECTED ? 0 : 1;
 }
 ```
 
-按业务顺序读即可：
+先只看三处：
 
-1. 填写 `left`、`right` 和对应 `has_...` 标志。
-2. 配置客户端角色；本例链路确认等待 100 毫秒，最多重传 4 次。
-3. `endpoint_add_call(..., 1500U, &call)` 提交调用，应用响应等待上限为 1500 毫秒。
-   返回 `WL_RPC_OK` 表示提交成功，不表示服务端已经算完。
-   初始化时设置 `config.clock = example_clock()`；提交时内部取一次时间，同时用于
-   链路重传与 RPC 截止时间。首次提交前不需要额外调用 `step()`。
-4. 持续 `endpoint_step()`，用 `endpoint_add_inspect()` 查询。
-   查询成功与调用成功不同；查看 `result.state`，成功时还应检查 `response_valid`。
-5. 用完结果后 `endpoint_add_release()`，失败、取消和超时也要释放。
-   关闭端点或释放调用后，旧句柄不能再用。
+1. `add_request_value_t` 是生成的业务值。填好输入后调用 `endpoint_add_async()`；
+   `1500U` 是从接受请求起计算的等待上限，包含本地排队时间。
+2. `completed()` 在调用结束时收到结果。成功时有响应，失败时响应指针为 NULL。
+   这里把结果复制进程序自己的 `addition`，所以退出回调、关闭端点后仍能打印。
+3. 主循环只负责推进通信、等待 socket 唤醒，直到完成或 Ctrl+C。
+   不再检查链路中间状态，也不需要 `release`。线程式的一行同步调用属于后续平台接口，
+   当前例子展示的是单执行者异步接口。
 
-`example_udp_*` 和时钟函数仍是上一篇介绍的[公共平台支持代码](../examples/common/tutorial_host.h)，
-不是另一套 RPC 实现。正常等待通过 socket 唤醒，不需要每毫秒空转一次。
+`_async()` 返回 `WL_OK` 只表示“已快照请求并接受调用”，不表示计算成功。
+此后可以改写请求变量。返回 `WL_ERR_BUSY` 表示本地固定容量已满，本次没有接受、
+也不会回调；应用可稍后再提交。其他提交错误同样不会回调。
 
-## 5. 服务端：只关注如何计算和回复
+初始化时提供时钟；首次调用不需要先 `step()`。正常推进中的完成回调不额外读取时钟。
+`example_udp_*` 是[示例平台支持](../examples/common/tutorial_host.h)，不是另一套 RPC 实现。
 
-完整 [`server.c`](../examples/01_rpc/server.c)：
+## 5. 服务端：填响应或返回业务拒绝码
+
+完整 [server.c](../examples/01_rpc/server.c)：
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <limits.h>
-#include "calculator_runtime.h"
+#include "calculator_endpoint.h"
 #include "tutorial_host.h"
 
-static int32_t add(void *context, const add_request_t *request,
-                   const calculator_add_request_token_t *token, wl_delivery_t delivery) {
-  calculator_endpoint_t *server = context;
+static int32_t add(void *context, const add_request_value_t *request,
+                   add_response_value_t *response) {
   const int64_t sum = (int64_t)request->left + request->right;
-  (void)delivery;
+  (void)context;
   printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
   fflush(stdout);
   if (sum < INT32_MIN || sum > INT32_MAX)
-    return calculator_endpoint_add_reject(server, token, 1);
-  add_response_t response;
-  add_response_clear(&response);
-  response.has_sum = true;
-  response.sum = (int32_t)sum;
-  return calculator_endpoint_add_complete(server, token, &response);
+    return 1; /* Business rejection; framework errors are separate. */
+  response->has_sum = true;
+  response->sum = (int32_t)sum;
+  return 0;
 }
 
 int main(int argc, char **argv) {
@@ -198,13 +196,7 @@ int main(int argc, char **argv) {
   CHECK(example_ports(argc, argv, &local, &peer));
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
   config.clock = example_clock();
-  CHECK(calculator_runtime_config_enable_server(&config.runtime) == WL_OK);
-  config.link.ack_timeout_ms = 100U;
-  config.link.max_retries = 4U;
-  config.runtime.rpc_server_pending_timeout_ms = 1000U;
-  config.runtime.rpc_server_cache_ttl_ms = 10000U;
-  config.runtime.add_request_handler = add;
-  config.runtime.add_user_data = &server;
+  config.on_add = add;
   CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&server), local, peer);
   CHECK(udp != NULL);
@@ -214,50 +206,41 @@ int main(int argc, char **argv) {
     CHECK(calculator_endpoint_step(&server) == WL_OK);
     CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
+  CHECK(calculator_endpoint_close(&server) == WL_OK);
   example_udp_close(udp);
   return 0;
 }
 ```
 
-服务端配置 `add_request_handler` 后，推进端点时就会收到处理回调。
-`context` 是我们传入的服务端指针，不包含手工组装的通信缓冲区。
+`config.on_add = add` 注册服务。框架负责准备请求、清空响应、调用函数并发送结果。
+handler 不需要知道 endpoint、token 或 delivery；`context` 仅用于自己的业务状态，
+需要时通过 `config.add_user_data` 提供。
 
-`calculator_add_request_token_t` 是回复当前请求的凭据。用它调用
-`endpoint_add_complete()` 准备成功响应，之后由端点推进发送。
-无需从请求中提取编号、再把编号写入响应。
+返回 0 表示成功，必须填写响应的 required 字段；非零值仅表示协议双方约定的业务拒绝码。
+例如这里用 1 表示加法越界。不要返回 `WL_ERR_*` 充当框架错误——它们会被当作业务拒绝码。
+响应编码错误、发送错误等由框架诊断路径报告，不与拒绝码混用。
+不要在这个即时 handler 中等待电机完成或执行长时间阻塞工作；延迟回复有独立的
+[高级 token 接口](rpc-runtime-cn.md)。
 
-处理函数返回零表示本地正常接手，不要求已经发送完成。
-慢任务可以复制需要的参数和 token，稍后在同一个通信处理线程上回复。
-返回非零是本地处理失败，**不会自动发送业务拒绝**。
+## 6. 正常运行时需要记住的边界
 
-## 6. 拒绝、超时和重复请求
+- 完成只有成功、业务拒绝、超时、取消、通信失败五种结果；
+  `wl_rpc_completion_t` 的诊断属于本次调用，不使用共享 last_error。
+- 已接受请求在持续推进或有序关闭时恰好回调一次。回调中的响应指针只在该回调内有效；
+  复制 `*response` 得到自持副本，包括有界 string/bytes，无需析构。
+- 回调可以提交或取消其他调用；不能递归 `step` 或在回调中同步 `close` 同一端点。
+  设置应用的停止标志，在回到主循环后关闭。关闭会结束尚未通知的调用。
+- 取消句柄是可选的：将最后一个 NULL 换成 `&call`（类型 `wl_rpc_call_t`），
+  然后调用 `calculator_endpoint_cancel(&client, &call)`。仍由完成回调通知结果。
+  超时或取消不撤销远端已经发生的副作用。
+- 默认四个 RPC 槽，单个链路发送槽。框架有界排队，不创建线程、堆或无限队列。
+  默认缓存只保留有限的最近结果，允许淘汰已送达的最旧响应；
+  10 秒 TTL 是最长保留时间，不是“10 秒内绝不重复执行”的保证。
+  调优和严格缓存策略见[默认端点](default-endpoint-cn.md)。
 
-加法先用 64 位整数计算，避免有符号溢出。结果超出 32 位范围时，
-`endpoint_add_reject(..., 1)` 返回本例约定的拒绝状态 1，不必伪造一个 `sum`。
-试着运行：
+现在可以试着改变左右参数，或运行
+`calculator_client 49100 49101 2147483647 1` 观察业务拒绝。
+重复运行客户端无需等待缓存 TTL。UDP 丢失下的确认与重传由 Wirelink 处理，
+但 UDP 示例不提供身份认证或加密，不应直接暴露到不可信网络。
 
-```sh
-./build/tutorials/examples/01_rpc/calculator_client 49100 49101 2147483647 1
-```
-
-客户端应输出 `addition rejected: status=1`。`response_valid` 为假，
-`application_status` 才是拒绝原因。
-
-UDP 包丢失时，Wirelink 可靠传输可以重传；缓存有效期内重复请求不会重复执行加法。
-但链路 ACK 只说明链路接收，不说明业务已经完成。
-**取消或超时都不保证对端没执行，也不会远程撤销操作。**
-相同参数重新 `call()` 是新操作；扣款、运动等业务要另行设计幂等或状态查询。
-
-默认端点只有一个客户端调用位置，释放后再发下一次；高级存储支持多个并发调用。
-调用编号未复用时，已取消、超时或释放的调用收到迟到响应，只留下诊断。
-跨客户端重建、编号复用后的旧响应隔离仍有限制，见 [RPC 合同](rpc-runtime-cn.md)。
-
-## 下一步
-
-两个程序默认固定互为对端，端口分别为 49100、49101。
-服务端不是多客户端网络服务器；程序重启后仍需遵守
-[会话和旧流量隔离规则](tutorial-integration-cn.md#session-identity)。
-
-继续读[工程集成](tutorial-integration-cn.md)，了解安装包、自定义平台与存储。
-原来的字段映射方式仍支持，旧 `request_delivery = ...` 写法也兼容；
-同一方向重复声明属性和旧属性会报错，不会静默覆盖。
+下一篇：[把端点接入自己的程序](tutorial-integration-cn.md)。

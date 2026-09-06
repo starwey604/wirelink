@@ -5,7 +5,7 @@ include_guard(GLOBAL)
 # in the global CMake cache so function call-site scope cannot hide them.
 set(WIRELINK_WLC_VERSION "0.4.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_ABI "22" CACHE INTERNAL
+set(WIRELINK_WLC_CODEGEN_ABI "23" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Download the pinned WLC host compiler when it is not installed" ON)
@@ -135,6 +135,8 @@ function(wirelink_wlc_generate_runtime)
 
   set(_generated
     "${_output_dir}/${_runtime_name}_runtime.h"
+    "${_output_dir}/${_runtime_name}_endpoint.h"
+    "${_output_dir}/${_runtime_name}_advanced.h"
     "${_output_dir}/${_runtime_name}_runtime.c"
     "${_output_dir}/${_runtime_name}_runtime_manifest.json")
   set(_generated_source "${_output_dir}/${_runtime_name}_runtime.c")

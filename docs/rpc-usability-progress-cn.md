@@ -86,12 +86,79 @@ x86_64 QEMU 的 4 配置也全部通过（`build/rpc-m1-clock-sim/twister.json`�
 
 M2 将补上完成通知中槽位复用、close/reinit 后仍保留业务副本的端到端测试。
 
-## M2 / H1
+## M2：默认 RPC（实现完成，交付验证中）
 
-M2 实施中。已增加 `rpc_async` 共用调度层，使用既有 RPC 状态机和截止时间，
-在接受前编码请求快照，在回调前准备结果并回收调用资源。链接仍自行排空发送终态。
-新核心单元测试 4 项通过（`build/rpc-m2-async-unit`），同源独立主机测试及
-ASan/UBSan 通过；链路 mock 特意在 RPC 释放后保留 TX 占用，验证责任分离，
-它不能代替后续真实 loopback/adapter 集成测试。
-尚未完成生成端点接入、默认即时 handler、精简配置及示例迁移。
-H1 尚未进行；最终将准备独立 H7 loopback 样例及清单后交回用户，不自动烧录。
+WLC `26a07a49597cd06b455ea1060e5b7902d39ea061` / ABI 23 已推 dev；
+[WLC CI](https://github.com/starwey604/wlc/actions/runs/34049280583) 全部通过，
+含 Rust/C、Windows 和两种 macOS 主机 smoke。
+其核心测试依赖为 Wirelink `6ea75b7`；Wirelink 本轮配对实现提交和 CI 在最终交付记录中补齐。
+
+普通入口为 `<runtime>_endpoint.h`，业务数据为 `<codec>_values.h`。
+手动端点 call/inspect/release 和 complete/reject 已移到显式 `<runtime>_advanced.h`，
+普通入口不包含这些助手；因静态 C 布局，runtime 的部分声明仍传递可见，不能声称完全不透明。
+
+已实现：
+
+- 即时 `config.on_<service>` handler：自持请求、填写预初始化响应、零成功/非零业务拒绝。
+  注册 handler 自动启用 server；client 初始化即就绪。慢任务仍显式使用高级 deferred token。
+- `endpoint_<service>_async(..., timeout, callback, context, optional_call)`：
+  接受前编码快照；有界排队，截止时间包含排队；失败提交无回调。
+  完成前形成自持结果并回收调用，再通知一次；普通业务不再 inspect/release。
+- 每调用结果区分成功、拒绝、超时、取消和通信失败；本地响应过大等框架错误不伪装成业务拒绝。
+  单 TX 槽与 RPC 调用资源独立排空，响应先到不提前复用 TX 借用。
+- 回调内提交/取消、拒绝递归 step/close/reinit、关闭通知、旧取消句柄失效。
+  生成 close 先 quiesce，再交付剩余通知；不能用通用 handle close 代替。
+- 默认四槽、最近已送达结果淘汰；`config.advanced` 保留严格策略和容量覆盖，
+  `<PREFIX>_ENDPOINT_RPC_CAPACITY` 可一致地缩小静态容量。队列按最大请求预留，
+  各服务共用最大 request/response 暂存 union。
+- UDP 分离 client/server、C++/Python 薄桥接与中英文教程已迁移；桥接不再导出 release。
+  映射 conformance schema 不变，所有生成文件/manifest 与 WLC 配对更新。
+
+### 已通过的软件检查
+
+- WLC 全量 115 项、fmt/clippy；新真实核心 + loopback 夹具覆盖 4 种 delivery × 1/4 槽。
+  含字符串、2031 字节 bytes、100 次 TTL 内连续调用、突发满载、单槽 20 次续调、
+  请求改写、结果复制后 slot 复用/close/reinit、拒绝、取消、回绕超时、失败提交与关闭唯一通知。
+- C11 严格告警、普通端点 C++20 消费、原生 C++/Python bridge；对新普通异步、
+  owned_values、managed_rpc、缓存基线运行 ASan/UBSan 均通过。
+- Host Release 10 项；Clang ASan/UBSan 原生 9 项和预加载 ASan 的 Python 1 项。
+  UDP 测试包含丢请求、丢响应、重复、重排、黑洞、响应先于请求 ACK、
+  以及已执行业务的 ACK/第一次响应同时丢失；后两项断言丢包确实发生、业务执行一次。
+- Ztest/native_sim/QEMU：45 配置、285 用例、5 平台全部通过、无警告，
+  记录 `build/rpc-m2-twister/twister.json`。
+- 独立 H1/时钟样例的最终 simulator matrix、两种 H7 容量的构建与配对 Wirelink
+  远端 CI 正在收尾，未进行 H7 执行。
+
+### 内存与复制边界
+
+| 对象 / 平台 | 1 槽 endpoint | 4 槽 endpoint |
+| --- | ---: | ---: |
+| 字符串 Execute + 2031-byte Download，Linux x86_64 | 16832 B | 30160 B |
+| 同一压力 profile，H7 交叉编译 | 待补构建报告 | 29824 B |
+
+纯 Add 教程在 x86_64 默认四槽为 3536 B；大消息测试不能代表所有 RPC 的 RAM 成本。
+H7 四槽完整双端样例链接报告 Flash 70244 B、RAM 78592 B，包含 Zephyr、RTT、两个端点和测试保存值，
+不是 Wirelink 库本体大小，也不是实际栈高水位。外部板定义有两个既有 `ragtime` vendor-prefix
+提示，未修改产品板定义；C 编译通过。
+
+请求有一次队列编码及一次向链路 payload 的复制；响应先保存在 core RPC 存储，再解码为自持值。
+应用若长期保存，再做一次显式结构体赋值。不能把所有权简化宣传为零复制。
+普通提交在 step 外取时一次，双端一轮各一次，回调内续调不额外取时，close/result 不取时。
+H7 CPU 周期、实际延迟和栈高水位仍未测量。
+
+64-KiB RAM 的 Cortex-M3 放不下该双端四槽大消息压力样例，最初链接超过 RAM 7816 B；
+没有扩大模拟硬件 RAM。矩阵改为 M3 验证一槽，其他三个平台验证一/四槽。
+高并发本机构建期间 x86_64 QEMU 曾在 BIOS 超时及真实 uptime 阶段触及 100-ms 测试期限；
+最终矩阵降低并发，H1 uptime 功能项使用 2000 ms（不作为延迟预算），旧时钟专用 deadline
+测试仍保留原约束。最初日志保留在 `build/rpc-m2-samples.1` / `build/rpc-m2-samples`。
+
+## H1 交接（未执行）
+
+独立样例：[samples/zephyr/rpc_usability](../samples/zephyr/rpc_usability/README.md)。
+使用 dm_mc02/stm32h723xx、RTT 输出、同 owner 双端 loopback，无执行器或持久写入；
+前半为确定性模拟时钟，末尾独立验证真实 Zephyr uptime。
+
+本轮只交叉编译并运行模拟器，不 SSH、不烧录、不要求现在按 RESET。
+下一步在 H7 上分别运行一槽/四槽镜像，保存启动记录、计数和 `RPC_H1 ALL PASS`。
+这只验收目标 CPU 的功能和所有权；H2/H3 的等待器、分配器、CPU 测量及产品物理链路仍未做。
+M3–M5 未开始，libflorid/Ragtime 产品依赖、main、tag 和长期测试均未改动。

@@ -496,6 +496,14 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
     }
     result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
     result.detail.rpc.handle = event->handle;
+#if CONTROL_RUNTIME_HAS_MANAGED_RPC
+    if (runtime->rpc_async != NULL && wl_rpc_async_retire_tx(runtime->rpc_async, event->handle)) {
+      result.detail.rpc.core_result = wl_tx_take(ctx, event->handle, &tx_result);
+      result.event_consumed = result.detail.rpc.core_result == WL_OK ? 1U : 0U;
+      result.domain = result.detail.rpc.core_result == WL_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_CORE_ERROR;
+      return result;
+    }
+#endif
     if (runtime->rpc_server != NULL) {
       result.detail.rpc.rpc_result = wl_rpc_server_on_tx_event(runtime->rpc_server, event);
       if (result.detail.rpc.rpc_result == WL_RPC_OK) {

@@ -26,7 +26,9 @@ int result = telemetry_endpoint_init(&endpoint, session_id, clock);
 
 For configurable initialization, fill `config.clock` after
 `endpoint_config_defaults()`. Defaults cannot choose a firmware's clock; a null
-function is rejected. Then use `step(endpoint)`, `call(..., timeout_ms, &call)`,
+function is rejected. Then use `step(endpoint)` and ordinary
+`*_async(..., timeout_ms, callback, context, optional_call)` without `now_ms`.
+Immediate handlers fill responses directly. Advanced `call(..., timeout_ms, &call)`,
 `complete(..., &response)`, and `reject(..., status)` without `now_ms`.
 Application publishing intervals are still application policy.
 

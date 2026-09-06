@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "bridge.h"
-#include "calculator_runtime.h"
+#include "calculator_endpoint.h"
+#include "calculator_advanced.h" /* Deferred server for deadline tests. */
 #include "wirelink/loopback.h"
 #include <limits.h>
 #include <stdlib.h>
@@ -11,10 +12,11 @@ wl_clock_t clock_bridge_native_clock(void);
 typedef struct {
   calculator_endpoint_t client, server;
   wl_loopback_t cable;
-  calculator_add_call_t call;
+  wl_rpc_completion_t result;
+  add_response_value_t response;
   wl_clock_t native;
   uint32_t time, reads, handled;
-  int ready, active;
+  int ready, active, done;
 } bridge_t;
 
 static wl_time_ms_t read_clock(void *user) {
@@ -40,6 +42,14 @@ static int32_t add(void *user, const add_request_t *request,
   return calculator_endpoint_add_complete(&bridge->server, token, &response);
 }
 
+static void completed(void *context, const wl_rpc_completion_t *result,
+                       const add_response_value_t *response) {
+  bridge_t *bridge = context;
+  bridge->result = *result;
+  if (response != NULL) bridge->response = *response;
+  bridge->done = 1;
+}
+
 void *clock_bridge_create(uint32_t initial_ms, int native_clock) {
   bridge_t *bridge = calloc(1, sizeof(*bridge)); /* Only the host test shim allocates. */
   calculator_endpoint_config_t client, server;
@@ -49,17 +59,15 @@ void *clock_bridge_create(uint32_t initial_ms, int native_clock) {
   if (calculator_endpoint_config_defaults(&client, 1U) != WL_OK ||
       calculator_endpoint_config_defaults(&server, 2U) != WL_OK) goto failed;
   client.clock = server.clock = (wl_clock_t){read_clock, bridge};
-  if (calculator_runtime_config_enable_client(&client.runtime) != WL_OK ||
-      calculator_runtime_config_enable_server(&server.runtime) != WL_OK) goto failed;
   client.link.ack_timeout_ms = server.link.ack_timeout_ms = 50U;
   client.link.max_retries = server.link.max_retries = 2U;
-  server.runtime.rpc_server_pending_timeout_ms = 1000U;
-  server.runtime.rpc_server_cache_ttl_ms = 10000U;
+  server.advanced.rpc_server_pending_timeout_ms = 1000U;
+  server.advanced.rpc_server_cache_ttl_ms = 10000U;
   /* The native-clock scenario issues consecutive calls without waiting for
    * TTL. The manual-clock scenario keeps REJECT_NEW to test idle-gap expiry. */
-  if (native_clock) server.runtime.rpc_server_cache_policy = WL_RPC_CACHE_EVICT_OLDEST;
-  server.runtime.add_request_handler = add;
-  server.runtime.add_user_data = bridge;
+  if (!native_clock) server.advanced.rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
+  server.advanced.add_request_handler = add;
+  server.advanced.add_user_data = bridge;
   if (calculator_endpoint_init_config(&bridge->client, &client) != WL_OK ||
       calculator_endpoint_init_config(&bridge->server, &server) != WL_OK) goto failed;
   if (wl_loopback_connect(&bridge->cable, calculator_endpoint_handle(&bridge->client),
@@ -86,15 +94,16 @@ void clock_bridge_destroy(void *bridge) {
 
 int clock_bridge_start(void *value, int32_t left, int32_t right, uint32_t timeout_ms) {
   bridge_t *bridge = value;
-  if (!bridge || !bridge->ready || bridge->active) return -1;
-  add_request_t request;
-  add_request_clear(&request);
+  if (!bridge || !bridge->ready || (bridge->active && !bridge->done)) return -1;
+  add_request_value_t request;
+  add_request_value_clear(&request);
   request.has_left = request.has_right = true;
   request.left = left;
   request.right = right;
-  if (calculator_endpoint_add_call(&bridge->client, &request, timeout_ms,
-                                   &bridge->call) != WL_RPC_OK) return -1;
+  if (calculator_endpoint_add_async(&bridge->client, &request, timeout_ms,
+      completed, bridge, NULL) != WL_OK) return -1;
   bridge->active = 1;
+  bridge->done = 0;
   return 0;
 }
 
@@ -123,26 +132,15 @@ int clock_bridge_advance(void *value, uint32_t delta_ms) {
 
 int clock_bridge_result(void *value, int32_t *sum) {
   bridge_t *bridge = value;
-  calculator_add_result_t result;
-  if (!bridge || !bridge->ready || !bridge->active || !sum) return -1;
-  if (calculator_endpoint_add_inspect(&bridge->client, &bridge->call, &result) != WL_RPC_OK)
-    return -1;
-  if (result.state == WL_RPC_CLIENT_COMPLETED && result.response_valid) {
-    *sum = result.response.sum;
+  if (!bridge || !bridge->active || !sum) return -1;
+  if (!bridge->done) return 0;
+  if (bridge->result.status == WL_RPC_SUCCESS) {
+    *sum = bridge->response.sum;
     return 1;
   }
-  if (result.state == WL_RPC_CLIENT_APPLICATION_ERROR) return 2;
-  if (result.state == WL_RPC_CLIENT_TIMED_OUT) return 3;
-  return result.state == WL_RPC_CLIENT_QUEUED || result.state == WL_RPC_CLIENT_LINK_PENDING ||
-         result.state == WL_RPC_CLIENT_WAIT_RESPONSE ? 0 : -1;
-}
-
-int clock_bridge_release(void *value) {
-  bridge_t *bridge = value;
-  if (!bridge || !bridge->ready || !bridge->active) return -1;
-  if (calculator_endpoint_add_release(&bridge->client, &bridge->call) != WL_RPC_OK) return -1;
-  bridge->active = 0;
-  return 0;
+  if (bridge->result.status == WL_RPC_REJECTED) return 2;
+  if (bridge->result.status == WL_RPC_TIMED_OUT) return 3;
+  return -1;
 }
 
 uint32_t clock_bridge_reads(const void *value) {

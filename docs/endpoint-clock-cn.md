@@ -25,8 +25,9 @@ int result = telemetry_endpoint_init(&endpoint, session_id, clock);
 
 需要详细配置时，在 `endpoint_config_defaults()` 后填写 `config.clock`。
 默认配置无法替固件选择时钟，所以空函数会被拒绝。此后 `step(endpoint)`、
-`call(..., timeout_ms, &call)`、`complete(..., &response)`、`reject(..., status)`
-都不再传 `now_ms`。应用自己的发布频率仍由应用决定。
+`*_async(..., timeout_ms, callback, context, optional_call)` 都不再传 `now_ms`；
+即时 handler 直接填响应。高级 `call/complete/reject` 也复用端点时钟。
+应用自己的发布频率仍由应用决定。
 
 ## 生命周期和调用成本
 

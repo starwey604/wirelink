@@ -86,10 +86,10 @@ Windows multi-configuration builds add `Release/` and `.exe` to executable paths
 
 The independent consumer needs no Asio source include path: the installed adapter
 is already compiled and hides Asio headers. WLC runs only at build time; use the
-ABI 22 revision pinned in [installation](installation.md).
+ABI 23 revision pinned in [installation](installation.md).
 Codec-only consumers need neither runtime nor UDP. For shared codecs and
 `RUNTIME_NAME`, consult the
-[WLC guide](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README.md).
+[WLC guide](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README.md).
 
 ## 3. Two different configurations
 
@@ -119,8 +119,10 @@ the other end's receiving capacity.
 Default endpoints derive the payload bound from profile-selected messages and
 reserve for every supported envelope, a one-packet stream RX buffer, and runtime
 storage. Start with `endpoint_config_defaults()`, change `config.link.envelope`
-or other settings, and call `endpoint_init_config()`. RPC roles, timeouts, and
-handlers remain explicit in `config.runtime`; retry policy is not invented.
+or other settings, and call `endpoint_init_config()`. Client capability is prepared
+at init; register immediate services with `config.on_<service>`. Expert capacity
+and cache overrides live in `config.advanced`, link tuning in `config.link`.
+Defaults are starting points; see [default endpoint](default-endpoint.md).
 
 `*_HAS_DEFAULT_ENDPOINT` is 1 when the full default type is available. Unbounded
 selected messages or bounds above the 2048-byte frame limit set it to 0.
@@ -255,7 +257,7 @@ You have now received state, requested work, and integrated a build and driver.
 Use references as needed:
 
 - [API boundaries](api-boundary.md) for public interfaces and ownership.
-- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README.md) for more message definitions.
+- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README.md) for more message definitions.
 - [LATEST](latest-mailbox.md) and [FIFO](fifo.md) for retained-storage limits.
 - [RPC runtime](rpc-runtime.md) for failures and retries.
 - Bulk in [application-layer](application-layer.md) for large objects.
