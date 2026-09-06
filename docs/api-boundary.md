@@ -18,7 +18,7 @@ The order below is for reviewing the API after using those examples.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -169,7 +169,10 @@ Ordinary applications use a generated `*_endpoint_t`, not a hand-written struct
 of buffer pointers. The type contains a generic `wl_endpoint_t`, runtime state,
 and statically sized storage. Its private members are not application API.
 `*_endpoint_init()` supplies native-packet/CRC32C defaults; `init_config()` allows
-explicit transport settings, RPC roles, policies, and callbacks. Objects must
+explicit transport settings, RPC roles, policies, and callbacks. ABI 21 requires
+an initialization-time `wl_clock_t`; daily endpoint operations no longer take
+`now_ms`. Advanced runtime/link APIs remain explicit-time. See
+[clock ownership and migration](endpoint-clock.md). Objects must
 start zero-initialized and must not move until closed.
 
 `endpoint_send_<message>()` adopts the retained profile's delivery mode;
@@ -192,7 +195,7 @@ a call, `inspect()` returns its typed result, `release/cancel()` manage it, and
 lifetime. Explicit field mappings remain a separate interoperability mode; the
 two payload formats cannot be mixed. See the [RPC contract](rpc-runtime.md).
 
-## WLC-Generated Surface (ABI 20)
+## WLC-Generated Surface (ABI 21)
 
 WLC deliberately splits three concerns:
 

@@ -1,6 +1,6 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 20。既有映射 RPC 与 codec 字节不变；新增托管 RPC
+状态：内部开发，生成 ABI 21。既有映射 RPC 与 codec 字节不变；新增托管 RPC
 使用独立的元数据前缀。本轮不发布新包。
 [English](default-endpoint.md)。入门使用见 [getting-started-cn.md](getting-started-cn.md)。
 
@@ -36,7 +36,7 @@ payload 上限取 profile 中 LATEST/FIFO 消息及 RPC 请求/响应的最大�
 默认 runtime 使用已有的有限槽位布局：FIFO 一槽、RPC 一客户端槽、一待处理服务端槽、
 一缓存槽。RPC 角色默认关闭，不猜测产品重试/过期策略。通过
 `endpoint_config_defaults()` 获得初始化参数，修改 `config.link`、`config.runtime`、
-`event_budget`、`on_result`、`user_data` 后调用 `endpoint_init_config()`。
+`event_budget`、`on_result`、`user_data`，并填写必需的 `config.clock`，再调用 `endpoint_init_config()`。
 初始化参数可以是临时对象，回调上下文必须在使用期间有效。
 
 选中消息无界或超过当前单帧 2048 字节能力时，`*_HAS_DEFAULT_ENDPOINT=0`，
@@ -45,7 +45,12 @@ payload 上限取 profile 中 LATEST/FIFO 消息及 RPC 请求/响应的最大�
 
 ## 执行、错误和关闭
 
-端点不创建线程、时钟或堆。`endpoint_step(now_ms)` 在一个 owner 上执行一轮，默认预算
+端点不创建线程或堆，核心也不选择操作系统时钟。通过
+`endpoint_init(endpoint, session, clock)` 或 `config.clock` 一次性传入 `wl_clock_t`。
+描述符会被复制，其上下文必须活到 close 完成。`endpoint_step(endpoint)` 只取一次时间，
+回调中的回复复用这一时间；日常调用、回复、休眠提示都不再传 `now_ms`。
+高级 runtime 和裸 link 仍显式传时间，详见[时钟契约](endpoint-clock-cn.md)。
+一轮在一个 owner 上执行，默认预算
 为 16 个事件；已连接适配器的 service、事件释放、发送终态回收和 RPC 推进都在其中。
 返回成功不等于业务请求已经完成，应使用 RPC inspect；没有工作也是正常成功。
 可靠发送失败与应用分发错误会向上返回，不会伪装成空闲。
@@ -82,4 +87,4 @@ loopback 的 connect 自动连接两端并安装 service/close/hint。两端共�
 未知路由后跟有效消息时的首错保留，以及可靠消息超时。
 C11/C++20 头文件检查和已有 Cortex-M runtime 体积门限保留。
 Zephyr pump 单测覆盖通用端点生命周期及适配器 service 错误传播。
-实机验证仍待后续连接开发板。
+时钟回归、FFI、安装包和待完成的实板验证记录见[时钟演进](endpoint-clock-evolution.md)。

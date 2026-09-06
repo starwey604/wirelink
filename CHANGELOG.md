@@ -8,6 +8,17 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- ABI 21 configures an owner-side `wl_clock_t` once on default endpoints, removing
+  explicit time from daily step/RPC/hint calls. Inline replies share a pass
+  snapshot; unreliable typed submission does not read the clock. Add an optional
+  native C++ provider and native-owned C/C++/Python bridge verification.
+- Timestamp reliable send/claim commit explicitly and prime pump time before
+  adapter completion service, preventing premature retries before initial step
+  or after idle. Advanced runtime APIs retain explicit time; regenerate/rebuild
+  consumers together. Wire/schema encoding remains unchanged.
+- Reclaim expired delivered RPC cache entries during request admission as well
+  as polling, without expiring reserved or undelivered responses or adding a scan.
+
 - Default RPC request/response delivery to reliable; accept per-binding
   `@delivery(...)` attributes alongside the explicit legacy properties. Equal
   policies retain identical generated artifacts and identities (ABI 20).

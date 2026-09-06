@@ -83,10 +83,10 @@ cmake --build /path/to/temperature-display/build --config Release
 Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 
 独立消费者不需要 Asio 源码路径：安装的 UDP 库已编译好，不把 Asio 头文件暴露给应用。
-WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 20 编译器。
+WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 21 编译器。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
-[WLC 指南](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README-cn.md)。
+[WLC 指南](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README-cn.md)。
 
 ## 3. 不要把两种“配置”混为一谈
 
@@ -189,7 +189,11 @@ Asio UDP 的 `open(wl_endpoint_t&, ...)` 和 loopback 的 `wl_loopback_connect()
 中断/驱动回调可发布接收数据，并记录发送完成信息、唤醒 owner；
 不要在中断里执行 RPC 处理函数。
 
-实际运行的每轮工作是：
+默认端点内部调用初始化时配置的时钟。只需填写一次 `config.clock`，无需为了刷新时间
+先取时间或运行裸 pump。主机可用 `wirelink::host::monotonic_clock()`，固件可包装
+系统运行时间函数，见[时钟示例与契约](endpoint-clock-cn.md)。
+
+仅当你有意采用高级 link/runtime 手动组装时，每轮工作才是：
 
 1. 从自己的单调时钟取一次毫秒时间。
 2. 处理适配器的收发完成，再运行 `wl_pump_step()`。
@@ -236,7 +240,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 无需按顺序读完所有参考文件：
 
 - 想审阅公开 API 的划分和所有权：读 [API 边界](api-boundary-cn.md)。
-- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README-cn.md)。
+- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README-cn.md)。
 - 想了解保留最新值或队列的限制：读 [LATEST](latest-mailbox-cn.md) 与 [FIFO](fifo-cn.md)。
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。

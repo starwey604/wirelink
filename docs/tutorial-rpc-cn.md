@@ -114,18 +114,17 @@ int main(int argc, char **argv) {
   }
 
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  config.clock = example_clock();
   CHECK(calculator_runtime_config_enable_client(&config.runtime) == WL_OK);
   config.link.ack_timeout_ms = 100U;
   config.link.max_retries = 4U;
   CHECK(calculator_endpoint_init_config(&client, &config) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
-  /* The core's send clock comes from the latest owner step. */
-  CHECK(calculator_endpoint_step(&client, example_now_ms()) == WL_OK);
-  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, example_now_ms(), &call) == WL_RPC_OK);
+  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, &call) == WL_RPC_OK);
 
   for (;;) {
-    const int step = calculator_endpoint_step(&client, example_now_ms());
+    const int step = calculator_endpoint_step(&client);
     if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
     CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
     if (result.state == WL_RPC_CLIENT_COMPLETED ||
@@ -154,9 +153,10 @@ int main(int argc, char **argv) {
 
 1. 填写 `left`、`right` 和对应 `has_...` 标志。
 2. 配置客户端角色；本例链路确认等待 100 毫秒，最多重传 4 次。
-3. `endpoint_add_call(..., 1500U, now, &call)` 提交调用，应用响应等待上限为 1500 毫秒。
+3. `endpoint_add_call(..., 1500U, &call)` 提交调用，应用响应等待上限为 1500 毫秒。
    返回 `WL_RPC_OK` 表示提交成功，不表示服务端已经算完。
-   核心的发送时间来自最近一次推进，所以本例在提交前先调用一次 `endpoint_step()`。
+   初始化时设置 `config.clock = example_clock()`；提交时内部取一次时间，同时用于
+   链路重传与 RPC 截止时间。首次提交前不需要额外调用 `step()`。
 4. 持续 `endpoint_step()`，用 `endpoint_add_inspect()` 查询。
    查询成功与调用成功不同；查看 `result.state`，成功时还应检查 `response_valid`。
 5. 用完结果后 `endpoint_add_release()`，失败、取消和超时也要释放。
@@ -183,12 +183,12 @@ static int32_t add(void *context, const add_request_t *request,
   printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
   fflush(stdout);
   if (sum < INT32_MIN || sum > INT32_MAX)
-    return calculator_endpoint_add_reject(server, token, 1, example_now_ms());
+    return calculator_endpoint_add_reject(server, token, 1);
   add_response_t response;
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
-  return calculator_endpoint_add_complete(server, token, &response, example_now_ms());
+  return calculator_endpoint_add_complete(server, token, &response);
 }
 
 int main(int argc, char **argv) {
@@ -197,6 +197,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49101, peer = 49100;
   CHECK(example_ports(argc, argv, &local, &peer));
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  config.clock = example_clock();
   CHECK(calculator_runtime_config_enable_server(&config.runtime) == WL_OK);
   config.link.ack_timeout_ms = 100U;
   config.link.max_retries = 4U;
@@ -210,7 +211,7 @@ int main(int argc, char **argv) {
   puts("calculator server ready");
   fflush(stdout);
   while (example_running()) {
-    CHECK(calculator_endpoint_step(&server, example_now_ms()) == WL_OK);
+    CHECK(calculator_endpoint_step(&server) == WL_OK);
     CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
   example_udp_close(udp);
@@ -232,7 +233,7 @@ int main(int argc, char **argv) {
 ## 6. 拒绝、超时和重复请求
 
 加法先用 64 位整数计算，避免有符号溢出。结果超出 32 位范围时，
-`endpoint_add_reject(..., 1, now)` 返回本例约定的拒绝状态 1，不必伪造一个 `sum`。
+`endpoint_add_reject(..., 1)` 返回本例约定的拒绝状态 1，不必伪造一个 `sum`。
 试着运行：
 
 ```sh

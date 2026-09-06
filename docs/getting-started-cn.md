@@ -104,7 +104,9 @@ latest Telemetry {
 [公开的示例支持代码](../examples/common/tutorial_host.h)，不是生成文件或核心 API：
 
 - `example_udp_open()` 在本机打开 UDP，并把适配器接到已初始化的端点。
-- `example_now_ms()` 提供单调毫秒时钟；`example_session_id()` 为本次运行生成非零随机标识。
+- `example_clock()` 提供取时间的函数，初始化时交给端点，以后由 Wirelink 内部调用。
+  `example_now_ms()` 只用于示例自己的发布间隔和退出时间；发包、推进不再传时间。
+  `example_session_id()` 为本次运行生成非零随机标识。
 - `example_udp_wait()` 等待数据或最近截止时间，不处理业务，也不创建后台通信线程。
 - `example_udp_close()` 关闭端点并释放主机适配器。`CHECK` 只是打印错误并结束示例的宏。
 
@@ -126,7 +128,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49000, peer = 49001;
   telemetry_t value;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, example_session_id()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&publisher, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
   CHECK(udp != NULL);
 
@@ -140,7 +142,7 @@ int main(int argc, char **argv) {
     /* Publish every 200 ms; keep servicing the endpoint while waiting. */
     const wl_time_ms_t started = example_now_ms();
     while ((wl_time_ms_t)(example_now_ms() - started) < 200U && example_running()) {
-      CHECK(telemetry_endpoint_step(&publisher, example_now_ms()) == WL_OK);
+      CHECK(telemetry_endpoint_step(&publisher) == WL_OK);
       const uint32_t elapsed = example_now_ms() - started;
       if (elapsed < 200U) CHECK(example_udp_wait(udp, 200U - elapsed) == WL_OK);
     }
@@ -169,7 +171,7 @@ int main(int argc, char **argv) {
   telemetry_t value;
   int complete = 0;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&subscriber, example_session_id()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&subscriber, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
   CHECK(udp != NULL);
   puts("telemetry subscriber ready");
@@ -177,7 +179,7 @@ int main(int argc, char **argv) {
 
   const wl_time_ms_t started = example_now_ms();
   while (example_running() && (wl_time_ms_t)(example_now_ms() - started) < 10000U) {
-    CHECK(telemetry_endpoint_step(&subscriber, example_now_ms()) == WL_OK);
+    CHECK(telemetry_endpoint_step(&subscriber) == WL_OK);
     const int result = telemetry_endpoint_read_telemetry(&subscriber, &value);
     if (result == WL_OK) {
       printf("latest sample=%u temperature=%.2f C\n", (unsigned)value.sample,

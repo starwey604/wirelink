@@ -14,9 +14,9 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-Use the pinned **WLC 0.4.0 with codegen ABI 20** revision below, including
-`@delivery(...)` and default RPC reliability. This parser extension changes
-neither ABI 20 nor encoding; earlier ABI 20 compilers can still lack the syntax.
+Use the pinned **WLC 0.4.0 with codegen ABI 21** revision below, including
+initialization-time endpoint clocks, `@delivery(...)`, and default RPC reliability.
+ABI 21 changes generated C APIs/layouts, not schema encoding or Wirelink frame bytes.
 No new package or tag is published by this iteration.
 
 If supplied with a matching internal binary, extract it to a stable location and
@@ -27,7 +27,7 @@ Without a matching binary, independently obtain and install the WLC source:
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout 9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b
+git -C wlc-source checkout 4065b22826d00716ac8828bade79ac4fe3e764b4
 cargo install --path wlc-source --locked --force
 ```
 
@@ -44,10 +44,10 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.4.0` and `20`. Codegen ABI identifies generated C interfaces/layouts,
+Expect `wlc 0.4.0` and `21`. Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
-switching modes needs coordinated peers. This delivery syntax extension itself
-does not change bytes. A missing command or
+switching modes needs coordinated peers. Clock injection does not change bytes;
+rebuild core and generated consumers together. A missing command or
 different ABI means a different compiler build is needed. CMake checks both
 values before generation rather than leaving a header mismatch for firmware compilation.
 

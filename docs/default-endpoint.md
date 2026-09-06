@@ -1,6 +1,6 @@
 # Default endpoints: design and boundaries
 
-Status: internal development, codegen ABI 20. Existing mapped RPC and codec bytes
+Status: internal development, codegen ABI 21. Existing mapped RPC and codec bytes
 are unchanged; the new managed RPC mode has its own metadata prefix. No new
 package is released. [中文](default-endpoint-cn.md). Start with the
 [temperature tutorial](getting-started.md) for ordinary use.
@@ -36,6 +36,7 @@ The runtime uses its existing default layout: one FIFO slot, one client call,
 one pending server request, and one cached response. RPC roles default off and
 retry/expiry policy is not invented. Use `endpoint_config_defaults()`, change
 `config.link`, `config.runtime`, `event_budget`, `on_result`, or `user_data`,
+set the required `config.clock`,
 then `endpoint_init_config()`. Descriptors may be temporary; callback context
 must outlive its use.
 
@@ -53,7 +54,13 @@ application-managed number. Handles and tokens are private-in-use and scoped to
 their endpoint incarnation. Existing explicit field mappings retain their older
 API/encoding for interoperability. See the [RPC contract](rpc-runtime.md).
 
-No threads, clocks, or heap are created. A step runs on one owner with a default
+No thread or heap is created, and the core does not choose an OS clock. Supply
+`wl_clock_t` at initialization (`endpoint_init(endpoint, session, clock)` or
+`config.clock`). The descriptor is copied; its context must live through close.
+`endpoint_step(endpoint)` reads it once and reuses that time in nested replies.
+Calls, replies, and hints no longer accept a separate `now_ms`; advanced runtime
+and raw-link operations keep explicit time. See [clock contract](endpoint-clock.md).
+A step runs on one owner with a default
 budget of 16 events, including attached adapter service, event release, TX-terminal
 reclamation, and RPC progress. Success is not RPC completion; inspect the call.
 An idle step succeeds. Reliable TX failures and dispatch errors propagate upward.
@@ -92,4 +99,5 @@ codecs, all envelope/integrity sizing combinations, close/reinit, invalid config
 first-error retention across subsequent valid RX, and reliable TX timeout against
 the real core. C11/C++20 headers and existing Cortex-M runtime size gates remain
 covered. Zephyr pump cases exercise generic lifecycle and adapter service errors.
-Board validation remains deferred.
+Clock regression, FFI, package, and pending board gates are tracked in the
+[clock evolution record](endpoint-clock-evolution.md).

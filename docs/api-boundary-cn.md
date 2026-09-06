@@ -19,7 +19,7 @@
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、
@@ -162,6 +162,9 @@ deadline hint。reset 必须由外部串行化，存在 borrow/claim 时不得 r
 `endpoint_init()` 使用整包传输/CRC32C 默认配置；`init_config()` 允许选择传输、
 RPC 角色、超时策略和回调。对象首次使用前必须零初始化，关闭前不能移动。
 
+ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `now_ms`；
+高级 runtime/link 保留显式时间，见[时钟所有权与迁移](endpoint-clock-cn.md)。
+
 `endpoint_send_<message>()` 采用 retained profile 的传输方式；
 `endpoint_read_<message>()` 复制 LATEST/FIFO 值并内部归还借用。
 `endpoint_step()` 推进已连接适配器、消息分发、完成回收和 runtime，具有工作量上限，
@@ -179,7 +182,7 @@ RPC 角色、超时策略和回调。对象首次使用前必须零初始化，�
 会验证端点归属与生命周期。旧字段映射是独立的兼容模式，两种格式不能混用。
 详见 [RPC 合同](rpc-runtime-cn.md)。
 
-## WLC 生成接口（ABI 20）
+## WLC 生成接口（ABI 21）
 
 WLC 有意拆分三类职责：
 

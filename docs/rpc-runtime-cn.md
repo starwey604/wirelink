@@ -6,7 +6,7 @@
 [RPC 教程](tutorial-rpc-cn.md)中的生成端点；本文先说明托管 RPC 的通信与所有权边界，
 后半部分是高级底层接口。
 
-## 托管 RPC 与已有协议映射（生成 ABI 20）
+## 托管 RPC 与已有协议映射（生成 ABI 21）
 
 RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unreliable)` 覆盖。
 显式 `@delivery(reliable)`、省略默认、旧 `request_delivery = reliable` 等价，
@@ -41,6 +41,10 @@ RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unre
 
 ## 默认调用与回复的所有权
 
+默认端点初始化时配置一次 `wl_clock_t`。call/complete/reject 内部取时间；
+step 中的立即回复复用本轮时间，首次或空闲后调用都无需先 step。
+高级 runtime 保留显式时间，详见[时钟边界](endpoint-clock-cn.md)。
+
 每个服务生成 `*_call_t`、`*_result_t`、`*_request_token_t`。
 `endpoint_*_call()` 返回句柄，`*_inspect()` 返回状态和类型化结果，`*_release()` 回收终态调用。
 拒绝时 `response_valid=false`，`application_status` 非零。`*_cancel()` 停止本地等待并尝试
@@ -56,7 +60,7 @@ RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unre
 丢弃旧 token，或自行维护 `rpc_incarnation`。
 
 handler 返回零表示本地正常接手（也允许稍后完成）；用 `*_complete()` 回复成功，
-用 `*_reject(..., 非零状态, now)` 回复业务拒绝。handler 返回非零表示本地放弃，
+用 `*_reject(..., 非零状态)` 回复业务拒绝。handler 返回非零表示本地放弃，
 不会自动发送业务拒绝。请求里的借用字段只在回调期间有效；响应中的借用字段（若 schema
 允许）有效到调用释放，需要更久就复制其内容。
 

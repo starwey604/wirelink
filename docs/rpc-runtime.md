@@ -5,7 +5,7 @@ v1 frame header. New applications should use the generated managed RPC endpoint
 described in the [RPC tutorial](tutorial-rpc.md). The following sections specify
 its wire/ownership boundary, then the advanced low-level engine.
 
-## Managed RPC and mapped interoperability (codegen ABI 20)
+## Managed RPC and mapped interoperability (codegen ABI 21)
 
 Request and response delivery independently default to reliable. Override a
 binding with `@delivery(unreliable)`. Omitted defaults, explicit reliable
@@ -49,6 +49,11 @@ schema `= n` with `@id(n)` changes neither identity nor bytes.
 
 ## Default call and reply ownership
 
+Configure `wl_clock_t` once on the default endpoint. Call/complete/reject sample
+it internally; replies during a step reuse that pass's time. There is no
+pre-step requirement before a first or post-idle call. The advanced runtime
+keeps explicit time; see [the clock boundary](endpoint-clock.md).
+
 Managed endpoints provide service-specific `*_call_t`, `*_result_t`, and
 `*_request_token_t` types. `endpoint_*_call()` returns a handle, `*_inspect()` returns
 state and a typed response, and `*_release()` recycles terminal calls. A rejection
@@ -69,7 +74,7 @@ a default endpoint invalidates both call handles and reply tokens. Custom runtim
 users must discard tokens on reinit or maintain `rpc_incarnation` themselves.
 
 Handlers return zero for locally accepted work, including deferred completion.
-Use `*_complete()` for success or `*_reject(..., nonzero_status, now)` for business
+Use `*_complete()` for success or `*_reject(..., nonzero_status)` for business
 failure. A nonzero handler return abandons locally and is a diagnostic, not an
 automatic business rejection. Borrowed request fields expire at callback return.
 Borrowed fields in a decoded response, where the schema permits them, expire at

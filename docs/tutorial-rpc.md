@@ -118,18 +118,17 @@ int main(int argc, char **argv) {
   }
 
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  config.clock = example_clock();
   CHECK(calculator_runtime_config_enable_client(&config.runtime) == WL_OK);
   config.link.ack_timeout_ms = 100U;
   config.link.max_retries = 4U;
   CHECK(calculator_endpoint_init_config(&client, &config) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
-  /* The core's send clock comes from the latest owner step. */
-  CHECK(calculator_endpoint_step(&client, example_now_ms()) == WL_OK);
-  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, example_now_ms(), &call) == WL_RPC_OK);
+  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, &call) == WL_RPC_OK);
 
   for (;;) {
-    const int step = calculator_endpoint_step(&client, example_now_ms());
+    const int step = calculator_endpoint_step(&client);
     if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
     CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
     if (result.state == WL_RPC_CLIENT_COMPLETED ||
@@ -159,9 +158,10 @@ Read it in business order:
 1. Fill `left`, `right`, and their presence flags.
 2. Enable the client role. This example waits 100 ms for link acknowledgements
    and permits four retransmissions.
-3. `endpoint_add_call(..., 1500U, now, &call)` submits a call with a 1500 ms
+3. `endpoint_add_call(..., 1500U, &call)` submits a call with a 1500 ms
    application-response deadline. `WL_RPC_OK` means submitted, not calculated.
-   The core send clock comes from owner progress, so step once before the first call.
+   `config.clock = example_clock()` supplies the clock once; submission samples it
+   for both link and RPC timing. No initial step is required.
 4. Keep stepping and inspecting. Successful inspection is not successful RPC:
    check `result.state`, then `response_valid` before using a successful body.
 5. Release the call when finished, including failure, cancellation and timeout.
@@ -189,12 +189,12 @@ static int32_t add(void *context, const add_request_t *request,
   printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
   fflush(stdout);
   if (sum < INT32_MIN || sum > INT32_MAX)
-    return calculator_endpoint_add_reject(server, token, 1, example_now_ms());
+    return calculator_endpoint_add_reject(server, token, 1);
   add_response_t response;
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
-  return calculator_endpoint_add_complete(server, token, &response, example_now_ms());
+  return calculator_endpoint_add_complete(server, token, &response);
 }
 
 int main(int argc, char **argv) {
@@ -203,6 +203,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49101, peer = 49100;
   CHECK(example_ports(argc, argv, &local, &peer));
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  config.clock = example_clock();
   CHECK(calculator_runtime_config_enable_server(&config.runtime) == WL_OK);
   config.link.ack_timeout_ms = 100U;
   config.link.max_retries = 4U;
@@ -216,7 +217,7 @@ int main(int argc, char **argv) {
   puts("calculator server ready");
   fflush(stdout);
   while (example_running()) {
-    CHECK(calculator_endpoint_step(&server, example_now_ms()) == WL_OK);
+    CHECK(calculator_endpoint_step(&server) == WL_OK);
     CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
   example_udp_close(udp);
@@ -239,7 +240,7 @@ same communication owner. A nonzero return abandons local handling;
 ## 6. Rejection, timeout and duplicate requests
 
 The handler calculates in 64 bits to avoid signed overflow.
-If the result cannot fit in 32 bits, `endpoint_add_reject(..., 1, now)` reports
+If the result cannot fit in 32 bits, `endpoint_add_reject(..., 1)` reports
 the example's rejection status 1 without fabricating a sum. Try:
 
 ```sh

@@ -109,7 +109,9 @@ is needed. The business name comes from `telemetry.wl`, not the directory's `00`
 is ordinary, public example support, not a generated file or core API:
 
 - `example_udp_open()` attaches localhost UDP to the initialized endpoint.
-- `example_now_ms()` supplies monotonic milliseconds; `example_session_id()`
+- `example_clock()` supplies a clock callback, configured once at initialization.
+  `example_now_ms()` is only used for this example's publishing/exit schedule;
+  Wirelink reads its configured clock internally. `example_session_id()`
   obtains a nonzero random identifier for this run.
 - `example_udp_wait()` waits for socket readiness or the nearest deadline;
   it never dispatches business callbacks or creates a communication thread.
@@ -134,7 +136,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49000, peer = 49001;
   telemetry_t value;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, example_session_id()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&publisher, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
   CHECK(udp != NULL);
 
@@ -148,7 +150,7 @@ int main(int argc, char **argv) {
     /* Publish every 200 ms; keep servicing the endpoint while waiting. */
     const wl_time_ms_t started = example_now_ms();
     while ((wl_time_ms_t)(example_now_ms() - started) < 200U && example_running()) {
-      CHECK(telemetry_endpoint_step(&publisher, example_now_ms()) == WL_OK);
+      CHECK(telemetry_endpoint_step(&publisher) == WL_OK);
       const uint32_t elapsed = example_now_ms() - started;
       if (elapsed < 200U) CHECK(example_udp_wait(udp, 200U - elapsed) == WL_OK);
     }
@@ -177,7 +179,7 @@ int main(int argc, char **argv) {
   telemetry_t value;
   int complete = 0;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&subscriber, example_session_id()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&subscriber, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
   CHECK(udp != NULL);
   puts("telemetry subscriber ready");
@@ -185,7 +187,7 @@ int main(int argc, char **argv) {
 
   const wl_time_ms_t started = example_now_ms();
   while (example_running() && (wl_time_ms_t)(example_now_ms() - started) < 10000U) {
-    CHECK(telemetry_endpoint_step(&subscriber, example_now_ms()) == WL_OK);
+    CHECK(telemetry_endpoint_step(&subscriber) == WL_OK);
     const int result = telemetry_endpoint_read_telemetry(&subscriber, &value);
     if (result == WL_OK) {
       printf("latest sample=%u temperature=%.2f C\n", (unsigned)value.sample,

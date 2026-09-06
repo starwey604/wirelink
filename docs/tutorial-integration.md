@@ -86,10 +86,10 @@ Windows multi-configuration builds add `Release/` and `.exe` to executable paths
 
 The independent consumer needs no Asio source include path: the installed adapter
 is already compiled and hides Asio headers. WLC runs only at build time; use the
-ABI 20 revision pinned in [installation](installation.md).
+ABI 21 revision pinned in [installation](installation.md).
 Codec-only consumers need neither runtime nor UDP. For shared codecs and
 `RUNTIME_NAME`, consult the
-[WLC guide](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md).
+[WLC guide](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md).
 
 ## 3. Two different configurations
 
@@ -200,7 +200,12 @@ Sending, pump work, RPC operations, and TX completion notifications execute ther
 Interrupts/driver callbacks may publish RX bytes, record TX completion, and wake
 the owner; they must not execute RPC handlers.
 
-Each application round:
+The default endpoint reads its initialization-time clock internally. Set
+`config.clock` once; do not read a clock or call the raw pump just to refresh its
+time. A host may use `wirelink::host::monotonic_clock()`; firmware may wrap its
+uptime function. See [clock examples and contract](endpoint-clock.md).
+
+Only when deliberately assembling the advanced link/runtime path, each round:
 
 1. Read your monotonic millisecond clock once.
 2. Service adapter completions and run `wl_pump_step()`. Connect adapter service
@@ -250,7 +255,7 @@ You have now received state, requested work, and integrated a build and driver.
 Use references as needed:
 
 - [API boundaries](api-boundary.md) for public interfaces and ownership.
-- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md) for more message definitions.
+- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md) for more message definitions.
 - [LATEST](latest-mailbox.md) and [FIFO](fifo.md) for retained-storage limits.
 - [RPC runtime](rpc-runtime.md) for failures and retries.
 - Bulk in [application-layer](application-layer.md) for large objects.

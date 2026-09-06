@@ -88,16 +88,15 @@ queue pressure, readiness timeout/wakeup, wrong sources, oversize rejection and
 close/reinitialization. Release tests use checks that remain active with `NDEBUG`.
 The old combined tutorials remain under `tests/tutorials/loopback/`.
 
-This iteration keeps generated ABI 20 and the frozen core frame/codec bytes.
+The clock evolution uses generated ABI 21 without changing frozen core frame/codec bytes.
 The existing limitation around old RPC responses after client reconstruction and
 wire-ID reuse still applies; see [RPC correlation](rpc-runtime.md).
 
-### Follow-up: unify the send clock boundary
+### One clock for link and RPC
 
-The core timestamps sends using the latest `wl_poll()` time. A generated RPC
-call's `now_ms` currently starts its RPC deadline but does not update that link
-clock. Sending before the first step can therefore cause premature retransmission
-when the first real clock value arrives. The calculator client primes its owner
-with `endpoint_step()` before submitting the call; applications should step after
-waking, then submit new work. Removing this implicit dual-clock dependency is a
-follow-up API issue, not solved by UDP readiness or the call's existing argument.
+The endpoint now accepts a clock at initialization. Reliable submission samples
+it for both link and RPC timing; a step snapshots it before adapter completions
+and reuses it for inline replies. No preliminary step is needed before sending.
+An outside hint query samples time without polling. See [clock contract and
+migration](endpoint-clock.md). UDP readiness only wakes the owner; it does not
+replace the clock or deadline policy.
