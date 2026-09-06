@@ -86,12 +86,17 @@ x86_64 QEMU 的 4 配置也全部通过（`build/rpc-m1-clock-sim/twister.json`�
 
 M2 将补上完成通知中槽位复用、close/reinit 后仍保留业务副本的端到端测试。
 
-## M2：默认 RPC（实现完成，交付验证中）
+## M2：默认 RPC（完成）
 
 WLC `26a07a49597cd06b455ea1060e5b7902d39ea061` / ABI 23 已推 dev；
 [WLC CI](https://github.com/starwey604/wlc/actions/runs/34049280583) 全部通过，
 含 Rust/C、Windows 和两种 macOS 主机 smoke。
-其核心测试依赖为 Wirelink `6ea75b7`；Wirelink 本轮配对实现提交和 CI 在最终交付记录中补齐。
+其核心测试依赖为 Wirelink `6ea75b7`；配对 Wirelink 实现为
+`ac9bd480ab9fcd82df1ace860b0f12c8467156ce`。
+[Host CI](https://github.com/starwey604/wirelink/actions/runs/34049458449) 全部通过，
+包括三平台 core/adapter、安装包 ABI、Sanitizer 与 fuzz；
+[Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34049458442) 也全部通过，
+包括核心矩阵、生成时钟/所有权样例，以及 ESP32-S3 USB sample 构建。
 
 普通入口为 `<runtime>_endpoint.h`，业务数据为 `<codec>_values.h`。
 手动端点 call/inspect/release 和 complete/reject 已移到显式 `<runtime>_advanced.h`，
@@ -126,18 +131,20 @@ WLC `26a07a49597cd06b455ea1060e5b7902d39ea061` / ABI 23 已推 dev；
   以及已执行业务的 ACK/第一次响应同时丢失；后两项断言丢包确实发生、业务执行一次。
 - Ztest/native_sim/QEMU：45 配置、285 用例、5 平台全部通过、无警告，
   记录 `build/rpc-m2-twister/twister.json`。
-- 独立 H1/时钟样例的最终 simulator matrix、两种 H7 容量的构建与配对 Wirelink
-  远端 CI 正在收尾，未进行 H7 执行。
+- 独立 H1/时钟样例最终矩阵：11 配置、4 平台全部通过，无警告，记录
+  `build/rpc-m2-samples-final/twister.json`；H1 一槽/四槽的两个 H7 ELF 均构建成功。
+  完整中英文 RPC 文章中的 C 代码与实际 client/server 文件逐段比对一致。未进行 H7 执行。
 
 ### 内存与复制边界
 
 | 对象 / 平台 | 1 槽 endpoint | 4 槽 endpoint |
 | --- | ---: | ---: |
 | 字符串 Execute + 2031-byte Download，Linux x86_64 | 16832 B | 30160 B |
-| 同一压力 profile，H7 交叉编译 | 待补构建报告 | 29824 B |
+| 同一压力 profile，H7 交叉编译 | 16536 B | 29824 B |
 
 纯 Add 教程在 x86_64 默认四槽为 3536 B；大消息测试不能代表所有 RPC 的 RAM 成本。
-H7 四槽完整双端样例链接报告 Flash 70244 B、RAM 78592 B，包含 Zephyr、RTT、两个端点和测试保存值，
+H7 四槽完整双端样例链接报告 Flash 70244 B、RAM 78592 B；一槽为 Flash 70100 B、RAM 52096 B。
+这些包含 Zephyr、RTT、两个端点和测试保存值，
 不是 Wirelink 库本体大小，也不是实际栈高水位。外部板定义有两个既有 `ragtime` vendor-prefix
 提示，未修改产品板定义；C 编译通过。
 
@@ -148,7 +155,8 @@ H7 CPU 周期、实际延迟和栈高水位仍未测量。
 
 64-KiB RAM 的 Cortex-M3 放不下该双端四槽大消息压力样例，最初链接超过 RAM 7816 B；
 没有扩大模拟硬件 RAM。矩阵改为 M3 验证一槽，其他三个平台验证一/四槽。
-高并发本机构建期间 x86_64 QEMU 曾在 BIOS 超时及真实 uptime 阶段触及 100-ms 测试期限；
+高并发本机构建期间 x86_64 QEMU 曾在 BIOS 超时，另一项在真实 uptime 阶段未得到预期成功；
+后者原功能项期限为 100 ms，日志未记录具体失败状态，不能仅据此确定根因。
 最终矩阵降低并发，H1 uptime 功能项使用 2000 ms（不作为延迟预算），旧时钟专用 deadline
 测试仍保留原约束。最初日志保留在 `build/rpc-m2-samples.1` / `build/rpc-m2-samples`。
 
@@ -158,7 +166,19 @@ H7 CPU 周期、实际延迟和栈高水位仍未测量。
 使用 dm_mc02/stm32h723xx、RTT 输出、同 owner 双端 loopback，无执行器或持久写入；
 前半为确定性模拟时钟，末尾独立验证真实 Zephyr uptime。
 
+构建使用 Zephyr `v4.4.0-11610-gbd8c15382376`、SDK 1.0.1/GCC 14.3.0，
+板配置 550 MHz、I/D cache 开启、速度优化、main stack 8192 B；这些是构建配置而非板上测量。
+待烧录 ELF（SHA-256）：
+
+- 四槽 `build/rpc-m2-h7/zephyr/zephyr.elf`：
+  `a8f962c4c9fb936244a518f054a0ca54d26f0182c72b1900fa087570e94a7bfd`
+- 一槽 `build/rpc-m2-h7-one/zephyr/zephyr.elf`：
+  `bc1938818c92d0f0c70c82ecf238f20fff7dcbedc500a4d5f80199cfa548da48`
+
 本轮只交叉编译并运行模拟器，不 SSH、不烧录、不要求现在按 RESET。
 下一步在 H7 上分别运行一槽/四槽镜像，保存启动记录、计数和 `RPC_H1 ALL PASS`。
 这只验收目标 CPU 的功能和所有权；H2/H3 的等待器、分配器、CPU 测量及产品物理链路仍未做。
 M3–M5 未开始，libflorid/Ragtime 产品依赖、main、tag 和长期测试均未改动。
+
+M0–M2 软件验收和 H1 准备均已完成，目标在实板执行前结束。
+上述远端 CI 对应实现提交 `ac9bd48`；最后的记录提交只补充文档证据，没有修改已验收代码。
