@@ -15,11 +15,15 @@ typedef struct wl_endpoint {
   wl_ctx_t private_link;
   wl_pump_hooks_t private_hooks;
   wl_pump_result_t private_step;
+  wl_clock_t private_clock;
+  wl_time_ms_t private_now;
+  uint8_t private_stepping;
   uint8_t private_ready;
 } wl_endpoint_t;
 
 wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
                          const wl_storage_t *storage,
+                         const wl_clock_t *clock,
                          const wl_pump_hooks_t *application);
 wl_ctx_t *wl_endpoint_link(wl_endpoint_t *endpoint);
 uint8_t wl_endpoint_has_adapter(const wl_endpoint_t *endpoint);
@@ -27,10 +31,12 @@ uint8_t wl_endpoint_has_adapter(const wl_endpoint_t *endpoint);
  * remain owned by the generated assembly. Attach before driving the owner. */
 wl_err_t wl_endpoint_attach(wl_endpoint_t *endpoint,
                            const wl_pump_hooks_t *adapter);
-wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, wl_time_ms_t now_ms,
-                         size_t event_budget);
+wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, size_t event_budget);
 wl_err_t wl_endpoint_get_hint(const wl_endpoint_t *endpoint,
-                             wl_time_ms_t now_ms, wl_poll_hint_t *hint);
+                             wl_poll_hint_t *hint);
+/* Assembly bridge, not a business operation. Inside a step returns the pass
+ * snapshot; outside a step reads the configured clock once. Does not poll. */
+wl_err_t wl_endpoint_now(const wl_endpoint_t *endpoint, wl_time_ms_t *now_ms);
 const wl_pump_result_t *wl_endpoint_last_step(const wl_endpoint_t *endpoint);
 /* Stops an attached adapter before invalidating the endpoint. Idempotent.
  * Close every endpoint before releasing a shared adapter's storage. */

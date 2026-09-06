@@ -131,7 +131,7 @@ int main(void) {
   drain_unreliable_completion(&endpoint_a.link);
   drain_unreliable_completion(&endpoint_b.link);
 
-  assert(wl_send_reliable(&endpoint_a.link, 0x30U, first, sizeof(first),
+  assert(wl_send_reliable(&endpoint_a.link, 0x30U, first, sizeof(first), 0U,
                           &handle) == WL_OK);
   assert(wl_loopback_service(&loopback, 4U, &service) == WL_OK);
   assert(service.delivered == 2U);
@@ -148,7 +148,7 @@ int main(void) {
          WL_OK);
   assert(stats.started == 1U && stats.tx_units == 0U);
 
-  assert(wl_send_reliable(&endpoint_a.link, 0x31U, second, sizeof(second),
+  assert(wl_send_reliable(&endpoint_a.link, 0x31U, second, sizeof(second), 0U,
                           &handle) == WL_OK);
   wl_loopback_quiesce(&loopback);
   assert(wl_loopback_get_stats(&loopback, WL_LOOPBACK_ENDPOINT_A, &stats) ==

@@ -53,7 +53,7 @@ ZTEST(wirelink_api_lifecycle, test_context_apis_reject_before_init) {
   zassert_equal(wl_rx_get_counters(&ctx, &counters), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_send_unreliable(&ctx, 1U, NULL, 0U),
                 WL_ERR_NOT_INITIALIZED);
-  zassert_equal(wl_send_reliable(&ctx, 1U, NULL, 0U, &handle),
+  zassert_equal(wl_send_reliable(&ctx, 1U, NULL, 0U, 0U, &handle),
                 WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_tx_status(&ctx, 1U, &state), WL_ERR_NOT_INITIALIZED);
   zassert_equal(wl_tx_cancel(&ctx, 1U), WL_ERR_NOT_INITIALIZED);

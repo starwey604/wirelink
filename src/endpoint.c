@@ -5,14 +5,19 @@
 
 wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
                          const wl_storage_t *storage,
+                         const wl_clock_t *clock,
                          const wl_pump_hooks_t *application) {
   int result;
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
   if (endpoint->private_ready != 0U) return WL_ERR_INVALID_STATE;
+  if (clock == NULL || clock->now_ms == NULL) return WL_ERR_INVALID_ARG;
   result = wl_init(&endpoint->private_link, config, storage);
   if (result != WL_OK) return result;
   memset(&endpoint->private_hooks, 0, sizeof(endpoint->private_hooks));
   memset(&endpoint->private_step, 0, sizeof(endpoint->private_step));
+  endpoint->private_clock = *clock;
+  endpoint->private_now = 0U;
+  endpoint->private_stepping = 0U;
   if (application != NULL) {
     endpoint->private_hooks.application_user_data = application->application_user_data;
     endpoint->private_hooks.application_progress = application->application_progress;
@@ -47,13 +52,25 @@ wl_err_t wl_endpoint_attach(wl_endpoint_t *endpoint,
   return WL_OK;
 }
 
-wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, wl_time_ms_t now_ms,
-                         size_t event_budget) {
+wl_err_t wl_endpoint_now(const wl_endpoint_t *endpoint, wl_time_ms_t *now_ms) {
+  if (endpoint == NULL || now_ms == NULL) return WL_ERR_INVALID_ARG;
+  if (endpoint->private_ready == 0U) return WL_ERR_NOT_INITIALIZED;
+  *now_ms = endpoint->private_stepping != 0U ? endpoint->private_now
+      : endpoint->private_clock.now_ms(endpoint->private_clock.user_data);
+  return WL_OK;
+}
+
+wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, size_t event_budget) {
   int result;
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
   if (endpoint->private_ready == 0U) return WL_ERR_NOT_INITIALIZED;
-  result = wl_pump_step(&endpoint->private_link, now_ms, event_budget,
+  if (event_budget == 0U) return WL_ERR_INVALID_ARG;
+  if (endpoint->private_stepping != 0U) return WL_ERR_REENTRANT;
+  endpoint->private_now = endpoint->private_clock.now_ms(endpoint->private_clock.user_data);
+  endpoint->private_stepping = 1U;
+  result = wl_pump_step(&endpoint->private_link, endpoint->private_now, event_budget,
                        &endpoint->private_hooks, &endpoint->private_step);
+  endpoint->private_stepping = 0U;
   if (result != WL_OK) return result;
   if (endpoint->private_step.service_errors != 0U) return endpoint->private_step.service_result;
   if (endpoint->private_step.poll_errors != 0U) return endpoint->private_step.poll_result;
@@ -61,9 +78,12 @@ wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, wl_time_ms_t now_ms,
 }
 
 wl_err_t wl_endpoint_get_hint(const wl_endpoint_t *endpoint,
-                             wl_time_ms_t now_ms, wl_poll_hint_t *hint) {
-  if (endpoint == NULL) return WL_ERR_INVALID_ARG;
-  if (endpoint->private_ready == 0U) return WL_ERR_NOT_INITIALIZED;
+                             wl_poll_hint_t *hint) {
+  wl_time_ms_t now_ms;
+  int result;
+  if (hint == NULL) return WL_ERR_INVALID_ARG;
+  result = wl_endpoint_now(endpoint, &now_ms);
+  if (result != WL_OK) return result;
   return wl_pump_get_hint(&endpoint->private_link, now_ms,
                           &endpoint->private_hooks, hint);
 }
@@ -76,5 +96,6 @@ void wl_endpoint_close(wl_endpoint_t *endpoint) {
   if (endpoint == NULL || endpoint->private_ready == 0U) return;
   wl_pump_quiesce(&endpoint->private_hooks);
   memset(&endpoint->private_hooks, 0, sizeof(endpoint->private_hooks));
+  memset(&endpoint->private_clock, 0, sizeof(endpoint->private_clock));
   endpoint->private_ready = 0U;
 }

@@ -191,7 +191,7 @@ ZTEST(wirelink_poll_hint_unit, test_reliable_tx_completion_arms_deadline) {
   wl_event_t event = {0};
 
   zassert_equal(wl_poll(&fixture->ctx, 100U, &event), WL_ERR_NO_DATA);
-  zassert_ok(wl_send_reliable(&fixture->ctx, 2U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&fixture->ctx, 2U, NULL, 0U, 100U, &handle));
   expect_hint(&fixture->ctx, 100U, 0U, WL_POLL_NO_DEADLINE_MS);
   zassert_ok(wl_tx_complete(&fixture->ctx, fixture->sink.last_token, WL_OK));
   expect_hint(&fixture->ctx, 100U, 0U, 5U);
@@ -208,7 +208,7 @@ ZTEST(wirelink_poll_hint_unit,
   wl_event_t event = {0};
 
   zassert_equal(wl_poll(&fixture->ctx, before_wrap, &event), WL_ERR_NO_DATA);
-  zassert_ok(wl_send_reliable(&fixture->ctx, 2U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&fixture->ctx, 2U, NULL, 0U, before_wrap, &handle));
   expect_hint(&fixture->ctx, before_wrap, 0U, 5U);
   expect_hint(&fixture->ctx, 1U, 0U, 1U);
   expect_hint(&fixture->ctx, 2U, 1U, 0U);
@@ -231,7 +231,7 @@ ZTEST(wirelink_poll_hint_unit, test_zero_ack_timeout_has_no_deadline) {
                                          script, ARRAY_SIZE(script));
   wl_tx_handle_t handle = 0U;
 
-  zassert_ok(wl_send_reliable(&fixture->ctx, 3U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&fixture->ctx, 3U, NULL, 0U, 0U, &handle));
   expect_hint(&fixture->ctx, UINT32_MAX, 0U, WL_POLL_NO_DEADLINE_MS);
 }
 

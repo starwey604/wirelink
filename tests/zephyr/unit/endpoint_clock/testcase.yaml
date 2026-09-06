@@ -1,0 +1,7 @@
+tests:
+  wirelink.endpoint_clock.unit:
+    type: unit
+    tags:
+      - wirelink
+      - endpoint
+      - clock

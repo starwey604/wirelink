@@ -342,7 +342,8 @@ static int wl_handle_ack(wl_ctx_t *ctx, const wl_frame_view_t *view) {
 
 static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
                                  wl_tx_handle_t *out_handle,
-                                 uint8_t reliable, uint8_t direct) {
+                                 uint8_t reliable, uint8_t direct,
+                                 wl_time_ms_t now_ms) {
   wl_tx_handle_t generated_handle;
 
   if (ctx == NULL || pkt == NULL || (pkt->payload_len != 0U && pkt->payload == NULL)) {
@@ -372,6 +373,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     return WL_ERR_QUEUE_FULL;
   }
 
+  if (reliable != 0U) wl_ctx_impl(ctx)->now_ms = now_ms;
   wl_prepare_tx_payload(ctx, pkt, reliable, direct);
 
   generated_handle = 0U;
@@ -442,11 +444,12 @@ wl_err_t wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id,
   if (wl_ctx_impl(ctx)->tx_claim_active != 0U) {
     return WL_ERR_BUSY;
   }
-  return wl_send_frame_internal(ctx, &pkt, NULL, 0U, 0U);
+  return wl_send_frame_internal(ctx, &pkt, NULL, 0U, 0U, 0U);
 }
 
 wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id,
                           const uint8_t *payload, size_t payload_len,
+                          wl_time_ms_t now_ms,
                           wl_tx_handle_t *out_handle) {
   wl_wire_packet_t pkt;
 
@@ -472,7 +475,7 @@ wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id,
   if (wl_ctx_impl(ctx)->tx_claim_active != 0U) {
     return WL_ERR_BUSY;
   }
-  return wl_send_frame_internal(ctx, &pkt, out_handle, 1U, 0U);
+  return wl_send_frame_internal(ctx, &pkt, out_handle, 1U, 0U, now_ms);
 }
 
 wl_err_t wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
@@ -541,6 +544,7 @@ static int tx_claim_matches(const wl_ctx_impl_t *impl,
 wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
                               const wl_tx_payload_claim_t *claim,
                               size_t payload_len,
+                              wl_time_ms_t now_ms,
                               wl_tx_handle_t *out_handle) {
   wl_wire_packet_t packet = {0};
   uint8_t reliable;
@@ -576,7 +580,7 @@ wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
   packet.sequence = reliable != 0U ? wl_ctx_impl(ctx)->tx_sequence++ : 0U;
   packet.payload = claim->span.data;
   packet.payload_len = payload_len;
-  return wl_send_frame_internal(ctx, &packet, out_handle, reliable, 1U);
+  return wl_send_frame_internal(ctx, &packet, out_handle, reliable, 1U, now_ms);
 }
 
 wl_err_t wl_tx_payload_abort(wl_ctx_t *ctx,

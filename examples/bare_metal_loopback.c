@@ -60,7 +60,7 @@ int main(void) {
     return 1;
   }
 
-  if (wl_send_reliable(&controller.link, 0x42U, command, sizeof(command),
+  if (wl_send_reliable(&controller.link, 0x42U, command, sizeof(command), 0U,
                        &handle) != WL_OK ||
       wl_loopback_service(&loopback, 1U, &service) != WL_OK ||
       service.delivered != 1U) {

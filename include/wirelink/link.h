@@ -7,6 +7,7 @@
 #include <stdint.h>
 
 #include "wirelink/alignment.h"
+#include "wirelink/clock.h"
 #include "wirelink/profile.h"
 #include "wirelink/span.h"
 #include "wirelink/types.h"
@@ -15,7 +16,6 @@
 extern "C" {
 #endif
 
-typedef uint32_t wl_time_ms_t;
 typedef uint32_t wl_tx_handle_t;
 typedef uint32_t wl_io_token_t;
 
@@ -132,6 +132,7 @@ wl_err_t wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id,
                             const uint8_t *payload, size_t payload_len);
 wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id,
                           const uint8_t *payload, size_t payload_len,
+                          wl_time_ms_t now_ms,
                           wl_tx_handle_t *out_handle);
 wl_err_t wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
                              wl_delivery_t delivery,
@@ -139,6 +140,7 @@ wl_err_t wl_tx_payload_claim(wl_ctx_t *ctx, uint16_t message_id,
 wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
                               const wl_tx_payload_claim_t *claim,
                               size_t payload_len,
+                              wl_time_ms_t now_ms,
                               wl_tx_handle_t *out_handle);
 wl_err_t wl_tx_payload_abort(wl_ctx_t *ctx,
                              const wl_tx_payload_claim_t *claim);

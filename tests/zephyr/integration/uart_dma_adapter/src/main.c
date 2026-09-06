@@ -358,7 +358,7 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_abort_can_retry_from_service) {
   wl_tx_state_t state = WL_TX_STATE_IDLE;
 
   init_fixture(&fixture);
-  zassert_ok(wl_send_reliable(&fixture.link, 0x104U, payload, sizeof(payload),
+  zassert_ok(wl_send_reliable(&fixture.link, 0x104U, payload, sizeof(payload), 0U,
                               &handle));
   zassert_not_equal(handle, 0U);
   emit_tx_event(UART_TX_ABORTED, 1U);

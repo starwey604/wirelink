@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "wirelink/pump.h"
+#include "context.h"
 
 #include <string.h>
 
@@ -29,6 +30,10 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
   if (ctx == NULL || event_budget == 0U || out_result == NULL) {
     return WL_ERR_INVALID_ARG;
   }
+  if (wl_ctx_impl(ctx)->initialized == 0U) return WL_ERR_NOT_INITIALIZED;
+  /* Service can observe asynchronous TX completion. Its ACK timer must use
+   * this owner pass, not the time retained by the preceding poll. */
+  wl_ctx_impl(ctx)->now_ms = now_ms;
   memset(&result, 0, sizeof(result));
   result.service_result = WL_ERR_NO_DATA;
   result.poll_result = WL_ERR_NO_DATA;

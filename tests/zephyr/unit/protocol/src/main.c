@@ -186,7 +186,7 @@ ZTEST(wirelink_protocol_unit, test_reliable_busy_send_occupies_tx_slot)
                    sizeof(tx_mem), script, 1);
 
   wl_tx_handle_t handle = 0U;
-  zassert_ok(wl_send_reliable(&ctx, 3U, (const uint8_t *)"B", 1U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 3U, (const uint8_t *)"B", 1U, 0U, &handle));
   zassert_not_equal(handle, 0U);
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_SENDING);
   zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
@@ -213,10 +213,10 @@ ZTEST(wirelink_protocol_unit, test_send_reliable_blocked_while_waiting_ack)
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                    sizeof(tx_mem), script, 1);
 
-  zassert_ok(wl_send_reliable(&ctx, 1U, (const uint8_t *)"Q", 1U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 1U, (const uint8_t *)"Q", 1U, 0U, &handle));
   zassert_ok(wl_tx_complete(&ctx, cap.last_token, WL_OK));
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
-  zassert_equal(wl_send_reliable(&ctx, 2U, (const uint8_t *)"R", 1U, &handle),
+  zassert_equal(wl_send_reliable(&ctx, 2U, (const uint8_t *)"R", 1U, 0U, &handle),
                 WL_ERR_BUSY);
 }
 
@@ -290,7 +290,7 @@ ZTEST(wirelink_protocol_unit, test_reliable_send_started_and_complete)
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                    sizeof(tx_mem), script, 1);
 
-  zassert_ok(wl_send_reliable(&ctx, 2U, (const uint8_t *)"A", 1U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 2U, (const uint8_t *)"A", 1U, 0U, &handle));
   zassert_not_equal(handle, 0U);
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_SENDING);
   zassert_equal(wl_ctx_impl(&ctx)->tx_token, 2U);
@@ -387,7 +387,7 @@ ZTEST(wirelink_protocol_unit, test_ack_match_drives_tx_success)
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                    sizeof(tx_mem), script, 1);
 
-  zassert_ok(wl_send_reliable(&ctx, 9U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 9U, NULL, 0U, 0U, &handle));
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
   zassert_not_equal(handle, 0U);
 
@@ -446,7 +446,7 @@ ZTEST(wirelink_protocol_unit, test_reliable_send_ack_closes_loop_from_waiting_ac
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                    sizeof(tx_mem), script, 1);
 
-  zassert_ok(wl_send_reliable(&ctx, 4U, (const uint8_t *)"HELLO", 5U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 4U, (const uint8_t *)"HELLO", 5U, 0U, &handle));
   zassert_ok(wl_tx_complete(&ctx, cap.last_token, WL_OK));
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
 
@@ -501,7 +501,7 @@ ZTEST(wirelink_protocol_unit, test_retries_timeout_path)
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                    sizeof(tx_mem), script, 3);
 
-  zassert_ok(wl_send_reliable(&ctx, 1U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 1U, NULL, 0U, 0U, &handle));
   zassert_ok(wl_tx_complete(&ctx, cap.last_token, WL_OK));
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
 
@@ -710,13 +710,13 @@ ZTEST(wirelink_protocol_unit, test_reliable_take_invalidates_generation_handle)
 
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, 2U);
-  zassert_ok(wl_send_reliable(&ctx, 1U, NULL, 0U, &first));
+  zassert_ok(wl_send_reliable(&ctx, 1U, NULL, 0U, 0U, &first));
   zassert_ok(wl_frame_encode(&ack, WL_ENVELOPE_NATIVE_PACKET, ack_wire,
                               sizeof(ack_wire), &ack_len));
   zassert_ok(wl_feed_unit(&ctx, ack_wire, ack_len));
   zassert_ok(wl_tx_take(&ctx, first, &result));
   zassert_equal(result.state, WL_TX_STATE_SUCCESS);
-  zassert_ok(wl_send_reliable(&ctx, 2U, NULL, 0U, &second));
+  zassert_ok(wl_send_reliable(&ctx, 2U, NULL, 0U, 0U, &second));
   zassert_not_equal(first, second);
   zassert_equal(wl_tx_status(&ctx, first, &result.state), WL_ERR_NOT_FOUND);
 }
@@ -742,7 +742,7 @@ ZTEST(wirelink_protocol_unit, test_cancel_queued_reliable_send)
 
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
-  zassert_ok(wl_send_reliable(&ctx, 0x61U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 0x61U, NULL, 0U, 0U, &handle));
   zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
   zassert_ok(wl_tx_cancel(&ctx, handle));
   zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 0U);
@@ -775,7 +775,7 @@ ZTEST(wirelink_protocol_unit, test_cancel_inflight_waits_for_io_completion)
 
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
-  zassert_ok(wl_send_reliable(&ctx, 0x62U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 0x62U, NULL, 0U, 0U, &handle));
   zassert_equal(wl_ctx_impl(&ctx)->tx_inflight, 1U);
   zassert_ok(wl_tx_cancel(&ctx, handle));
   zassert_equal(wl_tx_take(&ctx, handle, &result), WL_ERR_INVALID_STATE,
@@ -817,7 +817,7 @@ ZTEST(wirelink_protocol_unit, test_cancel_waiting_ack_ignores_late_ack)
 
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
-  zassert_ok(wl_send_reliable(&ctx, 0x63U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 0x63U, NULL, 0U, 0U, &handle));
   zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_WAITING_ACK);
   zassert_ok(wl_tx_cancel(&ctx, handle));
   zassert_ok(wl_frame_encode(&ack, WL_ENVELOPE_NATIVE_PACKET, ack_wire,
@@ -853,7 +853,7 @@ ZTEST(wirelink_protocol_unit, test_ack_timeout_across_uint32_time_wrap)
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
   zassert_equal(wl_poll(&ctx, before_wrap, &event), WL_ERR_NO_DATA);
-  zassert_ok(wl_send_reliable(&ctx, 0x64U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 0x64U, NULL, 0U, before_wrap, &handle));
 
   zassert_equal(wl_poll(&ctx, 1U, &event), WL_ERR_NO_DATA);
   zassert_equal(cap.call_count, 1U, "only four milliseconds have elapsed");
@@ -969,7 +969,7 @@ ZTEST(wirelink_protocol_unit, test_native_direct_tx_claim_uses_final_unit)
   zassert_equal_ptr(claim.span.data, tx_mem + WL_FRAME_BASE_HEADER_SIZE);
   zassert_equal(claim.span.length, cfg.max_payload_len);
   memcpy(claim.span.data, payload, sizeof(payload));
-  zassert_ok(wl_tx_payload_commit(&ctx, &claim, sizeof(payload), NULL));
+  zassert_ok(wl_tx_payload_commit(&ctx, &claim, sizeof(payload), 0U, NULL));
   zassert_equal_ptr(cap.last_data, tx_mem);
   zassert_equal(cap.last_len, WL_FRAME_BASE_HEADER_SIZE + sizeof(payload));
   zassert_mem_equal(cap.last_data + WL_FRAME_BASE_HEADER_SIZE, payload,
@@ -1012,7 +1012,7 @@ ZTEST(wirelink_protocol_unit,
   zassert_true(claim.span.data < tx_mem || claim.span.data >= tx_mem + sizeof(tx_mem));
   zassert_equal(claim.span.length, cfg.max_payload_len);
   memcpy(claim.span.data, payload, sizeof(payload));
-  zassert_ok(wl_tx_payload_commit(&ctx, &claim, sizeof(payload), NULL));
+  zassert_ok(wl_tx_payload_commit(&ctx, &claim, sizeof(payload), 0U, NULL));
   zassert_equal(cap.last_data[cap.last_len - 1U], 0U);
   zassert_ok(wl_cobs_decode(cap.last_data, cap.last_len - 1U, raw,
                             sizeof(raw), &raw_len));
@@ -1039,13 +1039,13 @@ ZTEST(wirelink_protocol_unit, test_tx_commit_error_consumes_matching_claim)
                     sizeof(tx_mem), NULL, 0U);
   zassert_ok(
       wl_tx_payload_claim(&ctx, 0x73U, WL_DELIVERY_RELIABLE, &claim));
-  zassert_equal(wl_tx_payload_commit(&ctx, &claim, 0U, NULL),
+  zassert_equal(wl_tx_payload_commit(&ctx, &claim, 0U, 0U, NULL),
                 WL_ERR_INVALID_ARG);
   zassert_equal(wl_tx_payload_abort(&ctx, &claim), WL_ERR_NOT_FOUND);
 
   zassert_ok(
       wl_tx_payload_claim(&ctx, 0x74U, WL_DELIVERY_UNRELIABLE, &claim));
-  zassert_equal(wl_tx_payload_commit(&ctx, &claim, claim.span.length + 1U,
+  zassert_equal(wl_tx_payload_commit(&ctx, &claim, claim.span.length + 1U, 0U,
                                      NULL),
                 WL_ERR_INVALID_ARG);
   zassert_equal(wl_tx_payload_abort(&ctx, &claim), WL_ERR_NOT_FOUND);
@@ -1208,7 +1208,7 @@ ZTEST(wirelink_protocol_unit,
 
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
-  zassert_ok(wl_send_reliable(&ctx, 0x95U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 0x95U, NULL, 0U, 0U, &handle));
   zassert_not_equal(handle, 0U);
   zassert_equal(cap.call_count, 1U);
   zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
@@ -1259,7 +1259,7 @@ ZTEST(wirelink_protocol_unit, test_rx_event_precedes_terminal_tx_timeout)
 
   init_ctx_and_sink(&cap, &ctx, &cfg, 0U, rx_mem, sizeof(rx_mem), tx_mem,
                     sizeof(tx_mem), script, ARRAY_SIZE(script));
-  zassert_ok(wl_send_reliable(&ctx, 0x97U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&ctx, 0x97U, NULL, 0U, 0U, &handle));
   zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, wire,
                              sizeof(wire), &wire_len));
   zassert_ok(wl_feed_unit(&ctx, wire, wire_len));

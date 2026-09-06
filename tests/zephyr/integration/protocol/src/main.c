@@ -153,7 +153,7 @@ ZTEST(wirelink_protocol_integration, test_reliable_round_trip)
 
   endpoint_init(left, WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_CRC32C, 0x11U);
   endpoint_init(right, WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_CRC32C, 0x22U);
-  zassert_ok(wl_send_reliable(&left->ctx, 7U, payload, sizeof(payload), &handle));
+  zassert_ok(wl_send_reliable(&left->ctx, 7U, payload, sizeof(payload), 0U, &handle));
   deliver(left, right);
   deliver(right, left);
   zassert_ok(wl_poll(&right->ctx, 0U, &event));
@@ -177,7 +177,7 @@ ZTEST(wirelink_protocol_integration, test_retry_after_dropped_data)
 
   endpoint_init(left, WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_CRC16, 0x33U);
   endpoint_init(right, WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_CRC16, 0x44U);
-  zassert_ok(wl_send_reliable(&left->ctx, 8U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&left->ctx, 8U, NULL, 0U, 0U, &handle));
   left->outbound_len = 0U; /* Drop the initial DATA unit. */
   zassert_equal(wl_poll(&left->ctx, 6U, &event), WL_ERR_NO_DATA);
   deliver(left, right);
@@ -208,7 +208,7 @@ ZTEST(wirelink_protocol_integration,
   endpoint_init(right, WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_CRC32C,
                 UINT64_C(0x202));
   zassert_ok(
-      wl_send_reliable(&left->ctx, 0x31U, payload, sizeof(payload), &handle));
+      wl_send_reliable(&left->ctx, 0x31U, payload, sizeof(payload), 0U, &handle));
   initial_data_len = left->outbound_len;
   zassert_true(initial_data_len <= sizeof(initial_data));
   memcpy(initial_data, left->outbound, initial_data_len);
@@ -259,7 +259,7 @@ ZTEST(wirelink_protocol_integration,
   endpoint_init(right, WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_CRC16,
                 UINT64_C(0x404));
 
-  zassert_ok(wl_send_reliable(&left->ctx, 0x41U, NULL, 0U, &first_handle));
+  zassert_ok(wl_send_reliable(&left->ctx, 0x41U, NULL, 0U, 0U, &first_handle));
   first_data = decode_outbound(left);
   feed_ack(left, left->config.session_id ^ UINT64_C(0x100),
            first_data.sequence);
@@ -275,7 +275,7 @@ ZTEST(wirelink_protocol_integration,
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
   zassert_ok(wl_tx_take(&left->ctx, first_handle, &result));
 
-  zassert_ok(wl_send_reliable(&left->ctx, 0x42U, NULL, 0U, &second_handle));
+  zassert_ok(wl_send_reliable(&left->ctx, 0x42U, NULL, 0U, 0U, &second_handle));
   second_data = decode_outbound(left);
   zassert_not_equal(second_data.sequence, first_data.sequence);
   feed_ack(left, left->config.session_id, first_data.sequence);
@@ -382,7 +382,7 @@ ZTEST(wirelink_protocol_integration, test_seeded_reliable_fault_model)
 
     fault_counts[fault]++;
     zassert_ok(wl_send_reliable(&left->ctx, (uint16_t)(0x600U + round), payload,
-                                sizeof(payload), &handle));
+                                sizeof(payload), now_ms, &handle));
     data = decode_outbound(left);
 
     if (fault == 3U) {
@@ -489,7 +489,7 @@ ZTEST(wirelink_protocol_integration,
                 UINT64_C(0x909));
   zassert_equal(wl_poll(&left->ctx, start_ms, &event), WL_ERR_NO_DATA);
   zassert_ok(
-      wl_send_reliable(&left->ctx, 0x71U, payload, sizeof(payload), &handle));
+      wl_send_reliable(&left->ctx, 0x71U, payload, sizeof(payload), start_ms, &handle));
   drop_outbound(left);
 
   expect_endpoint_hint(left, start_ms, 0U, left->config.ack_timeout_ms);

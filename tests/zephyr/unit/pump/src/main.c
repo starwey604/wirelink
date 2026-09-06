@@ -265,7 +265,7 @@ ZTEST(wirelink_pump_unit, test_terminal_callback_precedes_handle_take) {
   wl_tx_state_t tx_state;
 
   zassert_equal(wl_poll(&fixture->ctx, 100U, &ignored), WL_ERR_NO_DATA);
-  zassert_ok(wl_send_reliable(&fixture->ctx, 7U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&fixture->ctx, 7U, NULL, 0U, 0U, &handle));
   zassert_ok(wl_pump_step(&fixture->ctx, 105U, 4U, &hooks, &result));
   zassert_equal(result.events, 1U);
   zassert_equal(state.terminal_handle, handle);
@@ -286,7 +286,7 @@ ZTEST(wirelink_pump_unit, test_consumed_terminal_is_not_owned_by_pump) {
   wl_tx_state_t tx_state;
 
   zassert_equal(wl_poll(&fixture->ctx, 100U, &ignored), WL_ERR_NO_DATA);
-  zassert_ok(wl_send_reliable(&fixture->ctx, 7U, NULL, 0U, &handle));
+  zassert_ok(wl_send_reliable(&fixture->ctx, 7U, NULL, 0U, 0U, &handle));
   zassert_ok(wl_pump_step(&fixture->ctx, 105U, 4U, &hooks, &result));
   zassert_equal(state.terminal_handle, handle);
   zassert_equal(state.terminal_take_result, WL_OK);
@@ -322,11 +322,17 @@ static void endpoint_quiesced(void *user_data) {
   ++*calls;
 }
 
+static wl_time_ms_t endpoint_clock(void *user_data) {
+  return *(wl_time_ms_t *)user_data;
+}
+
 ZTEST(wirelink_pump_unit, test_endpoint_assembly_lifecycle_and_service_errors) {
   wl_endpoint_t endpoint = {0};
   wl_pump_hooks_t adapter = {0};
   struct fixture *fixture = fixture_init(5U);
   unsigned int calls = 0U;
+  wl_time_ms_t now_ms = 1U;
+  const wl_clock_t clock = {endpoint_clock, &now_ms};
   const wl_storage_t storage = {
     .tx_payload = fixture->tx_payload,
     .tx_payload_size = sizeof(fixture->tx_payload),
@@ -337,23 +343,23 @@ ZTEST(wirelink_pump_unit, test_endpoint_assembly_lifecycle_and_service_errors) {
     .rx_fallback = fixture->rx_fallback,
     .rx_fallback_size = sizeof(fixture->rx_fallback),
   };
-  zassert_equal(wl_endpoint_step(&endpoint, 1U, 1U), WL_ERR_NOT_INITIALIZED);
-  zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, NULL));
-  zassert_equal(wl_endpoint_init(&endpoint, &fixture->config, &storage, NULL),
+  zassert_equal(wl_endpoint_step(&endpoint, 1U), WL_ERR_NOT_INITIALIZED);
+  zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, &clock, NULL));
+  zassert_equal(wl_endpoint_init(&endpoint, &fixture->config, &storage, &clock, NULL),
                 WL_ERR_INVALID_STATE);
   adapter.adapter_user_data = &calls;
   adapter.service = failing_endpoint_service;
   adapter.quiesce = endpoint_quiesced;
   zassert_ok(wl_endpoint_attach(&endpoint, &adapter));
   zassert_equal(wl_endpoint_attach(&endpoint, &adapter), WL_ERR_BUSY);
-  zassert_equal(wl_endpoint_step(&endpoint, 1U, 4U), WL_ERR_INVALID_STATE);
+  zassert_equal(wl_endpoint_step(&endpoint, 4U), WL_ERR_INVALID_STATE);
   zassert_equal(calls, 1U);
   zassert_equal(wl_endpoint_last_step(&endpoint)->service_errors, 1U);
   wl_endpoint_close(&endpoint);
   wl_endpoint_close(&endpoint);
   zassert_equal(calls, 2U);
   zassert_is_null(wl_endpoint_link(&endpoint));
-  zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, NULL));
+  zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, &clock, NULL));
   zassert_false(wl_endpoint_has_adapter(&endpoint));
   wl_endpoint_close(&endpoint);
 }
