@@ -112,7 +112,7 @@ option(WIRELINK_BUILD_HOST_RUNTIME
 option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_BUILD_GETTING_STARTED
-  "Build the WLC-generated typed quickstart (requires compatible WLC)" OFF)
+  "Build the WLC-generated UDP tutorials (requires compatible WLC and Asio)" OFF)
 option(WIRELINK_INSTALL
   "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
@@ -169,6 +169,10 @@ if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
       "WIRELINK_BUILD_ASTRIAL_USB_ADAPTER requires the Astrial USB target")
   endif()
   add_subdirectory(adapters/astrial_usb)
+endif()
+
+if(WIRELINK_BUILD_GETTING_STARTED)
+  set(WIRELINK_BUILD_ASIO_UDP_ADAPTER ON)
 endif()
 
 if(WIRELINK_BUILD_ASIO_UDP_ADAPTER)
@@ -243,6 +247,15 @@ if(WIRELINK_INSTALL)
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
   endif()
 
+  if(TARGET wirelink_asio_udp)
+    install(TARGETS wirelink_asio_udp EXPORT WirelinkTargets
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES adapters/asio_udp/include/wirelink/asio/udp_adapter.hpp
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/asio)
+  endif()
+
   install(FILES
     include/wirelink/adapter.h
     include/wirelink/alignment.h
@@ -274,6 +287,10 @@ if(WIRELINK_INSTALL)
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
 
   set(WIRELINK_PACKAGE_HAS_HOST_RUNTIME OFF)
+  set(WIRELINK_PACKAGE_HAS_ASIO_UDP_ADAPTER OFF)
+  if(TARGET wirelink_asio_udp)
+    set(WIRELINK_PACKAGE_HAS_ASIO_UDP_ADAPTER ON)
+  endif()
   if(TARGET wirelink_host)
     set(WIRELINK_PACKAGE_HAS_HOST_RUNTIME ON)
   endif()

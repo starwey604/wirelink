@@ -8,6 +8,10 @@
 
 ## 托管 RPC 与已有协议映射（生成 ABI 20）
 
+RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unreliable)` 覆盖。
+显式 `@delivery(reliable)`、省略默认、旧 `request_delivery = reliable` 等价，
+生成代码与 profile identity 相同；同一方向重复配置会报错。这不改变 LATEST/FIFO 的显式策略。
+
 在 `.bind.wl` 中同时省略 `request_operation_id`、`response_operation_id`、
 `response_status`，即选择托管 RPC。`.wl` 只定义业务参数；runtime 自动分配调用编号、
 检查响应类型并补齐回复元数据。业务 codec 和 schema identity 不依赖这些运行策略。

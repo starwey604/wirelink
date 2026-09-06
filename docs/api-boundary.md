@@ -13,12 +13,12 @@ The order below is for reviewing the API after using those examples.
 
 1. Read this document through **Pre-1.0 Review Points** to decide whether the
    library boundary and ownership model are acceptable.
-2. Compare the tutorials with compiled [`latest_telemetry.c`](../examples/latest_telemetry.c)
-   and [`getting_started.c`](../examples/getting_started.c).
+2. Compare the tutorials with the compiled [00_telemetry](../examples/00_telemetry/)
+   and [01_rpc](../examples/01_rpc/) process pairs.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -48,10 +48,11 @@ An application should normally depend on a WLC-generated runtime and
 | `Wirelink::loopback` | In-memory native-packet adapter | None unless linked |
 | `Wirelink::diagnostics` | Key/value formatting into caller storage | None unless linked |
 | `Wirelink::host` | Optional C++20 threaded host executor | None unless enabled/linked |
+| `Wirelink::asio_udp` | Optional C++20 UDP adapter and readiness waiting | None unless enabled/linked |
 | WLC-generated target | Schema codec, bindings, or one role runtime | Only selected schema/profile |
 
-Astrial and Asio adapters are source-integrated platform targets rather than
-part of the installed core package.
+Asio UDP is installed when enabled, without exposing Asio headers. Astrial
+adapters remain source-integrated platform targets.
 
 ## Header Selection
 

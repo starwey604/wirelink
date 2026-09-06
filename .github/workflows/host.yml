@@ -51,7 +51,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 6c992decc4b200d258bd8c7409a8896ab37a17e8
+          ref: 9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b
           path: .tools/wlc
 
       - name: Build matching WLC
@@ -65,6 +65,39 @@ jobs:
 
       - name: Test WLC package consumer
         run: ctest --test-dir wlc-consumer-build --build-config Release --output-on-failure
+
+      - name: Check out standalone Asio 1.38.1
+        uses: actions/checkout@v5
+        with:
+          repository: chriskohlhoff/asio
+          ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
+          path: .tools/asio
+
+      - name: Configure UDP tutorials
+        run: >-
+          cmake -S . -B udp-build -DCMAKE_BUILD_TYPE=Release
+          -DWIRELINK_BUILD_GETTING_STARTED=ON
+          -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
+          -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+          -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Build UDP tutorials
+        run: cmake --build udp-build --config Release --parallel
+
+      - name: Test UDP tutorials and fault injection
+        run: ctest --test-dir udp-build --build-config Release --output-on-failure
+
+      - name: Install UDP adapter
+        run: cmake --install udp-build --config Release --prefix ${{ github.workspace }}/udp-install
+
+      - name: Configure installed UDP consumer
+        run: cmake -S tests/package/udp_consumer -B udp-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/udp-install -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build installed UDP consumer
+        run: cmake --build udp-consumer-build --config Release --parallel
+
+      - name: Test installed UDP consumer
+        run: ctest --test-dir udp-consumer-build --build-config Release --output-on-failure
 
   short-enum-abi:
     name: Installed ABI (-fshort-enums consumer)

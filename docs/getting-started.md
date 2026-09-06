@@ -1,47 +1,57 @@
 # Getting started: display the latest temperature
 
-Imagine a device measuring temperature and a display showing its current reading.
-The display does not need to show every historical measurement. This tutorial
-implements that application with Wirelink.
+A sensor produces readings; a display wants the current temperature, not a replay
+of every historical reading. Two independent programs implement this:
+`telemetry_publisher` sends readings and `telemetry_subscriber` displays them.
+No board is required. They use localhost UDP, a packet transport that does not
+guarantee delivery.
 
-No board is needed. One desktop program contains both the sensor and display;
-an in-memory connection transfers their messages. Wirelink encodes a temperature
-structure and reconstructs it at the other end. Your program chooses when to
-send and when to refresh the display.
+This is [example 00_telemetry](../examples/00_telemetry/). Continue with
+[RPC addition](tutorial-rpc.md), then [integration](tutorial-integration.md).
+[中文](getting-started-cn.md).
 
-This is lesson one. Continue with [requesting a calculation](tutorial-rpc.md),
-then [using your own project and hardware](tutorial-integration.md).
-No API or protocol reference is prerequisite. [中文](getting-started-cn.md).
+## 1. Run both programs
 
-## 1. Run it first
-
-First follow [environment setup: install WLC](installation.md). Running the example
-requires a C11 compiler, CMake 3.21 or newer, and a matching `wlc` on your PATH.
-There is no requirement for WLC sources inside the Wirelink checkout.
-Run these commands at the Wirelink root:
+Complete [installation](installation.md), including matching WLC and standalone Asio.
+From the Wirelink root, substitute your own Asio include path:
 
 ```sh
-cmake -S . -B build/quickstart \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_GETTING_STARTED=ON \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-cmake --build build/quickstart --target wirelink_latest_telemetry
-./build/quickstart/examples/wirelink_latest_telemetry
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+  -DWIRELINK_BUILD_GETTING_STARTED=ON -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
+  -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio-source/asio/include
+cmake --build build/tutorials --config Release --parallel
 ```
 
-Expected output:
+Start the receiver in terminal A:
+
+```sh
+./build/tutorials/examples/00_telemetry/telemetry_subscriber
+```
+
+After `telemetry subscriber ready`, start the sender in terminal B within ten seconds:
+
+```sh
+./build/tutorials/examples/00_telemetry/telemetry_publisher
+```
+
+The publisher sends five samples, 200 ms apart. Typical receiver output is:
 
 ```text
-latest telemetry: sample=2 temperature=23.50 C
+latest sample=1 temperature=23.50 C
+latest sample=2 temperature=23.50 C
+latest sample=3 temperature=23.50 C
+latest sample=4 temperature=23.50 C
+latest sample=5 temperature=23.50 C
 ```
 
-The program sends sample 1 at 23.00 °C and sample 2 at 23.50 °C.
-Both arrive before the display reads, so it gets only sample 2.
-Next we explain the definitions, reception policy, and complete program.
+Every sample need not appear. The receiver exits after sample 5, or fails if it
+has not received it within ten seconds. With Visual Studio multi-configuration
+builds, use `build/tutorials/examples/00_telemetry/Release/telemetry_subscriber.exe`
+and the equivalent publisher path. No virtual serial driver or Python relay is needed.
 
-## 2. Describe a temperature message
+## 2. Define the data
 
-[`temperature.wl`](../examples/getting_started/temperature.wl):
+Complete [telemetry.wl](../examples/00_telemetry/telemetry.wl):
 
 ```text
 version 1;
@@ -52,24 +62,19 @@ message Telemetry @id(10) {
 }
 ```
 
-`Telemetry` is our message name, not a Wirelink keyword. Its fields are a sample
-number and a temperature in hundredths of a degree Celsius: 2350 means 23.50 °C.
-Integers keep floating-point conversion out of the message definition.
+`Telemetry` is the application's message name, not a keyword. `sample` numbers
+readings; temperature uses hundredths of a degree Celsius: 2350 means 23.50 °C.
+`uint32` and `int32` are unsigned/signed 32-bit integers; `required` means a field
+must be present. `@id(10)` identifies the message type; `@id(1)` and `@id(2)`
+identify fields, not default values. Keep existing IDs when reordering fields.
+`version 1` is this schema's first revision.
 
-`message Telemetry @id(10)` gives the message type its number, 10. The field
-attributes `@id(1)` and `@id(2)` identify its two fields. These are stable
-identifiers, not measurements; keep existing numbers when rearranging fields.
-`required` means the field must be present.
-`uint32` and `int32` are unsigned and signed 32-bit integers. `version 1`
-marks the first revision of this message definition.
+A **schema** defines the messages both peers encode and decode. It does not send
+the C structure's memory layout directly.
 
-This file is a **schema**, a description of the messages. Generating both ends
-from the same schema gives them matching encoding rules; we do not transmit
-the raw memory layout of a C struct.
+## 3. Choose how the message is used
 
-## 3. Describe what happens after reception
-
-[`temperature.bind.wl`](../examples/getting_started/temperature.bind.wl):
+Complete [telemetry.bind.wl](../examples/00_telemetry/telemetry.bind.wl):
 
 ```text
 profile version 1;
@@ -79,143 +84,140 @@ latest Telemetry {
 }
 ```
 
-These are two independent choices:
+These are independent choices:
 
-| Setting | Question | Choice in this example |
-| --- | --- | --- |
-| `latest Telemetry` | What if another value arrives before the application reads? | Replace the unread value with the most recently received value |
-| `delivery = unreliable` | Which delivery mode does this receive path accept? | No acknowledgement or retransmission |
+- `latest Telemetry`: keep the last received value, replacing an unread older value.
+- `delivery = unreliable`: do not wait for link acknowledgements or retransmit loss.
 
-LATEST is a storage policy. Unreliable is a delivery mode. We combine them
-because another temperature measurement will soon replace a lost one.
-LATEST can also retain reliable messages; unreliable messages need not use LATEST.
+**Latest is not another name for unreliable.** One selects storage after receipt;
+the other selects delivery. Regularly refreshed temperatures can tolerate missing
+a sample. Latest means last received, not greatest `sample`: Wirelink does not
+filter reordered older measurements for you.
 
-“Latest” means last received and published into this storage, not greatest
-`sample` or timestamp. Wirelink does not compare those fields. Applications
-using a transport that reorders packets must decide how to reject old samples.
+The separate **binding profile** describes message use, not another data structure.
+The `.bind.wl` suffix is a convention; CMake's `PROFILE` selects the actual file.
+Different consumers can share a schema while retaining messages differently.
+Default endpoint sends use the delivery selected here.
 
-The `bind` in `.bind.wl` is a filename convention for a **binding profile**:
-a configuration binding messages to handling policies. It uses its own syntax,
-starting with `profile version 1;`. It is not a second message definition.
-The suffix is not mandatory; the generator selects this file through its
-`PROFILE` argument.
+## 4. Distinguish generated APIs from example support
 
-Separating the files lets a sensor send, a display retain the newest value,
-and a recorder process received values in order, using a shared message schema
-and different handling configurations. Encoding/decoding alone needs no
-`.bind.wl`; we add it to generate the LATEST receive API.
+WLC generates `telemetry_endpoint_t`, including communication state and bounded
+static storage. Each process owns one endpoint; no hand-written buffer assembly
+is needed. The business name comes from `telemetry.wl`, not the directory's `00`.
 
-The endpoint's `send_telemetry()` follows this configured delivery mode, so ordinary
-sending does not repeat the choice. Advanced codec sends still accept an explicit mode.
+`telemetry_runtime.h` is generated. [tutorial_host.h](../examples/common/tutorial_host.h)
+is ordinary, public example support, not a generated file or core API:
 
-## 4. Only three communication objects
+- `example_udp_open()` attaches localhost UDP to the initialized endpoint.
+- `example_now_ms()` supplies monotonic milliseconds; `example_session_id()`
+  obtains a nonzero random identifier for this run.
+- `example_udp_wait()` waits for socket readiness or the nearest deadline;
+  it never dispatches business callbacks or creates a communication thread.
+- `example_udp_close()` closes the endpoint and frees desktop resources.
+  `CHECK` only reports an unexpected result and exits the example.
 
-WLC generates `temperature_endpoint_t` from the schema and binding profile.
-It includes link state, message handling, and the required static buffers.
-You neither define its structure nor guess buffer sizes.
+The [C++ implementation](../examples/common/tutorial_host.cpp) isolates platform
+support and uses Wirelink's Asio UDP adapter. The business programs remain C11;
+Python does not implement either peer.
 
-`device` and `display` are two instances, not network addresses. `static`
-zero-initializes them and keeps them alive throughout the program. Do not copy
-or move an initialized endpoint.
+## 5. Complete publisher
 
-`cable` is the simulated connection, later replaceable with a hardware adapter.
-`endpoint_handle()` supplies the common endpoint interface used by adapters,
-including connections between differently generated endpoint types.
-
-The 1 and 2 are nonzero session identifiers for this isolated simulation.
-Reboot handling for reliable communication is introduced in lesson two.
-
-## 5. Complete C program
-
-This is [`examples/latest_telemetry.c`](../examples/latest_telemetry.c), with no
-hidden initializer. `CHECK` prints the failing expression's line and exits
-this desktop example; it is not a Wirelink API.
-The generated `temperature_runtime.h` also declares the default endpoint interface.
+[publisher.c](../examples/00_telemetry/publisher.c):
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "telemetry_runtime.h"
+#include "tutorial_host.h"
 
-#include <stdio.h>
+int main(int argc, char **argv) {
+  static telemetry_endpoint_t publisher;
+  uint16_t local = 49000, peer = 49001;
+  telemetry_t value;
+  CHECK(example_ports(argc, argv, &local, &peer));
+  CHECK(telemetry_endpoint_init(&publisher, example_session_id()) == WL_OK);
+  example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
+  CHECK(udp != NULL);
 
-#include "temperature_runtime.h"
-#include "wirelink/loopback.h"
-
-/* Desktop example: print the failing expression and stop on unexpected errors. */
-#define CHECK(expression) do { \
-  if (!(expression)) { \
-    fprintf(stderr, "line %d: %s\n", __LINE__, #expression); \
-    return 1; \
-  } \
-} while (0)
-
-int main(void) {
-  static temperature_endpoint_t device, display;
-  wl_loopback_t cable;
-  telemetry_t received;
-
-  /* Fixed IDs are only for this isolated simulation. */
-  CHECK(temperature_endpoint_init(&device, 1U) == WL_OK);
-  CHECK(temperature_endpoint_init(&display, 2U) == WL_OK);
-  CHECK(wl_loopback_connect(&cable, temperature_endpoint_handle(&device),
-                           temperature_endpoint_handle(&display)) == WL_OK);
-
-  for (uint32_t sample = 1U; sample <= 2U; ++sample) {
-    telemetry_t message;
-    telemetry_clear(&message);
-    message.has_sample = true;
-    message.sample = sample;
-    message.has_temperature_centi_c = true;
-    message.temperature_centi_c = sample == 1U ? 2300 : 2350;
-
-    CHECK(temperature_endpoint_send_telemetry(&device, &message).domain
-          == TEMPERATURE_SEND_OK);
-    /* Each endpoint advances transport and message handling in one call. */
-    CHECK(temperature_endpoint_step(&device, sample) == WL_OK);
-    CHECK(temperature_endpoint_step(&display, sample) == WL_OK);
+  telemetry_clear(&value);
+  value.has_sample = true;
+  value.has_temperature_centi_c = true;
+  value.temperature_centi_c = 2350;
+  for (value.sample = 1; value.sample <= 5 && example_running(); ++value.sample) {
+    CHECK(telemetry_endpoint_send_telemetry(&publisher, &value).domain == TELEMETRY_SEND_OK);
+    printf("published sample=%u temperature=23.50 C\n", (unsigned)value.sample);
+    /* Publish every 200 ms; keep servicing the endpoint while waiting. */
+    const wl_time_ms_t started = example_now_ms();
+    while ((wl_time_ms_t)(example_now_ms() - started) < 200U && example_running()) {
+      CHECK(telemetry_endpoint_step(&publisher, example_now_ms()) == WL_OK);
+      const uint32_t elapsed = example_now_ms() - started;
+      if (elapsed < 200U) CHECK(example_udp_wait(udp, 200U - elapsed) == WL_OK);
+    }
   }
-
-  CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_OK);
-  CHECK(received.sample == 2U && received.temperature_centi_c == 2350);
-  printf("latest telemetry: sample=%u temperature=%.2f C\n",
-         (unsigned)received.sample, received.temperature_centi_c / 100.0);
-  CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_ERR_NO_DATA);
-
-  temperature_endpoint_close(&device);
-  temperature_endpoint_close(&display);
+  example_udp_close(udp);
   return 0;
 }
 ```
 
-## 6. Follow one measurement
+`telemetry_clear()` initializes the message; `has_...` flags mark fields present,
+since zero is also a valid value. A successful send means local submission,
+not remote receipt. During each interval, step the endpoint before waiting.
 
-Clear the message, then set values and their `has_...` presence flags.
-Zero is valid data, so cannot stand for a missing field.
+## 6. Complete subscriber
 
-`temperature_endpoint_send_telemetry()` encodes and submits using the delivery
-mode from `.bind.wl`. `TEMPERATURE_SEND_OK` means local acceptance, not reception.
+[subscriber.c](../examples/00_telemetry/subscriber.c):
 
-Wirelink creates no thread. Calling each endpoint's `endpoint_step()` advances
-transport, handles incoming messages, and reclaims send completions.
-Here `sample` also acts as a manually advanced millisecond clock. Real applications
-supply a monotonic clock and keep driving endpoints from one owner thread or loop.
+```c
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "telemetry_runtime.h"
+#include "tutorial_host.h"
 
-`endpoint_read_telemetry()` copies the newest value into your `received` variable.
-You own that copy and may retain or modify it; no pointer lease needs releasing.
-Without a new value, it returns `WL_ERR_NO_DATA` and leaves the output unchanged.
-That is not a communication failure.
+int main(int argc, char **argv) {
+  static telemetry_endpoint_t subscriber;
+  uint16_t local = 49001, peer = 49000;
+  telemetry_t value;
+  int complete = 0;
+  CHECK(example_ports(argc, argv, &local, &peer));
+  CHECK(telemetry_endpoint_init(&subscriber, example_session_id()) == WL_OK);
+  example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
+  CHECK(udp != NULL);
+  puts("telemetry subscriber ready");
+  fflush(stdout);
 
-Each step has a work budget, so it need not drain an arbitrary queue in one call.
-One message per iteration makes stepping both ends sufficient here.
-Close both endpoints with `endpoint_close()`; attached adapters stop accessing
-storage. Keep a shared cable alive until both endpoints close.
-Unexpected failures exit this desktop process; long-running applications also
-close endpoints on error paths.
+  const wl_time_ms_t started = example_now_ms();
+  while (example_running() && (wl_time_ms_t)(example_now_ms() - started) < 10000U) {
+    CHECK(telemetry_endpoint_step(&subscriber, example_now_ms()) == WL_OK);
+    const int result = telemetry_endpoint_read_telemetry(&subscriber, &value);
+    if (result == WL_OK) {
+      printf("latest sample=%u temperature=%.2f C\n", (unsigned)value.sample,
+             value.temperature_centi_c / 100.0);
+      if (value.sample >= 5) { complete = 1; break; }
+    } else {
+      CHECK(result == WL_ERR_NO_DATA);
+    }
+    CHECK(example_udp_wait(udp, 200U) == WL_OK);
+  }
+  example_udp_close(udp);
+  if (!complete) fputs("no final sample received (UDP telemetry may be lost)\n", stderr);
+  return complete ? 0 : 1;
+}
+```
 
-## Next
+`endpoint_step()` handles incoming messages. `read_telemetry()` copies the latest
+value into application-owned storage; no borrowed pointer must be returned.
+`WL_ERR_NO_DATA` means no new value, not a connection failure.
+Each owner pass has a bounded work budget.
 
-Change the second temperature to 2410 and rebuild to display 24.10 °C.
-Move reading inside the loop, after stepping the display, to observe both samples.
+The programs bind ports 49000/49001 and accept only their configured peer.
+To avoid occupied ports, append `49010 49011` to the publisher command and
+`49011 49010` to the subscriber command. UDP ports are OS addresses, not
+Wirelink session identifiers; reboot rules are deferred to integration.
 
-Continue with [requesting a calculation](tutorial-rpc.md) for commands and results.
-Read [integration](tutorial-integration.md) when changing memory layout, using DMA,
-or customizing scheduling; those are not prerequisites for this example.
+## Next steps
+
+Change the publisher's temperature to 2410 and rebuild; the display should show
+24.10 °C. This is neither a reliable-delivery demonstration nor a performance
+benchmark. Former single-process examples remain under
+[tests/tutorials/loopback](../tests/tutorials/loopback/) for deterministic regression.
+
+Continue with [RPC addition](tutorial-rpc.md), or consult
+[integration](tutorial-integration.md) when replacing UDP with real serial I/O.

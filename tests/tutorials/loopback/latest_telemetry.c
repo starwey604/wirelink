@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+/* Previous combined example, retained as a deterministic regression test. */
 
 #include <stdio.h>
 

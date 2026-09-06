@@ -442,14 +442,18 @@ and executes all unit and integration scenarios on
 `WIRELINK_INSTALL` defaults on only when Wirelink is the top-level project.
 It installs the core, portable loopback, and optional diagnostics archives,
 public headers, a relocatable CMake package, a pkg-config file for the core,
-and the license. The host executor is installed when enabled. Private RX state
-and hardware adapters are not installed. Until the project reaches 1.0,
+and the license. The host executor and Asio UDP adapter are installed when enabled.
+Private RX state and hardware adapters are not installed. Until the project reaches 1.0,
 generated package compatibility is restricted to the same `0.x` minor
 release.
 
 `WIRELINK_BUILD_EXAMPLES` also defaults on only for top-level builds. The
-bare-metal and typed quickstart examples use `Wirelink::loopback`; the former
-is registered with CTest. The typed Astrial example is
+bare-metal example uses `Wirelink::loopback`. The numbered `00_telemetry` and
+`01_rpc` tutorials run independent C11 processes over the optional Asio UDP adapter,
+with C++ host glue in `examples/common/`. Enable `WIRELINK_BUILD_GETTING_STARTED`
+and provide matching WLC and `WIRELINK_ASIO_INCLUDE_DIR`. Python is required only
+with `BUILD_TESTING`, for process/fault tests. Former combined examples remain
+deterministic tests in `tests/tutorials/loopback/`. The typed Astrial example is
 added only when `WIRELINK_BUILD_ASTRIAL_ADAPTER=ON`. The Zephyr UART/DMA sample
 is a standalone Zephyr application and therefore is built with `west`, not by
 top-level CMake.
@@ -474,10 +478,12 @@ link header.
 Use `native_sim` as the default runnable integration target: it is fast and is
 the appropriate host environment for virtual transport pairs and UDP tests.
 `adapters/asio_udp/` is the cross-platform v1 UDP path. It exposes no POSIX
-file descriptors: the caller binds an address, selects a validated peer, and
-calls `service()` from the Wirelink consumer loop. The socket is non-blocking,
-one complete `COBS_STREAM + NONE` unit is sent per datagram, and RX writes
-directly into a ring claim.
+file descriptors. Native packet mode carries one complete frame per datagram and
+receives directly into a bounded core queue claim; COBS mode remains explicit
+compatibility and stages a datagram before publishing to the stream ring. Both
+respect configured integrity. Endpoint-aware open attaches service and quiesce;
+the owner merges deadlines before `wait_for_activity()`. Bare-link integrations
+can still poll. See [UDP lifecycle and limits](udp-adapter.md).
 For build-and-run coverage on emulated CPU architectures, use this initial
 matrix:
 

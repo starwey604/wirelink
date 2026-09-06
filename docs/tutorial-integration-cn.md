@@ -1,7 +1,7 @@
 # 第三篇：接入自己的工程与硬件
 
 现在你已经能[接收最新温度](getting-started-cn.md)，并能[请求一次计算](tutorial-rpc-cn.md)。
-本篇解释怎样把这两种用法搬到自己的项目，再替换内存连接。
+本篇解释怎样把这两种用法搬到自己的项目，再替换本机 UDP 连接。
 先完成电脑上的独立工程，就能把构建问题与硬件问题分开排查。
 [English](tutorial-integration.md)。
 
@@ -20,71 +20,73 @@
 所以我们允许多个 runtime 共享一份 codec，避免每种使用方式都重复生成同名编解码函数。
 
 **target（构建目标）** 是 CMake 给一组可编译文件或一个程序起的名字，
-不是“目标开发板”。`temperature_codec` 就是一个由生成的 C 文件构成的库目标；
-`temperature_protocol` 则包含 profile 指定的接收辅助代码，并依赖前一个目标。
-目标名可自选。生成函数中的 `temperature_` 前缀默认来自 schema 文件名，
+不是“目标开发板”。`telemetry_codec` 就是一个由生成的 C 文件构成的库目标；
+`telemetry_protocol` 则包含 profile 指定的接收辅助代码，并依赖前一个目标。
+目标名可自选。生成函数中的 `telemetry_` 前缀默认来自 schema 文件名，
 不是来自 CMake target 名。
 
-## 2. 建一个独立的温度显示工程
+## 2. 建一个独立的温度接收工程
 
-新建一个目录，放入这四个文件：
+复制下列文件到一个新目录：
 
-| 文件 | 内容 |
+| 文件 | 来源 |
 | --- | --- |
-| `main.c` | 完整复制上一篇的 [`latest_telemetry.c`](../examples/latest_telemetry.c) |
-| `temperature.wl` | [消息定义](../examples/getting_started/temperature.wl) |
-| `temperature.bind.wl` | [LATEST 使用配置](../examples/getting_started/temperature.bind.wl) |
-| `CMakeLists.txt` | 下面的完整构建配置 |
+| `main.c` | [subscriber.c](../examples/00_telemetry/subscriber.c) |
+| `telemetry.wl` | [消息定义](../examples/00_telemetry/telemetry.wl) |
+| `telemetry.bind.wl` | [接收配置](../examples/00_telemetry/telemetry.bind.wl) |
+| `tutorial_host.h`、`tutorial_host.cpp` | [示例平台支持](../examples/common/) |
+| `CMakeLists.txt` | 下面的构建配置 |
 
 ```cmake
 cmake_minimum_required(VERSION 3.21)
-project(temperature_display LANGUAGES C)
+project(temperature_display LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 find_package(Wirelink CONFIG REQUIRED)
 wirelink_wlc_generate_codec(
-  TARGET temperature_codec
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/temperature.wl")
+  TARGET telemetry_codec
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.wl")
 wirelink_wlc_generate_runtime(
-  TARGET temperature_protocol
-  CODEC_TARGET temperature_codec
-  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/temperature.bind.wl")
-add_executable(temperature_display main.c)
-target_link_libraries(temperature_display PRIVATE
-  temperature_protocol Wirelink::loopback)
+  TARGET telemetry_protocol
+  CODEC_TARGET telemetry_codec
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.bind.wl")
+add_executable(telemetry_subscriber main.c tutorial_host.cpp)
+target_link_libraries(telemetry_subscriber PRIVATE
+  telemetry_protocol Wirelink::asio_udp)
 ```
 
-`wirelink_wlc_generate_codec()` 读取 schema，调用 WLC，编译编码、解码和类型化发送代码。
-`wirelink_wlc_generate_runtime()` 读取 binding profile，生成默认端点、温度接收与 LATEST 访问代码。
-`CODEC_TARGET` 指出它使用哪份消息代码；`PROFILE` 指出它使用哪份消息处理配置。
-链接 `temperature_protocol` 会带入所需 codec 和 Wirelink 核心；
-`Wirelink::loopback` 为这个演示额外提供内存连接。
+`wirelink_wlc_generate_codec()` 生成并编译消息类型、编解码和类型化发送代码。
+`wirelink_wlc_generate_runtime()` 根据 profile 生成默认端点及 LATEST 接收接口。
+`CODEC_TARGET` 指明复用哪份消息代码。链接 `telemetry_protocol` 会带入 codec 和核心；
+`Wirelink::asio_udp` 是可选的主机传输，不进入固件核心。
 
-在 Wirelink 根目录，先构建全部库（第一篇只构建了遥测目标），再安装到本地目录：
+从 Wirelink 根目录安装已经构建的教程依赖：
 
 ```sh
-cmake --build build/quickstart --parallel
-cmake --install build/quickstart --prefix "$PWD/build/tutorial-install"
+cmake --build build/tutorials --config Release --parallel
+cmake --install build/tutorials --config Release --prefix "$PWD/build/tutorial-install"
 ```
 
-然后构建自己的工程。将下面的 `/path/to` 和 `/absolute/path/to` 替换成你的真实路径：
+再构建独立工程，将路径换成你的实际路径：
 
 ```sh
 cmake -S /path/to/temperature-display -B /path/to/temperature-display/build \
   -DCMAKE_PREFIX_PATH=/absolute/path/to/wirelink/build/tutorial-install \
   -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-cmake --build /path/to/temperature-display/build
-/path/to/temperature-display/build/temperature_display
+cmake --build /path/to/temperature-display/build --config Release
+/path/to/temperature-display/build/telemetry_subscriber
 ```
 
-输出应仍然是 `latest telemetry: sample=2 temperature=23.50 C`。
-这里 WLC 只在构建时运行，部署的是可执行程序或编译进固件的 C 代码。
-本开发分支需要生成 ABI 20 的 WLC，按[安装篇](installation-cn.md)独立安装并加入 PATH。
+运行时再从 Wirelink 构建目录启动 publisher，就能看到同样的温度输出。
+Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 
-只使用类型化发送、自己处理接收的工程可以只链接 codec。
-需要接收辅助功能时再链接相应 runtime；更多角色拆分和命名选项见 [WLC 指南](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README-cn.md)。
+独立消费者不需要 Asio 源码路径：安装的 UDP 库已编译好，不把 Asio 头文件暴露给应用。
+WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 20 编译器。
+只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
+多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
+[WLC 指南](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README-cn.md)。
 
 ## 3. 不要把两种“配置”混为一谈
 
@@ -146,7 +148,7 @@ CRC 检测损坏，不认证发送者，也不加密内容。
 随机方案还要考虑碰撞概率；它不是认证密码或加密密钥。
 
 
-## 4. 把内存连接换成真实传输
+## 4. 把本机 UDP 换成设备传输
 
 **adapter（适配器）** 是 Wirelink 和驱动之间的连接代码：
 把待发的字节交给驱动，把接收的字节交给 Wirelink。
@@ -179,7 +181,7 @@ DMA 等减少复制的接口属于后续优化，先读懂基本路径再选择�
 
 接入已有硬件适配器时，用 `wl_endpoint_link(endpoint_handle(...))` 获得它需要的
 核心指针，再通过 `wl_endpoint_attach()` 接入该适配器的 service/quiesce/deadline hooks。
-目前 loopback 的 `wl_loopback_connect()` 已自动完成这两步；其他平台仍需集成层连接。
+Asio UDP 的 `open(wl_endpoint_t&, ...)` 和 loopback 的 `wl_loopback_connect()` 已自动完成这两步；其他平台仍需集成层连接。
 以下是这层集成必须遵守的执行规则，普通业务代码无需自己重建 hooks。
 
 为每条连接指定一个通信处理线程或裸机主循环，文档称它为 **owner**。
@@ -226,7 +228,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 `runtime_peer_observation_take()` 可取出前后两个会话编号供应用更新状态。
 生成 runtime 负责 RPC 状态清理；撤销旧控制权等业务动作仍由产品完成。
 如果一条可靠的非 RPC 消息也代表新对端会话，应在应用它之前显式调用
-`runtime_peer_observe()`。函数名前加你实际生成的模块前缀，例如 `quickstart_`。
+`runtime_peer_observe()`。函数名前加你实际生成的模块前缀，例如 `calculator_`。
 
 ## 接下来按需求查阅
 
@@ -234,7 +236,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 无需按顺序读完所有参考文件：
 
 - 想审阅公开 API 的划分和所有权：读 [API 边界](api-boundary-cn.md)。
-- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README-cn.md)。
+- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README-cn.md)。
 - 想了解保留最新值或队列的限制：读 [LATEST](latest-mailbox-cn.md) 与 [FIFO](fifo-cn.md)。
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。

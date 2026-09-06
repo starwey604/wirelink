@@ -23,7 +23,7 @@
 | Zephyr UART IRQ / CDC ACM | COBS stream | `wl_zephyr_uart_irq_start()` | `wl_zephyr_uart_irq_service()` | 复用 link 前禁用所属 UART/USB 设备 |
 | Zephyr USB bulk | native packet 或 COBS stream | 启用所属 USBD context | `wl_zephyr_usb_bulk_service()` | 复用 link 前禁用 USBD |
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()`，可用时配合 `wait_for_activity()` | `quiesce()` |
-| Asio UDP | native packet | 构造并 bind socket | `service()` | `quiesce()` |
+| Asio UDP | native packet；显式旧 COBS | `open()` 绑定 socket；端点重载自动 attach | `service()`；按截止时间 `wait_for_activity()` | `quiesce()` 或关闭端点 |
 
 类型化 adapter 暴露平台专用配置与统计；C core 不增加虚调用，也不拥有等待原语。
 

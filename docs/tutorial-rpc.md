@@ -1,40 +1,45 @@
-# Lesson two: ask a device to calculate a result
+# Lesson two: ask a device to calculate a sum
 
-The [temperature lesson](getting-started.md) only sends measurements. Now a controller
-asks the device to calculate 20 + 22 and return the answer. This request/result
-interaction is **RPC (remote procedure call)**. We still use an in-memory connection;
-no board is needed. [中文](tutorial-rpc-cn.md).
+The [telemetry example](getting-started.md) sends measurements. Now a controller
+asks a device to calculate 20 + 22 and return the result. This request/result
+interaction is **RPC: remote procedure call**.
 
-## 1. Run it first
+[Example 01_rpc](../examples/01_rpc/) contains only addition, not telemetry.
+`calculator_client` initiates a call; `calculator_server` handles and replies.
+Both use localhost UDP, but business code calls Wirelink rather than sockets.
+[中文](tutorial-rpc-cn.md).
 
-Use the previous build directory. After updating sources, install the matching
-WLC from the [installation guide](installation.md) first.
+## 1. Run the programs
+
+Use the previous build directory. After updating source, install matching
+[WLC](installation.md) and rebuild:
 
 ```sh
-cmake --build build/quickstart --target wirelink_getting_started
-./build/quickstart/examples/wirelink_getting_started
+cmake --build build/tutorials --config Release --parallel
 ```
 
-Expected output:
+Terminal A:
 
-```text
-unreliable telemetry: sample=7 temperature=23.50 C
-reliable RPC: 20 + 22 = 42
+```sh
+./build/tutorials/examples/01_rpc/calculator_server
 ```
 
-The program sends one temperature update, then calculates the sum. Focus on the calculation below.
+After `calculator server ready`, terminal B:
 
-## 2. Messages contain business data only
+```sh
+./build/tutorials/examples/01_rpc/calculator_client
+```
 
-Complete [`quickstart.wl`](../examples/getting_started/quickstart.wl):
+The client prints `20 + 22 = 42` and exits. The server stays running until Ctrl+C.
+Visual Studio multi-configuration builds put executables under `01_rpc/Release/`
+with an `.exe` suffix.
+
+## 2. Define only business data
+
+Complete [calculator.wl](../examples/01_rpc/calculator.wl):
 
 ```text
 version 1;
-
-message Telemetry @id(10) {
-  required uint32 sample @id(1);
-  required int32 temperature_centi_c @id(2);
-}
 
 message AddRequest @id(20) {
   required int32 left @id(1);
@@ -46,210 +51,223 @@ message AddResponse @id(21) {
 }
 ```
 
-`AddRequest` contains the two inputs; `AddResponse` contains the sum.
-`@id(20)` and `@id(21)` identify message types, not individual calls.
-No business field is reserved for an internal call number or Wirelink status.
+`AddRequest` contains the inputs; `AddResponse` contains the output.
+`@id(20)` and `@id(21)` distinguish message types, not individual calls.
+No Wirelink numbering or status fields are required in business messages.
+The filename gives `calculator_endpoint_t` its business name; directory number
+`01` controls reading order, not the C namespace.
 
-## 3. Associate the request and response
+## 3. Bind the input and output as an RPC
 
-Complete [`quickstart.bind.wl`](../examples/getting_started/quickstart.bind.wl):
+Complete [calculator.bind.wl](../examples/01_rpc/calculator.bind.wl):
 
 ```text
 profile version 1;
 
-latest Telemetry {
-  delivery = unreliable;
-}
-
 rpc Add {
   request = AddRequest;
   response = AddResponse;
-  request_delivery = reliable;
-  response_delivery = reliable;
 }
 ```
 
-`rpc Add` names the service. `request` and `response` choose its input and output
-types; the last two lines choose their delivery policies, both reliable here.
+`rpc Add` names the service; `request` and `response` select message types.
+**Both directions default to reliable delivery.** Wirelink supplies reliability;
+UDP itself does not retransmit. Override a direction only when needed:
 
-Wirelink allocates an internal call number, transmits it with the request and
-response, and matches the result automatically. We call this default **managed RPC**.
-These details do not belong in the business struct. Application code saves a
-returned call handle and uses it to inspect the result; do not inspect or modify
-the handle's private members.
+```text
+rpc Add {
+  request = AddRequest @delivery(unreliable);
+  response = AddResponse;
+}
+```
 
-## 4. Complete program
+Only the request becomes unreliable. This attribute belongs to the binding,
+not the business schema. Defaults do not imply unlimited retries, no deadline,
+or exactly-once business execution; running configuration still selects those limits.
 
-The generated endpoints own their communication storage. Configuration enables
-client/server roles and installs the calculation handler. `calculator_t` is only
-business context carrying the device endpoint and simulated time, not buffer glue.
-`CHECK` is an example assertion which exits the desktop process on failure.
+Wirelink allocates an internal call number, carries it in the request and reply,
+and matches responses. Business code retains a **call handle**, like a receipt for
+collecting that result. It never needs to compare or modify the number.
+This is the default managed RPC mode.
 
-This is the complete [`examples/getting_started.c`](../examples/getting_started.c):
+## 4. Client: submit arguments and inspect the result
+
+Complete [client.c](../examples/01_rpc/client.c):
+
+```c
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "calculator_runtime.h"
+#include "tutorial_host.h"
+
+int main(int argc, char **argv) {
+  static calculator_endpoint_t client;
+  calculator_endpoint_config_t config;
+  calculator_add_call_t call;
+  calculator_add_result_t result;
+  add_request_t request;
+  uint16_t local = 49100, peer = 49101;
+  CHECK(argc == 1 || argc == 3 || argc == 5);
+  CHECK(example_ports(argc == 5 ? 3 : argc, argv, &local, &peer));
+  add_request_clear(&request);
+  request.has_left = request.has_right = true;
+  request.left = 20;
+  request.right = 22;
+  if (argc == 5) {
+    CHECK(example_int32(argv[3], &request.left));
+    CHECK(example_int32(argv[4], &request.right));
+  }
+
+  CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  CHECK(calculator_runtime_config_enable_client(&config.runtime) == WL_OK);
+  config.link.ack_timeout_ms = 100U;
+  config.link.max_retries = 4U;
+  CHECK(calculator_endpoint_init_config(&client, &config) == WL_OK);
+  example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
+  CHECK(udp != NULL);
+  /* The core's send clock comes from the latest owner step. */
+  CHECK(calculator_endpoint_step(&client, example_now_ms()) == WL_OK);
+  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, example_now_ms(), &call) == WL_RPC_OK);
+
+  for (;;) {
+    const int step = calculator_endpoint_step(&client, example_now_ms());
+    if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
+    CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
+    if (result.state == WL_RPC_CLIENT_COMPLETED ||
+        result.state == WL_RPC_CLIENT_APPLICATION_ERROR ||
+        result.state == WL_RPC_CLIENT_TIMED_OUT ||
+        result.state == WL_RPC_CLIENT_LINK_FAILED ||
+        result.state == WL_RPC_CLIENT_CANCELLED) break;
+    if (!example_running()) CHECK(calculator_endpoint_add_cancel(&client, &call) == WL_RPC_OK);
+    CHECK(example_udp_wait(udp, 200U) == WL_OK);
+  }
+  if (result.state == WL_RPC_CLIENT_COMPLETED && result.response_valid) {
+    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)result.response.sum);
+  } else if (result.state == WL_RPC_CLIENT_APPLICATION_ERROR) {
+    printf("addition rejected: status=%ld\n", (long)result.application_status);
+  } else {
+    fprintf(stderr, "RPC failed: state=%ld\n", (long)result.state);
+  }
+  CHECK(calculator_endpoint_add_release(&client, &call) == WL_RPC_OK);
+  example_udp_close(udp);
+  return result.state == WL_RPC_CLIENT_COMPLETED ||
+         result.state == WL_RPC_CLIENT_APPLICATION_ERROR ? 0 : 1;
+}
+```
+
+Read it in business order:
+
+1. Fill `left`, `right`, and their presence flags.
+2. Enable the client role. This example waits 100 ms for link acknowledgements
+   and permits four retransmissions.
+3. `endpoint_add_call(..., 1500U, now, &call)` submits a call with a 1500 ms
+   application-response deadline. `WL_RPC_OK` means submitted, not calculated.
+   The core send clock comes from owner progress, so step once before the first call.
+4. Keep stepping and inspecting. Successful inspection is not successful RPC:
+   check `result.state`, then `response_valid` before using a successful body.
+5. Release the call when finished, including failure, cancellation and timeout.
+   Release or endpoint closure invalidates the old handle.
+
+The `example_udp_*` and clock functions are the same
+[platform support](../examples/common/tutorial_host.h) used previously, not another
+RPC implementation. Socket readiness wakes the owner without millisecond idle polling.
+
+## 5. Server: calculate and reply
+
+Complete [server.c](../examples/01_rpc/server.c):
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <limits.h>
-#include <stdint.h>
-#include <stdio.h>
+#include "calculator_runtime.h"
+#include "tutorial_host.h"
 
-#include "quickstart_runtime.h"
-#include "wirelink/loopback.h"
-
-#define CHECK(expression) do { \
-  if (!(expression)) { \
-    fprintf(stderr, "line %d: %s\n", __LINE__, #expression); \
-    return 1; \
-  } \
-} while (0)
-
-typedef struct {
-  quickstart_endpoint_t *device;
-  wl_time_ms_t now_ms;
-} calculator_t;
-
-static int32_t handle_add(void *context, const add_request_t *request,
-                          const quickstart_add_request_token_t *token,
-                          wl_delivery_t delivery) {
-  calculator_t *calculator = context;
-  add_response_t response;
+static int32_t add(void *context, const add_request_t *request,
+                   const calculator_add_request_token_t *token, wl_delivery_t delivery) {
+  calculator_endpoint_t *server = context;
   const int64_t sum = (int64_t)request->left + request->right;
   (void)delivery;
-  if (sum < INT32_MIN || sum > INT32_MAX) {
-    /* Business rejection: no fabricated sum or status field is needed. */
-    return quickstart_endpoint_add_reject(calculator->device, token, 1,
-                                          calculator->now_ms);
-  }
+  printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
+  fflush(stdout);
+  if (sum < INT32_MIN || sum > INT32_MAX)
+    return calculator_endpoint_add_reject(server, token, 1, example_now_ms());
+  add_response_t response;
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
-  /* Preparing a response is synchronous; endpoint_step sends it later. */
-  return quickstart_endpoint_add_complete(calculator->device, token,
-                                          &response, calculator->now_ms);
+  return calculator_endpoint_add_complete(server, token, &response, example_now_ms());
 }
 
-int main(void) {
-  static quickstart_endpoint_t controller, device;
-  quickstart_endpoint_config_t client_config, server_config;
-  calculator_t calculator = {&device, 0U};
-  wl_loopback_t cable;
-  telemetry_t telemetry, received;
-  add_request_t request;
-  quickstart_add_result_t operation;
-  quickstart_add_call_t call;
-
-  CHECK(quickstart_endpoint_config_defaults(&client_config, 0x1001U) == WL_OK);
-  CHECK(quickstart_endpoint_config_defaults(&server_config, 0x2002U) == WL_OK);
-  CHECK(quickstart_runtime_config_enable_client(&client_config.runtime) == WL_OK);
-  CHECK(quickstart_runtime_config_enable_server(&server_config.runtime) == WL_OK);
-  client_config.link.ack_timeout_ms = 20U;
-  client_config.link.max_retries = 2U;
-  server_config.link.ack_timeout_ms = 20U;
-  server_config.link.max_retries = 2U;
-  server_config.runtime.rpc_server_pending_timeout_ms = 1000U;
-  server_config.runtime.rpc_server_cache_ttl_ms = 10000U;
-  server_config.runtime.add_request_handler = handle_add;
-  server_config.runtime.add_user_data = &calculator;
-  CHECK(quickstart_endpoint_init_config(&controller, &client_config) == WL_OK);
-  CHECK(quickstart_endpoint_init_config(&device, &server_config) == WL_OK);
-  CHECK(wl_loopback_connect(&cable, quickstart_endpoint_handle(&controller),
-                           quickstart_endpoint_handle(&device)) == WL_OK);
-
-  telemetry_clear(&telemetry);
-  telemetry.has_sample = true;
-  telemetry.sample = 7U;
-  telemetry.has_temperature_centi_c = true;
-  telemetry.temperature_centi_c = 2350;
-  CHECK(quickstart_endpoint_send_telemetry(&device, &telemetry).domain == QUICKSTART_SEND_OK);
-  CHECK(quickstart_endpoint_step(&device, 1U) == WL_OK);
-  CHECK(quickstart_endpoint_step(&controller, 1U) == WL_OK);
-  CHECK(quickstart_endpoint_read_telemetry(&controller, &received) == WL_OK);
-  CHECK(received.sample == 7U && received.temperature_centi_c == 2350);
-
-  add_request_clear(&request);
-  request.has_left = true;
-  request.left = 20;
-  request.has_right = true;
-  request.right = 22;
-  CHECK(quickstart_endpoint_add_call(&controller, &request, 100U, 10U,
-                                    &call) == WL_RPC_OK);
-
-  /* Simulated milliseconds. Real applications use their monotonic clock. */
-  for (calculator.now_ms = 10U; calculator.now_ms < 30U; ++calculator.now_ms) {
-    CHECK(quickstart_endpoint_step(&controller, calculator.now_ms) == WL_OK);
-    CHECK(quickstart_endpoint_step(&device, calculator.now_ms) == WL_OK);
+int main(int argc, char **argv) {
+  static calculator_endpoint_t server;
+  calculator_endpoint_config_t config;
+  uint16_t local = 49101, peer = 49100;
+  CHECK(example_ports(argc, argv, &local, &peer));
+  CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  CHECK(calculator_runtime_config_enable_server(&config.runtime) == WL_OK);
+  config.link.ack_timeout_ms = 100U;
+  config.link.max_retries = 4U;
+  config.runtime.rpc_server_pending_timeout_ms = 1000U;
+  config.runtime.rpc_server_cache_ttl_ms = 10000U;
+  config.runtime.add_request_handler = add;
+  config.runtime.add_user_data = &server;
+  CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);
+  example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&server), local, peer);
+  CHECK(udp != NULL);
+  puts("calculator server ready");
+  fflush(stdout);
+  while (example_running()) {
+    CHECK(calculator_endpoint_step(&server, example_now_ms()) == WL_OK);
+    CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
-  CHECK(quickstart_endpoint_add_inspect(&controller, &call, &operation) == WL_RPC_OK);
-  CHECK(operation.state == WL_RPC_CLIENT_COMPLETED);
-  CHECK(operation.response_valid && operation.response.sum == 42);
-  CHECK(quickstart_endpoint_add_release(&controller, &call) == WL_RPC_OK);
-
-  quickstart_endpoint_close(&controller);
-  quickstart_endpoint_close(&device);
-  puts("unreliable telemetry: sample=7 temperature=23.50 C");
-  puts("reliable RPC: 20 + 22 = 42");
+  example_udp_close(udp);
   return 0;
 }
 ```
 
-## 5. Follow one call
+Registering `add_request_handler` makes endpoint progress invoke the handler.
+`context` is simply the server pointer supplied by the application, not buffer assembly.
 
-1. Fill `left`, `right`, and their `has_...` flags. Call
-   `quickstart_endpoint_add_call(..., 100U, 10U, &call)`: 100 is the timeout
-   in milliseconds and 10 is the current time. Success means local submission;
-   save `call` to inspect the eventual result.
-2. Keep calling `endpoint_step()` on both ends. Reception invokes `handle_add()`
-   on the device. It computes the sum and calls `endpoint_add_complete()` to
-   prepare a response; subsequent progress sends it.
-3. `endpoint_add_inspect(&controller, &call, &operation)` returns `WL_RPC_OK`
-   when inspection succeeds, even while pending. Check `operation.state`.
-   Once completed with `response_valid`, read `operation.response.sum` directly.
-4. Call `endpoint_add_release()` when finished. Failed, cancelled, and timed-out
-   terminal calls also need release. Released handles are invalid; closing and
-   reinitializing the endpoint invalidates its previous handles too.
+`calculator_add_request_token_t` identifies the request being answered.
+`endpoint_add_complete()` prepares its successful reply; endpoint progress sends it.
+There is no manual extraction/injection of call numbers.
 
-The loop advances simulated milliseconds. Real applications supply monotonic time
-from a single communication thread or main loop. Session constants `0x1001` and
-`0x2002` are only for this isolated simulation; [integration](tutorial-integration.md#session-identity)
-explains choosing identities across hardware reboots.
+Returning zero means locally accepted, not necessarily already transmitted.
+Slow work may copy required parameters and the token, then reply later on the
+same communication owner. A nonzero return abandons local handling;
+**it does not automatically send a business rejection.**
 
-The default static endpoint reserves one client call slot. Release it before the
-next call. The RPC engine supports concurrent calls with custom storage; replies
-may arrive out of order and are still matched internally, without application numbering.
+## 6. Rejection, timeout and duplicate requests
 
-## 6. Rejection, timeout, and cancellation
+The handler calculates in 64 bits to avoid signed overflow.
+If the result cannot fit in 32 bits, `endpoint_add_reject(..., 1, now)` reports
+the example's rejection status 1 without fabricating a sum. Try:
 
-The handler calculates using 64-bit arithmetic to avoid signed 32-bit overflow.
-If the result does not fit, it calls `endpoint_add_reject(..., 1, now)`.
-Here 1 is the example's business status meaning an out-of-range sum.
-The caller observes `WL_RPC_CLIENT_APPLICATION_ERROR`, `application_status == 1`,
-and `response_valid == false`. There is no fabricated sum or required status field.
+```sh
+./build/tutorials/examples/01_rpc/calculator_client 49100 49101 2147483647 1
+```
 
-A handler returning zero reports successful local handling, including deferring
-work. A nonzero return reports a local handler failure; it does not automatically
-send a business rejection. For slow work, copy the needed arguments and
-`quickstart_add_request_token_t`, then complete or reject using that token on the
-communication owner. Its contents need no interpretation.
+Expect `addition rejected: status=1`. The result has no valid response body;
+`application_status` carries the reason.
 
-A reliable ACK confirms link reception, not that the calculation finished.
-Missing the application deadline produces `WL_RPC_CLIENT_TIMED_OUT`.
-`endpoint_add_cancel()` marks a call cancelled. **Neither cancellation nor timeout
-proves the operation did not execute, and neither remotely undoes it.** Applications
-decide whether to retry; non-repeatable operations need business idempotency or
-an explicit state query.
+Wirelink reliable delivery can retransmit lost UDP packets. Duplicate requests
+within the retained cache scope do not execute addition again. A link ACK still
+does not prove business completion. **Timeout/cancellation neither proves that
+execution did not happen nor remotely undoes it.** A new call with identical
+arguments is a new operation. Non-repeatable business actions need idempotency
+or explicit state queries.
 
-Late replies to cancelled, timed-out or released calls are ignored with diagnostics
-as long as their internal IDs have not been reused. Ordinary code never compares
-the internal call number. Response isolation across client reconstruction has
-additional limits; see the [RPC contract](rpc-runtime.md).
+The default endpoint has one client slot; release it before starting another call.
+Advanced storage supports concurrency. Until an ID is reused, late replies to
+cancelled/timed-out/released calls remain diagnostic. Client reconstruction and
+ID reuse have additional freshness limitations; see the [RPC contract](rpc-runtime.md).
 
 ## Next steps
 
-Try `INT32_MAX` and `1` as inputs and change the result assertion to check the
-rejection above. Continue to [integration](tutorial-integration.md) for real
-transports, memory configuration, and scheduling.
+Ports 49100/49101 form a fixed pair. This server is not a multi-client network
+service. Reboot/reconstruction still requires the
+[session and old-traffic rules](tutorial-integration.md#session-identity).
 
-Explicit operation/status field mappings remain available for existing protocols,
-not as the beginner API. Mapped and managed RPC have different payload formats:
-upgrade both peers together. See the [RPC contract](rpc-runtime.md) for mappings,
-the 12-byte metadata layout, and replay limits.
+Read [integration](tutorial-integration.md) for installed packages and platform/storage
+customization. Existing RPC field mappings and legacy `request_delivery = ...`
+remain supported; declaring delivery twice for one direction is an error,
+not a silent override.

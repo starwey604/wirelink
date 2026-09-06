@@ -1,38 +1,43 @@
-# 第二篇：请求设备完成一次计算
+# 第二篇：请求设备计算加法
 
-上一篇[最新温度显示](getting-started-cn.md)只发送测量值。现在控制端想问设备：
+上一组[遥测示例](getting-started-cn.md)只发送测量值。这次控制端想问：
 “请计算 20 + 22，并告诉我结果。”这种发起操作、等待对端结果的交互叫
-**RPC（远程过程调用）**。本篇继续用内存连接，无需开发板。[English](tutorial-rpc.md)。
+**RPC（远程过程调用）**。
+
+[`01_rpc`](../examples/01_rpc/) 是独立的加法示例，不包含遥测。
+`calculator_client` 发起请求，`calculator_server` 处理并回复。
+两个程序通过本机 UDP 通信；业务逻辑仍调用 Wirelink，而不是直接读写 socket。
+[English](tutorial-rpc.md)。
 
 ## 1. 先运行
 
-使用上一篇的构建目录；如果更新过源码，先按[安装篇](installation-cn.md)换成匹配的 WLC：
+使用上一篇的构建目录；若更新了源码，先按[安装篇](installation-cn.md)更新 WLC 并重新构建：
 
 ```sh
-cmake --build build/quickstart --target wirelink_getting_started
-./build/quickstart/examples/wirelink_getting_started
+cmake --build build/tutorials --config Release --parallel
 ```
 
-预期输出：
+终端 A：
 
-```text
-unreliable telemetry: sample=7 temperature=23.50 C
-reliable RPC: 20 + 22 = 42
+```sh
+./build/tutorials/examples/01_rpc/calculator_server
 ```
 
-程序先发送一次温度，然后请求设备计算加法。接下来只关注这次计算。
+看到 `calculator server ready` 后，在终端 B：
 
-## 2. 消息只描述业务参数
+```sh
+./build/tutorials/examples/01_rpc/calculator_client
+```
 
-完整 [`quickstart.wl`](../examples/getting_started/quickstart.wl)：
+客户端输出 `20 + 22 = 42` 后退出，服务端保持运行，可按 Ctrl+C 退出。
+Windows 多配置构建的可执行文件放在 `01_rpc/Release/` 下，文件名带 `.exe`。
+
+## 2. 消息只定义业务参数
+
+完整 [`calculator.wl`](../examples/01_rpc/calculator.wl)：
 
 ```text
 version 1;
-
-message Telemetry @id(10) {
-  required uint32 sample @id(1);
-  required int32 temperature_centi_c @id(2);
-}
 
 message AddRequest @id(20) {
   required int32 left @id(1);
@@ -44,198 +49,214 @@ message AddResponse @id(21) {
 }
 ```
 
-`AddRequest` 的两个加数是输入，`AddResponse` 的 `sum` 是输出。
-`@id(20)` 和 `@id(21)` 区分请求、响应这两种消息，不代表第几次调用。
-请求中没有调用编号，响应中也不需要为 Wirelink 预留编号或状态字段。
+`AddRequest` 包含输入，`AddResponse` 包含输出。`@id(20)` 和 `@id(21)`
+区分消息类型，不是本次调用的编号。消息里不必预留 Wirelink 的编号或状态字段。
 
-## 3. 告诉 Wirelink 哪两个消息构成一次调用
+文件名 `calculator.wl` 给生成端点提供业务名称：`calculator_endpoint_t`。
+目录中的 `01` 只是阅读顺序，不进入 C API。
 
-完整 [`quickstart.bind.wl`](../examples/getting_started/quickstart.bind.wl)：
+## 3. 将输入和输出组成 RPC 服务
+
+完整 [`calculator.bind.wl`](../examples/01_rpc/calculator.bind.wl)：
 
 ```text
 profile version 1;
 
-latest Telemetry {
-  delivery = unreliable;
-}
-
 rpc Add {
   request = AddRequest;
   response = AddResponse;
-  request_delivery = reliable;
-  response_delivery = reliable;
 }
 ```
 
-`rpc Add` 给服务起名，`request` 和 `response` 指定输入、输出类型。
-最后两行选择它们的传输方式；本例都使用可靠传输。
+`rpc Add` 是服务名称，`request`、`response` 指定输入、输出类型。
+**RPC 请求和响应默认都采用可靠传输。** 这里的可靠性由 Wirelink 提供，UDP 本身不重传。
+有特殊需要才在对应方向写属性，例如：
 
-Wirelink 自动为每次调用分配内部编号、随请求发送、随响应带回并进行匹配。
-这些信息由 RPC 管理，不需要出现在业务结构体里。我们把这种默认方式称为**托管 RPC**。
-普通业务代码只保存发起调用时返回的句柄，稍后用它查看结果。句柄可以理解为
-“这次调用的领取凭据”：不要读取或修改其内部成员。
+```text
+rpc Add {
+  request = AddRequest @delivery(unreliable);
+  response = AddResponse;
+}
+```
 
-## 4. 完整程序
+这个覆盖只影响请求方向，响应仍可靠。属性属于消息的使用配置，不属于消息定义。
+默认可靠不代表无限重试、没有超时或业务只执行一次；重试次数与等待时间仍由运行配置选择。
 
-两个端点仍由 WLC 生成。本次通过配置启用客户端、服务端角色，并给服务端指定加法处理函数。
-`calculator_t` 只是本例的业务上下文，用来传递设备端点和模拟时刻，不包含通信缓冲区。
-`CHECK` 是示例错误检查宏，失败就结束电脑进程，不是 Wirelink API。
+Wirelink 自动给调用分配内部编号，随请求发送、随响应带回并匹配。
+应用保存返回的 **调用句柄**，就像领取这次结果的凭据，不需要比较或修改内部编号。
+这就是默认的托管 RPC。
 
-下面是完整 [`examples/getting_started.c`](../examples/getting_started.c)：
+## 4. 客户端：提交参数，等待结果
+
+完整 [`client.c`](../examples/01_rpc/client.c)：
+
+```c
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "calculator_runtime.h"
+#include "tutorial_host.h"
+
+int main(int argc, char **argv) {
+  static calculator_endpoint_t client;
+  calculator_endpoint_config_t config;
+  calculator_add_call_t call;
+  calculator_add_result_t result;
+  add_request_t request;
+  uint16_t local = 49100, peer = 49101;
+  CHECK(argc == 1 || argc == 3 || argc == 5);
+  CHECK(example_ports(argc == 5 ? 3 : argc, argv, &local, &peer));
+  add_request_clear(&request);
+  request.has_left = request.has_right = true;
+  request.left = 20;
+  request.right = 22;
+  if (argc == 5) {
+    CHECK(example_int32(argv[3], &request.left));
+    CHECK(example_int32(argv[4], &request.right));
+  }
+
+  CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  CHECK(calculator_runtime_config_enable_client(&config.runtime) == WL_OK);
+  config.link.ack_timeout_ms = 100U;
+  config.link.max_retries = 4U;
+  CHECK(calculator_endpoint_init_config(&client, &config) == WL_OK);
+  example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
+  CHECK(udp != NULL);
+  /* The core's send clock comes from the latest owner step. */
+  CHECK(calculator_endpoint_step(&client, example_now_ms()) == WL_OK);
+  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, example_now_ms(), &call) == WL_RPC_OK);
+
+  for (;;) {
+    const int step = calculator_endpoint_step(&client, example_now_ms());
+    if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
+    CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
+    if (result.state == WL_RPC_CLIENT_COMPLETED ||
+        result.state == WL_RPC_CLIENT_APPLICATION_ERROR ||
+        result.state == WL_RPC_CLIENT_TIMED_OUT ||
+        result.state == WL_RPC_CLIENT_LINK_FAILED ||
+        result.state == WL_RPC_CLIENT_CANCELLED) break;
+    if (!example_running()) CHECK(calculator_endpoint_add_cancel(&client, &call) == WL_RPC_OK);
+    CHECK(example_udp_wait(udp, 200U) == WL_OK);
+  }
+  if (result.state == WL_RPC_CLIENT_COMPLETED && result.response_valid) {
+    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)result.response.sum);
+  } else if (result.state == WL_RPC_CLIENT_APPLICATION_ERROR) {
+    printf("addition rejected: status=%ld\n", (long)result.application_status);
+  } else {
+    fprintf(stderr, "RPC failed: state=%ld\n", (long)result.state);
+  }
+  CHECK(calculator_endpoint_add_release(&client, &call) == WL_RPC_OK);
+  example_udp_close(udp);
+  return result.state == WL_RPC_CLIENT_COMPLETED ||
+         result.state == WL_RPC_CLIENT_APPLICATION_ERROR ? 0 : 1;
+}
+```
+
+按业务顺序读即可：
+
+1. 填写 `left`、`right` 和对应 `has_...` 标志。
+2. 配置客户端角色；本例链路确认等待 100 毫秒，最多重传 4 次。
+3. `endpoint_add_call(..., 1500U, now, &call)` 提交调用，应用响应等待上限为 1500 毫秒。
+   返回 `WL_RPC_OK` 表示提交成功，不表示服务端已经算完。
+   核心的发送时间来自最近一次推进，所以本例在提交前先调用一次 `endpoint_step()`。
+4. 持续 `endpoint_step()`，用 `endpoint_add_inspect()` 查询。
+   查询成功与调用成功不同；查看 `result.state`，成功时还应检查 `response_valid`。
+5. 用完结果后 `endpoint_add_release()`，失败、取消和超时也要释放。
+   关闭端点或释放调用后，旧句柄不能再用。
+
+`example_udp_*` 和时钟函数仍是上一篇介绍的[公共平台支持代码](../examples/common/tutorial_host.h)，
+不是另一套 RPC 实现。正常等待通过 socket 唤醒，不需要每毫秒空转一次。
+
+## 5. 服务端：只关注如何计算和回复
+
+完整 [`server.c`](../examples/01_rpc/server.c)：
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <limits.h>
-#include <stdint.h>
-#include <stdio.h>
+#include "calculator_runtime.h"
+#include "tutorial_host.h"
 
-#include "quickstart_runtime.h"
-#include "wirelink/loopback.h"
-
-#define CHECK(expression) do { \
-  if (!(expression)) { \
-    fprintf(stderr, "line %d: %s\n", __LINE__, #expression); \
-    return 1; \
-  } \
-} while (0)
-
-typedef struct {
-  quickstart_endpoint_t *device;
-  wl_time_ms_t now_ms;
-} calculator_t;
-
-static int32_t handle_add(void *context, const add_request_t *request,
-                          const quickstart_add_request_token_t *token,
-                          wl_delivery_t delivery) {
-  calculator_t *calculator = context;
-  add_response_t response;
+static int32_t add(void *context, const add_request_t *request,
+                   const calculator_add_request_token_t *token, wl_delivery_t delivery) {
+  calculator_endpoint_t *server = context;
   const int64_t sum = (int64_t)request->left + request->right;
   (void)delivery;
-  if (sum < INT32_MIN || sum > INT32_MAX) {
-    /* Business rejection: no fabricated sum or status field is needed. */
-    return quickstart_endpoint_add_reject(calculator->device, token, 1,
-                                          calculator->now_ms);
-  }
+  printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
+  fflush(stdout);
+  if (sum < INT32_MIN || sum > INT32_MAX)
+    return calculator_endpoint_add_reject(server, token, 1, example_now_ms());
+  add_response_t response;
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
-  /* Preparing a response is synchronous; endpoint_step sends it later. */
-  return quickstart_endpoint_add_complete(calculator->device, token,
-                                          &response, calculator->now_ms);
+  return calculator_endpoint_add_complete(server, token, &response, example_now_ms());
 }
 
-int main(void) {
-  static quickstart_endpoint_t controller, device;
-  quickstart_endpoint_config_t client_config, server_config;
-  calculator_t calculator = {&device, 0U};
-  wl_loopback_t cable;
-  telemetry_t telemetry, received;
-  add_request_t request;
-  quickstart_add_result_t operation;
-  quickstart_add_call_t call;
-
-  CHECK(quickstart_endpoint_config_defaults(&client_config, 0x1001U) == WL_OK);
-  CHECK(quickstart_endpoint_config_defaults(&server_config, 0x2002U) == WL_OK);
-  CHECK(quickstart_runtime_config_enable_client(&client_config.runtime) == WL_OK);
-  CHECK(quickstart_runtime_config_enable_server(&server_config.runtime) == WL_OK);
-  client_config.link.ack_timeout_ms = 20U;
-  client_config.link.max_retries = 2U;
-  server_config.link.ack_timeout_ms = 20U;
-  server_config.link.max_retries = 2U;
-  server_config.runtime.rpc_server_pending_timeout_ms = 1000U;
-  server_config.runtime.rpc_server_cache_ttl_ms = 10000U;
-  server_config.runtime.add_request_handler = handle_add;
-  server_config.runtime.add_user_data = &calculator;
-  CHECK(quickstart_endpoint_init_config(&controller, &client_config) == WL_OK);
-  CHECK(quickstart_endpoint_init_config(&device, &server_config) == WL_OK);
-  CHECK(wl_loopback_connect(&cable, quickstart_endpoint_handle(&controller),
-                           quickstart_endpoint_handle(&device)) == WL_OK);
-
-  telemetry_clear(&telemetry);
-  telemetry.has_sample = true;
-  telemetry.sample = 7U;
-  telemetry.has_temperature_centi_c = true;
-  telemetry.temperature_centi_c = 2350;
-  CHECK(quickstart_endpoint_send_telemetry(&device, &telemetry).domain == QUICKSTART_SEND_OK);
-  CHECK(quickstart_endpoint_step(&device, 1U) == WL_OK);
-  CHECK(quickstart_endpoint_step(&controller, 1U) == WL_OK);
-  CHECK(quickstart_endpoint_read_telemetry(&controller, &received) == WL_OK);
-  CHECK(received.sample == 7U && received.temperature_centi_c == 2350);
-
-  add_request_clear(&request);
-  request.has_left = true;
-  request.left = 20;
-  request.has_right = true;
-  request.right = 22;
-  CHECK(quickstart_endpoint_add_call(&controller, &request, 100U, 10U,
-                                    &call) == WL_RPC_OK);
-
-  /* Simulated milliseconds. Real applications use their monotonic clock. */
-  for (calculator.now_ms = 10U; calculator.now_ms < 30U; ++calculator.now_ms) {
-    CHECK(quickstart_endpoint_step(&controller, calculator.now_ms) == WL_OK);
-    CHECK(quickstart_endpoint_step(&device, calculator.now_ms) == WL_OK);
+int main(int argc, char **argv) {
+  static calculator_endpoint_t server;
+  calculator_endpoint_config_t config;
+  uint16_t local = 49101, peer = 49100;
+  CHECK(example_ports(argc, argv, &local, &peer));
+  CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  CHECK(calculator_runtime_config_enable_server(&config.runtime) == WL_OK);
+  config.link.ack_timeout_ms = 100U;
+  config.link.max_retries = 4U;
+  config.runtime.rpc_server_pending_timeout_ms = 1000U;
+  config.runtime.rpc_server_cache_ttl_ms = 10000U;
+  config.runtime.add_request_handler = add;
+  config.runtime.add_user_data = &server;
+  CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);
+  example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&server), local, peer);
+  CHECK(udp != NULL);
+  puts("calculator server ready");
+  fflush(stdout);
+  while (example_running()) {
+    CHECK(calculator_endpoint_step(&server, example_now_ms()) == WL_OK);
+    CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
-  CHECK(quickstart_endpoint_add_inspect(&controller, &call, &operation) == WL_RPC_OK);
-  CHECK(operation.state == WL_RPC_CLIENT_COMPLETED);
-  CHECK(operation.response_valid && operation.response.sum == 42);
-  CHECK(quickstart_endpoint_add_release(&controller, &call) == WL_RPC_OK);
-
-  quickstart_endpoint_close(&controller);
-  quickstart_endpoint_close(&device);
-  puts("unreliable telemetry: sample=7 temperature=23.50 C");
-  puts("reliable RPC: 20 + 22 = 42");
+  example_udp_close(udp);
   return 0;
 }
 ```
 
-## 5. 顺着一次调用阅读
+服务端配置 `add_request_handler` 后，推进端点时就会收到处理回调。
+`context` 是我们传入的服务端指针，不包含手工组装的通信缓冲区。
 
-1. 控制端只填写 `left`、`right` 及对应的 `has_...` 标志，然后调用
-   `quickstart_endpoint_add_call(..., 100U, 10U, &call)`。100 是等待上限（毫秒），
-   10 是当前时刻；成功表示请求已在本地提交，`call` 用于后续查结果。
-2. 两端持续调用 `endpoint_step()`。设备收到请求后，Wirelink 调用 `handle_add()`。
-   函数计算结果，再用 `endpoint_add_complete()` 准备响应；后续推进负责发送。
-3. 控制端用 `endpoint_add_inspect(&controller, &call, &operation)` 查看状态。
-   查询返回 `WL_RPC_OK` 只表示查询成功；`operation.state` 才说明调用是否完成。
-   成功完成且 `response_valid` 为真时，直接读取 `operation.response.sum`。
-4. 不再需要结果时调用 `endpoint_add_release()` 回收位置。失败、取消和超时等终态也要释放。
-   释放后不能再使用旧句柄；关闭、重新初始化端点也会让旧句柄失效。
+`calculator_add_request_token_t` 是回复当前请求的凭据。用它调用
+`endpoint_add_complete()` 准备成功响应，之后由端点推进发送。
+无需从请求中提取编号、再把编号写入响应。
 
-这里用循环变量模拟单调递增的毫秒时钟；真实程序持续在同一个通信线程或主循环中推进端点。
-示例配置的会话标识 `0x1001`、`0x2002` 只适用于隔离模拟。
-设备重启时如何选择新标识，放在[集成篇](tutorial-integration-cn.md#session-identity)说明。
+处理函数返回零表示本地正常接手，不要求已经发送完成。
+慢任务可以复制需要的参数和 token，稍后在同一个通信处理线程上回复。
+返回非零是本地处理失败，**不会自动发送业务拒绝**。
 
-默认静态端点为客户端保留一个调用位置：上一次调用释放后再发下一次。
-库的 RPC 引擎支持多调用并存；需要更多位置时使用集成篇的自定义存储，
-而不是让业务自己分配编号。多个调用的回复可以乱序，库按调用匹配。
+## 6. 拒绝、超时和重复请求
 
-## 6. 算不出来、等不到结果，分别怎么办
+加法先用 64 位整数计算，避免有符号溢出。结果超出 32 位范围时，
+`endpoint_add_reject(..., 1, now)` 返回本例约定的拒绝状态 1，不必伪造一个 `sum`。
+试着运行：
 
-本例先用 64 位整数计算，避免两个 32 位加数相加发生溢出。
-超出结果范围时，处理函数调用 `endpoint_add_reject(..., 1, now)`：
-这里的 1 是本例约定的“结果超出范围”，不是 Wirelink 的编号。
-控制端会得到 `WL_RPC_CLIENT_APPLICATION_ERROR`、`application_status == 1`，
-以及 `response_valid == false`；不需要制造一个无意义的 `sum`。
+```sh
+./build/tutorials/examples/01_rpc/calculator_client 49100 49101 2147483647 1
+```
 
-处理函数返回 0 表示本地处理正常，既可以已经回复，也可以把工作留待稍后完成。
-返回非零表示本地处理失败，不会自动替你回复业务拒绝。
-慢任务应复制需要的业务参数和 `quickstart_add_request_token_t`，工作结束后在通信 owner 上
-用同一个 token 调用 `complete()` 或 `reject()`；token 本身不需要拆解。
+客户端应输出 `addition rejected: status=1`。`response_valid` 为假，
+`application_status` 才是拒绝原因。
 
-可靠传输的 ACK 只证明链路接收，不证明设备已经算完。没有收到应用响应而超过等待上限时，
-调用进入 `WL_RPC_CLIENT_TIMED_OUT`；主动调用 `endpoint_add_cancel()` 则进入取消状态。
-**取消或超时不保证设备没有执行，也不会远程撤销业务操作。** 是否重试由业务决定。
-对于扣款、运动等不能重复执行的操作，要另外设计业务幂等或状态查询。
+UDP 包丢失时，Wirelink 可靠传输可以重传；缓存有效期内重复请求不会重复执行加法。
+但链路 ACK 只说明链路接收，不说明业务已经完成。
+**取消或超时都不保证对端没执行，也不会远程撤销操作。**
+相同参数重新 `call()` 是新操作；扣款、运动等业务要另行设计幂等或状态查询。
 
-对于已经取消、超时或释放且内部编号未复用的调用，迟到响应会被忽略并留下诊断。
-需要查看异常包或迟到回复时可以配置诊断回调，但正常应用不需要自己比较内部编号。
-跨客户端重建时的旧响应隔离仍有限制，见 [RPC 合同](rpc-runtime-cn.md)。
+默认端点只有一个客户端调用位置，释放后再发下一次；高级存储支持多个并发调用。
+调用编号未复用时，已取消、超时或释放的调用收到迟到响应，只留下诊断。
+跨客户端重建、编号复用后的旧响应隔离仍有限制，见 [RPC 合同](rpc-runtime-cn.md)。
 
 ## 下一步
 
-把加数改成 `INT32_MAX` 和 `1`，并把结果检查改成上述拒绝状态，观察失败路径。
-然后阅读[集成篇](tutorial-integration-cn.md)，了解如何接到真实串口、配置存储和调度。
+两个程序默认固定互为对端，端口分别为 49100、49101。
+服务端不是多客户端网络服务器；程序重启后仍需遵守
+[会话和旧流量隔离规则](tutorial-integration-cn.md#session-identity)。
 
-已有协议使用 `operation_id` 字段映射时，仍可选择兼容方式；它不是默认入门 API。
-两种 RPC 格式不能直接互通，升级需同步通信双方。
-字段映射、12 字节 RPC 元数据以及重放保证的边界见 [RPC 合同](rpc-runtime-cn.md)。
+继续读[工程集成](tutorial-integration-cn.md)，了解安装包、自定义平台与存储。
+原来的字段映射方式仍支持，旧 `request_delivery = ...` 写法也兼容；
+同一方向重复声明属性和旧属性会报错，不会静默覆盖。

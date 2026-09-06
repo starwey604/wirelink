@@ -4,24 +4,46 @@ add_executable(wirelink_bare_metal_loopback bare_metal_loopback.c)
 target_link_libraries(wirelink_bare_metal_loopback PRIVATE Wirelink::loopback)
 
 if(WIRELINK_BUILD_GETTING_STARTED)
+  add_library(wirelink_tutorial_host STATIC common/tutorial_host.cpp)
+  target_include_directories(wirelink_tutorial_host PUBLIC common)
+  target_link_libraries(wirelink_tutorial_host PUBLIC Wirelink::asio_udp)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(wirelink_tutorial_host PUBLIC -Wall -Wextra -Wpedantic)
+  endif()
+  add_subdirectory(00_telemetry)
+  add_subdirectory(01_rpc)
+  if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME wirelink_udp_tutorials
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/udp_processes.py
+        --publisher $<TARGET_FILE:telemetry_publisher>
+        --subscriber $<TARGET_FILE:telemetry_subscriber>
+        --client $<TARGET_FILE:calculator_client>
+        --server $<TARGET_FILE:calculator_server>)
+    set_tests_properties(wirelink_udp_tutorials PROPERTIES TIMEOUT 30)
+  endif()
+endif()
+
+# The former combined tutorials remain deterministic regression tests only.
+if(WIRELINK_BUILD_GETTING_STARTED AND BUILD_TESTING)
   wirelink_wlc_generate_codec(
     TARGET wirelink_temperature_codec
-    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/temperature.wl")
+    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/loopback/temperature.wl")
   wirelink_wlc_generate_runtime(
     TARGET wirelink_temperature_protocol
     CODEC_TARGET wirelink_temperature_codec
-    PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/temperature.bind.wl")
-  add_executable(wirelink_latest_telemetry latest_telemetry.c)
+    PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/loopback/temperature.bind.wl")
+  add_executable(wirelink_latest_telemetry ../tests/tutorials/loopback/latest_telemetry.c)
   target_link_libraries(wirelink_latest_telemetry PRIVATE
     wirelink_temperature_protocol Wirelink::loopback)
   wirelink_wlc_generate_codec(
     TARGET wirelink_quickstart_codec
-    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.wl")
+    SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/loopback/quickstart.wl")
   wirelink_wlc_generate_runtime(
     TARGET wirelink_quickstart_protocol
     CODEC_TARGET wirelink_quickstart_codec
-    PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/getting_started/quickstart.bind.wl")
-  add_executable(wirelink_getting_started getting_started.c)
+    PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/loopback/quickstart.bind.wl")
+  add_executable(wirelink_getting_started ../tests/tutorials/loopback/getting_started.c)
   target_link_libraries(wirelink_getting_started PRIVATE
     wirelink_quickstart_protocol Wirelink::loopback)
 endif()

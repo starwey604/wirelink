@@ -13,6 +13,7 @@
 
 #include "wirelink/port.h"
 #include "wirelink/adapter.h"
+#include "wirelink/endpoint.h"
 
 namespace wirelink::asio
 {
@@ -20,13 +21,16 @@ struct UdpAdapterConfig
 {
     std::string bind_address{"0.0.0.0"};
     std::uint16_t bind_port{};
-    std::size_t maximum_datagram_size{1200};
+    // Zero derives the complete-frame bound from the initialized link.
+    std::size_t maximum_datagram_size{};
     // The synchronous non-blocking socket has no readiness callback. This
     // bounded owner wake keeps receive latency explicit instead of busy-spin.
     std::chrono::milliseconds poll_interval{1};
     // If true, the first accepted source becomes the fixed peer. Intended for
     // devices that announce themselves before the host can address them.
     bool learn_peer_from_first_datagram{};
+    std::uint8_t receive_slots{4};
+    std::size_t service_budget{8};
 };
 
 struct UdpAdapterStats
@@ -40,15 +44,25 @@ struct UdpAdapterStats
     std::uint64_t tx_bytes{};
     std::uint64_t errors{};
     std::uint64_t service_calls{};
+    std::uint64_t wait_calls{};
+    std::uint64_t activity_notifications{};
+    std::uint64_t wait_timeouts{};
 };
 
 class UdpAdapter
 {
 public:
+    // Advanced integration: initialize a fresh link, and stop using it before
+    // destroying this adapter (native RX queue storage is adapter-owned).
     static std::unique_ptr<UdpAdapter> open(wl_ctx_t& link,
                                             const UdpAdapterConfig& config,
                                             std::error_code& error);
     ~UdpAdapter();
+    // Preferred assembly; attaches service/quiesce. Endpoint storage must
+    // outlive the adapter. Destruction closes it before freeing RX storage.
+    static std::unique_ptr<UdpAdapter> open(wl_endpoint_t& endpoint,
+                                            const UdpAdapterConfig& config,
+                                            std::error_code& error);
 
     UdpAdapter(const UdpAdapter&) = delete;
     UdpAdapter& operator=(const UdpAdapter&) = delete;
@@ -56,6 +70,9 @@ public:
     int set_peer(std::string_view address, std::uint16_t port);
     int service();
     void quiesce() noexcept;
+    // Owner-only bounded readiness wait, without Wirelink callbacks. Caller
+    // merges endpoint/application deadlines to choose maximum_wait.
+    int wait_for_activity(std::chrono::milliseconds maximum_wait);
     [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     [[nodiscard]] std::uint16_t local_port() const;
     void get_stats(UdpAdapterStats& out_stats) const;

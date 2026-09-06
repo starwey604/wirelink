@@ -14,12 +14,12 @@
 下面的顺序用于跑过示例后的 API 审阅，不是入门前置要求。
 
 1. 先读完本文，尤其是末尾的“1.0 前待审阅问题”，判断库边界和所有权模型。
-2. 将教程与可编译的 [`latest_telemetry.c`](../examples/latest_telemetry.c) 和
-   [`getting_started.c`](../examples/getting_started.c) 对照。
+2. 将教程与可编译的 [00_telemetry](../examples/00_telemetry/) 和
+   [01_rpc](../examples/01_rpc/) 双进程示例对照。
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、
@@ -46,9 +46,10 @@ Wirelink 是一个无动态分配、由单一 owner 驱动的点对点链路，�
 | `Wirelink::loopback` | 内存中的 native-packet 适配器 | 未链接则无代价 |
 | `Wirelink::diagnostics` | 向调用方缓冲区写入 key/value 文本 | 未链接则无代价 |
 | `Wirelink::host` | 可选的 C++20 线程化主机 executor | 未启用或未链接则无代价 |
+| `Wirelink::asio_udp` | 可选的 C++20 UDP 与就绪等待 | 未启用或未链接则无代价 |
 | WLC 生成 target | schema codec、bindings 或单个角色 runtime | 仅所选 schema/profile |
 
-Astrial 和 Asio 适配器是源码集成的平台 target，不属于已安装的核心包。
+Asio UDP 启用后可随包安装，不向消费者暴露 Asio 头文件。Astrial 仍是源码集成的平台 target。
 
 ## Header 选择
 

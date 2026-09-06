@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.21)
+project(wirelink_udp_package_consumer LANGUAGES CXX)
+include(CTest)
+find_package(Wirelink CONFIG REQUIRED)
+add_executable(udp_consumer main.cpp)
+target_link_libraries(udp_consumer PRIVATE Wirelink::asio_udp)
+add_test(NAME wirelink_udp_package_consumer COMMAND udp_consumer)

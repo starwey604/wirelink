@@ -1,4 +1,4 @@
-# 环境准备：安装 WLC
+# 环境准备：WLC 与主机 UDP 依赖
 
 WLC 是独立的消息代码生成工具。在电脑上运行它，把 `.wl` 定义转换成 C 文件，
 再把 C 文件编译进应用或固件。Wirelink 源码仓库不包含、也不要求嵌套 WLC 仓库。
@@ -6,12 +6,15 @@ WLC 是独立的消息代码生成工具。在电脑上运行它，把 `.wl` 定
 
 ## 1. 准备编译工具
 
-本教程的 Linux/macOS 命令需要 C11 编译器和 CMake 3.21 或更新版本。
+本教程需要 C11、C++20 编译器和 CMake 3.21 或更新版本。业务示例是 C11；
+C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期 Visual Studio/MSVC。
+默认教程构建关闭测试，不需要 Python；运行自动化双进程测试时才需要 Python 3。
 使用 WLC 预编译程序时无需 Rust；只有自己构建 WLC 才需要 Rust/Cargo。
 
 ## 2. 获取与 Wirelink 匹配的 WLC
 
-当前教程的 `@id(n)` 和托管 RPC 需要 **WLC 0.4.0、生成 ABI 20**，仍处于内部开发阶段。
+当前教程需要下文固定提交的 **WLC 0.4.0、生成 ABI 20**，包括 `@delivery(...)` 和默认可靠语法。
+这是语法扩展，未改变 ABI 20 或编码；较早的 ABI 20 编译器仍可能不支持该语法。
 这不表示旧的同版本发行包已经包含新功能。此轮没有发布新包或新 tag。
 
 如果已经拿到配套的内部预编译 WLC，把它解压到一个固定目录，并将可执行文件所在目录
@@ -22,7 +25,7 @@ WLC 是独立的消息代码生成工具。在电脑上运行它，把 `.wl` 定
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout 6c992decc4b200d258bd8c7409a8896ab37a17e8
+git -C wlc-source checkout 9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b
 cargo install --path wlc-source --locked --force
 ```
 
@@ -40,11 +43,25 @@ wlc codegen-abi
 
 本轮期望分别输出 `wlc 0.4.0` 和 `20`。
 ABI 是生成 C 接口与布局的修订编号，不是线上协议版本。
-本轮托管 RPC 使用新的 RPC payload 格式，两端需配套升级；旧映射模式和业务 codec 字节不变。
+托管与旧映射 RPC 的 payload 格式不同，切换模式需两端配套升级；本轮 delivery 语法本身不改变字节。
 若没有 `codegen-abi` 命令或输出不匹配，需要更换配套 WLC。
 CMake 也会在生成前检查这两项，避免到编译固件时才发现头文件不匹配。
 
-## 4. 关于自动下载
+## 4. 获取 standalone Asio
+
+Asio 是可选的跨平台 C++ 网络依赖；Wirelink 核心和固件不依赖它。
+在任意目录获取本轮验证的版本，不需要放进 Wirelink 工作区：
+
+```sh
+git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.git asio-source
+```
+
+对应提交为 `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`。
+配置时将 `WIRELINK_ASIO_INCLUDE_DIR` 指向包含 `asio.hpp` 的
+`asio-source/asio/include` 绝对路径。使用已安装的同版 Asio 头文件也可以。
+入门示例会启用 Asio UDP 适配器；两个程序只绑定 localhost，无需虚拟串口驱动。
+
+## 5. 关于自动下载
 
 Wirelink 的 CMake 集成支持从 WLC GitHub Releases 下载固定版本并校验文件摘要。
 但当前内部 ABI 不能假定已有匹配的公开发行产物，所以本教程关闭自动下载，使用你已安装的工具。

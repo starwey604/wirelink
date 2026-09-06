@@ -2,7 +2,7 @@
 
 You can now [receive temperature](getting-started.md) and
 [request a calculation](tutorial-rpc.md). This lesson moves that code into an
-independent project, then explains replacing the in-memory connection.
+independent project, then explains replacing the localhost UDP connection.
 Build on the desktop first to separate build issues from hardware issues.
 [中文](tutorial-integration-cn.md).
 
@@ -22,75 +22,74 @@ A display and recorder may share messages but handle reception differently.
 Several runtimes can therefore share one codec without duplicate encoding symbols.
 
 A CMake **target** names a buildable group of files or program, not a hardware
-board. `temperature_codec` is a library made from generated C;
-`temperature_protocol` contains the selected receive helpers and depends on it.
-Choose target names freely. Generated `temperature_` prefixes default to the
+board. `telemetry_codec` is a library made from generated C;
+`telemetry_protocol` contains the selected receive helpers and depends on it.
+Choose target names freely. Generated `telemetry_` prefixes default to the
 schema filename, not the CMake target name.
 
-## 2. Build an independent display project
+## 2. Build an independent temperature receiver
 
-Create a directory containing four files:
+Copy these files into a new directory:
 
-| File | Contents |
+| File | Source |
 | --- | --- |
-| `main.c` | Copy the complete [`latest_telemetry.c`](../examples/latest_telemetry.c) |
-| `temperature.wl` | [Message schema](../examples/getting_started/temperature.wl) |
-| `temperature.bind.wl` | [LATEST configuration](../examples/getting_started/temperature.bind.wl) |
-| `CMakeLists.txt` | The complete configuration below |
+| `main.c` | [subscriber.c](../examples/00_telemetry/subscriber.c) |
+| `telemetry.wl` | [Schema](../examples/00_telemetry/telemetry.wl) |
+| `telemetry.bind.wl` | [Binding profile](../examples/00_telemetry/telemetry.bind.wl) |
+| `tutorial_host.h`, `tutorial_host.cpp` | [Example platform support](../examples/common/) |
+| `CMakeLists.txt` | Build configuration below |
 
 ```cmake
 cmake_minimum_required(VERSION 3.21)
-project(temperature_display LANGUAGES C)
+project(temperature_display LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 find_package(Wirelink CONFIG REQUIRED)
 wirelink_wlc_generate_codec(
-  TARGET temperature_codec
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/temperature.wl")
+  TARGET telemetry_codec
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.wl")
 wirelink_wlc_generate_runtime(
-  TARGET temperature_protocol
-  CODEC_TARGET temperature_codec
-  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/temperature.bind.wl")
-add_executable(temperature_display main.c)
-target_link_libraries(temperature_display PRIVATE
-  temperature_protocol Wirelink::loopback)
+  TARGET telemetry_protocol
+  CODEC_TARGET telemetry_codec
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.bind.wl")
+add_executable(telemetry_subscriber main.c tutorial_host.cpp)
+target_link_libraries(telemetry_subscriber PRIVATE
+  telemetry_protocol Wirelink::asio_udp)
 ```
 
-`wirelink_wlc_generate_codec()` reads the schema, invokes WLC, and compiles
-encoding, decoding, and typed sending code. `wirelink_wlc_generate_runtime()`
-reads the binding profile and generates telemetry reception and LATEST access.
-`CODEC_TARGET` selects the shared message code; `PROFILE` selects handling
-configuration. Linking the runtime brings its codec and Wirelink core dependencies.
-`Wirelink::loopback` supplies the example's in-memory transport.
+The codec target compiles message types, encode/decode and typed sending.
+The runtime target adds the generated endpoint and LATEST reception.
+`CODEC_TARGET` selects the existing message library. Linking `telemetry_protocol`
+brings in its codec and core; `Wirelink::asio_udp` remains optional host transport.
 
-At the Wirelink root, build all libraries (lesson one built only the telemetry
-target), then install into a local directory:
+Install the libraries built for the tutorials, from the Wirelink root:
 
 ```sh
-cmake --build build/quickstart --parallel
-cmake --install build/quickstart --prefix "$PWD/build/tutorial-install"
+cmake --build build/tutorials --config Release --parallel
+cmake --install build/tutorials --config Release --prefix "$PWD/build/tutorial-install"
 ```
 
-Build your project, substituting your real absolute paths:
+Build the independent project, substituting real paths:
 
 ```sh
 cmake -S /path/to/temperature-display -B /path/to/temperature-display/build \
   -DCMAKE_PREFIX_PATH=/absolute/path/to/wirelink/build/tutorial-install \
   -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-cmake --build /path/to/temperature-display/build
-/path/to/temperature-display/build/temperature_display
+cmake --build /path/to/temperature-display/build --config Release
+/path/to/temperature-display/build/telemetry_subscriber
 ```
 
-Expect `latest telemetry: sample=2 temperature=23.50 C` again.
-WLC runs at build time; generated C becomes part of the executable or firmware.
-This development branch needs codegen ABI 20; install WLC independently on PATH
-as described in [environment setup](installation.md).
+Then start the publisher from Wirelink's build directory for the same output.
+Windows multi-configuration builds add `Release/` and `.exe` to executable paths.
 
-Projects using typed sending and custom reception can link only the codec.
-Add runtimes as needed. See the [WLC guide](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md) for role separation
-and naming options.
+The independent consumer needs no Asio source include path: the installed adapter
+is already compiled and hides Asio headers. WLC runs only at build time; use the
+ABI 20 revision pinned in [installation](installation.md).
+Codec-only consumers need neither runtime nor UDP. For shared codecs and
+`RUNTIME_NAME`, consult the
+[WLC guide](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md).
 
 ## 3. Two different configurations
 
@@ -158,7 +157,7 @@ traffic might survive; random generation must account for collision probability.
 This identifier is not authentication or an encryption key.
 
 
-## 4. Replace loopback with real transport
+## 4. Replace localhost UDP with device transport
 
 An **adapter** connects Wirelink to a driver: submit outgoing bytes to hardware
 and publish incoming bytes to Wirelink.
@@ -191,8 +190,9 @@ available through `endpoint_runtime()` and existing acquire/release calls.
 
 To integrate an existing hardware adapter, obtain its core pointer with
 `wl_endpoint_link(endpoint_handle(...))`, then install its service/quiesce/deadline
-hooks using `wl_endpoint_attach()`. Loopback's `wl_loopback_connect()` already
-performs both steps; other platforms still need this integration glue.
+hooks using `wl_endpoint_attach()`. Asio UDP's `open(wl_endpoint_t&, ...)` and
+loopback's `wl_loopback_connect()` already perform both steps; other platforms
+still need this integration glue.
 The rules below constrain that integration, not ordinary business code.
 
 Choose one communication thread or bare-metal loop per connection, the **owner**.
@@ -242,7 +242,7 @@ On RPC peer changes, `rpc->peer_changed` signals a transition.
 The runtime cleans RPC state; the product handles business effects such as
 revoking old control authority. If reliable non-RPC traffic establishes the
 same product session, explicitly call `runtime_peer_observe()` before applying
-it. Prefix these function names with the generated module, such as `quickstart_`.
+it. Prefix these function names with the generated module, such as `calculator_`.
 
 ## References by need
 
@@ -250,7 +250,7 @@ You have now received state, requested work, and integrated a build and driver.
 Use references as needed:
 
 - [API boundaries](api-boundary.md) for public interfaces and ownership.
-- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md) for more message definitions.
+- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md) for more message definitions.
 - [LATEST](latest-mailbox.md) and [FIFO](fifo.md) for retained-storage limits.
 - [RPC runtime](rpc-runtime.md) for failures and retries.
 - Bulk in [application-layer](application-layer.md) for large objects.

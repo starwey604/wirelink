@@ -1,6 +1,6 @@
 @PACKAGE_INIT@
 
-if(@WIRELINK_PACKAGE_HAS_HOST_RUNTIME@)
+if(@WIRELINK_PACKAGE_HAS_HOST_RUNTIME@ OR @WIRELINK_PACKAGE_HAS_ASIO_UDP_ADAPTER@)
   include(CMakeFindDependencyMacro)
   find_dependency(Threads)
 endif()

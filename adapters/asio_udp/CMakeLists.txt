@@ -1,7 +1,10 @@
 add_library(wirelink_asio_udp src/udp_adapter.cpp)
 add_library(wirelink::asio_udp ALIAS wirelink_asio_udp)
+add_library(Wirelink::asio_udp ALIAS wirelink_asio_udp)
+set_target_properties(wirelink_asio_udp PROPERTIES EXPORT_NAME asio_udp)
 
 if(WIRELINK_ASIO_INCLUDE_DIR STREQUAL "")
+  unset(WIRELINK_ASIO_INCLUDE_DIR CACHE)
   find_path(WIRELINK_ASIO_INCLUDE_DIR asio.hpp)
 endif()
 if(NOT WIRELINK_ASIO_INCLUDE_DIR)
@@ -17,7 +20,10 @@ if(WIN32)
     _WIN32_WINNT=0x0601
     WIN32_LEAN_AND_MEAN
     NOMINMAX)
-  target_compile_options(wirelink_asio_udp PRIVATE /utf-8)
+  if(MSVC)
+    target_compile_options(wirelink_asio_udp PRIVATE /utf-8)
+  endif()
+  target_link_libraries(wirelink_asio_udp PRIVATE ws2_32 mswsock)
 endif()
 target_include_directories(wirelink_asio_udp
   PUBLIC
@@ -33,6 +39,8 @@ endif()
 if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL)
   add_executable(wirelink_asio_udp_loopback_tests tests/loopback.cpp)
   target_link_libraries(wirelink_asio_udp_loopback_tests PRIVATE wirelink_asio_udp)
+  target_include_directories(wirelink_asio_udp_loopback_tests PRIVATE ${WIRELINK_ASIO_INCLUDE_DIR})
+  target_compile_definitions(wirelink_asio_udp_loopback_tests PRIVATE ASIO_STANDALONE)
   add_test(NAME wirelink_asio_udp_loopback
     COMMAND wirelink_asio_udp_loopback_tests)
   set_tests_properties(wirelink_asio_udp_loopback PROPERTIES TIMEOUT 10)

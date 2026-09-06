@@ -7,6 +7,12 @@ its wire/ownership boundary, then the advanced low-level engine.
 
 ## Managed RPC and mapped interoperability (codegen ABI 20)
 
+Request and response delivery independently default to reliable. Override a
+binding with `@delivery(unreliable)`. Omitted defaults, explicit reliable
+attributes and legacy reliable delivery properties produce identical code and
+profile identities; duplicate policies for a direction are errors. Retained
+LATEST/FIFO delivery remains explicit.
+
 A profile which omits all three `request_operation_id`, `response_operation_id`,
 and `response_status` mappings selects managed RPC. The `.wl` messages contain
 business fields only. The generated runtime allocates correlation IDs, validates

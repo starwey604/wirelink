@@ -8,6 +8,17 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- Default RPC request/response delivery to reliable; accept per-binding
+  `@delivery(...)` attributes alongside the explicit legacy properties. Equal
+  policies retain identical generated artifacts and identities (ABI 20).
+- Reorganize tutorials into `00_telemetry` and `01_rpc` process pairs with
+  business-named endpoints, localhost UDP, standalone compiler/Asio setup,
+  and complete bilingual C examples. Keep combined examples as regression tests.
+- Generalize the optional Asio UDP adapter to native packet queues and explicit
+  COBS compatibility with configurable integrity, endpoint attachment/lifecycle,
+  readiness waiting, bounded receive work, and truncation/source rejection.
+  Export `Wirelink::asio_udp` and add process fault/installed-consumer CI checks.
+
 - Added ABI 20 managed RPC: business-only schemas, automatic metadata framing,
   typed call handles/results and reply tokens, and body-free business rejections.
   Mapped RPC remains an explicit interoperability mode with unchanged encoding;

@@ -32,7 +32,7 @@ is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    then integrate its wakeups with [`development.md`](docs/development.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/6c992decc4b200d258bd8c7409a8896ab37a17e8/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/9accc88fe8ba36f5cfb6a9fb72b6c3c16c439b5b/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and
@@ -271,7 +271,11 @@ from reviving an old transfer. The schema fixture is in
 The cross-platform UDP adapter is enabled with
 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON` and a standalone Asio include directory in
 `WIRELINK_ASIO_INCLUDE_DIR`. It hides platform sockets behind a C++20 API and
-uses the v1 `COBS_STREAM + NONE` product profile.
+supports native packets and explicit legacy COBS framing with configurable
+integrity. Endpoint-aware open attaches progress/close; readiness waits avoid
+mandatory millisecond polling. See [UDP lifecycle](docs/udp-adapter.md) and the
+numbered [telemetry](examples/00_telemetry/) / [calculator](examples/01_rpc/)
+process pairs.
 
 From an initialized Zephyr workspace:
 

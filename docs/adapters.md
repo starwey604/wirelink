@@ -22,7 +22,7 @@ the next transport notification and give the owner one more service pass.
 | Zephyr UART IRQ / CDC ACM | COBS stream | `wl_zephyr_uart_irq_start()` | `wl_zephyr_uart_irq_service()` | disable the owning UART/USB device before link reuse |
 | Zephyr USB bulk | native packet or COBS stream | enable the owning USBD context | `wl_zephyr_usb_bulk_service()` | disable USBD before link reuse |
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()` and `wait_for_activity()` where available | `quiesce()` |
-| Asio UDP | native packet | construction and socket bind | `service()` | `quiesce()` |
+| Asio UDP | native packet; explicit legacy COBS | `open()` and socket bind; endpoint overload attaches hooks | `service()`; deadline-aware `wait_for_activity()` | `quiesce()` or endpoint close |
 
 Typed adapters expose platform-specific configuration and statistics; the C
 core does not add virtual dispatch or own their wait primitives.
