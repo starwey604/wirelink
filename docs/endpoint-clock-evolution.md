@@ -33,9 +33,9 @@ gates. Preserve existing product branches and avoid driver changes.
 
 ## Status
 
-Batch 1 and batch 2: implemented and validated. Batch 3: implementation,
-bilingual docs, FFI, local measurements and remote CI complete; H7 execution
-remains a gate, not a release claim. WLC is pinned to
+All three batches are implemented and validated: bilingual docs, FFI, local
+measurements, remote CI, and isolated H7 execution are complete. This is not a
+release or a physical-transport/product-firmware validation claim. WLC is pinned to
 `b5c444ab09bbbc1490e1e69307a760342a1633d0` (version 0.4.0, codegen ABI 21).
 
 ## Validation checkpoint — 2026-09-06
@@ -54,7 +54,7 @@ remains a gate, not a release claim. WLC is pinned to
 - Astrial serial/USB host build and virtual-serial CTest: 4/4 pass.
 - Isolated Zephyr sample: native_sim prints `CLOCK_HIL ALL PASS`; H7 cross-build
   succeeds (62,428 bytes flash, 16,768 bytes reported RAM; GCC 14.3.0, SDK 1.0.1).
-  This is not yet an H7 execution result.
+  Real H7 execution also passes; see the hardware checkpoint below.
 
 The idle-gap FFI test exposed an admission-order defect: a delivered response
 whose TTL had elapsed could produce CACHE_FULL before the later poll reclaimed
@@ -90,24 +90,73 @@ The paths have different assembly work and measurement noise; do not subtract
 them to claim an isolated callback cost. Host `wl_endpoint_t` is 1,024 bytes;
 the generated telemetry endpoint is 1,440 bytes. These are total sizes, not growth.
 
-## H7 checkpoint
+## H7 checkpoint — 2026-09-06
 
 Windows SSH and SEGGER probe 609799419 are accessible (Commander/DLL 9.72,
 probe firmware dated 2021-05-07). After replug, SWD at 100 kHz reads a Cortex-M7,
 DBGMCU IDCODE `0x10016483`, and flash-size value `0x0400` (1,024 KiB).
-Subsequent attachment attempts have failed, including automatic connect-under-reset.
+Early subsequent attachment attempts failed, including automatic connect-under-reset.
 
 A fresh direct backup attempt reached `savebin` for `0x08000000`, length
 `0x00100000`, but then failed with `Communication timed out: Requested 8196
 bytes, received 0 bytes`. The resulting `original-flash.bin` is **zero bytes**,
 not a valid backup and never suitable for restoration. Windows logs are retained
 under `C:\Users\moonf\codings\wirelink-clock-hil-20260906-abi21`.
-Cause is not established; small debug-register reads do not prove working flash
-access. Confirm button/reset state and recover a stable connection before retrying.
+The cause of that timeout is not established. The user subsequently confirmed
+RESET was released, identified the probe as a clone, and explicitly authorized
+overwriting the old firmware without a backup.
 
-No test image has been flashed, no flash erased, and no USB driver changed.
-Save and verify the original flash before the next flash attempt, and restore
-it after isolated clock testing.
+Direct flashing then succeeded without another manual replug or USB restart.
+The session attached at 100 kHz, switched SWD to 1 MHz, reset/halted, and used
+`loadfile` to program and verify the ELF. J-Link reported one affected 128 KiB
+range at `0x08000000` and a 2.337 s download. The old contents of that range were
+overwritten; there is no valid backup. No full-chip erase, option-byte change,
+driver replacement, or external-storage operation was performed.
+
+Test artifact: Wirelink `db7cfcb` (software matches CI-tested `0a8fa0a`), WLC
+`b5c444a`, Zephyr `v4.4.0-11610-gbd8c15382376`, board
+`dm_mc02/stm32h723xx`, Cortex-M7 at configured 550 MHz, speed optimization,
+I/D caches enabled. ELF SHA-256:
+`3e239fec9fe17319692350f6819c6da520576013d8b837c40995dccbc3161479`.
+
+After reset/run and 1.5 seconds, the same debug connection halted the CPU and
+saved 4,352 bytes of RTT RAM at `0x24000000`, then resumed execution. The RTT
+control block was at `0x24001010`; channel 0 used a 4,096-byte ring at
+`0x24000010` with write offset 464 and read offset zero. Reading that ring gave:
+
+```text
+CLOCK_HIL ABI=21 native_ms=0 start
+CLOCK_HIL rpc mode=0 idle_ms=75 elapsed_ms=1 client_units=2 PASS
+CLOCK_HIL rpc mode=0 idle_ms=150 elapsed_ms=1 client_units=2 PASS
+CLOCK_HIL rpc mode=1 idle_ms=75 elapsed_ms=1 client_units=2 PASS
+CLOCK_HIL rpc mode=2 idle_ms=75 elapsed_ms=50 client_units=1 PASS
+CLOCK_HIL idle iterations=20000 cycles/op=1060 ns/op=1928 reads/op=1 endpoint_bytes=2000
+CLOCK_HIL ALL PASS
+```
+
+This validates real-clock idle-gap submission, inline completion/rejection,
+50 ms timeout, clock-read budgets, and absence of premature retransmission on
+the H7. Client and server share the same CPU and in-memory loopback; the 1 ms
+RPC observation includes the test's 1 ms cooperative sleep, not physical-link
+latency. Idle passes average about 1.93 microseconds, including enabled IRQs,
+timer work and clock-count instrumentation. This is one current-build observation,
+not an isolated CPU-time measurement or a before/after speedup claim. The
+2,000-byte endpoint size is the total generated calculator endpoint size.
+
+Raw artifacts `flash.log` and `rtt-ram.bin` are retained in the Windows directory
+above, with local copies under ignored `build/`.
+
+The new [Windows recovery helper](../samples/zephyr/endpoint_clock/restart-jlink.ps1)
+was tested with `-WhatIf`, rejection of a non-J-Link instance, and an actual
+`pnputil /restart-device` of `USB\VID_1366&PID_0101\000609799419`.
+Windows reported success and the device returned `OK`, but the subsequent
+Commander connection again failed in `InitTarget()` after initializing the DAP.
+Consequently, device-binding restart is available but **has not solved this
+probe's attachment failure**; it is not a substitute for physical power cycling.
+The unsuccessful rerun did not reflash the board and does not invalidate the
+captured passing run. The test image remains installed; no original image was
+restored. Request manual replug/reset assistance only when the next hardware
+operation actually needs it.
 
 Product repositories and their long-running-test configurations remain untouched.
 No main merge, tag, or release is part of this iteration.

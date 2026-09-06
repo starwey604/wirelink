@@ -30,9 +30,28 @@ built ELF; [RTT Logger](https://kb.segger.com/J-Link_RTT_Logger) accepts
 `-RTTAddress` and `-RTTChannel` for explicit selection.
 
 This standalone image is linked at flash address `0x08000000`, **not** an MCUboot
-slot. Do not flash it over a product bootloader without backing up and arranging
-restoration. Identify the connected chip/probe, preserve the complete existing
-internal flash, and verify the backup before loading the test. Do not erase all
-flash, change option bytes, touch external storage, or alter USB drivers. Restore
-the previous image after testing. Hardware results belong in
+slot. Loading it replaces the flash sectors occupied by the image, including any
+bootloader in that range. Use a disposable test board or obtain permission to
+overwrite the existing firmware. A backup is needed only if that firmware must
+be preserved. Ordinary J-Link `loadfile` erases/programs/verifies the affected
+sectors; this sample does not need a full-chip erase or option-byte changes.
+Hardware results belong in
 [the clock evolution record](../../../docs/endpoint-clock-evolution.md).
+
+## Windows probe recovery
+
+Close the debugger before restarting a stuck probe. From an elevated PowerShell,
+find its exact USB instance ID and run the helper (replace the example ID):
+
+```powershell
+Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\VID_1366*' }
+.\restart-jlink.ps1 -InstanceId 'USB\VID_1366&PID_0101\000609799419' -WhatIf
+.\restart-jlink.ps1 -InstanceId 'USB\VID_1366&PID_0101\000609799419'
+```
+
+The helper uses Windows [PnPUtil `/restart-device`](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax#restart-device)
+for that one J-Link, leaving hubs and other USB devices alone. It does not replace
+drivers or reboot Windows. A successful PnP restart is not proof that a stalled
+probe has recovered, and does not guarantee removal of USB power. Retry the
+debugger once; if it still fails, physically unplug/replug the probe and target,
+then use reset-assisted attachment if necessary.
