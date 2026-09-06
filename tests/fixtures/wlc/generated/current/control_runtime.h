@@ -506,8 +506,7 @@ static inline void control_endpoint_close(control_endpoint_t *endpoint) {
 /* Delivery follows this binding. Use codec sends to override explicitly. */
 static inline control_send_result_t control_endpoint_send_joint_command(control_endpoint_t *endpoint, const joint_command_t *message) {
   wl_time_ms_t now_ms = 0U;
-  if (WL_DELIVERY_RELIABLE == WL_DELIVERY_RELIABLE)
-    (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
+  (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
   return control_joint_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_RELIABLE, now_ms);
 }
 
@@ -527,8 +526,6 @@ static inline wl_err_t control_endpoint_read_joint_command(control_endpoint_t *e
 /* Delivery follows this binding. Use codec sends to override explicitly. */
 static inline control_send_result_t control_endpoint_send_arm_mit_command(control_endpoint_t *endpoint, const arm_mit_command_t *message) {
   wl_time_ms_t now_ms = 0U;
-  if (WL_DELIVERY_UNRELIABLE == WL_DELIVERY_RELIABLE)
-    (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
   return control_arm_mit_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_UNRELIABLE, now_ms);
 }
 

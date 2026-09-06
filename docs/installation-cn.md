@@ -25,7 +25,7 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout 4065b22826d00716ac8828bade79ac4fe3e764b4
+git -C wlc-source checkout b5c444ab09bbbc1490e1e69307a760342a1633d0
 cargo install --path wlc-source --locked --force
 ```
 

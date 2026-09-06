@@ -36,12 +36,14 @@ gates. Preserve existing product branches and avoid driver changes.
 Batch 1 and batch 2: implemented and locally validated. Batch 3: implementation,
 bilingual docs, FFI and local measurements complete; remote CI and H7 validation
 remain gates, not a release claim. WLC is pinned to
-`4065b22826d00716ac8828bade79ac4fe3e764b4` (version 0.4.0, codegen ABI 21).
+`b5c444ab09bbbc1490e1e69307a760342a1633d0` (version 0.4.0, codegen ABI 21).
 
 ## Validation checkpoint — 2026-09-06
 
 - Fresh Zephyr unit_testing/native_sim run: 29 configurations, 209 cases pass.
   Includes five endpoint-clock cases and two new RPC cache-admission cases.
+- Additional Cortex-M3/RISC-V32/x86_64 QEMU integration: 15 configurations,
+  72 cases pass (three unsupported configurations statically filtered).
 - WLC: 111 tests, formatting and all-target/all-feature Clippy pass.
 - Release host: 10 CTest cases pass, including UDP process fault injection,
   injected executor ownership, C++ and Python exported-C consumers.
@@ -49,6 +51,7 @@ remain gates, not a release claim. WLC is pinned to
   the ASan runtime preloaded and interpreter leak detection disabled.
 - Installed package checks: core C11/C++20 2/2, split/legacy WLC 2/2, UDP 1/1.
   Core-only build/CTest 3/3. Frozen schema/pure-codec files are unchanged.
+- Astrial serial/USB host build and virtual-serial CTest: 4/4 pass.
 - Isolated Zephyr sample: native_sim prints `CLOCK_HIL ALL PASS`; H7 cross-build
   succeeds (62,428 bytes flash, 16,768 bytes reported RAM; GCC 14.3.0, SDK 1.0.1).
   This is not yet an H7 execution result.
@@ -58,6 +61,12 @@ whose TTL had elapsed could produce CACHE_FULL before the later poll reclaimed
 it. `server_begin()` now expires eligible entries during its existing lookup,
 without an additional scan. Exact-TTL/wrap, TTL disabled, and protected
 reserved/ready/acquired/in-flight states have regression coverage.
+
+The first remote Host CI passed Windows/Linux but Apple Clang rejected a
+generated constant delivery self-comparison. WLC now selects clock-read code
+during generation, emitting no clock access for unreliable sends. Compiler
+regression checks and a Clang strict-warning installed consumer pass; matched
+pins and fixtures were regenerated for the cross-platform rerun.
 
 ## Host cost observation
 

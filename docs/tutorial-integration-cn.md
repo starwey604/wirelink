@@ -86,7 +86,7 @@ Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 21 编译器。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
-[WLC 指南](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README-cn.md)。
+[WLC 指南](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README-cn.md)。
 
 ## 3. 不要把两种“配置”混为一谈
 
@@ -196,8 +196,8 @@ Asio UDP 的 `open(wl_endpoint_t&, ...)` 和 loopback 的 `wl_loopback_connect()
 仅当你有意采用高级 link/runtime 手动组装时，每轮工作才是：
 
 1. 从自己的单调时钟取一次毫秒时间。
-2. 处理适配器的收发完成，再运行 `wl_pump_step()`。
-   可把适配器 service 回调接入 pump，也可像示例一样先显式调用。
+2. 运行 `wl_pump_step()`，将适配器完成处理接入 service hook；
+   pump 会先设置本轮时间，再让适配器上报完成。
 3. 查看收到的最新值或 RPC 状态，执行有界的应用工作。
 4. 睡眠前用 `wl_pump_get_hint()` 查询是否还有立即工作以及多久后需要处理超时；
    同时允许接收、发送完成、可写状态等外部事件唤醒它。
@@ -240,7 +240,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 无需按顺序读完所有参考文件：
 
 - 想审阅公开 API 的划分和所有权：读 [API 边界](api-boundary-cn.md)。
-- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README-cn.md)。
+- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README-cn.md)。
 - 想了解保留最新值或队列的限制：读 [LATEST](latest-mailbox-cn.md) 与 [FIFO](fifo-cn.md)。
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。

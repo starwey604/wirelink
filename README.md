@@ -33,7 +33,7 @@ is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
    configure an endpoint clock once with [`endpoint-clock.md`](docs/endpoint-clock.md),
    then integrate its wakeups with [`development.md`](docs/development.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and

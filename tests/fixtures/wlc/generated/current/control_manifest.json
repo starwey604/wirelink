@@ -21,6 +21,6 @@
     {"path": "control_bindings.c", "size": 22521, "digest": "0xa92466477d83b5d5"},
     {"path": "control_bindings.h", "size": 6515, "digest": "0xa44823a2baa0a61a"},
     {"path": "control_runtime.c", "size": 57325, "digest": "0x973d0113d9f58251"},
-    {"path": "control_runtime.h", "size": 26763, "digest": "0x3283a4413c1ad318"}
+    {"path": "control_runtime.h", "size": 26584, "digest": "0x85c45ff41cda6d6f"}
   ]
 }

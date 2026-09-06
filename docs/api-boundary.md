@@ -18,7 +18,7 @@ The order below is for reviewing the API after using those examples.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -101,6 +101,10 @@ persistent monotonic state and must not reuse it while old traffic can survive.
 returns a handle whose terminal event means link delivery or failure, never
 application execution. `wl_tx_status()`, `wl_tx_cancel()`, and `wl_tx_take()`
 operate on that retained transaction; only `take()` releases a terminal slot.
+
+Raw reliable send and payload commit take `now_ms` before the output handle,
+using the same clock domain as poll/runtime deadlines. Default generated
+endpoints sample their configured clock internally; callers do not pass time.
 
 Generated typed senders use `wl_tx_payload_claim()`/`commit()` internally to
 encode into Wirelink-owned storage. `abort()` closes a failed application claim.

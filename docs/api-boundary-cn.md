@@ -19,7 +19,7 @@
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、
@@ -95,6 +95,9 @@ unit 上限。非零 `session_id` 是可靠流量的启动/实例标识，不是
 handle，其终态事件表示链路送达或失败，并不表示应用已经执行。
 `wl_tx_status()`、`wl_tx_cancel()` 和 `wl_tx_take()` 操作保留的 transaction；
 只有 `take()` 会释放终态 slot。
+
+裸 reliable send 和 payload commit 在输出 handle 前接收 `now_ms`，与 poll/runtime
+截止时间共用时钟来源和起点；默认生成端点内部取已配置的时钟，业务调用不传时间。
 
 生成的类型化 sender 在内部使用 `wl_tx_payload_claim()`/`commit()`，直接编码到
 Wirelink 拥有的存储中；编码失败用 `abort()` 结束 claim。除非数据已经编码，

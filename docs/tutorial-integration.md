@@ -89,7 +89,7 @@ is already compiled and hides Asio headers. WLC runs only at build time; use the
 ABI 21 revision pinned in [installation](installation.md).
 Codec-only consumers need neither runtime nor UDP. For shared codecs and
 `RUNTIME_NAME`, consult the
-[WLC guide](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md).
+[WLC guide](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README.md).
 
 ## 3. Two different configurations
 
@@ -208,8 +208,8 @@ uptime function. See [clock examples and contract](endpoint-clock.md).
 Only when deliberately assembling the advanced link/runtime path, each round:
 
 1. Read your monotonic millisecond clock once.
-2. Service adapter completions and run `wl_pump_step()`. Connect adapter service
-   through pump hooks, or call it explicitly as the examples do.
+2. Run `wl_pump_step()` with adapter completions connected through service hooks;
+   the pump establishes the pass time before the adapter reports completion.
 3. Read latest values or RPC states and perform bounded application work.
 4. Before sleeping, call `wl_pump_get_hint()` for immediate work and timeout timing.
    Also wake on external reception, TX completion, and writability events.
@@ -255,7 +255,7 @@ You have now received state, requested work, and integrated a build and driver.
 Use references as needed:
 
 - [API boundaries](api-boundary.md) for public interfaces and ownership.
-- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/4065b22826d00716ac8828bade79ac4fe3e764b4/README.md) for more message definitions.
+- [Schema](schema-v1.md) and [WLC](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README.md) for more message definitions.
 - [LATEST](latest-mailbox.md) and [FIFO](fifo.md) for retained-storage limits.
 - [RPC runtime](rpc-runtime.md) for failures and retries.
 - Bulk in [application-layer](application-layer.md) for large objects.

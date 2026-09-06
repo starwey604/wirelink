@@ -22,7 +22,7 @@ cargo test --manifest-path wlc/Cargo.toml
 ```
 
 Consumer builds use an independently installed matching compiler rather than
-requiring this development worktree. Current internal ABI 20 is not a released
+requiring this development worktree. Current internal ABI 21 is not a released
 asset; disable auto-download and use the matching source build.
 `wirelink_wlc_generate_codec()` resolves a per-call executable, a
 project-wide executable, or a compatible `wlc` on the host `PATH` before
@@ -143,6 +143,12 @@ the header and integrity trailer around those bytes without staging the
 payload. The claim is single-owner, and reliable retransmission keeps the same
 unit borrowed until the transaction reaches a terminal state.
 
+Advanced `wl_send_reliable()` and `wl_tx_payload_commit()` take explicit `now_ms`
+before `out_handle`. Use the same local monotonic clock as poll/runtime deadlines;
+do not rely on a preceding poll to timestamp a new submission. Default generated
+endpoints instead take `wl_clock_t` once at initialization. See
+[clock ownership and migration](endpoint-clock.md).
+
 COBS stream bytes enter a single-producer/single-consumer RX ring. The producer
 side (`wl_feed_bytes()` or `wl_rx_reserve()`/`wl_rx_commit()`) only publishes
 bytes; COBS decoding, frame validation, ACK scheduling, and event creation run
@@ -214,11 +220,12 @@ Hosted adapters expose the same owner-facing lifecycle: `service()` publishes
 deferred completion/rearm state, `quiesce()` stops producers and detaches the
 sink, and `deadline_hint(now_ms)` returns a relative scheduling bound.
 Astrial serial and USB Bulk are event-driven: their completion callbacks wake
-the owner and their deadline is `WL_POLL_NO_DEADLINE_MS`. The synchronous
-non-blocking Asio UDP adapter cannot expose socket readiness through its
-cross-platform API, so its configuration supplies a finite `poll_interval`
-(1 ms by default). The owner merges this adapter hint with core and
-application hints through `wl_pump_get_hint()`.
+the owner and their deadline is `WL_POLL_NO_DEADLINE_MS`. Deliver completions
+through pump service so the current pass time is established before
+`wl_tx_complete()`. The Asio UDP adapter supports socket readiness waiting with
+default endpoints, without periodic idle polling. Its legacy bare-link path
+retains a finite `poll_interval` hint. The owner merges adapter, core and
+application hints through `wl_pump_get_hint()`; see [UDP integration](udp-adapter.md).
 
 Hosted adapters also expose `get_common_stats(wl_adapter_stats_t&)`. The
 transport-independent view is the acceptance surface for telemetry and HIL:
