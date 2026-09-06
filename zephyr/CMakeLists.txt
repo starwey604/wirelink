@@ -15,6 +15,7 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/pump.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/protocol.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/rpc.c
+  ${ZEPHYR_CURRENT_MODULE_DIR}/src/rpc_async.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/rx_ring_bipbuf.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/schedule.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/transport.c

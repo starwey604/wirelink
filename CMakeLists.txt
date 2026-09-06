@@ -27,6 +27,7 @@ set(WIRELINK_SOURCES
   src/pump.c
   src/protocol.c
   src/rpc.c
+  src/rpc_async.c
   src/rx_ring_bipbuf.c
   src/schedule.c
   src/transport.c

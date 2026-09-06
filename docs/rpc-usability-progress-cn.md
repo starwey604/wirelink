@@ -36,10 +36,13 @@
 最近结果策略在三种容量下都完成 100 次。更多槽扩展短期重放保护和积压容量，
 不会增加链路 TX 窗口。默认选择 4 而非 8，且大帧用户应显式审视这项 RAM 成本。
 
-## M1：自持值（本地软件通过，远端验收中）
+## M1：自持值（完成）
 
 WLC 检查点 `b2789461929de1c687bf562e8636f5ad343a15b3`，ABI 22，已推 dev；
-远端 [WLC CI](https://github.com/starwey604/wlc/actions/runs/34046010688) 验收中。
+配对 Wirelink `738a274e3d16ce1fff97936b84e10c8b5125edac`。
+远端 [WLC CI](https://github.com/starwey604/wlc/actions/runs/34046010688)、
+[Host CI](https://github.com/starwey604/wirelink/actions/runs/34046147929) 与
+[Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34046147931) 全部通过。
 这是独立可消费的数据所有权检查点；M2 再改变默认端点接口/布局时将递增 ABI，
 不复用 ABI 22 标识不兼容的生成代码。
 
@@ -79,11 +82,16 @@ GCC `-O2 -fstack-usage` 静态报告中，`large_value_decode` 自身为 64 字�
 `build/clock-sanitize`。针对性生成 C Sanitizer 覆盖 owned_values、rpc_usability、
 managed_rpc 四种 delivery。板级时钟样例在 native_sim、Cortex-M3、RISC-V32、
 x86_64 QEMU 的 4 配置也全部通过（`build/rpc-m1-clock-sim/twister.json`）；
-远端 CI 仍在验收。
+远端 CI 也已通过。
 
 M2 将补上完成通知中槽位复用、close/reinit 后仍保留业务副本的端到端测试。
 
 ## M2 / H1
 
-M2 未开始验收。尚未实现默认即时 handler、排队及自动完成、精简配置及示例迁移。
+M2 实施中。已增加 `rpc_async` 共用调度层，使用既有 RPC 状态机和截止时间，
+在接受前编码请求快照，在回调前准备结果并回收调用资源。链接仍自行排空发送终态。
+新核心单元测试 4 项通过（`build/rpc-m2-async-unit`），同源独立主机测试及
+ASan/UBSan 通过；链路 mock 特意在 RPC 释放后保留 TX 占用，验证责任分离，
+它不能代替后续真实 loopback/adapter 集成测试。
+尚未完成生成端点接入、默认即时 handler、精简配置及示例迁移。
 H1 尚未进行；最终将准备独立 H7 loopback 样例及清单后交回用户，不自动烧录。
