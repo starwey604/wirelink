@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "wirelink/astrial/serial_adapter.hpp"
+#include "wirelink/frame.h"
 #include "control.h"
 
 #include <array>
