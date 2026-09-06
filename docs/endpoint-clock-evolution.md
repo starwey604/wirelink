@@ -33,9 +33,9 @@ gates. Preserve existing product branches and avoid driver changes.
 
 ## Status
 
-Batch 1 and batch 2: implemented and locally validated. Batch 3: implementation,
-bilingual docs, FFI and local measurements complete; remote CI and H7 validation
-remain gates, not a release claim. WLC is pinned to
+Batch 1 and batch 2: implemented and validated. Batch 3: implementation,
+bilingual docs, FFI, local measurements and remote CI complete; H7 execution
+remains a gate, not a release claim. WLC is pinned to
 `b5c444ab09bbbc1490e1e69307a760342a1633d0` (version 0.4.0, codegen ABI 21).
 
 ## Validation checkpoint — 2026-09-06
@@ -68,6 +68,10 @@ during generation, emitting no clock access for unreliable sends. Compiler
 regression checks and a Clang strict-warning installed consumer pass; matched
 pins and fixtures were regenerated for the cross-platform rerun.
 
+The corrected Wirelink revision `0a8fa0a` passed [Host CI](https://github.com/starwey604/wirelink/actions/runs/34031263969)
+and [Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34031263977).
+The matching WLC revision passed [compiler CI](https://github.com/starwey604/wlc/actions/runs/34031263727).
+
 ## Host cost observation
 
 Linux x86_64, Intel Core 5 315, GCC 16.2.1 Release. Three runs of two million
@@ -88,12 +92,22 @@ the generated telemetry endpoint is 1,440 bytes. These are total sizes, not grow
 
 ## H7 checkpoint
 
-Windows SSH and the SEGGER probe are accessible. An initial SWD connection read
-a Cortex-M7 and 1,024 KiB flash; subsequent connections failed to attach to the
-CPU, including 100 kHz and automatic connect-under-reset. The user has been asked
-to replug H7 and hold RESET. No test image has been flashed, no flash erased,
-and no USB driver changed. Save and verify the original flash before the next
-flash attempt, and restore it after isolated clock testing.
+Windows SSH and SEGGER probe 609799419 are accessible (Commander/DLL 9.72,
+probe firmware dated 2021-05-07). After replug, SWD at 100 kHz reads a Cortex-M7,
+DBGMCU IDCODE `0x10016483`, and flash-size value `0x0400` (1,024 KiB).
+Subsequent attachment attempts have failed, including automatic connect-under-reset.
+
+A fresh direct backup attempt reached `savebin` for `0x08000000`, length
+`0x00100000`, but then failed with `Communication timed out: Requested 8196
+bytes, received 0 bytes`. The resulting `original-flash.bin` is **zero bytes**,
+not a valid backup and never suitable for restoration. Windows logs are retained
+under `C:\Users\moonf\codings\wirelink-clock-hil-20260906-abi21`.
+Cause is not established; small debug-register reads do not prove working flash
+access. Confirm button/reset state and recover a stable connection before retrying.
+
+No test image has been flashed, no flash erased, and no USB driver changed.
+Save and verify the original flash before the next flash attempt, and restore
+it after isolated clock testing.
 
 Product repositories and their long-running-test configurations remain untouched.
 No main merge, tag, or release is part of this iteration.
