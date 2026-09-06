@@ -140,6 +140,7 @@ namespace
 struct NativeEndpoint
 {
     wl_endpoint_t endpoint{};
+    wl_time_ms_t now{};
     std::array<std::uint8_t, 64> payload{};
     std::array<std::uint8_t, 128> tx{}, control{}, fallback{};
     unsigned received{};
@@ -167,7 +168,8 @@ struct NativeEndpoint
             }
             return WL_PUMP_EVENT_UNHANDLED;
         };
-        CHECK(wl_endpoint_init(&endpoint, &config, &storage, &hooks) == WL_OK);
+        const wl_clock_t clock{[](void* p) { return *static_cast<wl_time_ms_t*>(p); }, &now};
+        CHECK(wl_endpoint_init(&endpoint, &config, &storage, &clock, &hooks) == WL_OK);
     }
     explicit NativeEndpoint(wl_integrity_t mode = WL_INTEGRITY_CRC32C) : integrity(mode) { init(); }
     ~NativeEndpoint() { wl_endpoint_close(&endpoint); }
@@ -205,14 +207,14 @@ void native_packets(wl_integrity_t integrity)
     CHECK(stats.rx_datagrams == 2);
     CHECK(b->service() == WL_ERR_WOULD_BLOCK);
     for (unsigned attempt = 0; attempt < 20 && right.received < 5; ++attempt) {
-        CHECK(wl_endpoint_step(&right.endpoint, attempt, 16) == WL_OK);
+        CHECK((right.now = attempt, wl_endpoint_step(&right.endpoint, 16)) == WL_OK);
         if (right.received < 5) {
             const int waited = b->wait_for_activity(std::chrono::milliseconds(10));
             CHECK(waited == WL_OK || waited == WL_ERR_NO_DATA);
         }
     }
     CHECK(right.received == 5 && right.value == 5);
-    CHECK(wl_endpoint_step(&right.endpoint, 30, 16) == WL_OK);
+    CHECK((right.now = 30, wl_endpoint_step(&right.endpoint, 16)) == WL_OK);
     b->get_stats(stats);
     CHECK(stats.activity_notifications >= 1 && stats.wait_timeouts == 1);
     CHECK(stats.rx_pauses >= 1);
@@ -231,7 +233,7 @@ void native_packets(wl_integrity_t integrity)
                          valid_frame.size(), &valid_size) == WL_OK);
     stranger.send_to(::asio::buffer(valid_frame.data(), valid_size), destination);
     CHECK(b->wait_for_activity(std::chrono::milliseconds(100)) == WL_OK);
-    CHECK(wl_endpoint_step(&right.endpoint, 31, 16) == WL_OK);
+    CHECK((right.now = 31, wl_endpoint_step(&right.endpoint, 16)) == WL_OK);
     b->get_stats(stats);
     CHECK(stats.rx_rejected == 1 && right.received == 5);
 
@@ -264,13 +266,13 @@ void invalid_datagrams()
     sender.send_to(::asio::buffer(huge.data(), 129), target);
     sender.send_to(::asio::buffer(huge.data(), 0), target);
     CHECK(adapter->wait_for_activity(std::chrono::milliseconds(100)) == WL_OK);
-    CHECK(wl_endpoint_step(&endpoint.endpoint, 1, 16) == WL_OK);
+    CHECK((endpoint.now = 1, wl_endpoint_step(&endpoint.endpoint, 16)) == WL_OK);
     wirelink::asio::UdpAdapterStats stats{};
     adapter->get_stats(stats);
     CHECK(stats.rx_rejected == 3 && stats.rx_datagrams == 0);
     CHECK(endpoint.received == 0);
     // Neither an oversized nor an empty packet may be published as a frame.
-    CHECK(wl_endpoint_step(&endpoint.endpoint, 2, 16) == WL_OK);
+    CHECK((endpoint.now = 2, wl_endpoint_step(&endpoint.endpoint, 16)) == WL_OK);
 
     NativeEndpoint invalid;
     config.maximum_datagram_size = 1;

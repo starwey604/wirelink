@@ -2,6 +2,7 @@
 #include <array>
 #include <chrono>
 #include "wirelink/asio/udp_adapter.hpp"
+#include "wirelink/host/clock.hpp"
 
 int main()
 {
@@ -16,14 +17,15 @@ int main()
         .control_unit = control.data(), .control_unit_size = control.size(),
         .rx_fifo = nullptr, .rx_fifo_size = 0,
         .rx_fallback = rx.data(), .rx_fallback_size = rx.size()};
-    if (wl_endpoint_init(&endpoint, &config, &storage, nullptr) != WL_OK) return 1;
+    const wl_clock_t clock = wirelink::host::monotonic_clock();
+    if (wl_endpoint_init(&endpoint, &config, &storage, &clock, nullptr) != WL_OK) return 1;
     wirelink::asio::UdpAdapterConfig udp;
     udp.bind_address = "127.0.0.1";
     std::error_code error;
     auto adapter = wirelink::asio::UdpAdapter::open(endpoint, udp, error);
     if (!adapter || error) return 2;
     if (adapter->wait_for_activity(std::chrono::milliseconds(1)) != WL_ERR_NO_DATA) return 3;
-    if (wl_endpoint_step(&endpoint, 0, 8) != WL_OK) return 4;
+    if (wl_endpoint_step(&endpoint, 8) != WL_OK) return 4;
     adapter.reset();
     return wl_endpoint_link(&endpoint) == nullptr ? 0 : 5;
 }

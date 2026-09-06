@@ -8,7 +8,7 @@ int main(int argc, char **argv) {
   telemetry_t value;
   int complete = 0;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&subscriber, example_session_id()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&subscriber, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
   CHECK(udp != NULL);
   puts("telemetry subscriber ready");
@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
 
   const wl_time_ms_t started = example_now_ms();
   while (example_running() && (wl_time_ms_t)(example_now_ms() - started) < 10000U) {
-    CHECK(telemetry_endpoint_step(&subscriber, example_now_ms()) == WL_OK);
+    CHECK(telemetry_endpoint_step(&subscriber) == WL_OK);
     const int result = telemetry_endpoint_read_telemetry(&subscriber, &value);
     if (result == WL_OK) {
       printf("latest sample=%u temperature=%.2f C\n", (unsigned)value.sample,

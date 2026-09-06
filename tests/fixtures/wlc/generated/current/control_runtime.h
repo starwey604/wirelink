@@ -19,7 +19,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 20U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 21U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -355,6 +355,7 @@ control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, 
 
 typedef struct {
   wl_config_t link;
+  wl_clock_t clock;
   control_runtime_config_t runtime;
   size_t event_budget;
   control_runtime_result_fn on_result;
@@ -432,6 +433,7 @@ static inline wl_err_t control_endpoint_init_config(
     return WL_ERR_INVALID_ARG;
   if (wl_endpoint_link(control_endpoint_handle(endpoint)) != NULL)
     return WL_ERR_INVALID_STATE;
+  if (config->clock.now_ms == NULL) return WL_ERR_INVALID_ARG;
 
   memset(&link_storage, 0, sizeof(link_storage));
   link_storage.tx_payload = endpoint->private_state.tx_payload;
@@ -453,7 +455,7 @@ static inline wl_err_t control_endpoint_init_config(
   if (result != WL_OK) return result;
   hooks = control_runtime_pump_hooks(&endpoint->private_state.pump);
   result = wl_endpoint_init(&endpoint->private_state.owner, &config->link,
-                            &link_storage, &hooks);
+                            &link_storage, &config->clock, &hooks);
   if (result != WL_OK) return result;
   endpoint->private_state.on_result = config->on_result;
   endpoint->private_state.user_data = config->user_data;
@@ -462,21 +464,23 @@ static inline wl_err_t control_endpoint_init_config(
   return WL_OK;
 }
 
-static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint, uint64_t session_id) {
+static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint, uint64_t session_id,
+                                        wl_clock_t clock) {
   control_endpoint_config_t config;
   int result = control_endpoint_config_defaults(&config, session_id);
+  config.clock = clock;
   return result == WL_OK ? control_endpoint_init_config(endpoint, &config) : result;
 }
 
 /* One bounded owner pass: service transport, dispatch and release events,
  * advance RPC work. NO_DATA/backpressure during transport service is normal.
  * Inspect endpoint_result/last_step for details when this returns an error. */
-static inline wl_err_t control_endpoint_step(control_endpoint_t *endpoint, wl_time_ms_t now_ms) {
+static inline wl_err_t control_endpoint_step(control_endpoint_t *endpoint) {
   int result;
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
   memset(&endpoint->private_state.result, 0, sizeof(endpoint->private_state.result));
 
-  result = wl_endpoint_step(&endpoint->private_state.owner, now_ms,
+  result = wl_endpoint_step(&endpoint->private_state.owner,
                              endpoint->private_state.event_budget);
 
   if (result != WL_OK) return result;
@@ -501,7 +505,10 @@ static inline void control_endpoint_close(control_endpoint_t *endpoint) {
 }
 /* Delivery follows this binding. Use codec sends to override explicitly. */
 static inline control_send_result_t control_endpoint_send_joint_command(control_endpoint_t *endpoint, const joint_command_t *message) {
-  return control_joint_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_RELIABLE);
+  wl_time_ms_t now_ms = 0U;
+  if (WL_DELIVERY_RELIABLE == WL_DELIVERY_RELIABLE)
+    (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
+  return control_joint_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_RELIABLE, now_ms);
 }
 
 /* Copy an owned value and release its lease internally. NO_DATA leaves out unchanged. */
@@ -519,7 +526,10 @@ static inline wl_err_t control_endpoint_read_joint_command(control_endpoint_t *e
 
 /* Delivery follows this binding. Use codec sends to override explicitly. */
 static inline control_send_result_t control_endpoint_send_arm_mit_command(control_endpoint_t *endpoint, const arm_mit_command_t *message) {
-  return control_arm_mit_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_UNRELIABLE);
+  wl_time_ms_t now_ms = 0U;
+  if (WL_DELIVERY_UNRELIABLE == WL_DELIVERY_RELIABLE)
+    (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
+  return control_arm_mit_command_send(wl_endpoint_link(control_endpoint_handle(endpoint)), message, WL_DELIVERY_UNRELIABLE, now_ms);
 }
 
 /* Copy an owned value and release its lease internally. NO_DATA leaves out unchanged. */
@@ -535,7 +545,9 @@ static inline wl_err_t control_endpoint_read_arm_mit_command(control_endpoint_t 
   return control_arm_mit_command_latest_release(runtime, &view);
 }
 
-static inline control_runtime_result_t control_endpoint_home_start(control_endpoint_t *endpoint, const home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
+static inline control_runtime_result_t control_endpoint_home_start(control_endpoint_t *endpoint, const home_request_t *request, uint32_t timeout_ms) {
+  wl_time_ms_t now_ms = 0U;
+  (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
   return control_home_client_start(wl_endpoint_link(control_endpoint_handle(endpoint)), control_endpoint_runtime(endpoint), request, timeout_ms, now_ms);
 }
 
@@ -547,7 +559,9 @@ static inline wl_rpc_err_t control_endpoint_home_release(control_endpoint_t *end
   return control_home_client_release(control_endpoint_runtime(endpoint), operation_id);
 }
 
-static inline control_runtime_result_t control_endpoint_home_complete(control_endpoint_t *endpoint, const wl_rpc_server_request_t *request, const home_response_t *response, wl_time_ms_t now_ms) {
+static inline control_runtime_result_t control_endpoint_home_complete(control_endpoint_t *endpoint, const wl_rpc_server_request_t *request, const home_response_t *response) {
+  wl_time_ms_t now_ms = 0U;
+  (void)wl_endpoint_now(control_endpoint_handle(endpoint), &now_ms);
   return control_home_server_complete(control_endpoint_runtime(endpoint), request, response, now_ms);
 }
 

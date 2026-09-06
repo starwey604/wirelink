@@ -14,6 +14,7 @@ if(WIRELINK_BUILD_GETTING_STARTED)
   add_subdirectory(01_rpc)
   if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_subdirectory(../tests/clock_bridge ${CMAKE_CURRENT_BINARY_DIR}/clock_bridge)
     add_test(NAME wirelink_udp_tutorials
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/udp_processes.py
         --publisher $<TARGET_FILE:telemetry_publisher>

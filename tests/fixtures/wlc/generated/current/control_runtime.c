@@ -439,7 +439,7 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
     return result;
   }
   if (reliable_response != 0U) {
-    out_result->response.detail.rpc.core_result = wl_send_reliable(ctx, response.identity.response_message_id, response.response_data, response.response_length, &out_result->response.detail.rpc.handle);
+    out_result->response.detail.rpc.core_result = wl_send_reliable(ctx, response.identity.response_message_id, response.response_data, response.response_length, now_ms, &out_result->response.detail.rpc.handle);
   } else {
     out_result->response.detail.rpc.core_result = wl_send_unreliable(ctx, response.identity.response_message_id, response.response_data, response.response_length);
   }
@@ -859,7 +859,7 @@ control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtim
   *encoded_request = *request;
   encoded_request->has_operation_id = true;
   encoded_request->operation_id = operation_id;
-  sent = control_home_request_send(ctx, encoded_request, WL_DELIVERY_RELIABLE);
+  sent = control_home_request_send(ctx, encoded_request, WL_DELIVERY_RELIABLE, now_ms);
   return control_home_client_finish_start(runtime, operation_id, sent);
 }
 

@@ -63,3 +63,7 @@ ABI 20 retains this fixture's explicit mapped RPC and frozen codec bytes.
 Managed RPC and `@id(n)` are covered separately by the compiler's
 `managed_rpc`/`schema_ids` tests and the getting-started examples; do not migrate
 these conformance schemas merely to demonstrate the new default API.
+
+ABI 21 adds endpoint clock configuration and explicit time on advanced binding
+sends/claim commits. Regenerate all headers and sources together; schemas and
+pure codec bytes remain unchanged.

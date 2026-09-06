@@ -6,6 +6,7 @@
 #include "wirelink/port.h"
 #include "wirelink/outbox.h"
 #include "wirelink/pump.h"
+#include "wirelink/host/clock.hpp"
 
 #include <array>
 #include <atomic>
@@ -89,7 +90,11 @@ public:
     // must be used before start(). Runtime Wirelink access belongs to the owner
     // thread; transports feed RX through feedBytes() and signal deferred adapter
     // work through notify().
-    int initialize(const wl_config_t& s_config, const wl_storage_t& s_storage);
+    // The clock descriptor is copied; its context must outlive stop(). Reads
+    // occur on the owner thread. A manual clock must be advanced by its owner
+    // (or synchronized externally), then notify() must wake a sleeping owner.
+    int initialize(const wl_config_t& s_config, const wl_storage_t& s_storage,
+                   wl_clock_t clock = monotonic_clock());
     int setHooks(const ExecutorHooks& s_hooks);
     int setSink(wl_sink_fn s_sink, void* s_user_data);
     wl_ctx_t& context() noexcept { return m_context; }
@@ -131,7 +136,7 @@ private:
         std::atomic<std::uint64_t> m_latest_cancelled{};
     };
 
-    static wl_time_ms_t s_nowMs() noexcept;
+    wl_time_ms_t nowMs() const noexcept;
     static int s_serviceBridge(void* s_user_data) noexcept;
     static void s_quiesceBridge(void* s_user_data) noexcept;
     static std::uint8_t s_applicationProgressBridge(
@@ -149,6 +154,7 @@ private:
     bool s_dispatchOne() noexcept;
     void s_shutdownOnOwner() noexcept;
     wl_ctx_t m_context{};
+    wl_clock_t m_clock{};
     ExecutorHooks m_hooks{};
     std::atomic<State> m_state{State::kUninitialized};
     std::atomic<bool> m_accepting{false};

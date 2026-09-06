@@ -7,7 +7,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49000, peer = 49001;
   telemetry_t value;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, example_session_id()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&publisher, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
   CHECK(udp != NULL);
 
@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
     /* Publish every 200 ms; keep servicing the endpoint while waiting. */
     const wl_time_ms_t started = example_now_ms();
     while ((wl_time_ms_t)(example_now_ms() - started) < 200U && example_running()) {
-      CHECK(telemetry_endpoint_step(&publisher, example_now_ms()) == WL_OK);
+      CHECK(telemetry_endpoint_step(&publisher) == WL_OK);
       const uint32_t elapsed = example_now_ms() - started;
       if (elapsed < 200U) CHECK(example_udp_wait(udp, 200U - elapsed) == WL_OK);
     }

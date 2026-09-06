@@ -283,7 +283,7 @@ ZTEST(wirelink_application_runtime,
     }
 
     send_result = control_arm_mit_command_send(&sender->ctx, &command,
-                                               WL_DELIVERY_UNRELIABLE);
+                                               WL_DELIVERY_UNRELIABLE, 0U);
     zassert_equal(send_result.domain, CONTROL_SEND_OK);
     zassert_equal(send_result.core_result, WL_OK);
     zassert_true(send_result.payload_length > 120U);
@@ -348,7 +348,7 @@ static control_runtime_result_t send_joint_reliable(struct endpoint *sender,
   command.mode = MIT;
 
   send_result = control_joint_command_send(&sender->ctx, &command,
-                                           WL_DELIVERY_RELIABLE);
+                                           WL_DELIVERY_RELIABLE, 0U);
   zassert_equal(send_result.domain, CONTROL_SEND_OK);
   zassert_not_equal(send_result.handle, 0U);
   deliver(sender, receiver);
@@ -559,7 +559,7 @@ static control_runtime_result_t send_request_copy(struct endpoint *client,
                                                   const home_request_t *request,
                                                   wl_time_ms_t now_ms) {
   const control_send_result_t sent = control_home_request_send(
-      &client->ctx, request, WL_DELIVERY_RELIABLE);
+      &client->ctx, request, WL_DELIVERY_RELIABLE, now_ms);
   control_runtime_result_t result;
   control_runtime_result_t terminal;
 

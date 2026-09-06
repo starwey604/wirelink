@@ -81,10 +81,10 @@ typedef struct {
 control_dispatch_result_t control_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_router_t *router);
 
 /* Encodes directly into Wirelink-owned TX storage. */
-control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery);
+control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery, wl_time_ms_t now_ms);
 
 /* Encodes directly into Wirelink-owned TX storage. */
-control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery);
+control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery, wl_time_ms_t now_ms);
 
 #ifdef __cplusplus
 }

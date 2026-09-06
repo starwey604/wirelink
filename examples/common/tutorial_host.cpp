@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "tutorial_host.h"
 #include "wirelink/asio/udp_adapter.hpp"
+#include "wirelink/host/clock.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -32,9 +33,10 @@ uint64_t example_session_id(void) {
 }
 
 wl_time_ms_t example_now_ms(void) {
-  return static_cast<wl_time_ms_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::steady_clock::now().time_since_epoch()).count());
+  return wirelink::host::monotonic_now_ms(nullptr);
 }
+
+wl_clock_t example_clock(void) { return wirelink::host::monotonic_clock(); }
 
 int example_running(void) { return running != 0; }
 
@@ -86,7 +88,7 @@ example_udp_t *example_udp_open(wl_endpoint_t *endpoint, uint16_t local, uint16_
 
 int example_udp_wait(example_udp_t *udp, uint32_t maximum_ms) {
   wl_poll_hint_t hint{};
-  const int status = wl_endpoint_get_hint(udp->endpoint, example_now_ms(), &hint);
+  const int status = wl_endpoint_get_hint(udp->endpoint, &hint);
   if (status != WL_OK) return status;
   if (hint.work_pending || !example_running()) return WL_OK;
   const auto duration = std::min(maximum_ms, hint.next_deadline_ms);

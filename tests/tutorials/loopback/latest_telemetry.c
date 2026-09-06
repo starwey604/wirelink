@@ -6,6 +6,9 @@
 #include "temperature_runtime.h"
 #include "wirelink/loopback.h"
 
+static wl_time_ms_t now_ms;
+static wl_time_ms_t read_clock(void *user) { (void)user; return now_ms; }
+
 /* Desktop example: print the failing expression and stop on unexpected errors. */
 #define CHECK(expression) do { \
   if (!(expression)) { \
@@ -20,8 +23,9 @@ int main(void) {
   telemetry_t received;
 
   /* Fixed IDs are only for this isolated simulation. */
-  CHECK(temperature_endpoint_init(&device, 1U) == WL_OK);
-  CHECK(temperature_endpoint_init(&display, 2U) == WL_OK);
+  const wl_clock_t clock = {read_clock, NULL};
+  CHECK(temperature_endpoint_init(&device, 1U, clock) == WL_OK);
+  CHECK(temperature_endpoint_init(&display, 2U, clock) == WL_OK);
   CHECK(wl_loopback_connect(&cable, temperature_endpoint_handle(&device),
                            temperature_endpoint_handle(&display)) == WL_OK);
 
@@ -36,8 +40,9 @@ int main(void) {
     CHECK(temperature_endpoint_send_telemetry(&device, &message).domain
           == TEMPERATURE_SEND_OK);
     /* Each endpoint advances transport and message handling in one call. */
-    CHECK(temperature_endpoint_step(&device, sample) == WL_OK);
-    CHECK(temperature_endpoint_step(&display, sample) == WL_OK);
+    now_ms = sample;
+    CHECK(temperature_endpoint_step(&device) == WL_OK);
+    CHECK(temperature_endpoint_step(&display) == WL_OK);
   }
 
   CHECK(temperature_endpoint_read_telemetry(&display, &received) == WL_OK);

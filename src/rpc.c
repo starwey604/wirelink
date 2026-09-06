@@ -866,6 +866,17 @@ static wl_rpc_server_cache_impl_t *server_response_find(
   return NULL;
 }
 
+static bool server_cache_expire(wl_rpc_server_cache_impl_t *cache,
+                                wl_time_ms_t now_ms, uint32_t ttl_ms) {
+  if (cache->active == 0U ||
+      cache->delivery_state != WL_RPC_RESPONSE_DELIVERED ||
+      !elapsed(now_ms, cache->completed_at, ttl_ms)) {
+    return false;
+  }
+  memset(cache, 0, sizeof(*cache));
+  return true;
+}
+
 static void server_expire(wl_rpc_server_impl_t *server, wl_time_ms_t now_ms,
                           wl_rpc_server_expiry_t *expiry) {
   uint16_t i;
@@ -873,10 +884,7 @@ static void server_expire(wl_rpc_server_impl_t *server, wl_time_ms_t now_ms,
   memset(expiry, 0, sizeof(*expiry));
   for (i = 0U; i < server->cache_slot_count; ++i) {
     wl_rpc_server_cache_impl_t *cache = server_cache(server, i);
-    if (cache->active != 0U &&
-        cache->delivery_state == WL_RPC_RESPONSE_DELIVERED &&
-        elapsed(now_ms, cache->completed_at, server->cache_ttl_ms)) {
-      memset(cache, 0, sizeof(*cache));
+    if (server_cache_expire(cache, now_ms, server->cache_ttl_ms)) {
       ++expiry->cache_expired;
     }
   }
@@ -967,6 +975,9 @@ wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
   }
   for (i = 0U; i < impl->cache_slot_count; ++i) {
     wl_rpc_server_cache_impl_t *cache = server_cache(impl, i);
+    /* Dispatch can precede poll after an idle gap. Reclaim only delivered
+     * responses, in the existing lookup pass, before deduplication/admission. */
+    (void)server_cache_expire(cache, now_ms, impl->cache_ttl_ms);
     if (cache->active != 0U && identity_key_equal(&cache->identity, identity)) {
       if (identity_equal(&cache->identity, identity)) {
         if (cache->delivery_state == WL_RPC_RESPONSE_DELIVERED) {

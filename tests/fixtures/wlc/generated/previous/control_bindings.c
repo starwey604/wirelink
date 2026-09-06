@@ -79,7 +79,7 @@ control_dispatch_result_t control_dispatch_event(wl_ctx_t *ctx, const wl_event_t
   return result;
 }
 
-control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery) {
+control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_command_t *message, wl_delivery_t delivery, wl_time_ms_t now_ms) {
   control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, 0U, 0U };
   wl_tx_payload_claim_t claim = {0};
   result.core_result = wl_tx_payload_claim(ctx, JOINT_COMMAND_MESSAGE_ID, delivery, &claim);
@@ -90,13 +90,13 @@ control_send_result_t control_joint_command_send(wl_ctx_t *ctx, const joint_comm
     (void)wl_tx_payload_abort(ctx, &claim);
     return result;
   }
-  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, now_ms, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
   if (result.core_result != WL_OK) return result;
   result.domain = CONTROL_SEND_OK;
   return result;
 }
 
-control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery) {
+control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_t *message, wl_delivery_t delivery, wl_time_ms_t now_ms) {
   control_send_result_t result = { CONTROL_SEND_CORE_ERROR, WL_CODEC_OK, WL_OK, 0U, 0U };
   wl_tx_payload_claim_t claim = {0};
   result.core_result = wl_tx_payload_claim(ctx, ARM_COMMAND_MESSAGE_ID, delivery, &claim);
@@ -107,7 +107,7 @@ control_send_result_t control_arm_command_send(wl_ctx_t *ctx, const arm_command_
     (void)wl_tx_payload_abort(ctx, &claim);
     return result;
   }
-  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
+  result.core_result = wl_tx_payload_commit(ctx, &claim, result.payload_length, now_ms, delivery == WL_DELIVERY_RELIABLE ? &result.handle : NULL);
   if (result.core_result != WL_OK) return result;
   result.domain = CONTROL_SEND_OK;
   return result;

@@ -16,9 +16,9 @@ Executor::~Executor() {
 }
 
 int Executor::initialize(const wl_config_t& s_config,
-                                 const wl_storage_t& s_storage) {
+                                 const wl_storage_t& s_storage, wl_clock_t clock) {
     if (state() != State::kUninitialized) return WL_ERR_INVALID_STATE;
-    if (s_config.max_payload_len > s_kMaximumCommandPayload) {
+    if (s_config.max_payload_len > s_kMaximumCommandPayload || clock.now_ms == nullptr) {
         return WL_ERR_INVALID_ARG;
     }
 
@@ -34,6 +34,7 @@ int Executor::initialize(const wl_config_t& s_config,
     if (s_result != WL_OK) return s_result;
     s_result = wl_init(&m_context, &s_config, &s_storage);
     if (s_result != WL_OK) return s_result;
+    m_clock = clock;
     m_state.store(State::kReady, std::memory_order_release);
     return WL_OK;
 }
@@ -177,10 +178,8 @@ int Executor::submitLatest(std::uint16_t s_message_id,
     return WL_OK;
 }
 
-wl_time_ms_t Executor::s_nowMs() noexcept {
-    using namespace std::chrono;
-    return static_cast<wl_time_ms_t>(
-        duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+wl_time_ms_t Executor::nowMs() const noexcept {
+    return m_clock.now_ms(m_clock.user_data);
 }
 
 int Executor::s_serviceBridge(void* s_user_data) noexcept {
@@ -260,7 +259,7 @@ void Executor::s_run() noexcept {
             m_wake_generation.load(std::memory_order_acquire);
         wl_pump_result_t s_pump_result{};
         const int s_step_result = wl_pump_step(
-            &m_context, s_nowMs(), s_kPollBudget, &s_pump_hooks,
+            &m_context, nowMs(), s_kPollBudget, &s_pump_hooks,
             &s_pump_result);
         if (s_step_result != WL_OK) {
             m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
@@ -280,7 +279,7 @@ void Executor::s_run() noexcept {
         if (s_progress) continue;
 
         wl_poll_hint_t s_hint{};
-        const wl_time_ms_t s_hint_now = s_nowMs();
+        const wl_time_ms_t s_hint_now = nowMs();
         const int s_hint_result = wl_pump_get_hint(
             &m_context, s_hint_now, &s_pump_hooks, &s_hint);
         if (s_hint_result != WL_OK) {

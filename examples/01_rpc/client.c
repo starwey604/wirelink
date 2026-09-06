@@ -21,18 +21,17 @@ int main(int argc, char **argv) {
   }
 
   CHECK(calculator_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
+  config.clock = example_clock();
   CHECK(calculator_runtime_config_enable_client(&config.runtime) == WL_OK);
   config.link.ack_timeout_ms = 100U;
   config.link.max_retries = 4U;
   CHECK(calculator_endpoint_init_config(&client, &config) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
-  /* The core's send clock comes from the latest owner step. */
-  CHECK(calculator_endpoint_step(&client, example_now_ms()) == WL_OK);
-  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, example_now_ms(), &call) == WL_RPC_OK);
+  CHECK(calculator_endpoint_add_call(&client, &request, 1500U, &call) == WL_RPC_OK);
 
   for (;;) {
-    const int step = calculator_endpoint_step(&client, example_now_ms());
+    const int step = calculator_endpoint_step(&client);
     if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
     CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
     if (result.state == WL_RPC_CLIENT_COMPLETED ||

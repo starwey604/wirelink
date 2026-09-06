@@ -715,6 +715,63 @@ ZTEST(wirelink_rpc, test_server_pending_and_cache_expiry_wrap) {
   zassert_equal(wl_rpc_server_abandon(&servers.server, &expired), WL_RPC_OK);
 }
 
+ZTEST(wirelink_rpc, test_server_begin_reclaims_expired_cache_without_poll) {
+  const wl_time_ms_t starts[] = {60000U, UINT32_MAX - 9U};
+  const wl_rpc_request_identity_t first = identity(1U, 1U);
+  const wl_rpc_request_identity_t second = identity(2U, 2U);
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_request_t accepted, ignored;
+  wl_rpc_server_response_t response;
+
+  for (size_t i = 0U; i < ARRAY_SIZE(starts); ++i) {
+    const wl_time_ms_t start = starts[i];
+    server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 20U, 1U, 1U);
+    zassert_equal(wl_rpc_server_begin(&servers.server, &first, start,
+                    &disposition, &accepted, &response), WL_RPC_OK);
+    zassert_equal(wl_rpc_server_complete(&servers.server, &accepted, 0,
+                    NULL, 0U, start, &response), WL_RPC_OK);
+    server_mark_next_sent();
+    zassert_equal(wl_rpc_server_begin(&servers.server, &second, start + 19U,
+                    &disposition, &ignored, &response), WL_RPC_ERR_CACHE_FULL);
+    zassert_equal(wl_rpc_server_begin(&servers.server, &second, start + 20U,
+                    &disposition, &accepted, &response), WL_RPC_OK);
+    zassert_equal(disposition, WL_RPC_SERVER_NEW);
+  }
+
+  server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 0U, 1U, 1U);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &first, 0U,
+                  &disposition, &accepted, &response), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_complete(&servers.server, &accepted, 0,
+                  NULL, 0U, 0U, &response), WL_RPC_OK);
+  server_mark_next_sent();
+  zassert_equal(wl_rpc_server_begin(&servers.server, &second, 100000U,
+                  &disposition, &ignored, &response), WL_RPC_ERR_CACHE_FULL);
+}
+
+ZTEST(wirelink_rpc, test_server_begin_preserves_undelivered_cache_after_ttl) {
+  const wl_rpc_request_identity_t first = identity(1U, 1U);
+  const wl_rpc_request_identity_t second = identity(2U, 2U);
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_request_t accepted, ignored;
+  wl_rpc_server_response_t response, acquired;
+  server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 20U, 2U, 1U);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &first, 0U,
+                  &disposition, &accepted, &response), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &second, 100U,
+                  &disposition, &ignored, &response), WL_RPC_ERR_CACHE_FULL);
+  zassert_equal(wl_rpc_server_complete(&servers.server, &accepted, 0,
+                  NULL, 0U, 100U, &response), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &second, 200U,
+                  &disposition, &ignored, &response), WL_RPC_ERR_CACHE_FULL);
+  acquired = server_acquire_response();
+  zassert_equal(wl_rpc_server_begin(&servers.server, &second, 300U,
+                  &disposition, &ignored, &response), WL_RPC_ERR_CACHE_FULL);
+  zassert_equal(wl_rpc_server_response_submitted(&servers.server, &acquired,
+                  1U), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &second, 400U,
+                  &disposition, &ignored, &response), WL_RPC_ERR_CACHE_FULL);
+}
+
 ZTEST(wirelink_rpc, test_server_owned_response_retry_lifecycle) {
   const uint8_t payload[] = {0x12U, 0x34U};
   wl_rpc_request_identity_t request = identity(31U, 47U);

@@ -19,6 +19,8 @@ typedef struct {
   wl_time_ms_t now_ms;
 } calculator_t;
 
+static wl_time_ms_t read_clock(void *user) { return ((calculator_t *)user)->now_ms; }
+
 static int32_t handle_add(void *context, const add_request_t *request,
                           const quickstart_add_request_token_t *token,
                           wl_delivery_t delivery) {
@@ -28,15 +30,14 @@ static int32_t handle_add(void *context, const add_request_t *request,
   (void)delivery;
   if (sum < INT32_MIN || sum > INT32_MAX) {
     /* Business rejection: no fabricated sum or status field is needed. */
-    return quickstart_endpoint_add_reject(calculator->device, token, 1,
-                                          calculator->now_ms);
+    return quickstart_endpoint_add_reject(calculator->device, token, 1);
   }
   add_response_clear(&response);
   response.has_sum = true;
   response.sum = (int32_t)sum;
   /* Preparing a response is synchronous; endpoint_step sends it later. */
   return quickstart_endpoint_add_complete(calculator->device, token,
-                                          &response, calculator->now_ms);
+                                          &response);
 }
 
 int main(void) {
@@ -61,6 +62,7 @@ int main(void) {
   server_config.runtime.rpc_server_cache_ttl_ms = 10000U;
   server_config.runtime.add_request_handler = handle_add;
   server_config.runtime.add_user_data = &calculator;
+  client_config.clock = server_config.clock = (wl_clock_t){read_clock, &calculator};
   CHECK(quickstart_endpoint_init_config(&controller, &client_config) == WL_OK);
   CHECK(quickstart_endpoint_init_config(&device, &server_config) == WL_OK);
   CHECK(wl_loopback_connect(&cable, quickstart_endpoint_handle(&controller),
@@ -72,8 +74,9 @@ int main(void) {
   telemetry.has_temperature_centi_c = true;
   telemetry.temperature_centi_c = 2350;
   CHECK(quickstart_endpoint_send_telemetry(&device, &telemetry).domain == QUICKSTART_SEND_OK);
-  CHECK(quickstart_endpoint_step(&device, 1U) == WL_OK);
-  CHECK(quickstart_endpoint_step(&controller, 1U) == WL_OK);
+  calculator.now_ms = 1U;
+  CHECK(quickstart_endpoint_step(&device) == WL_OK);
+  CHECK(quickstart_endpoint_step(&controller) == WL_OK);
   CHECK(quickstart_endpoint_read_telemetry(&controller, &received) == WL_OK);
   CHECK(received.sample == 7U && received.temperature_centi_c == 2350);
 
@@ -82,13 +85,14 @@ int main(void) {
   request.left = 20;
   request.has_right = true;
   request.right = 22;
-  CHECK(quickstart_endpoint_add_call(&controller, &request, 100U, 10U,
+  calculator.now_ms = 10U;
+  CHECK(quickstart_endpoint_add_call(&controller, &request, 100U,
                                     &call) == WL_RPC_OK);
 
   /* Simulated milliseconds. Real applications use their monotonic clock. */
   for (calculator.now_ms = 10U; calculator.now_ms < 30U; ++calculator.now_ms) {
-    CHECK(quickstart_endpoint_step(&controller, calculator.now_ms) == WL_OK);
-    CHECK(quickstart_endpoint_step(&device, calculator.now_ms) == WL_OK);
+    CHECK(quickstart_endpoint_step(&controller) == WL_OK);
+    CHECK(quickstart_endpoint_step(&device) == WL_OK);
   }
   CHECK(quickstart_endpoint_add_inspect(&controller, &call, &operation) == WL_RPC_OK);
   CHECK(operation.state == WL_RPC_CLIENT_COMPLETED);

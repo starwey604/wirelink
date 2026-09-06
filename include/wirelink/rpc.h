@@ -291,6 +291,7 @@ typedef struct wl_rpc_server_response_buffer {
 
 typedef struct wl_rpc_server_expiry {
   uint16_t pending_expired;
+  /* Entries reclaimed by this poll, excluding those already reclaimed by begin. */
   uint16_t cache_expired;
 } wl_rpc_server_expiry_t;
 
@@ -327,6 +328,9 @@ wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
  * successful classifications. NEW also reserves response-cache storage before
  * the application handler may execute; completion therefore cannot fail with
  * CACHE_FULL. out_request is nonzero only for NEW.
+ * Expired delivered responses are reclaimed during lookup; a preceding poll
+ * is not required. Reserved, ready, acquired, and in-flight responses remain
+ * protected. TTL zero disables expiry, including expiry during begin.
  */
 wl_rpc_err_t wl_rpc_server_begin(wl_rpc_server_t *server,
                                  const wl_rpc_request_identity_t *identity,

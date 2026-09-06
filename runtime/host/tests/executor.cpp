@@ -646,10 +646,68 @@ void testApplicationAndAdapterDeadlineScheduling() {
     runApplicationDeadlineTest(s_combined);
 }
 
+struct ClockCapture {
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::thread::id reader{};
+    std::thread::id application_owner{};
+    std::uint32_t reads{};
+    wl_time_ms_t observed{};
+    bool progressed{};
+
+    static wl_time_ms_t now(void* user) noexcept {
+        auto& self = *static_cast<ClockCapture*>(user);
+        self.reader = std::this_thread::get_id();
+        ++self.reads;
+        return 60000U;
+    }
+    static bool progress(void* user, wl_ctx_t&, wl_time_ms_t now) noexcept {
+        auto& self = *static_cast<ClockCapture*>(user);
+        std::lock_guard<std::mutex> lock(self.mutex);
+        self.application_owner = std::this_thread::get_id();
+        self.observed = now;
+        self.progressed = true;
+        self.cv.notify_all();
+        return false;
+    }
+};
+
+void testInjectedClockOwnership() {
+    LinkStorage storage;
+    ClockCapture capture;
+    WirelinkExecutor executor;
+    const auto config = makeConfig(WL_ENVELOPE_COBS_STREAM, 1U);
+    require(executor.initialize(config, storage.descriptor(), {}) == WL_ERR_INVALID_ARG,
+            "null clock accepted");
+    wl_clock_t clock{ClockCapture::now, &capture};
+    require(executor.initialize(config, storage.descriptor(), clock) == WL_OK,
+            "custom clock initialization failed");
+    clock = {};
+    require(capture.reads == 0, "initialization read the clock");
+    WirelinkExecutorHooks hooks{};
+    hooks.m_user_data = &capture;
+    hooks.m_application_progress = ClockCapture::progress;
+    require(executor.setHooks(hooks) == WL_OK, "setHooks failed");
+    require(executor.start() == WL_OK, "start failed");
+    waitFor(capture.cv, capture.mutex, [&] { return capture.progressed; },
+            "custom clock owner did not progress");
+    executor.stop();
+    require(capture.reads > 0 && capture.observed == 60000U,
+            "custom clock was not used");
+    require(capture.reader == capture.application_owner &&
+                capture.reader != std::this_thread::get_id(),
+            "clock callback escaped the owner thread");
+    const auto reads = capture.reads;
+    executor.stop();
+    require(capture.reads == reads, "stopped executor read the clock");
+}
+
 } // namespace
 
 int main() {
     try {
+        testInjectedClockOwnership();
+        std::puts("PASS: injected clock is copied and runs only on the owner");
         testFeedOnlyWakesOwner();
         std::puts("PASS: RX producer only feeds and wakes the owner");
         testLatestLanesCoalesceWithoutCrossMessageLoss();

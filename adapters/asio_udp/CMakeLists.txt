@@ -28,6 +28,7 @@ endif()
 target_include_directories(wirelink_asio_udp
   PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../runtime/host/include>
     $<INSTALL_INTERFACE:include>
   PRIVATE ${WIRELINK_ASIO_INCLUDE_DIR})
 target_link_libraries(wirelink_asio_udp PUBLIC wirelink PRIVATE Threads::Threads)

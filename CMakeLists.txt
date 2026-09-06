@@ -247,6 +247,10 @@ if(WIRELINK_INSTALL)
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
   endif()
 
+  if(TARGET wirelink_asio_udp OR TARGET wirelink_host)
+    install(FILES runtime/host/include/wirelink/host/clock.hpp
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
+  endif()
   if(TARGET wirelink_asio_udp)
     install(TARGETS wirelink_asio_udp EXPORT WirelinkTargets
       ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -260,6 +264,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/adapter.h
     include/wirelink/alignment.h
     include/wirelink/bulk.h
+    include/wirelink/clock.h
     include/wirelink/cobs.h
     include/wirelink/codec.h
     include/wirelink/crc.h
