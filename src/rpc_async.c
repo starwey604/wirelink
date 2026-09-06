@@ -27,8 +27,10 @@ void wl_rpc_async_completion(const wl_rpc_client_result_t *client,
   switch (client->state) {
     case WL_RPC_CLIENT_COMPLETED: out->status = WL_RPC_SUCCESS; break;
     case WL_RPC_CLIENT_APPLICATION_ERROR:
-      out->status = WL_RPC_REJECTED;
-      out->rejection = client->application_status;
+      /* The advanced engine also uses this state for oversized responses.
+       * Do not expose a local framework failure as a remote business reject. */
+      out->status = client->runtime_error == WL_RPC_OK ? WL_RPC_REJECTED : WL_RPC_FAILED;
+      if (out->status == WL_RPC_REJECTED) out->rejection = client->application_status;
       break;
     case WL_RPC_CLIENT_TIMED_OUT: out->status = WL_RPC_TIMED_OUT; break;
     case WL_RPC_CLIENT_CANCELLED: out->status = WL_RPC_CANCELLED; break;

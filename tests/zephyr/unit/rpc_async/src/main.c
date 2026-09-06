@@ -191,6 +191,16 @@ static int callback_chain_and_detached_tx(void) {
 }
 
 static int failed_admission_and_communication(void) {
+  wl_rpc_client_result_t raw = {0};
+  wl_rpc_completion_t outcome;
+  raw.state = WL_RPC_CLIENT_APPLICATION_ERROR;
+  raw.application_status = 17;
+  wl_rpc_async_completion(&raw, &outcome);
+  CHECK(outcome.status == WL_RPC_REJECTED && outcome.rejection == 17);
+  raw.runtime_error = WL_RPC_ERR_RESPONSE_TOO_LARGE;
+  wl_rpc_async_completion(&raw, &outcome);
+  CHECK(outcome.status == WL_RPC_FAILED && outcome.rejection == 0 &&
+      outcome.runtime_error == WL_RPC_ERR_RESPONSE_TOO_LARGE);
   CHECK(init(1U) == 0);
   encode_error = WL_ERR_CORRUPT_PAYLOAD;
   CHECK(submit(0U, 10U, WL_DELIVERY_RELIABLE, NULL) == WL_ERR_CORRUPT_PAYLOAD);
