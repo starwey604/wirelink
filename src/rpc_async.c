@@ -221,6 +221,11 @@ wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
     if (!async->private_state.closing && result.tx_handle != 0U &&
         (result.state == WL_RPC_CLIENT_CANCELLED || result.state == WL_RPC_CLIENT_TIMED_OUT))
       (void)wl_tx_cancel(async->private_state.link, result.tx_handle);
+    if (result.tx_handle != 0U) {
+      wl_tx_state_t state;
+      if (wl_tx_status(async->private_state.link, result.tx_handle, &state) == WL_OK)
+        async->private_state.retiring_tx = result.tx_handle;
+    }
     observer = slot->private_state.observer;
     observer.prepare(observer.context, &result);
     rpc = wl_rpc_client_release_handle(async->private_state.client,
@@ -246,6 +251,13 @@ uint32_t wl_rpc_async_notification_deadline(const wl_rpc_async_t *async) {
       return 0U;
   }
   return WL_RPC_NO_DEADLINE_MS;
+}
+
+uint8_t wl_rpc_async_retire_tx(wl_rpc_async_t *async, wl_tx_handle_t handle) {
+  if (async == NULL || handle == 0U || async->private_state.retiring_tx != handle)
+    return 0U;
+  async->private_state.retiring_tx = 0U;
+  return 1U;
 }
 
 wl_err_t wl_rpc_async_close(wl_rpc_async_t *async) {

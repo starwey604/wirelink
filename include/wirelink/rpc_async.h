@@ -60,6 +60,7 @@ struct wl_rpc_async {
     size_t request_capacity;
     uint64_t incarnation;
     uint64_t next_order;
+    wl_tx_handle_t retiring_tx;
     uint16_t count;
     uint8_t servicing;
     uint8_t submitting;
@@ -97,6 +98,11 @@ wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
 /* Merge with RPC/link/adapter deadlines: terminal notifications are immediate;
  * queued link-blocked requests otherwise use existing readiness/deadlines. */
 uint32_t wl_rpc_async_notification_deadline(const wl_rpc_async_t *async);
+
+/* Recognize a terminal transaction detached from an already-notified RPC.
+ * Returns one exactly once for that handle. The OWNER still calls wl_tx_take;
+ * notification/release never reuses link storage or adapter leases early. */
+uint8_t wl_rpc_async_retire_tx(wl_rpc_async_t *async, wl_tx_handle_t handle);
 
 /* At an owner safe point: stop admission, cancel unfinished calls, deliver all
  * notifications exactly once. Quiesce the adapter before destroying its/owner

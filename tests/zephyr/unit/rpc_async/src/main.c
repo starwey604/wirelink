@@ -43,6 +43,12 @@ wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t id, const uint8_t *bytes,
 wl_err_t wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle) {
   (void)ctx; (void)handle; ++cancels; return WL_OK;
 }
+wl_err_t wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle, wl_tx_state_t *out) {
+  (void)ctx;
+  if (!busy || handle == 0U || handle != next_tx) return WL_ERR_NOT_FOUND;
+  *out = WL_TX_STATE_WAITING_ACK;
+  return WL_OK;
+}
 
 static wl_err_t encode(const void *request, uint32_t id, uint8_t *out,
     size_t capacity, size_t *length) {
@@ -170,6 +176,8 @@ static int callback_chain_and_detached_tx(void) {
   /* The original link transaction must be drained independently. */
   const wl_event_t terminal = {.type = WL_EVT_TX_SUCCESS, .handle = next_tx};
   CHECK(wl_rpc_client_on_tx_event(&client, &terminal) == WL_RPC_ERR_NOT_FOUND);
+  CHECK(wl_rpc_async_retire_tx(&async, terminal.handle) == 1U);
+  CHECK(wl_rpc_async_retire_tx(&async, terminal.handle) == 0U);
   busy = 0; /* Mock owner has now taken that terminal transaction. */
   CHECK(service() == 0);
   CHECK(sends == 2U && transmitted[1] == 99U && saved_value == 43U);
