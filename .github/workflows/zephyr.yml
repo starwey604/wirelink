@@ -47,6 +47,31 @@ jobs:
           --inline-logs
           --outdir twister-out
 
+      # Exercise the same generated-code sample used for the H7 clock check.
+      # ABI 21 has no release asset: build the matching standalone host compiler.
+      - name: Check out matching standalone WLC
+        uses: actions/checkout@v5
+        with:
+          repository: starwey604/wlc
+          ref: b5c444ab09bbbc1490e1e69307a760342a1633d0
+          path: .tools/wlc
+
+      - name: Build matching WLC
+        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
+
+      - name: Run generated endpoint clock sample
+        run: >-
+          west twister
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/endpoint_clock
+          -p native_sim
+          -p qemu_cortex_m3
+          -p qemu_riscv32
+          -p qemu_x86_64
+          -x=WIRELINK_WLC_AUTO_DOWNLOAD=OFF
+          -x=WIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc
+          --inline-logs
+          --outdir twister-endpoint-clock-out
+
   usb-bulk-esp32s3:
     name: USB bulk sample (ESP32-S3 build)
     runs-on: ubuntu-latest

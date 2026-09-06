@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+sample:
+  name: Wirelink generated endpoint clock
+  description: Real uptime clock, managed RPC, and clock-read budgets over loopback
+tests:
+  sample.wirelink.endpoint_clock:
+    tags:
+      - wirelink
+      - wlc
+      - rpc
+    platform_allow:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64
+    integration_platforms:
+      - native_sim
+      - qemu_cortex_m3
+      - qemu_riscv32
+      - qemu_x86_64
+    timeout: 30
+    harness: console
+    harness_config:
+      type: multi_line
+      ordered: true
+      regex:
+        - '^CLOCK_HIL ABI=[0-9]+ native_ms=[0-9]+ start$'
+        - '^CLOCK_HIL rpc mode=0 idle_ms=75 elapsed_ms=[0-9]+ client_units=2 PASS$'
+        - '^CLOCK_HIL rpc mode=0 idle_ms=150 elapsed_ms=[0-9]+ client_units=2 PASS$'
+        - '^CLOCK_HIL rpc mode=1 idle_ms=75 elapsed_ms=[0-9]+ client_units=2 PASS$'
+        - '^CLOCK_HIL rpc mode=2 idle_ms=75 elapsed_ms=[0-9]+ client_units=1 PASS$'
+        - '^CLOCK_HIL idle iterations=20000 cycles/op=[0-9]+ ns/op=[0-9]+ reads/op=1 endpoint_bytes=[0-9]+$'
+        - '^CLOCK_HIL ALL PASS$'

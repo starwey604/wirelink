@@ -72,6 +72,22 @@ The corrected Wirelink revision `0a8fa0a` passed [Host CI](https://github.com/st
 and [Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34031263977).
 The matching WLC revision passed [compiler CI](https://github.com/starwey604/wlc/actions/runs/34031263727).
 
+### Automated sample regression
+
+The post-H7 audit found that `samples/zephyr/endpoint_clock` had only been run
+manually. It now has a Twister console scenario and is included in Zephyr CI,
+which builds the same pinned standalone WLC used by Host CI before generating
+the sample's codec and runtime. No local `wlc/` worktree or unpublished release
+download is required by that CI job.
+
+The focused local run passed all four executed configurations on native_sim,
+Cortex-M3 QEMU, RISC-V32 QEMU, and x86_64 QEMU, with no filtered configurations
+or warnings. The harness requires startup, all four RPC outcomes, the one-read
+idle-pass result, and final success in order. Simulated cycle counts are not
+performance pass/fail criteria. See the sample README for the reproducible
+Twister command. This follow-up only adds regression metadata, CI and docs;
+the H7-tested application, core, generated APIs and compiler are unchanged.
+
 ## Host cost observation
 
 Linux x86_64, Intel Core 5 315, GCC 16.2.1 Release. Three runs of two million

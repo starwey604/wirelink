@@ -22,6 +22,21 @@ west build -s /path/to/wirelink/samples/zephyr/endpoint_clock -b native_sim \
   -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
 ```
 
+For automated regression, run the same sample through Twister:
+
+```sh
+west twister -T /path/to/wirelink/samples/zephyr/endpoint_clock \
+  -p native_sim -p qemu_cortex_m3 -p qemu_riscv32 -p qemu_x86_64 \
+  -x=WIRELINK_WLC_AUTO_DOWNLOAD=OFF \
+  -x=WIRELINK_WLC_EXECUTABLE=/path/to/wlc \
+  --inline-logs --outdir /path/to/build/endpoint-clock-twister
+```
+
+Zephyr CI runs these four platforms with the matching source-built compiler.
+The console harness requires all four RPC results, the clock-read budget result,
+and the final success marker in order. It does not set a simulated-cycle
+performance threshold; hardware measurements remain separate.
+
 The internal H7 target is `dm_mc02/stm32h723xx`, with
 `-DBOARD_ROOT=/path/to/Ragtime_Firmwares/firmware`. Its overlay disables CAN,
 PWM, LEDs and UART, and sends console output through SEGGER RTT channel 0.
