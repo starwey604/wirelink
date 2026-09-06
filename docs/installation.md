@@ -14,9 +14,9 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-Use the pinned **WLC 0.4.0 with codegen ABI 21** revision below, including
+Use the pinned **WLC 0.4.0 with codegen ABI 22** revision below, including
 initialization-time endpoint clocks, `@delivery(...)`, and default RPC reliability.
-ABI 21 changes generated C APIs/layouts, not schema encoding or Wirelink frame bytes.
+ABI 22 changes generated C APIs/layouts, not schema encoding or Wirelink frame bytes.
 No new package or tag is published by this iteration.
 
 If supplied with a matching internal binary, extract it to a stable location and
@@ -27,7 +27,7 @@ Without a matching binary, independently obtain and install the WLC source:
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout b5c444ab09bbbc1490e1e69307a760342a1633d0
+git -C wlc-source checkout b2789461929de1c687bf562e8636f5ad343a15b3
 cargo install --path wlc-source --locked --force
 ```
 

@@ -700,3 +700,774 @@ size_t bulk_status_encoded_size(const bulk_status_t *value) { size_t size; retur
 wl_codec_status_t bulk_status_encode(const bulk_status_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_status_desc, value, out, cap, length); }
 wl_codec_status_t bulk_status_decode(const uint8_t *input, size_t length, bulk_status_t *out) { return wlc_decode(&bulk_status_desc, input, length, out); }
 
+static void joint_command_value_copy(const joint_command_t *view, joint_command_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  joint_command_t defaults;
+  joint_command_clear(&defaults);
+  out->has_position_bits = view->has_position_bits;
+  out->position_bits = view->has_position_bits ? view->position_bits : defaults.position_bits;
+  out->has_velocity_bits = view->has_velocity_bits;
+  out->velocity_bits = view->has_velocity_bits ? view->velocity_bits : defaults.velocity_bits;
+  out->has_torque_bits = view->has_torque_bits;
+  out->torque_bits = view->has_torque_bits ? view->torque_bits : defaults.torque_bits;
+  out->has_kp_bits = view->has_kp_bits;
+  out->kp_bits = view->has_kp_bits ? view->kp_bits : defaults.kp_bits;
+  out->has_kd_bits = view->has_kd_bits;
+  out->kd_bits = view->has_kd_bits ? view->kd_bits : defaults.kd_bits;
+  out->has_mode = view->has_mode;
+  out->mode = view->has_mode ? view->mode : defaults.mode;
+}
+
+void joint_command_value_clear(joint_command_value_t *value) {
+  joint_command_t view;
+  if (value == NULL) return;
+  joint_command_clear(&view);
+  joint_command_value_copy(&view, value);
+}
+
+wl_codec_status_t joint_command_value_from_view(const joint_command_t *view, joint_command_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&joint_command_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  joint_command_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t joint_command_value_borrow(const joint_command_value_t *value, joint_command_t *out) {
+  joint_command_clear(out);
+  out->has_position_bits = value->has_position_bits;
+  if (value->has_position_bits) {
+    out->position_bits = value->position_bits;
+  }
+  out->has_velocity_bits = value->has_velocity_bits;
+  if (value->has_velocity_bits) {
+    out->velocity_bits = value->velocity_bits;
+  }
+  out->has_torque_bits = value->has_torque_bits;
+  if (value->has_torque_bits) {
+    out->torque_bits = value->torque_bits;
+  }
+  out->has_kp_bits = value->has_kp_bits;
+  if (value->has_kp_bits) {
+    out->kp_bits = value->kp_bits;
+  }
+  out->has_kd_bits = value->has_kd_bits;
+  if (value->has_kd_bits) {
+    out->kd_bits = value->kd_bits;
+  }
+  out->has_mode = value->has_mode;
+  if (value->has_mode) {
+    out->mode = value->mode;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t joint_command_value_to_view(const joint_command_value_t *value, joint_command_t *out) {
+  joint_command_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = joint_command_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&joint_command_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t joint_command_value_encoded_size(const joint_command_value_t *value) {
+  joint_command_t view;
+  if (value == NULL || joint_command_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return joint_command_encoded_size(&view);
+}
+
+wl_codec_status_t joint_command_value_encode(const joint_command_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  joint_command_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = joint_command_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? joint_command_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t joint_command_value_decode(const uint8_t *input, size_t length, joint_command_value_t *out) {
+  joint_command_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = joint_command_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  joint_command_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void arm_mit_command_value_copy(const arm_mit_command_t *view, arm_mit_command_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  arm_mit_command_t defaults;
+  arm_mit_command_clear(&defaults);
+  out->has_controls = view->has_controls;
+  if (view->has_controls) memcpy(out->controls, view->controls, sizeof(out->controls));
+  out->has_sequence = view->has_sequence;
+  out->sequence = view->has_sequence ? view->sequence : defaults.sequence;
+  out->has_dt_s = view->has_dt_s;
+  out->dt_s = view->has_dt_s ? view->dt_s : defaults.dt_s;
+}
+
+void arm_mit_command_value_clear(arm_mit_command_value_t *value) {
+  arm_mit_command_t view;
+  if (value == NULL) return;
+  arm_mit_command_clear(&view);
+  arm_mit_command_value_copy(&view, value);
+}
+
+wl_codec_status_t arm_mit_command_value_from_view(const arm_mit_command_t *view, arm_mit_command_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&arm_mit_command_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  arm_mit_command_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t arm_mit_command_value_borrow(const arm_mit_command_value_t *value, arm_mit_command_t *out) {
+  arm_mit_command_clear(out);
+  out->has_controls = value->has_controls;
+  if (value->has_controls) {
+    memcpy(out->controls, value->controls, sizeof(out->controls));
+  }
+  out->has_sequence = value->has_sequence;
+  if (value->has_sequence) {
+    out->sequence = value->sequence;
+  }
+  out->has_dt_s = value->has_dt_s;
+  if (value->has_dt_s) {
+    out->dt_s = value->dt_s;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t arm_mit_command_value_to_view(const arm_mit_command_value_t *value, arm_mit_command_t *out) {
+  arm_mit_command_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = arm_mit_command_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&arm_mit_command_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t arm_mit_command_value_encoded_size(const arm_mit_command_value_t *value) {
+  arm_mit_command_t view;
+  if (value == NULL || arm_mit_command_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return arm_mit_command_encoded_size(&view);
+}
+
+wl_codec_status_t arm_mit_command_value_encode(const arm_mit_command_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  arm_mit_command_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = arm_mit_command_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? arm_mit_command_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t arm_mit_command_value_decode(const uint8_t *input, size_t length, arm_mit_command_value_t *out) {
+  arm_mit_command_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = arm_mit_command_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  arm_mit_command_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void home_request_value_copy(const home_request_t *view, home_request_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  home_request_t defaults;
+  home_request_clear(&defaults);
+  out->has_operation_id = view->has_operation_id;
+  out->operation_id = view->has_operation_id ? view->operation_id : defaults.operation_id;
+  out->has_joint_mask = view->has_joint_mask;
+  out->joint_mask = view->has_joint_mask ? view->joint_mask : defaults.joint_mask;
+}
+
+void home_request_value_clear(home_request_value_t *value) {
+  home_request_t view;
+  if (value == NULL) return;
+  home_request_clear(&view);
+  home_request_value_copy(&view, value);
+}
+
+wl_codec_status_t home_request_value_from_view(const home_request_t *view, home_request_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&home_request_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  home_request_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t home_request_value_borrow(const home_request_value_t *value, home_request_t *out) {
+  home_request_clear(out);
+  out->has_operation_id = value->has_operation_id;
+  if (value->has_operation_id) {
+    out->operation_id = value->operation_id;
+  }
+  out->has_joint_mask = value->has_joint_mask;
+  if (value->has_joint_mask) {
+    out->joint_mask = value->joint_mask;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t home_request_value_to_view(const home_request_value_t *value, home_request_t *out) {
+  home_request_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = home_request_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&home_request_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t home_request_value_encoded_size(const home_request_value_t *value) {
+  home_request_t view;
+  if (value == NULL || home_request_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return home_request_encoded_size(&view);
+}
+
+wl_codec_status_t home_request_value_encode(const home_request_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  home_request_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = home_request_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? home_request_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t home_request_value_decode(const uint8_t *input, size_t length, home_request_value_t *out) {
+  home_request_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = home_request_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  home_request_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void home_response_value_copy(const home_response_t *view, home_response_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  home_response_t defaults;
+  home_response_clear(&defaults);
+  out->has_operation_id = view->has_operation_id;
+  out->operation_id = view->has_operation_id ? view->operation_id : defaults.operation_id;
+  out->has_status = view->has_status;
+  out->status = view->has_status ? view->status : defaults.status;
+}
+
+void home_response_value_clear(home_response_value_t *value) {
+  home_response_t view;
+  if (value == NULL) return;
+  home_response_clear(&view);
+  home_response_value_copy(&view, value);
+}
+
+wl_codec_status_t home_response_value_from_view(const home_response_t *view, home_response_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&home_response_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  home_response_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t home_response_value_borrow(const home_response_value_t *value, home_response_t *out) {
+  home_response_clear(out);
+  out->has_operation_id = value->has_operation_id;
+  if (value->has_operation_id) {
+    out->operation_id = value->operation_id;
+  }
+  out->has_status = value->has_status;
+  if (value->has_status) {
+    out->status = value->status;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t home_response_value_to_view(const home_response_value_t *value, home_response_t *out) {
+  home_response_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = home_response_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&home_response_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t home_response_value_encoded_size(const home_response_value_t *value) {
+  home_response_t view;
+  if (value == NULL || home_response_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return home_response_encoded_size(&view);
+}
+
+wl_codec_status_t home_response_value_encode(const home_response_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  home_response_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = home_response_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? home_response_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t home_response_value_decode(const uint8_t *input, size_t length, home_response_value_t *out) {
+  home_response_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = home_response_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  home_response_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void bulk_begin_value_copy(const bulk_begin_t *view, bulk_begin_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  bulk_begin_t defaults;
+  bulk_begin_clear(&defaults);
+  out->has_transfer_id = view->has_transfer_id;
+  out->transfer_id = view->has_transfer_id ? view->transfer_id : defaults.transfer_id;
+  out->has_total_length = view->has_total_length;
+  out->total_length = view->has_total_length ? view->total_length : defaults.total_length;
+  out->has_requested_chunk_size = view->has_requested_chunk_size;
+  out->requested_chunk_size = view->has_requested_chunk_size ? view->requested_chunk_size : defaults.requested_chunk_size;
+  out->has_object_crc32c = view->has_object_crc32c;
+  out->object_crc32c = view->has_object_crc32c ? view->object_crc32c : defaults.object_crc32c;
+}
+
+void bulk_begin_value_clear(bulk_begin_value_t *value) {
+  bulk_begin_t view;
+  if (value == NULL) return;
+  bulk_begin_clear(&view);
+  bulk_begin_value_copy(&view, value);
+}
+
+wl_codec_status_t bulk_begin_value_from_view(const bulk_begin_t *view, bulk_begin_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&bulk_begin_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  bulk_begin_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t bulk_begin_value_borrow(const bulk_begin_value_t *value, bulk_begin_t *out) {
+  bulk_begin_clear(out);
+  out->has_transfer_id = value->has_transfer_id;
+  if (value->has_transfer_id) {
+    out->transfer_id = value->transfer_id;
+  }
+  out->has_total_length = value->has_total_length;
+  if (value->has_total_length) {
+    out->total_length = value->total_length;
+  }
+  out->has_requested_chunk_size = value->has_requested_chunk_size;
+  if (value->has_requested_chunk_size) {
+    out->requested_chunk_size = value->requested_chunk_size;
+  }
+  out->has_object_crc32c = value->has_object_crc32c;
+  if (value->has_object_crc32c) {
+    out->object_crc32c = value->object_crc32c;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t bulk_begin_value_to_view(const bulk_begin_value_t *value, bulk_begin_t *out) {
+  bulk_begin_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_begin_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_begin_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t bulk_begin_value_encoded_size(const bulk_begin_value_t *value) {
+  bulk_begin_t view;
+  if (value == NULL || bulk_begin_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return bulk_begin_encoded_size(&view);
+}
+
+wl_codec_status_t bulk_begin_value_encode(const bulk_begin_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  bulk_begin_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_begin_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? bulk_begin_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t bulk_begin_value_decode(const uint8_t *input, size_t length, bulk_begin_value_t *out) {
+  bulk_begin_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_begin_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  bulk_begin_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void bulk_chunk_value_copy(const bulk_chunk_t *view, bulk_chunk_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  bulk_chunk_t defaults;
+  bulk_chunk_clear(&defaults);
+  out->has_transfer_id = view->has_transfer_id;
+  out->transfer_id = view->has_transfer_id ? view->transfer_id : defaults.transfer_id;
+  out->has_offset = view->has_offset;
+  out->offset = view->has_offset ? view->offset : defaults.offset;
+  out->has_data = view->has_data;
+  {
+    const wl_codec_bytes_t *field = view->has_data ? &view->data : &defaults.data;
+    out->data.length = field->length;
+    if (field->length != 0U) memcpy(out->data.data, field->data, field->length);
+  }
+}
+
+void bulk_chunk_value_clear(bulk_chunk_value_t *value) {
+  bulk_chunk_t view;
+  if (value == NULL) return;
+  bulk_chunk_clear(&view);
+  bulk_chunk_value_copy(&view, value);
+}
+
+wl_codec_status_t bulk_chunk_value_from_view(const bulk_chunk_t *view, bulk_chunk_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&bulk_chunk_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  bulk_chunk_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t bulk_chunk_value_borrow(const bulk_chunk_value_t *value, bulk_chunk_t *out) {
+  bulk_chunk_clear(out);
+  out->has_transfer_id = value->has_transfer_id;
+  if (value->has_transfer_id) {
+    out->transfer_id = value->transfer_id;
+  }
+  out->has_offset = value->has_offset;
+  if (value->has_offset) {
+    out->offset = value->offset;
+  }
+  out->has_data = value->has_data;
+  if (value->has_data) {
+    if (value->data.length > 4096U) return WL_CODEC_ERR_INVALID_VALUE;
+    out->data.length = value->data.length;
+    out->data.data = value->data.data;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t bulk_chunk_value_to_view(const bulk_chunk_value_t *value, bulk_chunk_t *out) {
+  bulk_chunk_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_chunk_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_chunk_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t bulk_chunk_value_encoded_size(const bulk_chunk_value_t *value) {
+  bulk_chunk_t view;
+  if (value == NULL || bulk_chunk_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return bulk_chunk_encoded_size(&view);
+}
+
+wl_codec_status_t bulk_chunk_value_encode(const bulk_chunk_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  bulk_chunk_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_chunk_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? bulk_chunk_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t bulk_chunk_value_decode(const uint8_t *input, size_t length, bulk_chunk_value_t *out) {
+  bulk_chunk_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_chunk_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  bulk_chunk_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void bulk_end_value_copy(const bulk_end_t *view, bulk_end_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  bulk_end_t defaults;
+  bulk_end_clear(&defaults);
+  out->has_transfer_id = view->has_transfer_id;
+  out->transfer_id = view->has_transfer_id ? view->transfer_id : defaults.transfer_id;
+  out->has_total_length = view->has_total_length;
+  out->total_length = view->has_total_length ? view->total_length : defaults.total_length;
+  out->has_object_crc32c = view->has_object_crc32c;
+  out->object_crc32c = view->has_object_crc32c ? view->object_crc32c : defaults.object_crc32c;
+}
+
+void bulk_end_value_clear(bulk_end_value_t *value) {
+  bulk_end_t view;
+  if (value == NULL) return;
+  bulk_end_clear(&view);
+  bulk_end_value_copy(&view, value);
+}
+
+wl_codec_status_t bulk_end_value_from_view(const bulk_end_t *view, bulk_end_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&bulk_end_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  bulk_end_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t bulk_end_value_borrow(const bulk_end_value_t *value, bulk_end_t *out) {
+  bulk_end_clear(out);
+  out->has_transfer_id = value->has_transfer_id;
+  if (value->has_transfer_id) {
+    out->transfer_id = value->transfer_id;
+  }
+  out->has_total_length = value->has_total_length;
+  if (value->has_total_length) {
+    out->total_length = value->total_length;
+  }
+  out->has_object_crc32c = value->has_object_crc32c;
+  if (value->has_object_crc32c) {
+    out->object_crc32c = value->object_crc32c;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t bulk_end_value_to_view(const bulk_end_value_t *value, bulk_end_t *out) {
+  bulk_end_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_end_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_end_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t bulk_end_value_encoded_size(const bulk_end_value_t *value) {
+  bulk_end_t view;
+  if (value == NULL || bulk_end_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return bulk_end_encoded_size(&view);
+}
+
+wl_codec_status_t bulk_end_value_encode(const bulk_end_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  bulk_end_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_end_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? bulk_end_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t bulk_end_value_decode(const uint8_t *input, size_t length, bulk_end_value_t *out) {
+  bulk_end_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_end_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  bulk_end_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void bulk_abort_value_copy(const bulk_abort_t *view, bulk_abort_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  bulk_abort_t defaults;
+  bulk_abort_clear(&defaults);
+  out->has_transfer_id = view->has_transfer_id;
+  out->transfer_id = view->has_transfer_id ? view->transfer_id : defaults.transfer_id;
+  out->has_reason = view->has_reason;
+  out->reason = view->has_reason ? view->reason : defaults.reason;
+}
+
+void bulk_abort_value_clear(bulk_abort_value_t *value) {
+  bulk_abort_t view;
+  if (value == NULL) return;
+  bulk_abort_clear(&view);
+  bulk_abort_value_copy(&view, value);
+}
+
+wl_codec_status_t bulk_abort_value_from_view(const bulk_abort_t *view, bulk_abort_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&bulk_abort_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  bulk_abort_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t bulk_abort_value_borrow(const bulk_abort_value_t *value, bulk_abort_t *out) {
+  bulk_abort_clear(out);
+  out->has_transfer_id = value->has_transfer_id;
+  if (value->has_transfer_id) {
+    out->transfer_id = value->transfer_id;
+  }
+  out->has_reason = value->has_reason;
+  if (value->has_reason) {
+    out->reason = value->reason;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t bulk_abort_value_to_view(const bulk_abort_value_t *value, bulk_abort_t *out) {
+  bulk_abort_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_abort_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_abort_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t bulk_abort_value_encoded_size(const bulk_abort_value_t *value) {
+  bulk_abort_t view;
+  if (value == NULL || bulk_abort_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return bulk_abort_encoded_size(&view);
+}
+
+wl_codec_status_t bulk_abort_value_encode(const bulk_abort_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  bulk_abort_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_abort_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? bulk_abort_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t bulk_abort_value_decode(const uint8_t *input, size_t length, bulk_abort_value_t *out) {
+  bulk_abort_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_abort_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  bulk_abort_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+
+static void bulk_status_value_copy(const bulk_status_t *view, bulk_status_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  bulk_status_t defaults;
+  bulk_status_clear(&defaults);
+  out->has_transfer_id = view->has_transfer_id;
+  out->transfer_id = view->has_transfer_id ? view->transfer_id : defaults.transfer_id;
+  out->has_phase = view->has_phase;
+  out->phase = view->has_phase ? view->phase : defaults.phase;
+  out->has_code = view->has_code;
+  out->code = view->has_code ? view->code : defaults.code;
+  out->has_next_offset = view->has_next_offset;
+  out->next_offset = view->has_next_offset ? view->next_offset : defaults.next_offset;
+  out->has_accepted_chunk_size = view->has_accepted_chunk_size;
+  out->accepted_chunk_size = view->has_accepted_chunk_size ? view->accepted_chunk_size : defaults.accepted_chunk_size;
+}
+
+void bulk_status_value_clear(bulk_status_value_t *value) {
+  bulk_status_t view;
+  if (value == NULL) return;
+  bulk_status_clear(&view);
+  bulk_status_value_copy(&view, value);
+}
+
+wl_codec_status_t bulk_status_value_from_view(const bulk_status_t *view, bulk_status_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&bulk_status_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  bulk_status_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t bulk_status_value_borrow(const bulk_status_value_t *value, bulk_status_t *out) {
+  bulk_status_clear(out);
+  out->has_transfer_id = value->has_transfer_id;
+  if (value->has_transfer_id) {
+    out->transfer_id = value->transfer_id;
+  }
+  out->has_phase = value->has_phase;
+  if (value->has_phase) {
+    out->phase = value->phase;
+  }
+  out->has_code = value->has_code;
+  if (value->has_code) {
+    out->code = value->code;
+  }
+  out->has_next_offset = value->has_next_offset;
+  if (value->has_next_offset) {
+    out->next_offset = value->next_offset;
+  }
+  out->has_accepted_chunk_size = value->has_accepted_chunk_size;
+  if (value->has_accepted_chunk_size) {
+    out->accepted_chunk_size = value->accepted_chunk_size;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t bulk_status_value_to_view(const bulk_status_value_t *value, bulk_status_t *out) {
+  bulk_status_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_status_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_status_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t bulk_status_value_encoded_size(const bulk_status_value_t *value) {
+  bulk_status_t view;
+  if (value == NULL || bulk_status_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return bulk_status_encoded_size(&view);
+}
+
+wl_codec_status_t bulk_status_value_encode(const bulk_status_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  bulk_status_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_status_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? bulk_status_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t bulk_status_value_decode(const uint8_t *input, size_t length, bulk_status_value_t *out) {
+  bulk_status_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = bulk_status_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  bulk_status_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+

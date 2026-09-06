@@ -18,7 +18,7 @@ The order below is for reviewing the API after using those examples.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/b5c444ab09bbbc1490e1e69307a760342a1633d0/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/b2789461929de1c687bf562e8636f5ad343a15b3/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -199,7 +199,7 @@ a call, `inspect()` returns its typed result, `release/cancel()` manage it, and
 lifetime. Explicit field mappings remain a separate interoperability mode; the
 two payload formats cannot be mixed. See the [RPC contract](rpc-runtime.md).
 
-## WLC-Generated Surface (ABI 21)
+## WLC-Generated Surface (ABI 22)
 
 WLC deliberately splits three concerns:
 

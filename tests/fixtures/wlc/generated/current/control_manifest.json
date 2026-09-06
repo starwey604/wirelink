@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.4.0",
-    "codegen_abi": 21
+    "codegen_abi": 22
   },
   "module": "control",
   "identity": {
@@ -16,11 +16,12 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "control.c", "size": 36116, "digest": "0x40c1b1d08c2d751e"},
-    {"path": "control.h", "size": 8468, "digest": "0x35c4fc14fd5b3e12"},
+    {"path": "control.c", "size": 65704, "digest": "0x4babc534bdc5b0f7"},
+    {"path": "control.h", "size": 8956, "digest": "0xc9d9d2c601f18839"},
     {"path": "control_bindings.c", "size": 22521, "digest": "0xa92466477d83b5d5"},
     {"path": "control_bindings.h", "size": 6515, "digest": "0xa44823a2baa0a61a"},
     {"path": "control_runtime.c", "size": 57325, "digest": "0x973d0113d9f58251"},
-    {"path": "control_runtime.h", "size": 26584, "digest": "0x85c45ff41cda6d6f"}
+    {"path": "control_runtime.h", "size": 26584, "digest": "0x7595b3ddb6914730"},
+    {"path": "control_values.h", "size": 9157, "digest": "0xa1619853bddfc4b7"}
   ]
 }

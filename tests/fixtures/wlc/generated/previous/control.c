@@ -595,3 +595,104 @@ size_t arm_command_encoded_size(const arm_command_t *value) { size_t size; retur
 wl_codec_status_t arm_command_encode(const arm_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&arm_command_desc, value, out, cap, length); }
 wl_codec_status_t arm_command_decode(const uint8_t *input, size_t length, arm_command_t *out) { return wlc_decode(&arm_command_desc, input, length, out); }
 
+static void joint_command_value_copy(const joint_command_t *view, joint_command_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  joint_command_t defaults;
+  joint_command_clear(&defaults);
+  out->has_position_bits = view->has_position_bits;
+  out->position_bits = view->has_position_bits ? view->position_bits : defaults.position_bits;
+  out->has_velocity_bits = view->has_velocity_bits;
+  out->velocity_bits = view->has_velocity_bits ? view->velocity_bits : defaults.velocity_bits;
+  out->has_torque_bits = view->has_torque_bits;
+  out->torque_bits = view->has_torque_bits ? view->torque_bits : defaults.torque_bits;
+  out->has_kp_bits = view->has_kp_bits;
+  out->kp_bits = view->has_kp_bits ? view->kp_bits : defaults.kp_bits;
+  out->has_kd_bits = view->has_kd_bits;
+  out->kd_bits = view->has_kd_bits ? view->kd_bits : defaults.kd_bits;
+  out->has_mode = view->has_mode;
+  out->mode = view->has_mode ? view->mode : defaults.mode;
+}
+
+void joint_command_value_clear(joint_command_value_t *value) {
+  joint_command_t view;
+  if (value == NULL) return;
+  joint_command_clear(&view);
+  joint_command_value_copy(&view, value);
+}
+
+wl_codec_status_t joint_command_value_from_view(const joint_command_t *view, joint_command_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = wlc_measure(&joint_command_desc, view, &size);
+  if (status != WL_CODEC_OK) return status;
+  joint_command_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t joint_command_value_borrow(const joint_command_value_t *value, joint_command_t *out) {
+  joint_command_clear(out);
+  out->has_position_bits = value->has_position_bits;
+  if (value->has_position_bits) {
+    out->position_bits = value->position_bits;
+  }
+  out->has_velocity_bits = value->has_velocity_bits;
+  if (value->has_velocity_bits) {
+    out->velocity_bits = value->velocity_bits;
+  }
+  out->has_torque_bits = value->has_torque_bits;
+  if (value->has_torque_bits) {
+    out->torque_bits = value->torque_bits;
+  }
+  out->has_kp_bits = value->has_kp_bits;
+  if (value->has_kp_bits) {
+    out->kp_bits = value->kp_bits;
+  }
+  out->has_kd_bits = value->has_kd_bits;
+  if (value->has_kd_bits) {
+    out->kd_bits = value->kd_bits;
+  }
+  out->has_mode = value->has_mode;
+  if (value->has_mode) {
+    out->mode = value->mode;
+  }
+  return WL_CODEC_OK;
+}
+
+wl_codec_status_t joint_command_value_to_view(const joint_command_value_t *value, joint_command_t *out) {
+  joint_command_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = joint_command_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = wlc_measure(&joint_command_desc, &view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+size_t joint_command_value_encoded_size(const joint_command_value_t *value) {
+  joint_command_t view;
+  if (value == NULL || joint_command_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return joint_command_encoded_size(&view);
+}
+
+wl_codec_status_t joint_command_value_encode(const joint_command_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  joint_command_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = joint_command_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? joint_command_encode(&view, out, capacity, length) : status;
+}
+
+wl_codec_status_t joint_command_value_decode(const uint8_t *input, size_t length, joint_command_value_t *out) {
+  joint_command_t view;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = joint_command_decode(input, length, &view);
+  if (status != WL_CODEC_OK) return status;
+  joint_command_value_copy(&view, out);
+  return WL_CODEC_OK;
+}
+

@@ -1,6 +1,6 @@
 # Default endpoints: design and boundaries
 
-Status: internal development, codegen ABI 21. Existing mapped RPC and codec bytes
+Status: internal development, codegen ABI 22. Existing mapped RPC and codec bytes
 are unchanged; the new managed RPC mode has its own metadata prefix. No new
 package is released. [中文](default-endpoint-cn.md). Start with the
 [temperature tutorial](getting-started.md) for ordinary use.
@@ -101,3 +101,11 @@ the real core. C11/C++20 headers and existing Cortex-M runtime size gates remain
 covered. Zephyr pump cases exercise generic lifecycle and adapter service errors.
 Clock regression, FFI, package, and pending board gates are tracked in the
 [clock evolution record](endpoint-clock-evolution.md).
+## Business values
+
+The codec target also exports `<module>_values.h`: bounded `<message>_value_t`
+objects own string/bytes arrays and nested data. Assignment makes an independent
+copy. This header does not declare borrowed message views or runtime assembly.
+Use `<module>.h` only for the advanced borrowed codec and explicit value/view
+conversions. See the [evolution record](rpc-usability-progress-cn.md) for the
+staged endpoint migration; ABI 22 first establishes the data boundary.

@@ -5,7 +5,7 @@ v1 frame header. New applications should use the generated managed RPC endpoint
 described in the [RPC tutorial](tutorial-rpc.md). The following sections specify
 its wire/ownership boundary, then the advanced low-level engine.
 
-## Managed RPC and mapped interoperability (codegen ABI 21)
+## Managed RPC and mapped interoperability (codegen ABI 22)
 
 Request and response delivery independently default to reliable. Override a
 binding with `@delivery(unreliable)`. Omitted defaults, explicit reliable

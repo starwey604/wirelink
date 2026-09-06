@@ -1,6 +1,6 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 21。既有映射 RPC 与 codec 字节不变；新增托管 RPC
+状态：内部开发，生成 ABI 22。既有映射 RPC 与 codec 字节不变；新增托管 RPC
 使用独立的元数据前缀。本轮不发布新包。
 [English](default-endpoint.md)。入门使用见 [getting-started-cn.md](getting-started-cn.md)。
 
@@ -88,3 +88,9 @@ loopback 的 connect 自动连接两端并安装 service/close/hint。两端共�
 C11/C++20 头文件检查和已有 Cortex-M runtime 体积门限保留。
 Zephyr pump 单测覆盖通用端点生命周期及适配器 service 错误传播。
 时钟回归、FFI、安装包和待完成的实板验证记录见[时钟演进](endpoint-clock-evolution.md)。
+## 业务值入口
+
+codec target 同时导出 `<module>_values.h`：有界 `<message>_value_t` 拥有内嵌
+string/bytes 和嵌套数据，结构体赋值得到独立副本。这个头文件不声明借用消息视图
+或 runtime 装配。只有高级借用 codec 和显式 value/view 转换才需要 `<module>.h`。
+端点迁移状态见[实施记录](rpc-usability-progress-cn.md)；ABI 22 先确立数据所有权边界。

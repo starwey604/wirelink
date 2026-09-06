@@ -8,6 +8,11 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- ABI 22 adds standalone generated `<module>_values.h` business values with
+  inline bounded string/bytes storage, recursively owned nested messages and
+  explicit advanced value/view conversion. Value decode/conversion failures
+  leave output unchanged. Keep codec wire bytes and allocation-free behavior;
+  update manifests, CMake generation and all consumers together.
 - ABI 21 configures an owner-side `wl_clock_t` once on default endpoints, removing
   explicit time from daily step/RPC/hint calls. Inline replies share a pass
   snapshot; unreliable typed submission does not read the clock. Add an optional

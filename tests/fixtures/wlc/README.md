@@ -67,3 +67,8 @@ these conformance schemas merely to demonstrate the new default API.
 ABI 21 adds endpoint clock configuration and explicit time on advanced binding
 sends/claim commits. Regenerate all headers and sources together; schemas and
 pure codec bytes remain unchanged.
+
+ABI 22 adds `control_values.h`, containing bounded self-owning business values,
+enums and message bounds. The advanced borrowed `control.h` includes it. Value
+codecs share the existing wire implementation; frozen schema/vector tests do
+not change to demonstrate the new endpoint API.

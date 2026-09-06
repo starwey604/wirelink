@@ -45,10 +45,12 @@ enum {
 
 typedef int32_t wl_rpc_cache_policy_t;
 enum {
-  /* A full cache rejects completion until TTL expiry frees an entry. */
+  /* A full cache rejects new execution at begin(), before the handler runs.
+     Pending executions already own their response capacity. */
   WL_RPC_CACHE_REJECT_NEW = 0,
-  /* The oldest cached response is discarded. Exactly-once replay then ends for
-     it. */
+  /* Evict the oldest DELIVERED response only. Reserved, ready, acquired and
+     in-flight entries remain protected; replay protection ends after eviction.
+     TTL is a maximum age, not a guaranteed retention window. */
   WL_RPC_CACHE_EVICT_OLDEST = 1,
 };
 
