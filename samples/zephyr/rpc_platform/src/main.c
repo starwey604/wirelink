@@ -286,13 +286,13 @@ int main(void) {
   const uint32_t encode_cycles = cycle_now() - start;
   irq_unlock(locked);
   locked = irq_lock();
-  start = k_cycle_get_32();
+  start = cycle_now();
   for (unsigned i = 0; i < 32; ++i)
     CHECK(large_value_decode(encoded, length, &decoded) == WL_CODEC_OK);
   const uint32_t decode_cycles = cycle_now() - start;
   irq_unlock(locked);
   locked = irq_lock();
-  start = k_cycle_get_32();
+  start = cycle_now();
   for (unsigned i = 0; i < 128; ++i) copied = large;
   const uint32_t copy_cycles = cycle_now() - start;
   irq_unlock(locked);
