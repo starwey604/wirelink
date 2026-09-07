@@ -150,12 +150,8 @@ may run local handlers while waiting. Never call sync from that owner's callback
 For business threads calling a background-owned endpoint, install the
 [host executor proxy](rpc-platform.md) at setup; do not drive it from two threads.
 
-An event loop that cannot block can use the separate
-[client_async.c](../examples/01_rpc/client_async.c), built as `calculator_client_async`.
-Its `_async()` snapshots accepted input and notifies on completion. Copy callback
-`*response` to retain an independent result. Admission errors such as `WL_ERR_BUSY`
-produce no callback. The server is unchanged. See [platform integration](rpc-platform.md)
-for the detailed waiting and shutdown contract.
+Programs that cannot block can continue with the separate
+[asynchronous client tutorial](tutorial-rpc-async.md). The server is unchanged.
 
 ## 5. Server: fill a response or return a business rejection
 
@@ -213,22 +209,18 @@ business rejection codes agreed by the peers; this example uses 1 for overflow.
 Do not return `WL_ERR_*` to report a framework failure: those numbers would be
 interpreted as business rejection codes. Codec/transport failures have a separate
 diagnostic path. Long-running work uses the explicit
-[advanced deferred-token API](rpc-runtime.md), not a blocking immediate handler.
+[deferred-reply tutorial](tutorial-rpc-deferred.md), not a blocking immediate handler.
 
 ## 6. Boundaries to remember
 
 - Completion reports success, business rejection, timeout, cancellation or
   communication failure. Diagnostics in `wl_rpc_completion_t` belong to that
   call, not shared last_error state.
-- Accepted calls receive exactly one notification under continued driving or
-  orderly close. The response pointer is callback-scoped; copying `*response`
-  preserves an independent value, including bounded string/bytes, without destruction.
-- A callback may submit or cancel other calls. It must not recursively step or
-  synchronously close its own endpoint. Set an application stop flag and close
-  from the main loop; close notifies outstanding calls before returning.
-- For cancellation, replace the final NULL with `&call` (`wl_rpc_call_t`) and
-  call `calculator_endpoint_cancel(&client, &call)`. Completion still notifies
-  the outcome. Timeout/cancellation does not undo remote side effects.
+- Successful responses belong to the application and survive endpoint close.
+  The next tutorial demonstrates this with strings.
+- Synchronous waiting may run local handlers; never recursively sync from a
+  handler on the same endpoint. Close the generated endpoint before freeing UDP.
+  Timeout does not undo remote side effects.
 - Defaults provide four RPC slots but one link TX slot. Submission queues are
   bounded; Wirelink creates no thread, heap or unbounded queue.
   The recent-result cache may evict its oldest delivered response. Its 10-second
@@ -241,4 +233,6 @@ Repeated clients need not wait for cache TTL. Wirelink handles acknowledgments
 and retransmission over UDP, but this example supplies neither authentication
 nor encryption and should not be exposed to untrusted networks.
 
-Next: [integrate the endpoint into your program](tutorial-integration.md).
+Next: [query and save device information](tutorial-rpc-values.md), then choose
+[async clients](tutorial-rpc-async.md), [deferred servers](tutorial-rpc-deferred.md),
+or [project integration](tutorial-integration.md).

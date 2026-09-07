@@ -285,3 +285,32 @@ libflorid 的 acados/Dyn-Calib 本地改动、Ragtime dev 已有的八个未推�
 FCI 仍为显式 operation/status 字段映射；升级编译器不等于切换托管 RPC，
 后续须分清本地 API 迁移与产品线上合同变更，并成对测试主机/固件。
 M5 的实际修改与 H3 仍在 H2 之后进行。
+
+## M5：产品 dev 与可编译教程（软件完成，H3 待验）
+
+H2 通过后，libflorid dev `aadcc56` 与 Ragtime dev `5098c5b` 固定到已验证的
+Wirelink `3df7488` / WLC `afa5dfd` / ABI 25。FCI schema、字段编号和显式映射模式不变；
+底层 codec 发送助手改用已有 owner pass 时间，不引入第二个时钟。
+libflorid main 已包含，无需同步；长期测试构建、main/tag 均未修改。
+Ragtime 原有八个未推提交未顺带推送，Windows 用 Git bundle + 独立 worktree 消费快照；
+libflorid 的本地 acados/Dyn-Calib 改动及 Windows 原工作区保留。
+
+- libflorid `build/rpc-m5-florid`：库和全部默认示例构建通过，4 项 CTest 各重复 3 次通过。
+  `build/rpc-m5-florid-sanitize`：Clang ASan/UBSan 四项全过，原生 leak 检查开启。
+- Ragtime 自身 Zephyr `577e42ad1878`：`build/rpc-m5-firmware-final` 的 ArmProtocol / upgrade
+  native_sim 32/64 与 Cortex-M3 QEMU 共 4/4 配置、80/80 用例通过，无警告。
+  初次编译遗漏发送时间参数的失败日志保留，修复后完整重跑，不将构建失败当作执行结果。
+- 产品 H7 USB HIL 构建通过：Flash 187088 B，RAM 75976 B；未启用电机/CAN/持久化。
+  Windows VS 18/MSVC 19.51 与 libusb 1.0.30 的独立 host HIL 构建通过。
+  persistence 辅助目标仍有既有 Duration.hpp 数值转换警告，本次不运行持久化测试。
+- 新增 `02_device_info` 双程序，展示字符串赋值、再次调用、清理原值和关闭端点后的保存结果。
+  `01_rpc` 保留 sync/async 客户端，新增独立 deferred 服务端；三个组合跑成功、拒绝、
+  请求 ACK 与首个响应同时丢失及黑洞，断言业务执行次数和实际丢包。
+- Host Release 15 项通过；新增双语源码一致性检查另过。安装包 4 项通过；
+  ASan/UBSan 原生 13 项、预加载 ASan 的 Python 2 项通过。
+  C++/Python 存储消费者各重复 20 次，每次 2000 RPC，共各 40000 次；
+  配对释放、关闭后池回到基线、热路径零端点分配器调用的断言全部通过。
+- 六篇中英文进阶文章分开讲字符串、async、deferred；完整 C 代码逐字匹配编译源文件。
+  安装说明不再要求产品 HIL 的编译器位于嵌套 WLC worktree。
+
+上述是软件和构建证据，远端新教程 CI 与 H3 物理 USB 验证仍需独立确认。

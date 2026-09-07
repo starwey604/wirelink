@@ -49,7 +49,8 @@ RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unre
 普通结果的指针只在回调内有效，复制结构体即可长期保存，见[默认端点](default-endpoint-cn.md)。
 
 默认托管端点为四槽最近结果策略；`config.advanced` 保留专家覆盖，严格缓存选 REJECT_NEW。
-同步等待和可选分配器尚未实现。下文手动调用和 deferred token 是明确的高级选择，
+同步调用见[平台等待](rpc-platform-cn.md)，可选 create/destroy 见[端点存储](endpoint-storage-cn.md)。
+下文手动调用和 deferred token 是明确的高级选择，
 不能把高级 handler 的非零返回规则套用到即时 handler。
 
 ## 高级手动调用与延迟回复的所有权

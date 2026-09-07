@@ -34,8 +34,11 @@ assets do not contain this API. Implementation/H7 handoff evidence is recorded i
 ## Documentation path
 
 1. Display the latest temperature in [`getting-started.md`](docs/getting-started.md),
-   request a calculation in [`tutorial-rpc.md`](docs/tutorial-rpc.md), then build
+   request a calculation in [`tutorial-rpc.md`](docs/tutorial-rpc.md), save strings
+   in [`tutorial-rpc-values.md`](docs/tutorial-rpc-values.md), then build
    your own project with [`tutorial-integration.md`](docs/tutorial-integration.md).
+   Nonblocking callers and slow services have separate
+   [async](docs/tutorial-rpc-async.md) and [deferred](docs/tutorial-rpc-deferred.md) tutorials.
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    configure an endpoint clock once with [`endpoint-clock.md`](docs/endpoint-clock.md),
    then integrate its wakeups with [`rpc-platform.md`](docs/rpc-platform.md).

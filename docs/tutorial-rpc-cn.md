@@ -144,10 +144,7 @@ int main(int argc, char **argv) {
 不能在同一端点的 handler/完成回调中再次同步调用。若需要业务线程调用后台端点，
 初始化时使用 [host executor 代理](rpc-platform-cn.md)，不能让两个线程同时 `step`。
 
-不能阻塞的事件循环请阅读独立的 [client_async.c](../examples/01_rpc/client_async.c)：
-`_async()` 接受请求快照，完成时回调；复制回调的 `*response` 即可保留独立结果。
-提交返回 `WL_ERR_BUSY` 等错误时没有接受调用，也不会回调。异步示例可运行
-`calculator_client_async`；服务端无需修改。进一步的等待/停止约定见[平台接口](rpc-platform-cn.md)。
+不能阻塞的程序可以之后阅读[异步客户端篇](tutorial-rpc-async-cn.md)，服务端无需修改。
 
 ## 5. 服务端：填响应或返回业务拒绝码
 
@@ -203,19 +200,15 @@ handler 不需要知道 endpoint、token 或 delivery；`context` 仅用于自�
 例如这里用 1 表示加法越界。不要返回 `WL_ERR_*` 充当框架错误——它们会被当作业务拒绝码。
 响应编码错误、发送错误等由框架诊断路径报告，不与拒绝码混用。
 不要在这个即时 handler 中等待电机完成或执行长时间阻塞工作；延迟回复有独立的
-[高级 token 接口](rpc-runtime-cn.md)。
+[延迟回复教程](tutorial-rpc-deferred-cn.md)。
 
 ## 6. 正常运行时需要记住的边界
 
 - 完成只有成功、业务拒绝、超时、取消、通信失败五种结果；
   `wl_rpc_completion_t` 的诊断属于本次调用，不使用共享 last_error。
-- 已接受请求在持续推进或有序关闭时恰好回调一次。回调中的响应指针只在该回调内有效；
-  复制 `*response` 得到自持副本，包括有界 string/bytes，无需析构。
-- 回调可以提交或取消其他调用；不能递归 `step` 或在回调中同步 `close` 同一端点。
-  设置应用的停止标志，在回到主循环后关闭。关闭会结束尚未通知的调用。
-- 取消句柄是可选的：将最后一个 NULL 换成 `&call`（类型 `wl_rpc_call_t`），
-  然后调用 `calculator_endpoint_cancel(&client, &call)`。仍由完成回调通知结果。
-  超时或取消不撤销远端已经发生的副作用。
+- 成功响应是应用自己的值，端点关闭不会让结果失效；下一篇用字符串实际演示。
+- 同步等待也会运行本地 handler；不要在同一端点的 handler 中递归调用 sync。
+  主循环退出时先调用生成的 close，再释放 UDP。超时不撤销远端已经发生的副作用。
 - 默认四个 RPC 槽，单个链路发送槽。框架有界排队，不创建线程、堆或无限队列。
   默认缓存只保留有限的最近结果，允许淘汰已送达的最旧响应；
   10 秒 TTL 是最长保留时间，不是“10 秒内绝不重复执行”的保证。
@@ -226,4 +219,6 @@ handler 不需要知道 endpoint、token 或 delivery；`context` 仅用于自�
 重复运行客户端无需等待缓存 TTL。UDP 丢失下的确认与重传由 Wirelink 处理，
 但 UDP 示例不提供身份认证或加密，不应直接暴露到不可信网络。
 
-下一篇：[把端点接入自己的程序](tutorial-integration-cn.md)。
+下一篇：[查询并保存设备信息](tutorial-rpc-values-cn.md)，再按需阅读
+[异步客户端](tutorial-rpc-async-cn.md)、[延迟服务](tutorial-rpc-deferred-cn.md)，
+或[把端点接入自己的程序](tutorial-integration-cn.md)。

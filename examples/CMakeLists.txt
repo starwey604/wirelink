@@ -12,8 +12,11 @@ if(WIRELINK_BUILD_GETTING_STARTED)
   endif()
   add_subdirectory(00_telemetry)
   add_subdirectory(01_rpc)
+  add_subdirectory(02_device_info)
   if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME wirelink_tutorial_sources
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/doc_sources.py)
     add_subdirectory(../tests/clock_bridge ${CMAKE_CURRENT_BINARY_DIR}/clock_bridge)
     add_test(NAME wirelink_udp_tutorials
       COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/udp_processes.py
@@ -22,6 +25,18 @@ if(WIRELINK_BUILD_GETTING_STARTED)
         --client $<TARGET_FILE:calculator_client>
         --server $<TARGET_FILE:calculator_server>)
     set_tests_properties(wirelink_udp_tutorials PROPERTIES TIMEOUT 30)
+    add_test(NAME wirelink_udp_owned_strings
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/udp_owned_strings.py
+        --client $<TARGET_FILE:device_info_client>
+        --server $<TARGET_FILE:device_info_server>)
+    set_tests_properties(wirelink_udp_owned_strings PROPERTIES TIMEOUT 30)
+    add_test(NAME wirelink_udp_async_deferred
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/udp_rpc_variants.py
+        --client $<TARGET_FILE:calculator_client>
+        --async-client $<TARGET_FILE:calculator_client_async>
+        --server $<TARGET_FILE:calculator_server>
+        --deferred-server $<TARGET_FILE:calculator_server_deferred>)
+    set_tests_properties(wirelink_udp_async_deferred PROPERTIES TIMEOUT 45)
   endif()
 endif()
 

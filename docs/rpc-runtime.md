@@ -60,7 +60,8 @@ on return, but a struct copy is independent; see [default endpoint](default-endp
 
 Managed defaults provide four slots and a finite recent-result cache.
 `config.advanced` retains expert overrides; choose REJECT_NEW for strict retention.
-Synchronous waiting and allocator creation are not implemented yet. The manual
+See [platform waiting](rpc-platform.md) for synchronous calls and
+[endpoint storage](endpoint-storage.md) for optional create/destroy. The manual
 calls and deferred tokens below are explicit advanced choices. In particular,
 their nonzero-handler-return rule does not apply to immediate handlers.
 
