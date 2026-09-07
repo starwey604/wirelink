@@ -218,5 +218,9 @@ RPC 教程改为同步主路径，异步客户端单独保留；中英文[平台
   （Python 宿主不做 leak 检查，原生测试启用）。
 - `build/rpc-m3-package`：安装包三个生成 C 消费测试通过。
 
-完整 WLC/针对性生成 C Sanitizer 和远端配对 CI 正在最后验收，尚不声明 M3 阶段完成。
+- 完整 WLC 115 项通过；fmt/clippy 通过。针对性生成 C ASan/UBSan 覆盖
+  async/sync 八种容量×delivery、managed RPC 四种 delivery、自持值与缓存基线，全部通过。
+
+M3 实现配对：Wirelink `39316f3` / WLC `ddbddef`（ABI 24）。远端配对 CI 正在验收，
+尚不声明 M3 阶段完成。
 M4/H2、M5/H3 尚未开始；libflorid/Ragtime 产品依赖、main、tag 和长期测试未改动。
