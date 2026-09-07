@@ -65,9 +65,13 @@ git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.g
 
 ## 5. 关于自动下载
 
-Wirelink 的 CMake 集成支持从 WLC GitHub Releases 下载固定版本并校验文件摘要。
-但当前内部 ABI 不能假定已有匹配的公开发行产物，所以本教程关闭自动下载，使用你已安装的工具。
-未来提供匹配发行包后，下载源、平台文件名和校验值应随 Wirelink 一起固定；
-用户无需知道或复制我们的 worktree 布局。
+若没有匹配的显式路径或 PATH 工具，默认 CMake 会获取上文固定提交的源码压缩包，
+校验 SHA-256，再用主机 Rust/Cargo 和锁定依赖构建 WLC。缓存位于
+`WIRELINK_WLC_CACHE_DIR`，按源码提交及主机架构隔离；交叉编译固件不会生成板端 WLC。
+这条路径需要主机 Rust/Cargo（支持 Rust 2024 edition）及首次获取源码/依赖的网络连接，
+不使用旧 ABI 的同版本 release 包，不在系统目录安装工具。
+
+教程仍展示显式安装路径，便于离线和版本并存。设置 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF`
+可禁止自动获取/构建；此时必须提供匹配的 WLC。用户无需复制开发者的 worktree 布局。
 
 现在回到 [入门：最新温度显示](getting-started-cn.md)。

@@ -22,13 +22,12 @@ cargo test --manifest-path wlc/Cargo.toml
 ```
 
 Consumer builds use an independently installed matching compiler rather than
-requiring this development worktree. Current internal ABI 25 is not a released
-asset; disable auto-download and use the matching source build.
+requiring this development worktree. Current internal ABI 26 has no matching
+release binary; the automatic fallback builds the paired source commit.
 `wirelink_wlc_generate_codec()` resolves a per-call executable, a
 project-wide executable, or a compatible `wlc` on the host `PATH` before
-downloading the pinned release. The fallback selects from
-`CMAKE_HOST_SYSTEM_NAME`/`CMAKE_HOST_SYSTEM_PROCESSOR`, verifies a source-pinned
-SHA256, and caches the extracted executable below
+fetching the pinned source archive. The fallback verifies its fixed SHA256,
+uses host Rust/Cargo with `--locked --target <rustc-host-triple>`, and caches the executable below
 `WIRELINK_WLC_CACHE_DIR`. It never follows a branch or a `latest` release and
 never selects from the target sysroot during a cross-build. Set
 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` and `WIRELINK_WLC_EXECUTABLE` for an offline
@@ -36,7 +35,7 @@ tool cache.
 
 Wirelink pins both the WLC release version and its codegen ABI. Every generated
 manifest is checked at build time before generated C compilation; updating WLC
-therefore requires updating the version, per-host archive hashes, expected ABI,
+therefore requires updating the version, source commit/digest, expected ABI,
 fixtures, and package-consumer tests together.
 
 WLC emits a codec pair (`<module>.h/.c`) and a binding pair

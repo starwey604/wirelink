@@ -69,10 +69,16 @@ virtual serial driver.
 
 ## 5. Automatic downloads
 
-Wirelink's CMake integration can download fixed WLC GitHub release assets and
-verify their digests. This internal ABI does not assume a matching public release
-asset, so the tutorial disables automatic download and uses the installed tool.
-When matching packages are distributed, Wirelink should pin source, platform
-asset names, and hashes. Users should never need our worktree layout.
+Without a matching explicit or PATH executable, CMake fetches the pinned source
+archive above, verifies its SHA-256, and builds WLC with host Rust/Cargo and locked
+dependencies. `WIRELINK_WLC_CACHE_DIR` separates builds by source commit and host
+triple; firmware cross-compilation never produces a target-device WLC.
+This fallback needs Rust/Cargo supporting edition 2024 and network access for
+the initial source/dependency fetch. It neither accepts an older same-version
+release binary nor installs a tool into system directories.
+
+Tutorials still show explicit installation for offline and side-by-side use.
+`WIRELINK_WLC_AUTO_DOWNLOAD=OFF` disables automatic fetching/building and requires
+a matching supplied compiler. No consumer needs our worktree layout.
 
 Continue with [displaying temperature](getting-started.md).

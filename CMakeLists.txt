@@ -337,6 +337,7 @@ if(WIRELINK_INSTALL)
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
     cmake/WirelinkWlc.cmake
+    cmake/WirelinkWlcBootstrap.cmake
     cmake/WirelinkWlcVerifyManifest.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc

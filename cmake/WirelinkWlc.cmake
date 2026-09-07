@@ -8,7 +8,7 @@ set(WIRELINK_WLC_VERSION "0.4.0" CACHE INTERNAL
 set(WIRELINK_WLC_CODEGEN_ABI "26" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
-  "Download the pinned WLC host compiler when it is not installed" ON)
+  "Fetch and build pinned WLC source when no matching host compiler is installed" ON)
 set(WIRELINK_WLC_CACHE_DIR
   "${CMAKE_BINARY_DIR}/_deps/wirelink-wlc" CACHE PATH
   "Directory for verified WLC host compiler downloads")
@@ -239,145 +239,7 @@ function(wirelink_wlc_generate)
     OUTPUT_DIR "${WLC_OUTPUT_DIR}")
 endfunction()
 
-function(_wirelink_wlc_release_asset out_asset out_hash out_executable)
-  string(TOLOWER "${CMAKE_HOST_SYSTEM_PROCESSOR}" _processor)
-  if(_processor MATCHES "^(x86_64|amd64|x64)$")
-    set(_architecture x86_64)
-  elseif(_processor MATCHES "^(aarch64|arm64)$")
-    set(_architecture aarch64)
-  else()
-    message(FATAL_ERROR
-      "Wirelink has no pinned WLC ${WIRELINK_WLC_VERSION} release for host "
-      "architecture '${CMAKE_HOST_SYSTEM_PROCESSOR}'. Set WLC_EXECUTABLE "
-      "for this call or WIRELINK_WLC_EXECUTABLE for the project.")
-  endif()
-
-  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND
-      _architecture STREQUAL "x86_64")
-    set(_asset "wlc-windows-x86_64.zip")
-    set(_hash "5568a888dd9ff84b4ddce474b2e424d785d49c708d9c8ed5b08d2837de631ea0")
-    set(_executable "wlc.exe")
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
-      _architecture STREQUAL "x86_64")
-    set(_asset "wlc-linux-x86_64-musl.tar.gz")
-    set(_hash "cdb168fe79fc4de720fddaa1ccb01e8cab38657b377dcb76fac6f3a6132673d4")
-    set(_executable "wlc")
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND
-      _architecture STREQUAL "aarch64")
-    set(_asset "wlc-linux-aarch64-musl.tar.gz")
-    set(_hash "8412165603dabc326965cecbb5355ff3a9f5cc61c5ec9f73219bbef601279977")
-    set(_executable "wlc")
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
-      _architecture STREQUAL "x86_64")
-    set(_asset "wlc-macos-x86_64.tar.gz")
-    set(_hash "8f9b968a2d2187357b59b484453d4fd5bfd4147c9af01f7c0d84240eb66aa7e6")
-    set(_executable "wlc")
-  elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND
-      _architecture STREQUAL "aarch64")
-    set(_asset "wlc-macos-aarch64.tar.gz")
-    set(_hash "1404ac1b885fff44afe1b0fe92da937b7832b2aba9813e34963d9b214a57ab96")
-    set(_executable "wlc")
-  else()
-    message(FATAL_ERROR
-      "Wirelink has no pinned WLC ${WIRELINK_WLC_VERSION} release for host "
-      "'${CMAKE_HOST_SYSTEM_NAME}/${CMAKE_HOST_SYSTEM_PROCESSOR}'. Set "
-      "WLC_EXECUTABLE for this call or WIRELINK_WLC_EXECUTABLE for the project.")
-  endif()
-
-  set(${out_asset} "${_asset}" PARENT_SCOPE)
-  set(${out_hash} "${_hash}" PARENT_SCOPE)
-  set(${out_executable} "${_executable}" PARENT_SCOPE)
-endfunction()
-
-function(_wirelink_wlc_download out_executable)
-  _wirelink_wlc_release_asset(_asset _expected_hash _executable_name)
-  get_filename_component(_cache_dir "${WIRELINK_WLC_CACHE_DIR}" ABSOLUTE
-    BASE_DIR "${CMAKE_BINARY_DIR}")
-  set(_version_dir "${_cache_dir}/v${WIRELINK_WLC_VERSION}")
-  set(_extract_dir "${_version_dir}/${_asset}.contents")
-  set(_executable "${_extract_dir}/${_executable_name}")
-
-  _wirelink_wlc_validate_executable("${_executable}" _cached_valid
-    _cached_reason)
-  if(_cached_valid)
-    set(${out_executable} "${_executable}" PARENT_SCOPE)
-    return()
-  endif()
-
-  file(MAKE_DIRECTORY "${_version_dir}")
-  file(LOCK "${_version_dir}/download.lock" GUARD FUNCTION TIMEOUT 180
-    RESULT_VARIABLE _lock_result)
-  if(NOT _lock_result STREQUAL "0")
-    message(FATAL_ERROR
-      "Could not lock the WLC download cache '${_version_dir}': ${_lock_result}")
-  endif()
-
-  # Another configure process may have populated the cache while this one
-  # waited for the lock.
-  _wirelink_wlc_validate_executable("${_executable}" _cached_valid
-    _cached_reason)
-  if(_cached_valid)
-    set(${out_executable} "${_executable}" PARENT_SCOPE)
-    return()
-  endif()
-
-  set(_archive "${_version_dir}/${_asset}")
-  if(EXISTS "${_archive}")
-    file(SHA256 "${_archive}" _archive_hash)
-    if(NOT _archive_hash STREQUAL _expected_hash)
-      file(REMOVE "${_archive}")
-    endif()
-  endif()
-
-  if(NOT EXISTS "${_archive}")
-    set(_url
-      "https://github.com/starwey604/wlc/releases/download/v${WIRELINK_WLC_VERSION}/${_asset}")
-    set(_partial "${_archive}.part")
-    file(REMOVE "${_partial}")
-    message(STATUS
-      "Wirelink: downloading WLC ${WIRELINK_WLC_VERSION} for the build host")
-    file(DOWNLOAD "${_url}" "${_partial}"
-      EXPECTED_HASH "SHA256=${_expected_hash}"
-      TLS_VERIFY ON
-      STATUS _download_status
-      SHOW_PROGRESS)
-    list(GET _download_status 0 _download_code)
-    list(GET _download_status 1 _download_message)
-    if(NOT _download_code STREQUAL "0")
-      file(REMOVE "${_partial}")
-      message(FATAL_ERROR
-        "Could not download pinned WLC asset '${_url}': ${_download_message}")
-    endif()
-    file(RENAME "${_partial}" "${_archive}")
-  endif()
-
-  set(_temporary_extract "${_extract_dir}.tmp")
-  file(REMOVE_RECURSE "${_temporary_extract}")
-  file(MAKE_DIRECTORY "${_temporary_extract}")
-  file(ARCHIVE_EXTRACT INPUT "${_archive}"
-    DESTINATION "${_temporary_extract}")
-  set(_temporary_executable
-    "${_temporary_extract}/${_executable_name}")
-  if(NOT CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows" AND
-      EXISTS "${_temporary_executable}")
-    file(CHMOD "${_temporary_executable}"
-      PERMISSIONS
-        OWNER_READ OWNER_WRITE OWNER_EXECUTE
-        GROUP_READ GROUP_EXECUTE
-        WORLD_READ WORLD_EXECUTE)
-  endif()
-  _wirelink_wlc_validate_executable("${_temporary_executable}"
-    _download_valid _download_reason)
-  if(NOT _download_valid)
-    file(REMOVE_RECURSE "${_temporary_extract}")
-    message(FATAL_ERROR
-      "Downloaded WLC asset '${_asset}' ${_download_reason}")
-  endif()
-
-  file(REMOVE_RECURSE "${_extract_dir}")
-  file(RENAME "${_temporary_extract}" "${_extract_dir}")
-  set(${out_executable} "${_executable}" PARENT_SCOPE)
-endfunction()
+include("${CMAKE_CURRENT_LIST_DIR}/WirelinkWlcBootstrap.cmake")
 
 function(_wirelink_wlc_resolve explicit_executable out_executable)
   if(explicit_executable)
@@ -420,7 +282,7 @@ function(_wirelink_wlc_resolve explicit_executable out_executable)
       "or WIRELINK_WLC_EXECUTABLE for the project.")
   endif()
 
-  _wirelink_wlc_download(_wlc)
+  _wirelink_wlc_bootstrap(_wlc)
   set(${out_executable} "${_wlc}" PARENT_SCOPE)
 endfunction()
 
