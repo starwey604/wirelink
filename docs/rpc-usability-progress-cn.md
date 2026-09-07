@@ -230,7 +230,7 @@ Wirelink 覆盖三种桌面 OS、安装包、UDP、FFI、Astrial、Sanitizer、f
 M4 随后实现（本地门槛后与最后远端任务重叠，未提前进行实板）；H2、M5/H3 尚未做。
 libflorid/Ragtime 产品依赖、main、tag 和长期测试未改动。
 
-## M4：可选创建层（ABI 25，软件验收完成）
+## M4：可选创建层（ABI 25，软件与 H2 验收完成）
 
 生成 `endpoint_create(&pointer, &config, &allocator)` / `endpoint_destroy(&pointer)`：
 创建一次申请完整端点，失败回滚；关闭/quiesce/完成通知后才配对释放。静态入口保留，
@@ -267,8 +267,13 @@ M4 配对为 Wirelink `3df748826ad3a3b0dbdf642b68fe98221310343d` / WLC `afa5dfd`
 H2 样例在 `samples/zephyr/rpc_platform`，一槽/四槽 H7 已构建，开始独立实板验证。
 IRQ-off CPU 探针统一使用 DWT，IRQ-on 往返使用包含休眠的系统周期钟，不混用两个计数器。
 实板证据与剩余项另见 [H2 验证记录](rpc-h2-h7-validation-cn.md)，不把软件通过当作 H2 完成。
-14:11 两次尝试均无法 attach H7 CPU，中间仅重启一次已确认的 J-Link 设备绑定；
-尚未执行烧录，等待用户断电重插/RESET。没有 H2 性能数据，不提前推进 M5/H3。
+14:11 两次尝试无法 attach H7 CPU，中间重启一次 J-Link 设备绑定；14:15 按住 RESET
+时仍停机超时。用户松开 RESET 后，14:16 正常连接恢复，一/四槽首次运行与系统复位重跑
+四次全部通过，H2 完成。无实现修改，当前保留四槽独立测试固件。
+H7 idle 为 1275/1358 周期（约 2.32/2.47 μs），2031 B 自持值解码 4038/3853 周期，
+RAM 双任务 RPC p50 为 35559/36630 周期（约 64.65/66.60 μs，含调度）。
+热路径端点分配器调用为零，关闭后池占用为零；主/服务线程未用栈 6236/2732 B。
+这些不是产品 USB/UART 延迟，也没有同方法旧 ABI 基线；完整测量条件和捕获哈希见 H2 记录。
 WLC 实现/二进制配对固定为 `afa5dfd`；随后 `9314249` 只修正中英文 README 的旧 ABI 数字，
 无编译器源码变化。指南链接指向此文档修正，构建及安装命令仍固定已验收实现 SHA。
 

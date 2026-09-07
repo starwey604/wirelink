@@ -89,5 +89,5 @@ UDP 自动安装等待方式；自定义平台初始化时提供 waiter，缺少
 异步仍为事件循环入口。时钟、停止和存活期见[平台接入](rpc-platform-cn.md)。
 
 H1 证据及 M3/M4 软件验收见[实施记录](rpc-usability-progress-cn.md)。
-[M4 分配器创建层](endpoint-storage-cn.md)沿用静态运行逻辑，软件检查已通过，
-H2 等待探针连接恢复；M5 产品迁移尚未做。
+[M4 分配器创建层](endpoint-storage-cn.md)沿用静态运行逻辑，软件检查和 H2 实板验证均已通过；
+M5 产品迁移尚未做。

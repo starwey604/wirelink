@@ -114,5 +114,5 @@ for clocks, stopping and lifetimes.
 
 See the [implementation record](rpc-usability-progress-cn.md) for H1 evidence
 and M3/M4 software gates. Optional [allocator creation](endpoint-storage.md) retains
-the static execution path; software checks passed, H2 awaits probe connection recovery.
+the static execution path; software checks and H2 hardware validation passed.
 M5 remains pending.
