@@ -286,7 +286,7 @@ FCI 仍为显式 operation/status 字段映射；升级编译器不等于切换�
 后续须分清本地 API 迁移与产品线上合同变更，并成对测试主机/固件。
 M5 的实际修改与 H3 仍在 H2 之后进行。
 
-## M5：产品 dev 与可编译教程（软件完成，H3 待验）
+## M5：产品 dev 与可编译教程（软件完成，H3 部分通过）
 
 H2 通过后，libflorid dev `aadcc56` 与 Ragtime dev `5098c5b` 固定到已验证的
 Wirelink `3df7488` / WLC `afa5dfd` / ABI 25。FCI schema、字段编号和显式映射模式不变；
@@ -314,8 +314,19 @@ libflorid 的本地 acados/Dyn-Calib 改动及 Windows 原工作区保留。
   安装说明不再要求产品 HIL 的编译器位于嵌套 WLC worktree。
 
 Wirelink 教程提交 `609ff8d` 的
-[Host CI](https://github.com/starwey604/wirelink/actions/runs/34092154160) 已全部通过，
-含 Windows/macOS/Linux 新双进程测试与安装包。Zephyr CI 此时仍运行。
-H3 14:44 换烧时探针可识别但 CPU attach 失败，未执行擦写；当前等待用户拔插。
-普通 USB HIL 和一次性 USB 重枚举镜像均构建完成，配对、哈希和待验项见
-[H3 产品物理链路记录](rpc-h3-product-validation-cn.md)。没有把 H2 板内结果或软件通过当作 H3 完成。
+[Host CI](https://github.com/starwey604/wirelink/actions/runs/34092154160) 与
+[Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34092154052) 已全部通过，
+含 Windows/macOS/Linux 新双进程测试与安装包；Zephyr 主套件 50 配置 / 301 用例、
+生成示例 17 配置 / 17 用例，ESP32-S3 两配置仅构建。
+
+H3 14:44 首次换烧失败，用户重新拔插/松开后，15:09 普通 USB HIL 成功烧录并校验。
+真实 USB 对抗性会话重连通过；产品生命周期首轮第 50 次打开失败，补充 host USB
+错误诊断后重跑 100/100 通过，首次故障根因仍未确定。诊断提交 Ragtime `07a2998`
+不改变固件、API 或重试行为，仅经 bundle 同步到 Windows 独立工作区。
+Astrial 底层启停/关闭 100/100 通过，但不含物理重枚举。
+
+无调试进程的 3 × 10000 次命令—遥测回显均无错配，主机 CPU 7.57–7.88%；
+严格性能仅 2/3 通过，第三轮 11 个遥测 gap 超过 0.1% 门槛，不能宣布 H3 完成。
+J-Link 再 attach 仍失败，尚缺有效板端周期/最终窗口统计及物理重枚举验证。
+两次长测的失败、已通过项、配对、日志哈希和下一步均保存在
+[H3 产品物理链路记录](rpc-h3-product-validation-cn.md)。当前保留普通 HIL，无 main 合并或发布。
