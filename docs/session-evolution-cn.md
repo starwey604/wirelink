@@ -1,6 +1,6 @@
 # 自动会话与 RPC 调用归属：P0
 
-状态：实现、本地软件回归和 H7 功能验证完成；2026-09-07。远端平台 CI 待配对提交。
+状态：实现、本地/远端回归和 H7 功能验证全部完成；2026-09-07。
 仅 dev；不合并 main、不发布、不修改产品长期测试快照。
 
 ## 合同
@@ -85,4 +85,14 @@ SESSION_P0 ALL PASS
 - WLC 实现/文档：`c6b6a8fa560a15c45d564aad0afd197b13682de8`，生成 ABI 26。
 - CI 和安装篇固定此 WLC；WLC 的生成 C 测试反向固定上述 Wirelink 实现提交。
   两仓库都只推送 `dev/wirelink-p0-hardening`，不变更 main/tag。
-- 远端 Windows/macOS 平台验证尚待完成；未完成前不宣称远端跨平台验收通过。
+- [Wirelink Host CI](https://github.com/starwey604/wirelink/actions/runs/34108337901)：
+  配对提交 `18affe9`，9/9 jobs 通过，包括 Linux/macOS/Windows core、平台环境、
+  安装包、UDP/故障注入、薄 FFI、Astrial、Sanitizer 和 fuzz smoke。
+- [WLC CI](https://github.com/starwey604/wlc/actions/runs/34108341102)：4/4 jobs 通过，
+  含 Rust/生成 C 质量，以及 Windows、Intel/ARM macOS CLI smoke。
+- [Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34108337872)：2/2 jobs 通过，
+  包括核心 unit/native/QEMU、生成端点样例和 ESP32-S3 USB sample 交叉构建。
+  本轮未进行 ESP32-S3 实测。
+
+本轮 P0 无未完成实现项。后续产品迁移、USB/固件 CPU 性能验证或发布应另行安排；
+这里的 H7 两次板内功能通过，不替代这些验收。

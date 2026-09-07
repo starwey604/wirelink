@@ -10,7 +10,9 @@
 #include "wirelink/platform.h"
 
 static calculator_endpoint_t client;
-int error = calculator_endpoint_init(&client, wl_platform_environment());
+wl_err_t initialize_client(void) {
+  return calculator_endpoint_init(&client, wl_platform_environment());
+}
 ```
 
 桌面链接 `Wirelink::platform`（`WIRELINK_BUILD_PLATFORM=ON`）；Zephyr 启用

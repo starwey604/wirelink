@@ -10,7 +10,9 @@ is published; both managed-RPC peers must use matching builds.
 #include "calculator_endpoint.h"
 #include "wirelink/platform.h"
 static calculator_endpoint_t client;
-int error = calculator_endpoint_init(&client, wl_platform_environment());
+wl_err_t initialize_client(void) {
+  return calculator_endpoint_init(&client, wl_platform_environment());
+}
 ```
 
 Link `Wirelink::platform` (`WIRELINK_BUILD_PLATFORM=ON`) on desktops, or enable
