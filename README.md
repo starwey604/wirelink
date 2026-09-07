@@ -24,11 +24,12 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The current dev tutorials use unreleased codegen ABI 23: owned RPC business
-values, immediate handlers and callback completion with automatic call recycling.
+The current dev tutorials use unreleased codegen ABI 25: owned RPC business
+values, immediate handlers, synchronous/platform waiting, automatic async call
+recycling, and optional one-allocation endpoint creation.
 Use the exact WLC revision in [installation](docs/installation.md); older release
 assets do not contain this API. Implementation/H7 handoff evidence is recorded in
-[the M0–M2 log](docs/rpc-usability-progress-cn.md).
+[the milestone log](docs/rpc-usability-progress-cn.md).
 
 ## Documentation path
 
@@ -37,9 +38,11 @@ assets do not contain this API. Implementation/H7 handoff evidence is recorded i
    your own project with [`tutorial-integration.md`](docs/tutorial-integration.md).
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    configure an endpoint clock once with [`endpoint-clock.md`](docs/endpoint-clock.md),
-   then integrate its wakeups with [`development.md`](docs/development.md).
+   then integrate its wakeups with [`rpc-platform.md`](docs/rpc-platform.md).
+   Optional creation and fixed pools are covered in
+   [`endpoint-storage.md`](docs/endpoint-storage.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/26a07a49597cd06b455ea1060e5b7902d39ea061/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and

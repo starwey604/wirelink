@@ -14,11 +14,13 @@ The order below is for reviewing the API after using those examples.
 1. Read this document through **Pre-1.0 Review Points** to decide whether the
    library boundary and ownership model are acceptable.
 2. Compare the tutorials with the compiled [00_telemetry](../examples/00_telemetry/)
-   and [01_rpc](../examples/01_rpc/) process pairs.
+   and [01_rpc](../examples/01_rpc/) process pairs. For threaded calls and optional
+   allocation, continue with [platform waiting](rpc-platform.md) and
+   [endpoint storage](endpoint-storage.md).
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/afa5dfd186be1f747dc6d0cbcfc54c79654bf5f7/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:
@@ -36,8 +38,8 @@ typed application runtimes. It owns framing, integrity, link acknowledgement,
 retry, duplicate suppression, and borrowed events. It does not own a driver,
 thread, heap, clock, node address, router, authentication, or product policy.
 
-An application should normally depend on a WLC-generated runtime and
-`wirelink/link.h`. An adapter implements `wirelink/port.h`. Direct use of
+An application should normally use the generated `<runtime>_endpoint.h` and
+`<codec>_values.h`. An adapter implements `wirelink/port.h`. Direct use of
 `wirelink/rpc.h` is for generators and advanced integrations.
 
 ## Linkable Targets
@@ -49,6 +51,7 @@ An application should normally depend on a WLC-generated runtime and
 | `Wirelink::diagnostics` | Key/value formatting into caller storage | None unless linked |
 | `Wirelink::host` | Optional C++20 threaded host executor | None unless enabled/linked |
 | `Wirelink::asio_udp` | Optional C++20 UDP adapter and readiness waiting | None unless enabled/linked |
+| `Wirelink::storage` | Optional bounded fixed-block allocator | None unless enabled/linked |
 | WLC-generated target | Schema codec, bindings, or one role runtime | Only selected schema/profile |
 
 Asio UDP is installed when enabled, without exposing Asio headers. Astrial
@@ -59,6 +62,9 @@ adapters remain source-integrated platform targets.
 | Header | Intended owner |
 | --- | --- |
 | `link.h` | Endpoint/application owner: init, send, poll, events, TX results |
+| `endpoint.h`, `wait.h` | Generic endpoint attachment, clock and platform wait contracts |
+| `rpc_result.h`, `rpc_sync.h` | Per-call outcomes and platform proxy contract |
+| `allocator.h`, `storage/fixed_pool.h` | Optional creation allocator and fixed-pool backend |
 | `pump.h` | Owner-loop composition and deadline merging |
 | `port.h` | Adapter/driver producer and asynchronous TX completion |
 | `latest.h`, `fifo.h` | Lock-free SPSC retained-message storage |

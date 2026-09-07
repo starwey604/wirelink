@@ -227,10 +227,10 @@ M3 实现配对：Wirelink `39316f3`，消费者锁定提交 `a225fa8` / WLC `dd
 [Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34086113324) 和
 [WLC CI](https://github.com/starwey604/wlc/actions/runs/34086082342) 全部通过，M3 完成。
 Wirelink 覆盖三种桌面 OS、安装包、UDP、FFI、Astrial、Sanitizer、fuzz、Twister 和 ESP32-S3 构建。
-M4 正在实现（本地门槛后与最后远端任务重叠，未提前进行实板）；H2、M5/H3 尚未做。
+M4 随后实现（本地门槛后与最后远端任务重叠，未提前进行实板）；H2、M5/H3 尚未做。
 libflorid/Ragtime 产品依赖、main、tag 和长期测试未改动。
 
-## M4：可选创建层（ABI 25，验收中）
+## M4：可选创建层（ABI 25，软件验收完成）
 
 生成 `endpoint_create(&pointer, &config, &allocator)` / `endpoint_destroy(&pointer)`：
 创建一次申请完整端点，失败回滚；关闭/quiesce/完成通知后才配对释放。静态入口保留，
@@ -249,7 +249,34 @@ libflorid/Ragtime 产品依赖、main、tag 和长期测试未改动。
 - `build/rpc-m4-sanitize`：11 个原生 ASan/UBSan 用例；两个 Python 用例预加载 ASan 后通过。
   WLC 针对性生成 C Sanitizer 全通过，覆盖大值、取消、关闭及池释放后的调用栈清理。
 - `build/rpc-m4-package`：四个安装包消费者通过，包括已安装的固定池和真实生成 create/destroy。
+- `build/rpc-m4-tsan`：UDP 通知、分配式后台 RPC stop/IO 错误后 join/destroy、
+  C++ 固定池消费者三项通过 ThreadSanitizer。
 
-H2 样例在 `samples/zephyr/rpc_platform`，native_sim 的四槽手动运行已通过，
-完整模拟矩阵和 H7 构建/远端配对 CI 仍在验证；尚未烧录 H2，不声明 M4/H2 全部完成。
-M5 产品迁移尚未开始。
+独立样例首轮矩阵 `build/rpc-m4-samples` 16/17 通过，包含全部六项 H2 和七项 H1；
+旧时钟样例的 x86_64 项超时。诊断显示强制休眠插入立即可处理的 loopback 工作之间，
+QEMU 上短 RPC 预算耗尽；改为先排空立即工作，未增加超时/重试预算。
+修正后 `build/rpc-m4-clock-final` 四个平台 4/4 通过。
+最终 H2 源码在 `build/rpc-m4-h2-final` 一/四槽、三个模拟平台 6/6 通过。
+macOS CI 另发现测试桥接函数 `wait` 与 POSIX 声明冲突，改名后该平台通过。
+
+M4 配对为 Wirelink `3df748826ad3a3b0dbdf642b68fe98221310343d` / WLC `afa5dfd`。
+远端 [Host CI](https://github.com/starwey604/wirelink/actions/runs/34088879031)、
+[Zephyr CI](https://github.com/starwey604/wirelink/actions/runs/34088879037) 和
+[WLC CI](https://github.com/starwey604/wlc/actions/runs/34088018415) 全部通过。
+远端核心矩阵 50/50、301/301，完整生成样例矩阵 17/17 通过，无警告。
+H2 样例在 `samples/zephyr/rpc_platform`，一槽/四槽 H7 已构建，开始独立实板验证。
+IRQ-off CPU 探针统一使用 DWT，IRQ-on 往返使用包含休眠的系统周期钟，不混用两个计数器。
+实板证据与剩余项另见 [H2 验证记录](rpc-h2-h7-validation-cn.md)，不把软件通过当作 H2 完成。
+14:11 两次尝试均无法 attach H7 CPU，中间仅重启一次已确认的 J-Link 设备绑定；
+尚未执行烧录，等待用户断电重插/RESET。没有 H2 性能数据，不提前推进 M5/H3。
+WLC 实现/二进制配对固定为 `afa5dfd`；随后 `9314249` 只修正中英文 README 的旧 ABI 数字，
+无编译器源码变化。指南链接指向此文档修正，构建及安装命令仍固定已验收实现 SHA。
+
+### M5 迁移预检（尚未修改产品）
+
+已 fetch libflorid main：`2863e03ee09bc108c0fb543c73104e268e33c05b`，
+dev `37a1d89c3dc5be359ab44a8cc2e829c3f9df1d8d` 已包含它，没有需同步的 main 提交。
+libflorid 的 acados/Dyn-Calib 本地改动、Ragtime dev 已有的八个未推提交及 main worktree 均保留。
+FCI 仍为显式 operation/status 字段映射；升级编译器不等于切换托管 RPC，
+后续须分清本地 API 迁移与产品线上合同变更，并成对测试主机/固件。
+M5 的实际修改与 H3 仍在 H2 之后进行。

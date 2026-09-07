@@ -22,7 +22,7 @@ cargo test --manifest-path wlc/Cargo.toml
 ```
 
 Consumer builds use an independently installed matching compiler rather than
-requiring this development worktree. Current internal ABI 23 is not a released
+requiring this development worktree. Current internal ABI 25 is not a released
 asset; disable auto-download and use the matching source build.
 `wirelink_wlc_generate_codec()` resolves a per-call executable, a
 project-wide executable, or a compatible `wlc` on the host `PATH` before

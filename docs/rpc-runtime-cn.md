@@ -6,7 +6,7 @@
 [RPC 教程](tutorial-rpc-cn.md)中的生成端点；本文先说明托管 RPC 的通信与所有权边界，
 后半部分是高级底层接口。
 
-## 托管 RPC 与已有协议映射（生成 ABI 23）
+## 托管 RPC 与已有协议映射（生成 ABI 25）
 
 RPC 请求和响应分别默认可靠；可在对应绑定后写 `@delivery(unreliable)` 覆盖。
 显式 `@delivery(reliable)`、省略默认、旧 `request_delivery = reliable` 等价，

@@ -1,6 +1,6 @@
 # Default endpoint: design and boundaries
 
-Internal development, codegen ABI 23. No release, main merge or wire-format change.
+Internal development, codegen ABI 25. No release, main merge or wire-format change.
 Read [installation](installation.md), [telemetry](getting-started.md),
 [RPC](tutorial-rpc.md), then [integration](tutorial-integration.md).
 [中文](default-endpoint-cn.md).
@@ -106,6 +106,13 @@ zero-copy large data and manual dispatch belong to advanced assembly.
 LATEST/FIFO still require retainable pointer-free messages; this stage does not
 expand IDL or introduce streaming.
 
+Ordinary `endpoint_<service>_sync()` drives/waits on its owner thread, or submits
+through a bound host executor. UDP installs waiting automatically; custom platforms
+provide a waiter during initialization. A missing waiter is an error, not a busy
+loop. Async remains the event-loop entry. See [platform integration](rpc-platform.md)
+for clocks, stopping and lifetimes.
+
 See the [implementation record](rpc-usability-progress-cn.md) for H1 evidence
-and M3 software gates. Optional [allocator creation](endpoint-storage.md) retains
-the static execution path; M4 software/H2 acceptance is in progress. M5 remains pending.
+and M3/M4 software gates. Optional [allocator creation](endpoint-storage.md) retains
+the static execution path; software checks passed, H2 awaits probe connection recovery.
+M5 remains pending.

@@ -44,7 +44,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.4.0` and `23`. Codegen ABI identifies generated C interfaces/layouts,
+Expect `wlc 0.4.0` and `25`. Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes needs coordinated peers. Clock injection does not change bytes;
 rebuild core and generated consumers together. A missing command or

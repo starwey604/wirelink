@@ -1,6 +1,6 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 23；本轮不发布、合并 main 或改变线上格式。
+状态：内部开发，生成 ABI 25；本轮不发布、合并 main 或改变线上格式。
 入门顺序：[安装](installation-cn.md) → [遥测](getting-started-cn.md) →
 [RPC](tutorial-rpc-cn.md) → [集成](tutorial-integration-cn.md)。[English](default-endpoint.md)。
 
@@ -88,5 +88,6 @@ LATEST/FIFO 当前仍限制可保留的无借用消息；本轮没有顺便扩�
 UDP 自动安装等待方式；自定义平台初始化时提供 waiter，缺少时明确报错，不忙等。
 异步仍为事件循环入口。时钟、停止和存活期见[平台接入](rpc-platform-cn.md)。
 
-H1 证据及 M3 软件验收见[实施记录](rpc-usability-progress-cn.md)。
-[M4 分配器创建层](endpoint-storage-cn.md)沿用静态运行逻辑，软件/H2 验收中；M5 产品迁移尚未做。
+H1 证据及 M3/M4 软件验收见[实施记录](rpc-usability-progress-cn.md)。
+[M4 分配器创建层](endpoint-storage-cn.md)沿用静态运行逻辑，软件检查已通过，
+H2 等待探针连接恢复；M5 产品迁移尚未做。

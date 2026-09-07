@@ -86,7 +86,7 @@ Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 25 编译器。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
-[WLC 指南](https://github.com/starwey604/wlc/blob/afa5dfd186be1f747dc6d0cbcfc54c79654bf5f7/README-cn.md)。
+[WLC 指南](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README-cn.md)。
 
 ## 3. 不要把两种“配置”混为一谈
 
@@ -242,7 +242,7 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 无需按顺序读完所有参考文件：
 
 - 想审阅公开 API 的划分和所有权：读 [API 边界](api-boundary-cn.md)。
-- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/afa5dfd186be1f747dc6d0cbcfc54c79654bf5f7/README-cn.md)。
+- 想设计更多消息：读 [schema](schema-v1-cn.md) 与 [WLC](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README-cn.md)。
 - 想了解保留最新值或队列的限制：读 [LATEST](latest-mailbox-cn.md) 与 [FIFO](fifo-cn.md)。
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。
