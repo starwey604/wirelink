@@ -9,13 +9,14 @@
 #include "wirelink/host/clock.hpp"
 #include "wirelink/endpoint.h"
 #include "wirelink/rpc_sync.h"
+#include "wirelink/detail/coalescing_event.hpp"
+#include "wirelink/diagnostics/host_profile.hpp"
 
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
-#include <semaphore>
 #include <thread>
 
 namespace wirelink::host {
@@ -183,6 +184,7 @@ private:
     wl_rpc_executor_t m_rpc_executor{&Executor::s_invokeRpc, this};
     std::mutex m_rpc_mutex;
     std::array<RpcJob*, 8> m_rpc_jobs{};
+    std::atomic<bool> m_rpc_pending{false};
     wl_clock_t m_clock{};
     ExecutorHooks m_hooks{};
     std::atomic<State> m_state{State::kUninitialized};
@@ -191,6 +193,8 @@ private:
     std::thread m_thread;
 
     std::mutex m_command_mutex;
+    // Published under m_command_mutex; only the empty fast path is lock-free.
+    std::atomic<bool> m_commands_pending{false};
     wl_outbox_t m_outbox{};
     std::array<wl_outbox_slot_t, s_kLatestLaneCapacity> m_outbox_slots{};
     std::array<std::uint8_t,
@@ -198,7 +202,8 @@ private:
         m_outbox_payloads{};
 
     std::atomic<std::uint64_t> m_wake_generation{};
-    std::counting_semaphore<> m_wake{0};
+    wirelink::detail::CoalescingEvent m_wake;
+    diagnostics::PendingTimestamp m_wake_profile;
     std::atomic<std::uint32_t> m_producers_in_flight{};
     AtomicStats m_stats{};
 };

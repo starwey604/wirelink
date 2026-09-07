@@ -1,16 +1,18 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "wirelink/astrial/usb_bulk_adapter.hpp"
+#include "wirelink/diagnostics/host_profile.hpp"
+#include "wirelink/detail/coalescing_event.hpp"
 
 #include <atomic>
-#include <climits>
-#include <semaphore>
 #include <span>
 #include <utility>
 #include <vector>
 
 namespace wirelink::astrial
 {
+using diagnostics::Scope;
+using diagnostics::Stage;
 namespace
 {
 enum class TxCompletion : unsigned int { None, Done, Failed };
@@ -81,6 +83,10 @@ public:
     void complete_rx(const std::error_code& error, UsbBorrowedBuffer buffer,
                      std::size_t length)
     {
+        Scope profile(Stage::usb_rx);
+        const auto now = diagnostics::timestamp();
+        diagnostics::record(Stage::usb_rx_gap, last_rx_ns, now);
+        last_rx_ns = now;
         const auto& active = native_unit_mode ? unit_claim.span : claim.span;
         const auto active_token = native_unit_mode ? unit_claim.token : claim.token;
         if (!claim_active || buffer.token != active_token ||
@@ -131,6 +137,7 @@ public:
         unit_claim = {};
         rx_bytes.fetch_add(length, std::memory_order_relaxed);
         rx_completions.fetch_add(1, std::memory_order_relaxed);
+        rx_profile.notify();
         if (error && !stopping.load(std::memory_order_acquire) &&
             error != make_error_code(UsbError::TransferCancelled))
         {
@@ -170,19 +177,16 @@ public:
         activity_notifications.fetch_add(1, std::memory_order_relaxed);
         if (activity_callback != nullptr)
             activity_callback(activity_user_data);
-        activity.release();
+        activity.notify();
     }
 
     bool wait_for_activity(std::chrono::nanoseconds timeout)
     {
         wait_calls.fetch_add(1, std::memory_order_relaxed);
-        if (!activity.try_acquire_for(timeout))
+        if (!activity.wait_for(timeout))
         {
             wait_timeouts.fetch_add(1, std::memory_order_relaxed);
             return false;
-        }
-        while (activity.try_acquire())
-        {
         }
         wait_wakeups.fetch_add(1, std::memory_order_relaxed);
         return true;
@@ -196,6 +200,8 @@ public:
     void* activity_user_data{};
     std::atomic<bool> started{false};
     std::atomic<bool> stopping{false};
+    std::uint64_t last_rx_ns{}; // USB event producer only; profiling clock, not protocol time.
+    diagnostics::PendingTimestamp rx_profile;
     std::atomic<bool> rx_paused{false};
     bool claim_active{};
     bool native_unit_mode{};
@@ -204,7 +210,7 @@ public:
     std::vector<std::uint8_t> unit_storage;
     std::atomic<bool> tx_active{false};
     std::atomic<TxCompletion> tx_completion{TxCompletion::None};
-    std::counting_semaphore<INT_MAX> activity{0};
+    wirelink::detail::CoalescingEvent activity;
     wl_io_token_t tx_token{};
     std::atomic<uint64_t> rx_claims{};
     std::atomic<uint64_t> rx_bytes{};
@@ -308,6 +314,7 @@ int UsbBulkAdapter::start()
 wl_sink_result_t UsbBulkAdapter::sink(void* user_data, wl_io_token_t token,
                                       const uint8_t* data, size_t length)
 {
+    Scope profile(Stage::usb_tx);
     auto* adapter = static_cast<UsbBulkAdapter*>(user_data);
     if (adapter == nullptr || data == nullptr || length == 0)
     {
@@ -353,6 +360,7 @@ wl_sink_result_t UsbBulkAdapter::sink(void* user_data, wl_io_token_t token,
 
 int UsbBulkAdapter::service()
 {
+    if (m_impl) m_impl->rx_profile.consume(Stage::rx_to_owner);
     if (!m_impl) return WL_ERR_INVALID_ARG;
     m_impl->service_calls.fetch_add(1, std::memory_order_relaxed);
 

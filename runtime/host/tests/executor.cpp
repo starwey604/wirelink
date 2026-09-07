@@ -10,6 +10,8 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <mutex>
 #include <stdexcept>
@@ -395,6 +397,53 @@ void testLatestLanesCoalesceWithoutCrossMessageLoss() {
             "latest lanes unexpectedly overflowed");
 }
 
+void testLatestConcurrentProducers() {
+    LinkStorage s_storage;
+    WirelinkExecutor s_executor;
+    require(s_executor.initialize(makeConfig(WL_ENVELOPE_NATIVE_PACKET, 99),
+                                 s_storage.descriptor()) == WL_OK, "initialize failed");
+    AsyncSink s_sink;
+    s_sink.hold_first = false;
+    require(s_executor.setSink(AsyncSink::sink, &s_sink) == WL_OK, "sink failed");
+    require(s_executor.start() == WL_OK, "start failed");
+    std::array<std::thread, 4> s_producers;
+    for (unsigned s_lane = 0; s_lane < s_producers.size(); ++s_lane) {
+        s_producers[s_lane] = std::thread([&, s_lane] {
+            for (std::uint32_t s_value = 1; s_value <= 10000; ++s_value) {
+                // A full payload pattern detects torn copies under replacement.
+                std::array<std::uint32_t, 32> s_payload;
+                s_payload.fill(s_value);
+                if (s_executor.submitLatest(static_cast<std::uint16_t>(100 + s_lane),
+                    reinterpret_cast<const std::uint8_t*>(s_payload.data()),
+                    sizeof(s_payload)) != WL_OK) std::abort();
+            }
+        });
+    }
+    for (auto& s_producer : s_producers) s_producer.join();
+    waitFor(s_sink.cv, s_sink.mutex, [&] {
+        std::array<bool, 4> s_final{};
+        for (std::size_t i = 0; i < s_sink.payloads.size(); ++i) {
+            std::uint32_t s_value{};
+            std::memcpy(&s_value, s_sink.payloads[i].data(), sizeof(s_value));
+            if (s_value == 10000) s_final[s_sink.message_ids[i] - 100] = true;
+        }
+        return s_final[0] && s_final[1] && s_final[2] && s_final[3];
+    }, "last publications were lost at the empty-to-pending transition");
+    s_executor.stop();
+    std::array<std::uint32_t, 4> s_previous{};
+    for (std::size_t i = 0; i < s_sink.payloads.size(); ++i) {
+        std::array<std::uint32_t, 32> s_payload{};
+        require(s_sink.payloads[i].size() == sizeof(s_payload), "payload size changed");
+        std::memcpy(s_payload.data(), s_sink.payloads[i].data(), sizeof(s_payload));
+        for (auto s_value : s_payload) require(s_value == s_payload[0], "torn latest payload");
+        auto& s_last = s_previous[s_sink.message_ids[i] - 100];
+        require(s_payload[0] > s_last, "latest values reordered");
+        s_last = s_payload[0];
+    }
+    require(s_executor.stats().m_latest_submitted == 40000 &&
+            s_executor.stats().m_latest_failed == 0, "concurrent submit statistics mismatch");
+}
+
 struct ShutdownCapture {
     WirelinkExecutor* executor{};
     std::mutex mutex;
@@ -714,6 +763,8 @@ int main() {
         std::puts("PASS: keyed latest lanes coalesce without cross-message loss");
         testBoundedLatestAndDeterministicShutdown();
         std::puts("PASS: latest lanes are bounded and shutdown is deterministic");
+        testLatestConcurrentProducers();
+        std::puts("PASS: concurrent latest producers preserve payloads and final publications");
         testApplicationAndAdapterDeadlineScheduling();
         std::puts("PASS: scheduler merges application and adapter deadlines");
         return 0;

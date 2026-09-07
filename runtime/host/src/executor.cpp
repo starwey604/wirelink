@@ -1,12 +1,15 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "wirelink/host/executor.hpp"
+#include "wirelink/diagnostics/host_profile.hpp"
 
 #include <chrono>
 #include <condition_variable>
 #include <system_error>
 
 namespace wirelink::host {
+using diagnostics::Scope;
+using diagnostics::Stage;
 
 namespace {
 constexpr std::size_t s_kPollBudget = 64;
@@ -187,9 +190,11 @@ int Executor::feedBytes(const std::uint8_t* s_data,
 }
 
 void Executor::notify() noexcept {
+    Scope profile(Stage::wake);
+    m_wake_profile.notify();
     m_wake_generation.fetch_add(1, std::memory_order_release);
     if (m_platform_waiter.notify != nullptr) m_platform_waiter.notify(m_platform_waiter.user_data);
-    else m_wake.release();
+    else m_wake.notify();
 }
 
 int Executor::submitLatest(std::uint16_t s_message_id,
@@ -204,7 +209,9 @@ int Executor::submitLatest(std::uint16_t s_message_id,
     }
 
     {
+        Scope profile_lock(Stage::command_lock);
         std::lock_guard<std::mutex> s_lock(m_command_mutex);
+        profile_lock.finish();
         if (!m_accepting.load(std::memory_order_relaxed)) {
             return WL_ERR_CANCELLED;
         }
@@ -218,6 +225,7 @@ int Executor::submitLatest(std::uint16_t s_message_id,
             return s_result;
         }
         if (s_result != WL_OK) return s_result;
+        m_commands_pending.store(true, std::memory_order_release);
         if (s_coalesced != 0U) {
             m_stats.m_latest_coalesced.fetch_add(
                 1, std::memory_order_relaxed);
@@ -246,6 +254,7 @@ void Executor::s_quiesceBridge(void* s_user_data) noexcept {
 std::uint8_t Executor::s_applicationProgressBridge(
     void* s_user_data, wl_ctx_t* s_context,
     wl_time_ms_t s_now_ms) noexcept {
+    Scope profile(Stage::application);
     auto& s_self = *static_cast<Executor*>(s_user_data);
     return s_self.m_hooks.m_application_progress(
                s_self.m_hooks.m_user_data, *s_context, s_now_ms)
@@ -304,13 +313,14 @@ void Executor::s_run() noexcept {
     current_executor = this;
     auto s_pump_hooks = s_pumpHooks();
     while (!m_stop_requested.load(std::memory_order_acquire)) {
-        for (std::size_t s_index = 0;
-             s_index < s_kPollBudget && m_wake.try_acquire(); ++s_index) {
-        }
+        Scope profile_owner(Stage::owner);
+        (void)m_wake.try_wait();
+        m_wake_profile.consume(Stage::notify_to_owner);
         const std::uint64_t s_observed_wake =
             m_wake_generation.load(std::memory_order_acquire);
         wl_pump_result_t s_pump_result{};
         s_dispatchRpc();
+        Scope profile_pump(Stage::pump);
         int s_step_result;
         if (m_driver.endpoint != nullptr) {
             s_step_result = m_driver.step(m_driver.context);
@@ -319,6 +329,7 @@ void Executor::s_run() noexcept {
             s_step_result = wl_pump_step(m_link, nowMs(), s_kPollBudget,
                 &s_pump_hooks, &s_pump_result);
         }
+        profile_pump.finish();
         if (s_step_result != WL_OK) {
             m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
             if (s_step_result == WL_ERR_IO || s_step_result == WL_ERR_NOT_INITIALIZED) {
@@ -360,6 +371,8 @@ void Executor::s_run() noexcept {
                 s_observed_wake) {
             continue;
         }
+        profile_owner.finish();
+        Scope profile_wait(Stage::wait);
         if (m_platform_waiter.wait != nullptr) {
             const int waited = m_platform_waiter.wait(m_platform_waiter.user_data, s_next_deadline);
             if (waited != WL_OK && waited != WL_ERR_NO_DATA) {
@@ -368,10 +381,10 @@ void Executor::s_run() noexcept {
                 requestStop();
             }
         } else if (s_next_deadline != WL_POLL_NO_DEADLINE_MS) {
-            (void)m_wake.try_acquire_for(
+            (void)m_wake.wait_for(
                 std::chrono::milliseconds(s_next_deadline));
         } else {
-            m_wake.acquire();
+            m_wake.wait();
         }
     }
 
@@ -381,10 +394,16 @@ void Executor::s_run() noexcept {
 }
 
 bool Executor::s_dispatchOne() noexcept {
-    std::array<std::uint8_t, s_kMaximumCommandPayload> s_payload{};
+    Scope profile(Stage::command);
+    if (!m_commands_pending.load(std::memory_order_acquire)) return false;
+    // acquire_copy initializes exactly payload_length bytes; no full 512-byte
+    // zero fill is needed for an empty queue or a short command.
+    std::array<std::uint8_t, s_kMaximumCommandPayload> s_payload;
     wl_outbox_item_t s_item{};
     {
+        Scope profile_lock(Stage::command_lock);
         std::lock_guard<std::mutex> s_lock(m_command_mutex);
+        profile_lock.finish();
         const int s_acquired = wl_outbox_acquire_copy(
             &m_outbox, s_payload.data(), s_payload.size(), &s_item);
         if (s_acquired == WL_ERR_NO_DATA) return false;
@@ -402,13 +421,18 @@ bool Executor::s_dispatchOne() noexcept {
                             s_result == WL_ERR_WOULD_BLOCK ||
                             s_result == WL_ERR_NO_SPACE;
     {
+        Scope profile_lock(Stage::command_lock);
         std::lock_guard<std::mutex> s_lock(m_command_mutex);
+        profile_lock.finish();
         (void)wl_outbox_complete(
             &m_outbox, &s_item,
             s_result == WL_OK
                 ? WL_OUTBOX_ACCEPTED
                 : (s_deferred ? WL_OUTBOX_DEFERRED
                               : WL_OUTBOX_REJECTED));
+        wl_outbox_stats_t s_outbox_stats{};
+        (void)wl_outbox_get_stats(&m_outbox, &s_outbox_stats);
+        m_commands_pending.store(s_outbox_stats.depth != 0, std::memory_order_release);
     }
     if (s_result == WL_OK) {
         m_stats.m_latest_dispatched.fetch_add(1, std::memory_order_relaxed);
@@ -450,6 +474,7 @@ void Executor::s_shutdownOnOwner() noexcept {
         std::lock_guard<std::mutex> s_lock(m_command_mutex);
         std::uint16_t s_cancelled{};
         (void)wl_outbox_reset(&m_outbox, &s_cancelled);
+        m_commands_pending.store(false, std::memory_order_release);
         if (s_cancelled != 0) {
             m_stats.m_latest_cancelled.fetch_add(s_cancelled,
                                                  std::memory_order_relaxed);
@@ -478,6 +503,7 @@ wl_rpc_completion_t Executor::s_invokeRpc(void* context,
         }
         job.deadline = self.nowMs() + timeout_ms;
         *free = &job;
+        self.m_rpc_pending.store(true, std::memory_order_release);
         self.m_stats.m_rpc_submitted.fetch_add(1, std::memory_order_relaxed);
     }
     self.notify();
@@ -503,14 +529,22 @@ void Executor::s_finishRpc(void* context, const wl_rpc_completion_t* result) {
 }
 
 void Executor::s_dispatchRpc() noexcept {
-    for (std::size_t i = 0; i < m_rpc_jobs.size(); ++i) {
-        RpcJob* job;
-        {
-            std::lock_guard lock(m_rpc_mutex);
-            job = m_rpc_jobs[i];
+    if (!m_rpc_pending.load(std::memory_order_acquire)) return;
+    if (!m_rpc_pending.exchange(false, std::memory_order_acquire)) return;
+    std::array<RpcJob*, 8> pending{};
+    std::size_t count{};
+    {
+        std::lock_guard lock(m_rpc_mutex);
+        for (auto* job : m_rpc_jobs) {
             if (job == nullptr || job->started) continue;
             job->started = true;
+            pending[count++] = job;
         }
+    }
+    // The owner alone completes jobs. Callers keep their stack job alive until
+    // completion; submit/callbacks run outside the admission mutex.
+    for (std::size_t i = 0; i < count; ++i) {
+        auto* job = pending[i];
         const int error = job->call.submit(job->call.context, job->deadline,
             &Executor::s_finishRpc, job, &job->handle);
         if (error != WL_OK) {

@@ -110,6 +110,11 @@ option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
   "Build the optional C++20 threaded session runtime" OFF)
+option(WIRELINK_HOST_PROFILING
+  "Enable bounded desktop timing diagnostics (no hot-path logging)" OFF)
+if(WIRELINK_HOST_PROFILING)
+  target_compile_definitions(wirelink INTERFACE WIRELINK_HOST_PROFILING=1)
+endif()
 option(WIRELINK_BUILD_STORAGE
   "Build the optional fixed-block endpoint allocator" OFF)
 option(WIRELINK_BUILD_EXAMPLES
@@ -262,6 +267,10 @@ if(WIRELINK_INSTALL)
       INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(FILES runtime/host/include/wirelink/host/executor.hpp
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
+    install(FILES include/wirelink/detail/coalescing_event.hpp
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/detail)
+    install(FILES include/wirelink/diagnostics/host_profile.hpp
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/diagnostics)
   endif()
 
   if(TARGET wirelink_asio_udp OR TARGET wirelink_host)

@@ -6,6 +6,17 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### Host integration closeout
+
+- Skip mutex acquisition on empty host RPC/LATEST paths and coalesce executor
+  and USB notifications into a bounded event; preserve protected multi-producer
+  writes and shutdown ownership. Optional host timing diagnostics default off.
+- Build the pinned ABI 26 WLC source with host Rust/Cargo when no matching
+  executable is supplied, verifying its source SHA-256 and locked dependencies.
+  Offline builds still require an explicit matching compiler. No new release
+  binary, tag, generated ABI, or wire-format change accompanies this update.
+- Host C++ executor layout changes require consumers to recompile.
+
 ### Typed application runtime
 
 - ABI 26 replaces manual default-endpoint session IDs with a C environment

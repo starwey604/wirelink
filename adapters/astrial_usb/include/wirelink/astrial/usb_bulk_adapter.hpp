@@ -74,7 +74,8 @@ public:
     void quiesce() noexcept;
     [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     // Blocks the single-consumer context until RX/TX activity or timeout.
-    // Pending notifications are coalesced before returning.
+    // Notifications coalesce into at most one pending wake even when only the
+    // external activity callback is used. This does not count RX/TX units.
     bool wait_for_activity(std::chrono::nanoseconds timeout);
     void get_stats(UsbBulkAdapterStats& out_stats) const;
     void get_common_stats(wl_adapter_stats_t& out_stats) const noexcept;

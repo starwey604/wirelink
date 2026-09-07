@@ -43,3 +43,9 @@ endif()
 
 add_test(NAME wirelink_package_consumer_cpp20
   COMMAND wirelink_package_consumer_cpp20)
+
+if(TARGET Wirelink::host)
+  add_executable(wirelink_package_consumer_host host.cpp)
+  target_link_libraries(wirelink_package_consumer_host PRIVATE Wirelink::host)
+  add_test(NAME wirelink_package_consumer_host COMMAND wirelink_package_consumer_host)
+endif()

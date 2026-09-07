@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWIRELINK_BUILD_HOST_RUNTIME=ON
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -46,6 +46,17 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
+      - name: Test host executor and bounded wakeups
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: Configure optional host profiling
+        run: cmake -S . -B profile-build -DCMAKE_BUILD_TYPE=Release -DWIRELINK_BUILD_HOST_RUNTIME=ON -DWIRELINK_HOST_PROFILING=ON
+
+      - name: Build and test profiling
+        run: |
+          cmake --build profile-build --config Release --parallel
+          ctest --test-dir profile-build --build-config Release --output-on-failure
+
       # The internal ABI 26 compiler is not a published release asset yet.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
@@ -58,7 +69,14 @@ jobs:
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
       - name: Configure WLC package consumer
-        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
+        # Exercise automatic source bootstrap against installed CMake helpers.
+        # A target override must not turn this host tool into firmware code.
+        env:
+          CARGO_BUILD_TARGET: thumbv7em-none-eabihf
+        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+
+      - name: Verify explicit and offline compiler resolution
+        run: cmake -DWIRELINK_SOURCE_DIR=${{ github.workspace }} -DMATCHING_WLC=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }} -DMODE=check -P tests/package/wlc_resolution.cmake
 
       - name: Build WLC package consumer
         run: cmake --build wlc-consumer-build --config Release --parallel
@@ -211,6 +229,7 @@ jobs:
           -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON
           -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial
           -DBUILD_TESTING=ON
+          -DWIRELINK_BUILD_HOST_RUNTIME=ON
           -DASTRIAL_BUILD_EXAMPLES=OFF
           -DASTRIAL_IO_URING=OFF
           -DCMAKE_BUILD_TYPE=Debug
