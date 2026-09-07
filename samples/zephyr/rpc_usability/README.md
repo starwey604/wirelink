@@ -2,8 +2,11 @@
 
 This is a standalone target-CPU functional check, not product firmware or a
 host-to-board transport test. Both endpoints run on the same owner over loopback.
-It does not drive actuators or change persistent storage. H1 hardware execution
-is pending; no board is flashed automatically by the M0–M2 implementation goal.
+It does not drive actuators or change persistent storage. Authorized H7 execution
+on 2026-09-07 passed both capacities, including a system-reset rerun and a
+user-confirmed power cycle of each. H1 is complete; no implementation changes
+were needed. Evidence, probe-recovery history and limitations are in the
+[H7 validation record](../../../docs/rpc-h1-h7-validation-cn.md).
 
 The sample covers bounded strings, a 2031-byte response, request snapshotting,
 100 consecutive operations within cache TTL, full-capacity bursts, BUSY admission,
@@ -15,7 +18,7 @@ Zephyr uptime after a 75-ms idle gap; its 2000-ms deadline is a functional margi
 not an RPC latency benchmark. The existing `endpoint_clock` sample additionally
 checks real deadlines and remains an advanced-token regression.
 
-## Build, then stop before flashing
+## Build
 
 From an initialized Zephyr workspace, with absolute paths adjusted to your machine:
 

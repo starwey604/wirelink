@@ -1,7 +1,9 @@
 # RPC 易用性演进实施记录
 
 2026-09-07；基线 Wirelink `d245cbe` / WLC `b5c444a` / 生成 ABI 21。
-本轮只在 dev 完成 M0–M2，H7 功能验证开始前停止。没有发布、main 合并或产品迁移。
+M0–M2 实现目标在 H7 功能验证开始前结束；用户随后单独授权 H1 实板验证。
+H1 已完成：一槽/四槽首次运行、系统复位重跑和断电冷启动均通过。
+没有发布、main 合并或产品迁移。
 
 ## M0：确定的合同
 
@@ -133,7 +135,8 @@ WLC `26a07a49597cd06b455ea1060e5b7902d39ea061` / ABI 23 已推 dev；
   记录 `build/rpc-m2-twister/twister.json`。
 - 独立 H1/时钟样例最终矩阵：11 配置、4 平台全部通过，无警告，记录
   `build/rpc-m2-samples-final/twister.json`；H1 一槽/四槽的两个 H7 ELF 均构建成功。
-  完整中英文 RPC 文章中的 C 代码与实际 client/server 文件逐段比对一致。未进行 H7 执行。
+  完整中英文 RPC 文章中的 C 代码与实际 client/server 文件逐段比对一致。
+  此软件检查点未进行 H7 执行；后续独立授权的实板记录见文末。
 
 ### 内存与复制边界
 
@@ -160,7 +163,7 @@ H7 CPU 周期、实际延迟和栈高水位仍未测量。
 最终矩阵降低并发，H1 uptime 功能项使用 2000 ms（不作为延迟预算），旧时钟专用 deadline
 测试仍保留原约束。最初日志保留在 `build/rpc-m2-samples.1` / `build/rpc-m2-samples`。
 
-## H1 交接（未执行）
+## H1 实板验证（2026-09-07）
 
 独立样例：[samples/zephyr/rpc_usability](../samples/zephyr/rpc_usability/README.md)。
 使用 dm_mc02/stm32h723xx、RTT 输出、同 owner 双端 loopback，无执行器或持久写入；
@@ -168,17 +171,23 @@ H7 CPU 周期、实际延迟和栈高水位仍未测量。
 
 构建使用 Zephyr `v4.4.0-11610-gbd8c15382376`、SDK 1.0.1/GCC 14.3.0，
 板配置 550 MHz、I/D cache 开启、速度优化、main stack 8192 B；这些是构建配置而非板上测量。
-待烧录 ELF（SHA-256）：
+验证 ELF（SHA-256，本地与 Windows 一致）：
 
 - 四槽 `build/rpc-m2-h7/zephyr/zephyr.elf`：
   `a8f962c4c9fb936244a518f054a0ca54d26f0182c72b1900fa087570e94a7bfd`
 - 一槽 `build/rpc-m2-h7-one/zephyr/zephyr.elf`：
   `bc1938818c92d0f0c70c82ecf238f20fff7dcbedc500a4d5f80199cfa548da48`
 
-本轮只交叉编译并运行模拟器，不 SSH、不烧录、不要求现在按 RESET。
-下一步在 H7 上分别运行一槽/四槽镜像，保存启动记录、计数和 `RPC_H1 ALL PASS`。
+用户在原目标结束后授权实板执行。已通过 Windows/J-Link 直接烧录两种容量，
+各完成首次运行和一次系统复位重跑，四次均有完整启动记录及 `RPC_H1 ALL PASS`。
+一槽每次 129 个完成通知 / 127 次 Execute handler；四槽为 135 / 130，均符合预期。
+本轮没有修改实现；完整结果及原始证据见 [H1 验证记录](rpc-h1-h7-validation-cn.md)。
+四槽经用户断电上电后的无复位采集也通过。换烧一槽时连接失败，一次 USB 设备绑定重启
+未恢复连接；用户断电上电后连接恢复，已成功换烧一槽并再次运行通过。
+用户再次断电上电后，一槽的无复位采集也通过。共保存七份通过记录（含额外的一次一槽重烧运行），
+H1 清单无剩余项。当前保留一槽 ABI 23 独立测试镜像，调试器已退出。
 这只验收目标 CPU 的功能和所有权；H2/H3 的等待器、分配器、CPU 测量及产品物理链路仍未做。
 M3–M5 未开始，libflorid/Ragtime 产品依赖、main、tag 和长期测试均未改动。
 
-M0–M2 软件验收和 H1 准备均已完成，目标在实板执行前结束。
-上述远端 CI 对应实现提交 `ac9bd48`；最后的记录提交只补充文档证据，没有修改已验收代码。
+M0–M2 原实现目标在实板执行前结束；随后单独授权的 H1 实板功能验收也已完成。
+上述远端 CI 对应实现提交 `ac9bd48`；H1 仅补充文档证据，没有修改已验收代码。
