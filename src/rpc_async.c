@@ -201,6 +201,58 @@ wl_err_t wl_rpc_async_cancel(wl_rpc_async_t *async, const wl_rpc_call_t *call) {
       &call->private_state.handle));
 }
 
+static wl_err_t notify_terminal(wl_rpc_async_t *async, wl_rpc_async_slot_t *slot,
+    const wl_rpc_client_result_t *result) {
+  wl_rpc_async_observer_t observer;
+  wl_rpc_err_t rpc;
+  if (!async->private_state.closing && result->tx_handle != 0U &&
+      (result->state == WL_RPC_CLIENT_CANCELLED || result->state == WL_RPC_CLIENT_TIMED_OUT))
+    (void)wl_tx_cancel(async->private_state.link, result->tx_handle);
+  if (result->tx_handle != 0U) {
+    wl_tx_state_t state;
+    if (wl_tx_status(async->private_state.link, result->tx_handle, &state) == WL_OK)
+      async->private_state.retiring_tx = result->tx_handle;
+  }
+  observer = slot->private_state.observer;
+  observer.prepare(observer.context, result);
+  rpc = wl_rpc_client_release_handle(async->private_state.client, &slot->private_state.handle);
+  if (rpc != WL_RPC_OK) return map_error(rpc);
+  memset(slot, 0, sizeof(*slot));
+  observer.notify(observer.context, observer.callback, observer.user_data);
+  return WL_OK;
+}
+
+wl_err_t wl_rpc_async_cancel_complete(wl_rpc_async_t *async, const wl_rpc_call_t *call) {
+  wl_rpc_client_result_t result;
+  wl_err_t error;
+  wl_rpc_err_t rpc;
+  if (async == NULL || call == NULL) return WL_ERR_INVALID_ARG;
+  if (async->private_state.servicing || async->private_state.submitting)
+    return WL_ERR_REENTRANT;
+  if (async->private_state.client == NULL || async->private_state.closing)
+    return WL_ERR_NOT_INITIALIZED;
+  if (call->private_state.owner != async ||
+      call->private_state.incarnation != async->private_state.incarnation)
+    return WL_ERR_NOT_FOUND;
+  rpc = wl_rpc_client_get_by_handle(async->private_state.client, &call->private_state.handle, &result);
+  if (rpc != WL_RPC_OK) return map_error(rpc);
+  for (uint16_t i = 0U; i < async->private_state.count; ++i) {
+    wl_rpc_async_slot_t *slot = &async->private_state.slots[i];
+    if (slot->private_state.operation_id != result.operation_id) continue;
+    if (!terminal(result.state)) {
+      error = wl_rpc_async_cancel(async, call);
+      if (error != WL_OK) return error;
+      rpc = wl_rpc_client_get_by_handle(async->private_state.client, &call->private_state.handle, &result);
+      if (rpc != WL_RPC_OK) return map_error(rpc);
+    }
+    async->private_state.servicing = 1U;
+    error = notify_terminal(async, slot, &result);
+    async->private_state.servicing = 0U;
+    return error;
+  }
+  return WL_ERR_NOT_FOUND;
+}
+
 wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
     uint16_t *out_notified) {
   wl_err_t error = WL_OK;
@@ -213,29 +265,15 @@ wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
   for (uint16_t i = 0U; i < async->private_state.count; ++i) {
     wl_rpc_async_slot_t *slot = &async->private_state.slots[i];
     wl_rpc_client_result_t result;
-    wl_rpc_async_observer_t observer;
     wl_rpc_err_t rpc;
     if (slot->private_state.operation_id == 0U) continue;
     rpc = wl_rpc_client_get_by_handle(async->private_state.client,
         &slot->private_state.handle, &result);
     if (rpc != WL_RPC_OK) { error = map_error(rpc); break; }
     if (!terminal(result.state)) continue;
-    if (!async->private_state.closing && result.tx_handle != 0U &&
-        (result.state == WL_RPC_CLIENT_CANCELLED || result.state == WL_RPC_CLIENT_TIMED_OUT))
-      (void)wl_tx_cancel(async->private_state.link, result.tx_handle);
-    if (result.tx_handle != 0U) {
-      wl_tx_state_t state;
-      if (wl_tx_status(async->private_state.link, result.tx_handle, &state) == WL_OK)
-        async->private_state.retiring_tx = result.tx_handle;
-    }
-    observer = slot->private_state.observer;
-    observer.prepare(observer.context, &result);
-    rpc = wl_rpc_client_release_handle(async->private_state.client,
-        &slot->private_state.handle);
-    if (rpc != WL_RPC_OK) { error = map_error(rpc); break; }
-    memset(slot, 0, sizeof(*slot));
+    error = notify_terminal(async, slot, &result);
+    if (error != WL_OK) break;
     ++*out_notified;
-    observer.notify(observer.context, observer.callback, observer.user_data);
   }
   if (error == WL_OK) error = submit_oldest(async, now_ms);
   async->private_state.servicing = 0U;

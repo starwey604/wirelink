@@ -218,6 +218,24 @@ static int failed_admission_and_communication(void) {
   return 0;
 }
 
+static int cancel_completion_is_local(void) {
+  wl_rpc_call_t first, second;
+  CHECK(init(2U) == 0);
+  CHECK(submit(71U, 100U, WL_DELIVERY_RELIABLE, &first) == WL_OK);
+  CHECK(submit(72U, 100U, WL_DELIVERY_RELIABLE, &second) == WL_OK);
+  CHECK(wl_rpc_async_cancel_complete(&async, &second) == WL_OK);
+  CHECK(callbacks == 1 && saved_state == WL_RPC_CLIENT_CANCELLED);
+  CHECK(sends == 1 && cancels == 0 && busy == 1); /* First call/TX is untouched. */
+  CHECK(wl_rpc_async_cancel_complete(&async, &second) == WL_ERR_NOT_FOUND);
+  CHECK(service() == 0 && callbacks == 1);
+  CHECK(wl_rpc_async_cancel_complete(&async, &first) == WL_OK);
+  CHECK(callbacks == 2 && cancels == 1 && busy == 1);
+  CHECK(wl_rpc_async_retire_tx(&async, next_tx) == 1);
+  CHECK(callback_service == WL_ERR_REENTRANT && callback_close == WL_ERR_REENTRANT);
+  CHECK(service() == 0 && callbacks == 2);
+  return 0;
+}
+
 static int close_and_stale_handles(void) {
   wl_rpc_call_t first, second;
   CHECK(init(2U) == 0);
@@ -246,6 +264,7 @@ ZTEST(wirelink_rpc_async, test_snapshot_queue_and_deadline) { zassert_equal(snap
 ZTEST(wirelink_rpc_async, test_callback_chain_and_detached_tx) { zassert_equal(callback_chain_and_detached_tx(), 0); }
 ZTEST(wirelink_rpc_async, test_failed_admission_and_communication) { zassert_equal(failed_admission_and_communication(), 0); }
 ZTEST(wirelink_rpc_async, test_close_and_stale_handles) { zassert_equal(close_and_stale_handles(), 0); }
+ZTEST(wirelink_rpc_async, test_cancel_completion_is_local) { zassert_equal(cancel_completion_is_local(), 0); }
 ZTEST_SUITE(wirelink_rpc_async, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
@@ -253,6 +272,7 @@ int main(void) {
   CHECK(callback_chain_and_detached_tx() == 0);
   CHECK(failed_admission_and_communication() == 0);
   CHECK(close_and_stale_handles() == 0);
+  CHECK(cancel_completion_is_local() == 0);
   puts("RPC async ownership/queue contracts: PASS");
   return 0;
 }

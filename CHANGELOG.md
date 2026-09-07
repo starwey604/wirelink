@@ -8,6 +8,12 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- ABI 24 adds typed synchronous RPC using the existing completion/deadline path,
+  per-call local errors, platform readiness waiters, and a bounded host executor
+  proxy. Queuing consumes the original budget; shutdown wakes blocked callers.
+  Add a heap-free Zephyr semaphore waiter with latched notify/stop, UDP readiness
+  notification, synchronous and separate asynchronous clients, and concurrency,
+  wait-error, wraparound and installed-header regressions. No wire-format change.
 - ABI 23 adds the ordinary owned-value asynchronous RPC endpoint: bounded
   request snapshots, queue-inclusive deadlines, per-call completion, automatic
   call reclamation and optional cancellation handles. Link TX leases drain

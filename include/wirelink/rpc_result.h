@@ -21,10 +21,12 @@ enum {
 
 /* Per-call diagnostics. rejection is meaningful only for REJECTED; a typed
  * response is meaningful only for SUCCESS. The other fields retain disjoint
- * link (wl_err_t), advanced RPC (wl_rpc_err_t), and codec error domains. */
+ * local admission/platform wait, link (wl_err_t), advanced RPC (wl_rpc_err_t),
+ * and codec error domains. local_error is zero in accepted async completions. */
 typedef struct {
   wl_rpc_status_t status;
   int32_t rejection;
+  wl_err_t local_error;
   wl_err_t transport_error;
   int32_t runtime_error;
   wl_codec_status_t codec_error;

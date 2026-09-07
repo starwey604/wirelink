@@ -55,3 +55,15 @@ set_target_properties(wirelink_wlc_legacy_consumer PROPERTIES
   C_EXTENSIONS NO)
 add_test(NAME wirelink_wlc_legacy_consumer
   COMMAND wirelink_wlc_legacy_consumer)
+
+# Ordinary managed RPC must also build against installed headers, not just the
+# historical mapped profile above (which does not include rpc_async/rpc_sync).
+wirelink_wlc_generate(
+  TARGET generated_calculator
+  SCHEMA "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.wl"
+  PROFILE "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.bind.wl")
+add_executable(wirelink_wlc_rpc_consumer rpc.c)
+target_link_libraries(wirelink_wlc_rpc_consumer PRIVATE generated_calculator)
+set_target_properties(wirelink_wlc_rpc_consumer PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+add_test(NAME wirelink_wlc_rpc_consumer COMMAND wirelink_wlc_rpc_consumer)

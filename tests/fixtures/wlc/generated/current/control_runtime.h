@@ -19,7 +19,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 23U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 24U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -534,6 +534,22 @@ static inline wl_err_t control_endpoint_close(control_endpoint_t *endpoint) {
   wl_endpoint_close(control_endpoint_handle(endpoint));
 
   return WL_OK;
+}
+
+static inline wl_err_t control_endpoint_driver_step(void *context) {
+  return control_endpoint_step((control_endpoint_t *)context);
+}
+static inline wl_err_t control_endpoint_driver_close(void *context) {
+  return control_endpoint_close((control_endpoint_t *)context);
+}
+/* Setup-only platform integration; ordinary code does not drive both objects. */
+static inline wl_endpoint_driver_t control_endpoint_driver(control_endpoint_t *endpoint) {
+  wl_endpoint_driver_t driver;
+  driver.endpoint = control_endpoint_handle(endpoint);
+  driver.context = endpoint;
+  driver.step = control_endpoint_driver_step;
+  driver.close = control_endpoint_driver_close;
+  return driver;
 }
 /* Delivery follows this binding. Use codec sends to override explicitly. */
 static inline control_send_result_t control_endpoint_send_joint_command(control_endpoint_t *endpoint, const joint_command_t *message) {

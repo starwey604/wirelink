@@ -12,6 +12,13 @@ config WIRELINK
 
 if WIRELINK
 
+config WIRELINK_ZEPHYR_WAIT
+	bool "Enable the Zephyr owner-task RPC waiter"
+	depends on MULTITHREADING
+	help
+	  Static semaphore-based activity and stop notifications for generated
+	  synchronous RPCs. Creates no thread and does no periodic polling.
+
 config WIRELINK_ZEPHYR_UART_DMA
 	bool "Enable the Zephyr asynchronous UART adapter"
 	depends on SERIAL

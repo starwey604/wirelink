@@ -88,6 +88,12 @@ wl_err_t wl_rpc_async_submit(wl_rpc_async_t *async, uint16_t request_id,
 
 wl_err_t wl_rpc_async_cancel(wl_rpc_async_t *async, const wl_rpc_call_t *call);
 
+/* Owner-side synchronous-wait cleanup. Cancel and notify ONLY this call before
+ * returning, so its stack callback context cannot escape. Does not step, read
+ * time, submit another call or close unrelated calls. Same reentrancy contract
+ * as service; independent transport ownership is retained until owner drain. */
+wl_err_t wl_rpc_async_cancel_complete(wl_rpc_async_t *async, const wl_rpc_call_t *call);
+
 /* Call after dispatching events and wl_rpc_client_poll with this owner's time
  * sample. At most count notifications and one extra queue submission per pass.
  * Callbacks may submit/cancel, but cannot recursively service/close. The owner

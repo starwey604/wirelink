@@ -16,6 +16,8 @@ wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
   memset(&endpoint->private_hooks, 0, sizeof(endpoint->private_hooks));
   memset(&endpoint->private_step, 0, sizeof(endpoint->private_step));
   endpoint->private_clock = *clock;
+  memset(&endpoint->private_waiter, 0, sizeof(endpoint->private_waiter));
+  endpoint->private_executor = NULL;
   endpoint->private_now = 0U;
   endpoint->private_stepping = 0U;
   if (application != NULL) {
@@ -49,6 +51,41 @@ wl_err_t wl_endpoint_attach(wl_endpoint_t *endpoint,
   endpoint->private_hooks.service = adapter->service;
   endpoint->private_hooks.quiesce = adapter->quiesce;
   endpoint->private_hooks.adapter_deadline_hint = adapter->adapter_deadline_hint;
+  return WL_OK;
+}
+
+wl_err_t wl_endpoint_set_waiter(wl_endpoint_t *endpoint, const wl_waiter_t *waiter) {
+  if (endpoint == NULL) return WL_ERR_INVALID_ARG;
+  if (!endpoint->private_ready) return WL_ERR_NOT_INITIALIZED;
+  if (endpoint->private_stepping) return WL_ERR_REENTRANT;
+  if (waiter != NULL && waiter->wait == NULL) return WL_ERR_INVALID_ARG;
+  if (waiter != NULL) endpoint->private_waiter = *waiter;
+  else memset(&endpoint->private_waiter, 0, sizeof(endpoint->private_waiter));
+  return WL_OK;
+}
+
+const wl_waiter_t *wl_endpoint_waiter(const wl_endpoint_t *endpoint) {
+  return endpoint != NULL && endpoint->private_ready && endpoint->private_waiter.wait != NULL
+      ? &endpoint->private_waiter : NULL;
+}
+
+wl_err_t wl_endpoint_set_rpc_executor(wl_endpoint_t *endpoint,
+    const struct wl_rpc_executor *executor) {
+  if (endpoint == NULL) return WL_ERR_INVALID_ARG;
+  if (!endpoint->private_ready) return WL_ERR_NOT_INITIALIZED;
+  if (endpoint->private_stepping) return WL_ERR_REENTRANT;
+  endpoint->private_executor = executor;
+  return WL_OK;
+}
+
+const struct wl_rpc_executor *wl_endpoint_rpc_executor(const wl_endpoint_t *endpoint) {
+  return endpoint != NULL ? endpoint->private_executor : NULL;
+}
+
+wl_err_t wl_endpoint_get_clock(const wl_endpoint_t *endpoint, wl_clock_t *clock) {
+  if (endpoint == NULL || clock == NULL) return WL_ERR_INVALID_ARG;
+  if (!endpoint->private_ready) return WL_ERR_NOT_INITIALIZED;
+  *clock = endpoint->private_clock;
   return WL_OK;
 }
 
@@ -97,5 +134,6 @@ void wl_endpoint_close(wl_endpoint_t *endpoint) {
   wl_pump_quiesce(&endpoint->private_hooks);
   memset(&endpoint->private_hooks, 0, sizeof(endpoint->private_hooks));
   memset(&endpoint->private_clock, 0, sizeof(endpoint->private_clock));
+  memset(&endpoint->private_waiter, 0, sizeof(endpoint->private_waiter));
   endpoint->private_ready = 0U;
 }

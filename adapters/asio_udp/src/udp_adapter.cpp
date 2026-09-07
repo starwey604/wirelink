@@ -3,6 +3,7 @@
 #include "wirelink/asio/udp_adapter.hpp"
 #include <asio.hpp>
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <limits>
 #include <utility>
@@ -35,6 +36,7 @@ public:
     bool more_pending{};
     bool tx_blocked{};
     UdpAdapterStats stats{};
+    std::atomic<bool> wake_pending{false};
 
     int flush_stream()
     {
@@ -148,6 +150,14 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_endpoint_t& endpoint,
         return nullptr;
     }
     adapter->m_impl->endpoint = &endpoint;
+    const wl_waiter_t waiter{
+        [](void* context, uint32_t maximum_ms) -> wl_err_t {
+            try {
+                return static_cast<UdpAdapter*>(context)->wait_for_activity(
+                    std::chrono::milliseconds(maximum_ms));
+            } catch (...) { return WL_ERR_IO; }
+        }, adapter.get(), [](void* context) { static_cast<UdpAdapter*>(context)->notify(); }};
+    (void)wl_endpoint_set_waiter(&endpoint, &waiter);
     return adapter;
 }
 
@@ -292,7 +302,9 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
     ++impl.stats.wait_calls;
     bool ready = false;
     bool failed = false;
+    unsigned pending = 0;
     const auto completion = [&](const std::error_code& error) {
+        --pending;
         if (!error) ready = true;
         else if (error != ::asio::error::operation_aborted) failed = true;
     };
@@ -302,17 +314,27 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
         if (error) quiesce();
         // Drain cancelled handlers before stack references leave scope,
         // including when initiation of the second wait throws.
-        impl.io.restart();
-        impl.io.run();
+        // notify() may stop the IO context while cancellation is drained.
+        // No handler may retain these stack references after return.
+        while (pending != 0) {
+            impl.io.restart();
+            impl.io.poll();
+        }
         return error;
     };
     try
     {
         impl.io.restart();
         impl.socket.async_wait(::asio::ip::udp::socket::wait_read, completion);
-        if (impl.tx_blocked)
+        ++pending;
+        if (impl.tx_blocked) {
             impl.socket.async_wait(::asio::ip::udp::socket::wait_write, completion);
-        impl.io.run_one_for(maximum_wait);
+            ++pending;
+        }
+        // restart happens BEFORE consuming the latch. A notification before
+        // this check is observed here; one after it interrupts run_one_for.
+        if (impl.wake_pending.exchange(false, std::memory_order_acquire)) ready = true;
+        else impl.io.run_one_for(maximum_wait);
     }
     catch (...)
     {
@@ -320,10 +342,17 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
         throw;
     }
     const auto error = drain();
+    if (impl.wake_pending.exchange(false, std::memory_order_acquire)) ready = true;
     if (failed || error) return WL_ERR_IO;
     if (ready) ++impl.stats.activity_notifications;
     else ++impl.stats.wait_timeouts;
     return ready ? WL_OK : WL_ERR_NO_DATA;
+}
+
+void UdpAdapter::notify() noexcept
+{
+    m_impl->wake_pending.store(true, std::memory_order_release);
+    m_impl->io.stop();
 }
 
 std::uint32_t UdpAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept

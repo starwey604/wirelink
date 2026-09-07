@@ -89,7 +89,7 @@ Wirelink allocates and matches internal call numbers. Ordinary applications do n
 save or compare them: completion notifies the caller and recycles the call.
 An optional handle is needed only for explicit cancellation.
 
-## 4. Client: submit arguments and receive completion
+## 4. Client: provide arguments and wait for this result
 
 Complete [client.c](../examples/01_rpc/client.c):
 
@@ -98,23 +98,9 @@ Complete [client.c](../examples/01_rpc/client.c):
 #include "calculator_endpoint.h"
 #include "tutorial_host.h"
 
-typedef struct {
-  bool done;
-  wl_rpc_completion_t result;
-  add_response_value_t response;
-} addition_t;
-
-static void completed(void *context, const wl_rpc_completion_t *result,
-                       const add_response_value_t *response) {
-  addition_t *addition = context;
-  addition->result = *result;
-  if (response != NULL) addition->response = *response;
-  addition->done = true;
-}
-
 int main(int argc, char **argv) {
   static calculator_endpoint_t client;
-  addition_t addition = {0};
+  add_response_value_t response;
   add_request_value_t request;
   uint16_t local = 49100, peer = 49101;
   CHECK(argc == 1 || argc == 3 || argc == 5);
@@ -131,49 +117,45 @@ int main(int argc, char **argv) {
   CHECK(calculator_endpoint_init(&client, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
-  CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
-      completed, &addition, NULL) == WL_OK);
-
-  while (!addition.done && example_running()) {
-    const int step = calculator_endpoint_step(&client);
-    if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
-    if (!addition.done) CHECK(example_udp_wait(udp, 200U) == WL_OK);
-  }
-  CHECK(calculator_endpoint_close(&client) == WL_OK); /* Also completes a call interrupted by Ctrl-C. */
-  if (addition.result.status == WL_RPC_SUCCESS) {
-    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)addition.response.sum);
-  } else if (addition.result.status == WL_RPC_REJECTED) {
-    printf("addition rejected: status=%ld\n", (long)addition.result.rejection);
+  const wl_rpc_completion_t result = calculator_endpoint_add_sync(&client, &request, &response, 1500U);
+  CHECK(calculator_endpoint_close(&client) == WL_OK);
+  if (result.status == WL_RPC_SUCCESS) {
+    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)response.sum);
+  } else if (result.status == WL_RPC_REJECTED) {
+    printf("addition rejected: status=%ld\n", (long)result.rejection);
   } else {
-    fprintf(stderr, "RPC failed: %s\n", wl_rpc_status_str(addition.result.status));
+    fprintf(stderr, "RPC failed: %s (local=%s)\n", wl_rpc_status_str(result.status), wl_err_str(result.local_error));
   }
   example_udp_close(udp);
-  return addition.result.status == WL_RPC_SUCCESS ||
-         addition.result.status == WL_RPC_REJECTED ? 0 : 1;
+  return result.status == WL_RPC_SUCCESS || result.status == WL_RPC_REJECTED ? 0 : 1;
 }
 ```
 
 Focus on three parts:
 
-1. Fill the generated `add_request_value_t` and submit with `endpoint_add_async()`.
-   The 1500 ms deadline starts at admission, including time in the local queue.
-2. `completed()` receives the outcome. Only success supplies a response; other
-   outcomes supply NULL. This example copies the result into its own `addition`,
-   so it can print after returning from the callback and closing the endpoint.
-3. The main loop drives communication and waits for socket activity until done
-   or Ctrl+C. No transport-state inspection or `release` is required.
-   A thread-oriented synchronous wrapper belongs to the later platform layer;
-   this example uses the single-owner asynchronous API.
+1. Fill `add_request_value_t` and call `endpoint_add_sync()`. The final `1500U`
+   is this call's millisecond budget, including local queuing—not the current time.
+2. `result.status` reports success, rejection, timeout, cancellation or failure.
+   Only success updates `response`. The response owns its data and survives endpoint close.
+3. UDP attachment installs readiness waiting. The synchronous function drives communication,
+   waits for socket activity or the next deadline, and reclaims the call. No application
+   loop, callback, handle or `release` is needed here.
 
-`_async()` returning `WL_OK` means the request has been snapshotted and accepted,
-not that the server succeeded. The input can now be changed. `WL_ERR_BUSY` means
-the bounded local capacity is full: this call was not accepted and will not
-receive a callback. Other admission errors also produce no callback.
+`result.rejection` is a business rejection; `result.local_error` describes local
+admission/platform failures, such as a full queue or missing waiter. Keep them separate.
+`example_udp_*` is [example platform support](../examples/common/tutorial_host.h), not another RPC.
 
-Supply the clock once at initialization; no preparatory `step()` is required.
-Completion callbacks inside a pass reuse its clock sample.
-`example_udp_*` is [example platform support](../examples/common/tutorial_host.h),
-not another RPC implementation.
+This example creates no background thread. The caller is the sole endpoint owner and
+may run local handlers while waiting. Never call sync from that owner's callbacks.
+For business threads calling a background-owned endpoint, install the
+[host executor proxy](rpc-platform.md) at setup; do not drive it from two threads.
+
+An event loop that cannot block can use the separate
+[client_async.c](../examples/01_rpc/client_async.c), built as `calculator_client_async`.
+Its `_async()` snapshots accepted input and notifies on completion. Copy callback
+`*response` to retain an independent result. Admission errors such as `WL_ERR_BUSY`
+produce no callback. The server is unchanged. See [platform integration](rpc-platform.md)
+for the detailed waiting and shutdown contract.
 
 ## 5. Server: fill a response or return a business rejection
 

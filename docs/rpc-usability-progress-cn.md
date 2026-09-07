@@ -187,7 +187,36 @@ H7 CPU 周期、实际延迟和栈高水位仍未测量。
 用户再次断电上电后，一槽的无复位采集也通过。共保存七份通过记录（含额外的一次一槽重烧运行），
 H1 清单无剩余项。当前保留一槽 ABI 23 独立测试镜像，调试器已退出。
 这只验收目标 CPU 的功能和所有权；H2/H3 的等待器、分配器、CPU 测量及产品物理链路仍未做。
-M3–M5 未开始，libflorid/Ragtime 产品依赖、main、tag 和长期测试均未改动。
+以上为 H1 完成时的边界；用户随后授权继续 M3–M5，进展见下节。
 
 M0–M2 原实现目标在实板执行前结束；随后单独授权的 H1 实板功能验收也已完成。
 上述远端 CI 对应实现提交 `ac9bd48`；H1 仅补充文档证据，没有修改已验收代码。
+
+## M3：同步等待与单 owner 代理（ABI 24）
+
+实现 `endpoint_<service>_sync`，复用有界 async 提交、绝对截止时间及唯一完成；
+响应直接复制到调用者的自持值，返回后没有引用调用栈的通知。等待失败只结束当前调用。
+新增 `local_error` 区分本地提交/等待失败，未改变线上格式。
+
+UDP endpoint 接入自动提供 readiness waiter；新增锁存 notify，使先通知后等待不丢事件。
+host Executor 绑定生成的 driver，在单 owner 上提交/step/close。业务线程经固定八位代理队列
+阻塞等待，原超时包含排队；过期且未发出的请求不执行远端 handler。
+关闭通知所有在途/排队调用，并排空 producer/latest 队列。同 owner 回调同步调用拒绝重入。
+后台入队需要线程安全的同一时钟，不另设墙钟 RPC 计时器。
+
+Zephyr 新增可选静态信号量 waiter：ISR 可 notify，stop 锁存并唤醒无限等待，
+无内部线程/heap。同期修复安装包遗漏普通 RPC 头文件，加入真实生成消费者。
+RPC 教程改为同步主路径，异步客户端单独保留；中英文[平台文档](rpc-platform-cn.md)列出合同。
+
+本地软件验证（2026-09-07，未拿主机数据替代 H7）：
+
+- `build/rpc-m3-host`：11 个 CTest 全通过，每项重复五次；包括 UDP 故障注入、
+  C/C++/Python bridge、多业务线程、队列满、排队超时/回绕、在途 stop/IO 错误及 idle 不轮询。
+- `build/rpc-m3-twister`：五个平台 49/49 配置、298/298 用例通过，无警告。
+- `build/rpc-m3-waiter`：native_sim、M3、RV32、x86_64 四配置 12 个等待器用例通过。
+- Clang ASan/UBSan：10 个原生 CTest 通过；Python bridge 单独预加载同版 ASan 后通过
+  （Python 宿主不做 leak 检查，原生测试启用）。
+- `build/rpc-m3-package`：安装包三个生成 C 消费测试通过。
+
+完整 WLC/针对性生成 C Sanitizer 和远端配对 CI 正在最后验收，尚不声明 M3 阶段完成。
+M4/H2、M5/H3 尚未开始；libflorid/Ragtime 产品依赖、main、tag 和长期测试未改动。

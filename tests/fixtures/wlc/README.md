@@ -73,6 +73,10 @@ enums and message bounds. The advanced borrowed `control.h` includes it. Value
 codecs share the existing wire implementation; frozen schema/vector tests do
 not change to demonstrate the new endpoint API.
 
+ABI 24 adds a generated endpoint driver for platform ownership and sync integration.
+Mapped-RPC fixtures retain their existing wire bytes; ordinary sync behavior is
+covered by WLC tests and the installed managed-RPC consumer.
+
 ABI 23 adds `control_endpoint.h` / `control_advanced.h` entry headers and renames
 expert endpoint configuration to `config.advanced`. This fixture deliberately
 keeps mapped RPC; ordinary owned asynchronous RPC is checked by WLC integration

@@ -85,7 +85,7 @@ rpc Add {
 Wirelink 自动给每次调用分配内部编号并匹配响应，应用不需要保存或比较它。
 普通接口在完成时通知应用并回收调用资源；只有需要主动取消时才领取可选句柄。
 
-## 4. 客户端：提交参数，完成时接收结果
+## 4. 客户端：给出参数，等待本次结果
 
 完整 [client.c](../examples/01_rpc/client.c)：
 
@@ -94,23 +94,9 @@ Wirelink 自动给每次调用分配内部编号并匹配响应，应用不需�
 #include "calculator_endpoint.h"
 #include "tutorial_host.h"
 
-typedef struct {
-  bool done;
-  wl_rpc_completion_t result;
-  add_response_value_t response;
-} addition_t;
-
-static void completed(void *context, const wl_rpc_completion_t *result,
-                       const add_response_value_t *response) {
-  addition_t *addition = context;
-  addition->result = *result;
-  if (response != NULL) addition->response = *response;
-  addition->done = true;
-}
-
 int main(int argc, char **argv) {
   static calculator_endpoint_t client;
-  addition_t addition = {0};
+  add_response_value_t response;
   add_request_value_t request;
   uint16_t local = 49100, peer = 49101;
   CHECK(argc == 1 || argc == 3 || argc == 5);
@@ -127,44 +113,41 @@ int main(int argc, char **argv) {
   CHECK(calculator_endpoint_init(&client, example_session_id(), example_clock()) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
-  CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
-      completed, &addition, NULL) == WL_OK);
-
-  while (!addition.done && example_running()) {
-    const int step = calculator_endpoint_step(&client);
-    if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
-    if (!addition.done) CHECK(example_udp_wait(udp, 200U) == WL_OK);
-  }
-  CHECK(calculator_endpoint_close(&client) == WL_OK); /* Also completes a call interrupted by Ctrl-C. */
-  if (addition.result.status == WL_RPC_SUCCESS) {
-    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)addition.response.sum);
-  } else if (addition.result.status == WL_RPC_REJECTED) {
-    printf("addition rejected: status=%ld\n", (long)addition.result.rejection);
+  const wl_rpc_completion_t result = calculator_endpoint_add_sync(&client, &request, &response, 1500U);
+  CHECK(calculator_endpoint_close(&client) == WL_OK);
+  if (result.status == WL_RPC_SUCCESS) {
+    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)response.sum);
+  } else if (result.status == WL_RPC_REJECTED) {
+    printf("addition rejected: status=%ld\n", (long)result.rejection);
   } else {
-    fprintf(stderr, "RPC failed: %s\n", wl_rpc_status_str(addition.result.status));
+    fprintf(stderr, "RPC failed: %s (local=%s)\n", wl_rpc_status_str(result.status), wl_err_str(result.local_error));
   }
   example_udp_close(udp);
-  return addition.result.status == WL_RPC_SUCCESS ||
-         addition.result.status == WL_RPC_REJECTED ? 0 : 1;
+  return result.status == WL_RPC_SUCCESS || result.status == WL_RPC_REJECTED ? 0 : 1;
 }
 ```
 
 先只看三处：
 
-1. `add_request_value_t` 是生成的业务值。填好输入后调用 `endpoint_add_async()`；
-   `1500U` 是从接受请求起计算的等待上限，包含本地排队时间。
-2. `completed()` 在调用结束时收到结果。成功时有响应，失败时响应指针为 NULL。
-   这里把结果复制进程序自己的 `addition`，所以退出回调、关闭端点后仍能打印。
-3. 主循环只负责推进通信、等待 socket 唤醒，直到完成或 Ctrl+C。
-   不再检查链路中间状态，也不需要 `release`。线程式的一行同步调用属于后续平台接口，
-   当前例子展示的是单执行者异步接口。
+1. 填好 `add_request_value_t`，调用 `endpoint_add_sync()`。最后的 `1500U`
+   是本次允许等待的毫秒数，包含本地排队；不用自己传当前时间。
+2. 返回的 `result.status` 表示成功、业务拒绝、超时、取消或失败。
+   只有成功时才更新 `response`；它拥有自己的数据，关闭端点后仍可使用。
+3. UDP 接入时已安装等待方式。同步函数负责推进通信、等待 socket 或最近截止时间，
+   最后回收调用；这里不需要主循环、回调、调用句柄或 `release`。
 
-`_async()` 返回 `WL_OK` 只表示“已快照请求并接受调用”，不表示计算成功。
-此后可以改写请求变量。返回 `WL_ERR_BUSY` 表示本地固定容量已满，本次没有接受、
-也不会回调；应用可稍后再提交。其他提交错误同样不会回调。
+`result.rejection` 只用于业务拒绝；`result.local_error` 是本地提交或平台等待错误，
+例如队列满、缺少等待器。不要把它们当作同一种错误。
+`example_udp_*` 是[示例平台支持](../examples/common/tutorial_host.h)，不是另一套 RPC。
 
-初始化时提供时钟；首次调用不需要先 `step()`。正常推进中的完成回调不额外读取时钟。
-`example_udp_*` 是[示例平台支持](../examples/common/tutorial_host.h)，不是另一套 RPC 实现。
+这里没有创建后台线程：调用者就是推进端点的唯一执行者，等待期间也可能执行本地 handler。
+不能在同一端点的 handler/完成回调中再次同步调用。若需要业务线程调用后台端点，
+初始化时使用 [host executor 代理](rpc-platform-cn.md)，不能让两个线程同时 `step`。
+
+不能阻塞的事件循环请阅读独立的 [client_async.c](../examples/01_rpc/client_async.c)：
+`_async()` 接受请求快照，完成时回调；复制回调的 `*response` 即可保留独立结果。
+提交返回 `WL_ERR_BUSY` 等错误时没有接受调用，也不会回调。异步示例可运行
+`calculator_client_async`；服务端无需修改。进一步的等待/停止约定见[平台接口](rpc-platform-cn.md)。
 
 ## 5. 服务端：填响应或返回业务拒绝码
 

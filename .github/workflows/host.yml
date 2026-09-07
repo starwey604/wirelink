@@ -46,7 +46,7 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
-      # The internal ABI 23 compiler is not a published release asset yet.
+      # The internal ABI 24 compiler is not a published release asset yet.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
@@ -77,6 +77,7 @@ jobs:
         run: >-
           cmake -S . -B udp-build -DCMAKE_BUILD_TYPE=Release
           -DWIRELINK_BUILD_GETTING_STARTED=ON
+          -DWIRELINK_BUILD_HOST_RUNTIME=ON
           -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
           -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
           -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}

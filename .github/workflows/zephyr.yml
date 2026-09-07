@@ -48,7 +48,7 @@ jobs:
           --outdir twister-out
 
       # Exercise the same generated-code sample used for the H7 clock check.
-      # ABI 23 has no release asset: build the matching standalone host compiler.
+      # ABI 24 has no release asset: build the matching standalone host compiler.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:

@@ -5,7 +5,8 @@
 此前的[三批时钟改造](endpoint-clock-evolution.md)已完成；本文是下一轮工作。
 实施证据与已完成/待完成项见[实施记录](rpc-usability-progress-cn.md)。
 原实现目标在 M2 软件验收和 H1 准备完成时停止；用户随后单独授权 H7 功能验证。
-进展及验证边界见 [H1 实板记录](rpc-h1-h7-validation-cn.md)，不扩大为 M3–M5 授权。
+进展及验证边界见 [H1 实板记录](rpc-h1-h7-validation-cn.md)。用户随后授权按本计划
+继续 M3–M5；当前从 M3 开始，各阶段软件验收后再进行 H2/H3，仍不合并 main 或发布。
 
 ## 目标与范围
 

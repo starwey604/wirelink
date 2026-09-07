@@ -73,6 +73,9 @@ public:
     // Owner-only bounded readiness wait, without Wirelink callbacks. Caller
     // merges endpoint/application deadlines to choose maximum_wait.
     int wait_for_activity(std::chrono::milliseconds maximum_wait);
+    // Thread-safe latched wake; no socket IO, callbacks or allocation on caller.
+    // Join producers before destroying this adapter. Not a signal-handler API.
+    void notify() noexcept;
     [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
     [[nodiscard]] std::uint16_t local_port() const;
     void get_stats(UdpAdapterStats& out_stats) const;

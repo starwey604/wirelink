@@ -281,9 +281,13 @@ if(WIRELINK_INSTALL)
     include/wirelink/profile.h
     include/wirelink/pump.h
     include/wirelink/rpc.h
+    include/wirelink/rpc_async.h
+    include/wirelink/rpc_result.h
+    include/wirelink/rpc_sync.h
     include/wirelink/span.h
     include/wirelink/types.h
     include/wirelink/version.h
+    include/wirelink/wait.h
     include/wirelink/wirelink.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
 

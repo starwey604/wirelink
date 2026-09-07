@@ -7,6 +7,8 @@
 #include "wirelink/outbox.h"
 #include "wirelink/pump.h"
 #include "wirelink/host/clock.hpp"
+#include "wirelink/endpoint.h"
+#include "wirelink/rpc_sync.h"
 
 #include <array>
 #include <atomic>
@@ -62,6 +64,9 @@ struct ExecutorStats {
     std::uint64_t m_latest_dispatched{};
     std::uint64_t m_latest_failed{};
     std::uint64_t m_latest_cancelled{};
+    std::uint64_t m_rpc_submitted{};
+    std::uint64_t m_rpc_completed{};
+    std::uint64_t m_rpc_queue_full{};
 };
 
 class Executor {
@@ -95,9 +100,16 @@ public:
     // (or synchronized externally), then notify() must wake a sleeping owner.
     int initialize(const wl_config_t& s_config, const wl_storage_t& s_storage,
                    wl_clock_t clock = monotonic_clock());
+    // Bind a generated endpoint once (and its already-attached adapter). This
+    // executor becomes its sole owner; generated *_sync calls from business
+    // threads are queued here, not stepped by those threads. Its SAME clock is
+    // also sampled at proxy admission, so that provider must be thread-safe.
+    // Manual-clock tests should use an atomic clock and notify after advancing.
+    // This executor/binding must outlive the endpoint and all calling threads.
+    int initialize(wl_endpoint_driver_t driver);
     int setHooks(const ExecutorHooks& s_hooks);
     int setSink(wl_sink_fn s_sink, void* s_user_data);
-    wl_ctx_t& context() noexcept { return m_context; }
+    wl_ctx_t& context() noexcept { return *m_link; }
 
     int start();
     void requestStop() noexcept;
@@ -134,9 +146,19 @@ private:
         std::atomic<std::uint64_t> m_latest_dispatched{};
         std::atomic<std::uint64_t> m_latest_failed{};
         std::atomic<std::uint64_t> m_latest_cancelled{};
+        std::atomic<std::uint64_t> m_rpc_submitted{};
+        std::atomic<std::uint64_t> m_rpc_completed{};
+        std::atomic<std::uint64_t> m_rpc_queue_full{};
     };
 
     wl_time_ms_t nowMs() const noexcept;
+    int initializeOutbox();
+    struct RpcJob;
+    static wl_rpc_completion_t s_invokeRpc(void* context,
+        const wl_rpc_sync_call_t* call, std::uint32_t timeout_ms);
+    static void s_finishRpc(void* context, const wl_rpc_completion_t* result);
+    void s_dispatchRpc() noexcept;
+    void s_cancelQueuedRpc() noexcept;
     static int s_serviceBridge(void* s_user_data) noexcept;
     static void s_quiesceBridge(void* s_user_data) noexcept;
     static std::uint8_t s_applicationProgressBridge(
@@ -154,6 +176,13 @@ private:
     bool s_dispatchOne() noexcept;
     void s_shutdownOnOwner() noexcept;
     wl_ctx_t m_context{};
+    wl_ctx_t* m_link{&m_context};
+    wl_endpoint_driver_t m_driver{};
+    wl_waiter_t m_platform_waiter{};
+    wl_err_t m_stop_error{WL_OK}; // Owner-only platform failure, not a business rejection.
+    wl_rpc_executor_t m_rpc_executor{&Executor::s_invokeRpc, this};
+    std::mutex m_rpc_mutex;
+    std::array<RpcJob*, 8> m_rpc_jobs{};
     wl_clock_t m_clock{};
     ExecutorHooks m_hooks{};
     std::atomic<State> m_state{State::kUninitialized};

@@ -4,6 +4,7 @@
 #include "wirelink/frame.h"
 
 #include <array>
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <asio.hpp>
@@ -285,6 +286,35 @@ void invalid_datagrams()
     CHECK(wl_endpoint_has_adapter(&invalid.endpoint) == 0);
 }
 
+void notification_latch()
+{
+    NativeEndpoint endpoint;
+    wirelink::asio::UdpAdapterConfig config;
+    config.bind_address = "127.0.0.1";
+    std::error_code error;
+    auto adapter = wirelink::asio::UdpAdapter::open(endpoint.endpoint, config, error);
+    CHECK(adapter && !error);
+    const auto* waiter = wl_endpoint_waiter(&endpoint.endpoint);
+    CHECK(waiter && waiter->notify);
+    waiter->notify(waiter->user_data);
+    CHECK(waiter->wait(waiter->user_data, 1000) == WL_OK);
+    CHECK(waiter->wait(waiter->user_data, 1) == WL_ERR_NO_DATA);
+    for (unsigned i = 0; i < 100; ++i) {
+        std::atomic<bool> entering{false};
+        int result = WL_ERR_INVALID_STATE;
+        std::thread owner([&] {
+            entering.store(true);
+            result = waiter->wait(waiter->user_data, 1000);
+        });
+        while (!entering.load()) std::this_thread::yield();
+        if (i % 2) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        adapter->notify();
+        owner.join();
+        CHECK(result == WL_OK);
+    }
+    CHECK(waiter->wait(waiter->user_data, 1) == WL_ERR_NO_DATA);
+}
+
 int main()
 {
     for (const auto integrity : {WL_INTEGRITY_NONE, WL_INTEGRITY_CRC32C}) {
@@ -292,5 +322,6 @@ int main()
         native_packets(integrity);
     }
     invalid_datagrams();
+    notification_latch();
     std::cout << "UDP: legacy stream, native queue, readiness, peer filtering, bounds, lifetime OK\n";
 }

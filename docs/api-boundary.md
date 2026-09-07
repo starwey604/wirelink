@@ -192,15 +192,17 @@ force allocation. Unbounded or oversized selected messages set
 `HAS_DEFAULT_ENDPOINT=0`. Larger queues, custom arenas, or DMA placement use the
 existing manual storage path. See [design and limits](default-endpoint.md).
 
-Ordinary managed RPC uses owned `*_value_t`, `endpoint_*_async()` and completion
+Ordinary managed RPC uses owned `*_value_t`, blocking `endpoint_*_sync()` where
+platform waiting is available, or `endpoint_*_async()` and completion
 callbacks, with automatic request snapshots and call reclamation. Register
 `config.on_<service>` for immediate response/rejection. Optional `wl_rpc_call_t`
 is for cancellation only; inspect/release is not required. Defaults use four
 bounded slots and a recent-result cache. Manual calls/tokens and
 `config.advanced` are expert paths; see [default endpoint](default-endpoint.md).
-Explicit field mappings remain a separate interoperability mode..
+Explicit field mappings remain a separate interoperability mode.
+See [platform integration](rpc-platform.md) for waiters and background proxies.
 
-## WLC-Generated Surface (ABI 23)
+## WLC-Generated Surface (ABI 24)
 
 WLC deliberately splits these entries:
 
