@@ -306,11 +306,16 @@ libflorid 的本地 acados/Dyn-Calib 改动及 Windows 原工作区保留。
 - 新增 `02_device_info` 双程序，展示字符串赋值、再次调用、清理原值和关闭端点后的保存结果。
   `01_rpc` 保留 sync/async 客户端，新增独立 deferred 服务端；三个组合跑成功、拒绝、
   请求 ACK 与首个响应同时丢失及黑洞，断言业务执行次数和实际丢包。
-- Host Release 15 项通过；新增双语源码一致性检查另过。安装包 4 项通过；
+- Host Release 最终 16/16 项通过（含双语源码一致性检查）。安装包 4 项通过；
   ASan/UBSan 原生 13 项、预加载 ASan 的 Python 2 项通过。
   C++/Python 存储消费者各重复 20 次，每次 2000 RPC，共各 40000 次；
   配对释放、关闭后池回到基线、热路径零端点分配器调用的断言全部通过。
 - 六篇中英文进阶文章分开讲字符串、async、deferred；完整 C 代码逐字匹配编译源文件。
   安装说明不再要求产品 HIL 的编译器位于嵌套 WLC worktree。
 
-上述是软件和构建证据，远端新教程 CI 与 H3 物理 USB 验证仍需独立确认。
+Wirelink 教程提交 `609ff8d` 的
+[Host CI](https://github.com/starwey604/wirelink/actions/runs/34092154160) 已全部通过，
+含 Windows/macOS/Linux 新双进程测试与安装包。Zephyr CI 此时仍运行。
+H3 14:44 换烧时探针可识别但 CPU attach 失败，未执行擦写；当前等待用户拔插。
+普通 USB HIL 和一次性 USB 重枚举镜像均构建完成，配对、哈希和待验项见
+[H3 产品物理链路记录](rpc-h3-product-validation-cn.md)。没有把 H2 板内结果或软件通过当作 H3 完成。
