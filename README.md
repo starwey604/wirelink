@@ -135,11 +135,12 @@ Generate additional role runtimes against `fci_arm_codec`; set a distinct
 
 WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
 `WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names
-the pinned compatible version, Wirelink downloads its WLC GitHub Release into
-`WIRELINK_WLC_CACHE_DIR` and verifies the archive's fixed SHA256 before use.
+the pinned compatible version, Wirelink fetches the paired source commit into
+`WIRELINK_WLC_CACHE_DIR`, verifies its fixed SHA256, and builds it with host
+Rust/Cargo (`--locked`). The internal ABI has no matching release binary.
 Set `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` for offline or hermetic builds and provide
-the executable explicitly. Platform selection uses `CMAKE_HOST_SYSTEM_NAME`
-and `CMAKE_HOST_SYSTEM_PROCESSOR`, never the cross-compilation target.
+the executable explicitly. Cargo receives the host triple reported by `rustc`,
+never the firmware target or an inherited `CARGO_BUILD_TARGET`.
 
 Generated sources are written below the build directory and regenerate when
 the schema, profile, compatibility predecessor, or WLC executable changes.
@@ -307,6 +308,10 @@ ownership, DMA lifecycle, adapter, and test contracts. The wire format is
 specified in [`docs/protocol.md`](docs/protocol.md).
 Cross-transport counters and hardware acceptance rules are defined in
 [`docs/adapter-hil.md`](docs/adapter-hil.md).
+
+For the internal ABI 26 product build status, performance evidence, and outstanding
+integration gates, see the [integration closeout (Chinese)](docs/dev-closeout-cn.md)
+and the preceding [dev-to-main assessment](docs/dev-main-merge-assessment-cn.md).
 
 ## Release checks
 

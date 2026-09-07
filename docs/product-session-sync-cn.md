@@ -2,6 +2,11 @@
 
 2026-09-07；仅 `dev/wirelink-p0-hardening`，不合并 main、不打 tag、不发布。
 
+本页记录产品依赖同步时的验收状态，不是最新性能结论。
+后续结果见 [性能收敛记录](host-performance-convergence-cn.md)，
+当前构建与合并条件见 [集成收尾](dev-closeout-cn.md)，
+收尾前的历史问题见 [dev → main 评估](dev-main-merge-assessment-cn.md)。
+
 ## 本轮判断
 
 Wirelink / WLC 自动身份 P0 已完成核心、生成 API、模拟平台及 H7 板内功能验收，

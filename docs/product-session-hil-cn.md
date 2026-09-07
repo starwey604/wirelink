@@ -1,6 +1,8 @@
 # ABI 26：Willow H7 USB 实板验证
 
-2026-09-07，本机 Linux + STM32H723 / dm_mc02。**功能通过，严格性能验收未通过**。
+2026-09-07，本机 Linux + STM32H723 / dm_mc02。**原始基线：功能通过，严格性能未通过**。
+后续 host 改动与新对照结果见 [性能收敛记录](host-performance-convergence-cn.md)；
+本页保留原始基线结论，不把后续结果回写成历史通过。
 承接 [产品同步记录](product-session-sync-cn.md)。不改 API/代码、不合 main、不发布；
 所有测试使用同一 HIL 镜像和主机可执行文件，没有调宽门槛或重复跑到全绿。
 
