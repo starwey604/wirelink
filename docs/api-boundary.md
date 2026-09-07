@@ -18,7 +18,7 @@ The order below is for reviewing the API after using those examples.
 3. Review [`adapters.md`](adapters.md) beside
    [`application-layer.md`](application-layer.md) to check the producer,
    consumer, pump, and shutdown split.
-4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/ddbddeff25f4a267c7769da798802925ef88229d/README.md) and
+4. Review the [WLC guide](https://github.com/starwey604/wlc/blob/afa5dfd186be1f747dc6d0cbcfc54c79654bf5f7/README.md) and
    [`schema-v1.md`](schema-v1.md), then inspect one representative generated
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h).
 5. Inspect only the application policies you intend to expose:

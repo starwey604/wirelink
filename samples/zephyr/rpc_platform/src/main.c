@@ -5,6 +5,9 @@
 #include "wirelink/port.h"
 #include <zephyr/sys/printk.h>
 #include <stdlib.h>
+#if defined(CONFIG_CPU_CORTEX_M_HAS_DWT)
+#include <cmsis_core.h>
+#endif
 
 #define CHECK(x) do { if (!(x)) { printk("RPC_H2 FAIL line=%u: %s\n", __LINE__, #x); abort(); } } while (0)
 typedef struct port {
@@ -34,6 +37,22 @@ static large_value_t large, decoded;
 static volatile large_value_t copied;
 static uint8_t encoded[2048];
 static unsigned callbacks;
+
+static void cycle_init(void) {
+#if defined(CONFIG_CPU_CORTEX_M_HAS_DWT)
+  DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  __DSB();
+  __ISB();
+#endif
+}
+static uint32_t cycle_now(void) {
+#if defined(CONFIG_CPU_CORTEX_M_HAS_DWT)
+  return DWT->CYCCNT; /* IRQ-independent; SysTick cannot count multiple masked wraps. */
+#else
+  return k_cycle_get_32(); /* Simulator functional diagnostics only. */
+#endif
+}
 
 static void *allocate(void *context, size_t size, size_t alignment) {
   CHECK(context == &pool);
@@ -150,6 +169,7 @@ static void done(void *context, const wl_rpc_completion_t *result, const respons
 }
 
 int main(void) {
+  cycle_init();
   printk("RPC_H2 ABI=%u capacity=%u endpoint_bytes=%u cycle_hz=%u start\n",
       RPC_VALIDATION_RUNTIME_CODEGEN_ABI_VERSION, (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY,
       (unsigned)sizeof(rpc_validation_endpoint_t), sys_clock_hw_cycles_per_sec());
@@ -188,9 +208,9 @@ int main(void) {
   memcpy(request.name.data, "abc", 3);
   response_value_t response;
   for (unsigned i = 0; i < 100; ++i) {
-    const uint32_t start = k_cycle_get_32();
+    const uint32_t start = cycle_now();
     wl_rpc_completion_t result = rpc_validation_endpoint_execute_sync(client.endpoint, &request, &response, 2000);
-    roundtrips[i] = k_cycle_get_32() - start;
+    roundtrips[i] = cycle_now() - start;
     if (result.status != WL_RPC_SUCCESS) printk("RPC_H2 call=%u result=%d local=%d runtime=%d transport=%d waits=%u/%u handlers=%u reads=%u/%u\n",
         i, result.status, result.local_error, result.runtime_error, result.transport_error,
         client.waits, server.waits, server.handlers, client.reads, server.reads);
@@ -209,9 +229,9 @@ int main(void) {
   for (unsigned i = 0; i < 20; ++i) {
     CHECK(rpc_validation_endpoint_execute_async(client.endpoint, &request, 2000, done, NULL, NULL) == WL_OK);
     while (callbacks == i) {
-      const uint32_t start = k_cycle_get_32();
+      const uint32_t start = cycle_now();
       CHECK(rpc_validation_endpoint_step(client.endpoint) == WL_OK);
-      if (callbacks != i) { completion_cycles += k_cycle_get_32() - start; break; }
+      if (callbacks != i) { completion_cycles += cycle_now() - start; break; }
       wl_poll_hint_t hint;
       CHECK(wl_endpoint_get_hint(rpc_validation_endpoint_handle(client.endpoint), &hint) == WL_OK);
       if (!hint.work_pending && hint.next_deadline_ms != 0U) {
@@ -249,28 +269,28 @@ int main(void) {
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_OK);
   const unsigned reads = client.reads;
   const unsigned key = irq_lock();
-  uint32_t start = k_cycle_get_32();
+  uint32_t start = cycle_now();
   for (unsigned i = 0; i < 128; ++i) CHECK(rpc_validation_endpoint_step(client.endpoint) == WL_OK);
-  const uint32_t idle_cycles = k_cycle_get_32() - start;
+  const uint32_t idle_cycles = cycle_now() - start;
   irq_unlock(key);
   CHECK(client.reads == reads + 128);
   size_t length = 0;
   unsigned locked = irq_lock();
-  start = k_cycle_get_32();
+  start = cycle_now();
   for (unsigned i = 0; i < 32; ++i)
     CHECK(large_value_encode(&large, encoded, sizeof(encoded), &length) == WL_CODEC_OK);
-  const uint32_t encode_cycles = k_cycle_get_32() - start;
+  const uint32_t encode_cycles = cycle_now() - start;
   irq_unlock(locked);
   locked = irq_lock();
   start = k_cycle_get_32();
   for (unsigned i = 0; i < 32; ++i)
     CHECK(large_value_decode(encoded, length, &decoded) == WL_CODEC_OK);
-  const uint32_t decode_cycles = k_cycle_get_32() - start;
+  const uint32_t decode_cycles = cycle_now() - start;
   irq_unlock(locked);
   locked = irq_lock();
   start = k_cycle_get_32();
   for (unsigned i = 0; i < 128; ++i) copied = large;
-  const uint32_t copy_cycles = k_cycle_get_32() - start;
+  const uint32_t copy_cycles = cycle_now() - start;
   irq_unlock(locked);
   CHECK(decoded.data.length == 2031 && copied.data.data[2030] == 0xa5);
   CHECK(k_thread_stack_space_get(k_current_get(), &unused_main) == 0);

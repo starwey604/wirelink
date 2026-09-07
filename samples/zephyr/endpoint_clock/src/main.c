@@ -83,6 +83,8 @@ static int transaction(int selected_mode, uint32_t idle_ms) {
     k_msleep(1);
   }
   const uint32_t elapsed = k_uptime_get_32() - started;
+  if (selected_mode == 0 && !result.response_valid)
+    printk("CLOCK_HIL unexpected state=%d elapsed_ms=%u handled=%u\n", (int)result.state, elapsed, handled);
   if (selected_mode == 0) CHECK(result.response_valid && result.response.sum == 42);
   if (selected_mode == 1) CHECK(result.state == WL_RPC_CLIENT_APPLICATION_ERROR && result.application_status == 7);
   if (selected_mode == 2) CHECK(result.state == WL_RPC_CLIENT_TIMED_OUT && elapsed >= 50U);

@@ -15,7 +15,8 @@ It reports cycle-counter frequency, endpoint bytes, wait counts and unused stack
 completion-containing owner pass, not isolated RPC completion CPU cost. Separate
 bounded IRQ-off batches measure an idle step, encode/decode of 2031 bytes and
 volatile full-value copy after other tasks have joined. No subtractive timer
-overhead correction is applied. Native_sim's simulated cycles/stacks are not
+overhead correction is applied. Cortex-M uses DWT CYCCNT, not SysTick's
+interrupt-dependent wrap accounting, for these IRQ-off batches. Native_sim's simulated cycles/stacks are not
 hardware measurements; QEMU numbers are also functional diagnostics only.
 
 Build from an initialized Zephyr workspace:

@@ -27,7 +27,7 @@ Without a matching binary, independently obtain and install the WLC source:
 
 ```sh
 git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout ddbddeff25f4a267c7769da798802925ef88229d
+git -C wlc-source checkout afa5dfd186be1f747dc6d0cbcfc54c79654bf5f7
 cargo install --path wlc-source --locked --force
 ```
 
