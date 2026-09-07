@@ -208,9 +208,10 @@ int main(void) {
   memcpy(request.name.data, "abc", 3);
   response_value_t response;
   for (unsigned i = 0; i < 100; ++i) {
-    const uint32_t start = cycle_now();
+    /* IRQ-enabled system clock includes sleep/scheduling; DWT is for CPU work. */
+    const uint32_t start = k_cycle_get_32();
     wl_rpc_completion_t result = rpc_validation_endpoint_execute_sync(client.endpoint, &request, &response, 2000);
-    roundtrips[i] = cycle_now() - start;
+    roundtrips[i] = k_cycle_get_32() - start;
     if (result.status != WL_RPC_SUCCESS) printk("RPC_H2 call=%u result=%d local=%d runtime=%d transport=%d waits=%u/%u handlers=%u reads=%u/%u\n",
         i, result.status, result.local_error, result.runtime_error, result.transport_error,
         client.waits, server.waits, server.handlers, client.reads, server.reads);
@@ -273,6 +274,9 @@ int main(void) {
   for (unsigned i = 0; i < 128; ++i) CHECK(rpc_validation_endpoint_step(client.endpoint) == WL_OK);
   const uint32_t idle_cycles = cycle_now() - start;
   irq_unlock(key);
+#if defined(CONFIG_CPU_CORTEX_M_HAS_DWT)
+  CHECK(idle_cycles != 0U); /* A disabled/locked cycle counter is not a measurement. */
+#endif
   CHECK(client.reads == reads + 128);
   size_t length = 0;
   unsigned locked = irq_lock();

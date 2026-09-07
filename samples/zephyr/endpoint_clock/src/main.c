@@ -80,7 +80,12 @@ static int transaction(int selected_mode, uint32_t idle_ms) {
         result.state == WL_RPC_CLIENT_APPLICATION_ERROR ||
         result.state == WL_RPC_CLIENT_TIMED_OUT) break;
     CHECK(k_uptime_get_32() - started < 500U);
-    k_msleep(1);
+    /* Finish immediately available loopback work before sleeping. A forced
+     * scheduler tick between request/ACK/response can consume a short timeout
+     * on emulators whose clock jumps while the host is descheduled. */
+    if (!wl_endpoint_last_step(calculator_endpoint_handle(&client))->progress &&
+        !wl_endpoint_last_step(calculator_endpoint_handle(&server))->progress)
+      k_msleep(1);
   }
   const uint32_t elapsed = k_uptime_get_32() - started;
   if (selected_mode == 0 && !result.response_valid)

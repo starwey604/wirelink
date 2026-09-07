@@ -59,7 +59,7 @@ static uint32_t hint(const void *context, wl_time_ms_t time) {
   return a.tx_active || b.tx_active || peer.work_pending ? 0U : peer.next_deadline_ms;
 }
 static void quiesce(void *context) { wl_loopback_quiesce(&((bridge_t *)context)->cable); }
-static wl_err_t wait(void *context, uint32_t maximum) {
+static wl_err_t storage_wait(void *context, uint32_t maximum) {
   ((bridge_t *)context)->time += maximum;
   return WL_ERR_NO_DATA;
 }
@@ -88,7 +88,7 @@ void *storage_bridge_create(int fail_second) {
   if (wl_endpoint_attach(calculator_endpoint_handle(bridge->server), &hooks) != WL_OK) goto fail;
   hooks.service = service;
   if (wl_endpoint_attach(calculator_endpoint_handle(bridge->client), &hooks) != WL_OK) goto fail;
-  wl_waiter_t waiter = {wait, bridge, NULL};
+  wl_waiter_t waiter = {storage_wait, bridge, NULL};
   if (wl_endpoint_set_waiter(calculator_endpoint_handle(bridge->client), &waiter) != WL_OK) goto fail;
   return bridge;
 fail:
