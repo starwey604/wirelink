@@ -30,7 +30,9 @@ The installed public surface consists of the headers listed by the install
 rule under `include/wirelink/` and the `Wirelink::wirelink`,
 `Wirelink::loopback`, and `Wirelink::diagnostics` CMake targets. The latter two
 are separately linked and do not enlarge a core-only firmware. `Wirelink::host`
-is installed only when that optional C++20 runtime is built. Headers such as
+is installed only when that optional C++20 runtime is built. `Wirelink::platform`
+supplies the optional native clock/session environment without adding OS dependencies
+to the core. Headers such as
 `rx_ring_state.h` and all files under `src/` are private even when visible in a
 source checkout.
 

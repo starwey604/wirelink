@@ -56,13 +56,15 @@ wirelink_wlc_generate_runtime(
   PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.bind.wl")
 add_executable(telemetry_subscriber main.c tutorial_host.cpp)
 target_link_libraries(telemetry_subscriber PRIVATE
-  telemetry_protocol Wirelink::asio_udp)
+  telemetry_protocol Wirelink::asio_udp Wirelink::platform)
 ```
 
 The codec target compiles message types, encode/decode and typed sending.
 The runtime target adds the generated endpoint and LATEST reception.
 `CODEC_TARGET` selects the existing message library. Linking `telemetry_protocol`
-brings in its codec and core; `Wirelink::asio_udp` remains optional host transport.
+brings in its codec and core; `Wirelink::asio_udp` is optional host transport and
+`Wirelink::platform` supplies the default clock/session source. Neither adds an
+OS dependency to the firmware core.
 
 Install the libraries built for the tutorials, from the Wirelink root:
 
@@ -86,7 +88,7 @@ Windows multi-configuration builds add `Release/` and `.exe` to executable paths
 
 The independent consumer needs no Asio source include path: the installed adapter
 is already compiled and hides Asio headers. WLC runs only at build time; use the
-ABI 25 revision pinned in [installation](installation.md).
+ABI 26 revision pinned in [installation](installation.md).
 Codec-only consumers need neither runtime nor UDP. For shared codecs and
 `RUNTIME_NAME`, consult the
 [WLC guide](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README.md).
@@ -107,7 +109,7 @@ call these settings a link profile; they are not the binding-profile file.
 | `integrity` | Detection of accidental byte corruption | Agree on a mode, for example CRC32C |
 | `max_payload_len`, payload bound | Maximum encoded message size without headers/checksum | Cover messages sent and received |
 | `max_transmission_unit` | Maximum complete transport packet size | Include headers, checksum, and envelope overhead |
-| `session_id` | Distinguish reliable traffic from this boot and older boots | Use the nonzero identity policy below |
+| Platform environment | Supply clock and fresh instance identity | Use `wl_platform_environment()`; no manual ID |
 | `ack_timeout_ms`, `max_retries` | How long to wait before retrying and how often | Account for transport delay, scheduling, and recovery needs |
 
 “Out of band” means your programs agree on settings beforehand; v1 does not
@@ -139,7 +141,7 @@ Implement those requirements in your product's transport/security layer.
 
 <a id="session-identity"></a>
 
-### Choosing session identities across real reboots
+### Distinguishing traffic across real reboots
 
 Suppose a device restarts while old packets or acknowledgements remain in the
 connection. Reusing sequence numbers alone could let an old ACK confirm new work.
@@ -148,15 +150,12 @@ connection. Reusing sequence numbers alone could let an old ACK confirm new work
 and acknowledgements carry the relevant session identity so the protocol can
 distinguish old-session traffic. Nonzero means simply that 0 is reserved as invalid.
 
-It is not an address selecting which device receives a packet. Wirelink connects
-two ends and provides no node-address routing. The isolated example uses fixed
-0x1001 and 0x2002 values for repeatability, not a production reboot policy.
-
-One approach generates a fresh nonzero random value each boot, often called a
-**boot nonce**: a random identifier for this startup. Another increments a
-persistent boot counter before using it. Avoid reusing an identity while old
-traffic might survive; random generation must account for collision probability.
-This identifier is not authentication or an encryption key.
+It is not an address. Default endpoints automatically obtain a new identity at
+each init/create; applications do not choose numbers or implement randomness.
+Managed RPC echoes the originating client identity, preventing an old-instance
+reply from completing a new call with the same number. See [automatic sessions](session.md)
+for platform defaults, bare-metal callbacks and exhaustion. Mapped RPC retains
+product-owned response-isolation requirements. Identity is not authentication.
 
 
 ## 4. Replace localhost UDP with device transport
@@ -202,10 +201,10 @@ Sending, pump work, RPC operations, and TX completion notifications execute ther
 Interrupts/driver callbacks may publish RX bytes, record TX completion, and wake
 the owner; they must not execute RPC handlers.
 
-The default endpoint reads its initialization-time clock internally. Set
-`config.clock` once; do not read a clock or call the raw pump just to refresh its
-time. A host may use `wirelink::host::monotonic_clock()`; firmware may wrap its
-uptime function. See [clock examples and contract](endpoint-clock.md).
+The default endpoint reads its initialization-time clock internally. The platform
+environment supplies it; override `config.environment.clock` only when customizing.
+Do not read a clock or call the raw pump just to refresh its time.
+See [clock examples and contract](endpoint-clock.md).
 
 Only when deliberately assembling the advanced link/runtime path, each round:
 

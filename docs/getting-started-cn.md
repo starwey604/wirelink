@@ -104,15 +104,17 @@ latest Telemetry {
 [公开的示例支持代码](../examples/common/tutorial_host.h)，不是生成文件或核心 API：
 
 - `example_udp_open()` 在本机打开 UDP，并把适配器接到已初始化的端点。
-- `example_clock()` 提供取时间的函数，初始化时交给端点，以后由 Wirelink 内部调用。
-  `example_now_ms()` 只用于示例自己的发布间隔和退出时间；发包、推进不再传时间。
-  `example_session_id()` 为本次运行生成非零随机标识。
+- `example_now_ms()` 只用于示例自己的发布间隔和退出时间；发包、推进不传时间。
 - `example_udp_wait()` 等待数据或最近截止时间，不处理业务，也不创建后台通信线程。
-- `example_udp_close()` 关闭端点并释放主机适配器。`CHECK` 只是打印错误并结束示例的宏。
+- 先关闭生成端点，再由 `example_udp_close()` 释放主机适配器。`CHECK` 只是打印错误并结束示例的宏。
 
 这些函数把 Windows/Linux/macOS 的平台接入集中在
 [一个 C++ 文件](../examples/common/tutorial_host.cpp)，业务程序仍是 C11。
 其内部使用库自带的 Asio UDP 适配器；不是用 Python 模拟 Wirelink。
+
+初始化中的 `wl_platform_environment()` 则是 Wirelink 自带的接口，提供当前平台的
+时钟和身份来源。端点自己生成本次通信的身份，用户无需填写 session ID 或随机数。
+先使用默认环境即可；移植裸机时再看[平台与自动会话](session-cn.md)。
 
 ## 5. 发布端完整代码
 
@@ -128,7 +130,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49000, peer = 49001;
   telemetry_t value;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, example_session_id(), example_clock()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&publisher, wl_platform_environment()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
   CHECK(udp != NULL);
 
@@ -171,7 +173,7 @@ int main(int argc, char **argv) {
   telemetry_t value;
   int complete = 0;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&subscriber, example_session_id(), example_clock()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&subscriber, wl_platform_environment()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
   CHECK(udp != NULL);
   puts("telemetry subscriber ready");

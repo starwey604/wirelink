@@ -50,6 +50,8 @@ const char *wl_err_str(int err) {
     return "Unsupported frame version (WL_ERR_PROTOCOL_VERSION)";
   case WL_ERR_REENTRANT:
     return "Callback re-entry or concurrent access (WL_ERR_REENTRANT)";
+  case WL_ERR_ID_EXHAUSTED:
+    return "Communication identity exhausted (WL_ERR_ID_EXHAUSTED)";
   case WL_ERR_CORRUPT_PAYLOAD:
     return "Corrupt payload (WL_ERR_CORRUPT_PAYLOAD)";
   default:

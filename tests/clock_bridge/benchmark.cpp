@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "telemetry_runtime.h"
+#include "../support/test_environment.h"
 #include "wirelink/host/clock.hpp"
 #include "wirelink/port.h"
 #include <chrono>
@@ -56,7 +57,7 @@ static void measure(const char *name, Clock& clock, unsigned expected_reads, Act
 int main() {
   static telemetry_endpoint_t endpoint;
   Clock clock;
-  check(telemetry_endpoint_init(&endpoint, 1U, {Clock::now, &clock}) == WL_OK);
+  check(telemetry_endpoint_init(&endpoint, test_environment_id(1U, {Clock::now, &clock})) == WL_OK);
   wl_ctx_t *link = wl_endpoint_link(telemetry_endpoint_handle(&endpoint));
   const auto sink = [](void*, wl_io_token_t, const std::uint8_t*, std::size_t) -> wl_sink_result_t {
     return WL_SINK_SENT;
@@ -71,7 +72,7 @@ int main() {
   });
   telemetry_endpoint_close(&endpoint);
   clock.native = true; /* Change clock domains only across a closed lifetime. */
-  check(telemetry_endpoint_init(&endpoint, 2U, {Clock::now, &clock}) == WL_OK);
+  check(telemetry_endpoint_init(&endpoint, test_environment_id(2U, {Clock::now, &clock})) == WL_OK);
   link = wl_endpoint_link(telemetry_endpoint_handle(&endpoint));
   check(wl_set_sink(link, sink, nullptr) == WL_OK);
   measure("endpoint_native_idle", clock, 1, [&] {

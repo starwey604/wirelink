@@ -20,7 +20,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 25U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 26U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -358,7 +358,7 @@ control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, 
 
 typedef struct {
   wl_config_t link;
-  wl_clock_t clock;
+  wl_environment_t environment;
   /* Expert policy/storage overrides; ordinary applications use defaults. */
   control_runtime_config_t advanced;
 
@@ -373,6 +373,7 @@ typedef struct {
     wl_allocator_t allocator; /* Zero for caller-owned static storage. */
     bool stepping;
     bool closing;
+    uint64_t previous_session;
     control_runtime_instance_t instance;
     union {
       control_runtime_default_storage_alignment_t alignment;
@@ -403,14 +404,14 @@ typedef struct {
 /* Config descriptors can be temporary; callbacks/user_data must outlive use.
  * Ordinary client capability and registered server handlers are assembled by init. */
 static inline wl_err_t control_endpoint_config_defaults(
-    control_endpoint_config_t *config, uint64_t session_id) {
+    control_endpoint_config_t *config, wl_environment_t environment) {
   int result;
-  if (config == NULL || session_id == 0U) return WL_ERR_INVALID_ARG;
+  if (config == NULL) return WL_ERR_INVALID_ARG;
   memset(config, 0, sizeof(*config));
   config->link.max_payload_len = CONTROL_ENDPOINT_MAX_PAYLOAD;
   config->link.envelope = WL_ENVELOPE_NATIVE_PACKET;
   config->link.integrity = WL_INTEGRITY_CRC32C;
-  config->link.session_id = session_id;
+  config->environment = environment;
   config->link.ack_timeout_ms = 100U;
   config->link.max_retries = 4U;
   config->event_budget = 16U;
@@ -463,6 +464,7 @@ static inline wl_err_t control_endpoint_init_config(
   control_runtime_storage_t storage;
   wl_pump_hooks_t hooks;
   control_runtime_config_t runtime_config;
+  wl_config_t link_config;
   int result;
   if (endpoint == NULL || config == NULL || config->event_budget == 0U)
     return WL_ERR_INVALID_ARG;
@@ -470,7 +472,12 @@ static inline wl_err_t control_endpoint_init_config(
     return WL_ERR_REENTRANT;
   if (wl_endpoint_link(control_endpoint_handle(endpoint)) != NULL)
     return WL_ERR_INVALID_STATE;
-  if (config->clock.now_ms == NULL) return WL_ERR_INVALID_ARG;
+  if (config->environment.clock.now_ms == NULL || config->link.session_id != 0U)
+    return WL_ERR_INVALID_ARG;
+  link_config = config->link;
+  result = wl_session_next(config->environment.session,
+      endpoint->private_state.previous_session, &link_config.session_id);
+  if (result != WL_OK) return result;
   runtime_config = config->advanced;
 
 
@@ -495,9 +502,10 @@ static inline wl_err_t control_endpoint_init_config(
       &endpoint->private_state.instance.runtime, control_endpoint_record, endpoint);
   if (result != WL_OK) return result;
   hooks = control_runtime_pump_hooks(&endpoint->private_state.pump);
-  result = wl_endpoint_init(&endpoint->private_state.owner, &config->link,
-                            &link_storage, &config->clock, &hooks);
+  result = wl_endpoint_init(&endpoint->private_state.owner, &link_config,
+                            &link_storage, &config->environment.clock, &hooks);
   if (result != WL_OK) return result;
+  endpoint->private_state.previous_session = link_config.session_id;
 
   endpoint->private_state.on_result = config->on_result;
   endpoint->private_state.user_data = config->user_data;
@@ -506,11 +514,10 @@ static inline wl_err_t control_endpoint_init_config(
   return WL_OK;
 }
 
-static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint, uint64_t session_id,
-                                        wl_clock_t clock) {
+static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint,
+                                        wl_environment_t environment) {
   control_endpoint_config_t config;
-  int result = control_endpoint_config_defaults(&config, session_id);
-  config.clock = clock;
+  int result = control_endpoint_config_defaults(&config, environment);
   return result == WL_OK ? control_endpoint_init_config(endpoint, &config) : result;
 }
 

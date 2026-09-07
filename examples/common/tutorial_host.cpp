@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "tutorial_host.h"
 #include "wirelink/asio/udp_adapter.hpp"
-#include "wirelink/host/clock.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -10,7 +9,6 @@
 #include <cstdlib>
 #include <limits>
 #include <memory>
-#include <random>
 
 struct example_udp {
   wl_endpoint_t *endpoint{};
@@ -20,23 +18,10 @@ struct example_udp {
 static volatile std::sig_atomic_t running = 1;
 static void stop(int) { running = 0; }
 
-uint64_t example_session_id(void) {
-  try {
-    std::random_device source;
-    for (int attempt = 0; attempt < 16; ++attempt) {
-      const uint64_t value = (static_cast<uint64_t>(source()) << 32) ^ source();
-      if (value != 0) return value;
-    }
-  } catch (...) {}
-  std::fputs("cannot obtain a session identifier\n", stderr);
-  return 0;
-}
-
 wl_time_ms_t example_now_ms(void) {
-  return wirelink::host::monotonic_now_ms(nullptr);
+  const auto environment = wl_platform_environment();
+  return environment.clock.now_ms(environment.clock.user_data);
 }
-
-wl_clock_t example_clock(void) { return wirelink::host::monotonic_clock(); }
 
 int example_running(void) { return running != 0; }
 

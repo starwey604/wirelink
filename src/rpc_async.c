@@ -55,6 +55,7 @@ static wl_err_t map_error(wl_rpc_err_t result) {
     case WL_RPC_ERR_INVALID_ARG: return WL_ERR_INVALID_ARG;
     case WL_RPC_ERR_NOT_INITIALIZED: return WL_ERR_NOT_INITIALIZED;
     case WL_RPC_ERR_NOT_FOUND: return WL_ERR_NOT_FOUND;
+    case WL_RPC_ERR_ID_EXHAUSTED: return WL_ERR_ID_EXHAUSTED;
     default: return WL_ERR_INVALID_STATE;
   }
 }
@@ -151,7 +152,8 @@ wl_err_t wl_rpc_async_submit(wl_rpc_async_t *async, uint16_t request_id,
     async->private_state.submitting = 0U;
     return map_error(rpc);
   }
-  error = encode(request, operation_id, async->private_state.requests +
+  error = encode(request, operation_id, wl_link_session_id(async->private_state.link),
+      async->private_state.requests +
       (size_t)index * async->private_state.request_capacity,
       async->private_state.request_capacity, &length);
   if (error == WL_OK && length > async->private_state.request_capacity)

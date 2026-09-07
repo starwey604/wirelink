@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "bridge.h"
+#include "../support/test_environment.h"
 #include "calculator_endpoint.h"
 #include "wirelink/storage/fixed_pool.h"
 #include "wirelink/loopback.h"
@@ -72,10 +73,9 @@ void *storage_bridge_create(int fail_second) {
   if (wl_fixed_pool_init(&bridge->pool, bridge->storage.bytes, sizeof(bridge->storage.bytes),
       sizeof(calculator_endpoint_t), CALCULATOR_ENDPOINT_ALIGNMENT, 2) != WL_OK) goto fail;
   wl_allocator_t allocator = {allocate, deallocate, bridge};
-  if (calculator_endpoint_config_defaults(&config, 81) != WL_OK) goto fail;
-  config.clock = (wl_clock_t){now, bridge};
+  if (calculator_endpoint_config_defaults(&config, test_environment_id(81, (wl_clock_t){0})) != WL_OK) goto fail;
+  config.environment.clock = (wl_clock_t){now, bridge};
   if (calculator_endpoint_create(&bridge->client, &config, &allocator) != WL_OK) goto fail;
-  config.link.session_id = 82;
   config.on_add = add;
   if (calculator_endpoint_create(&bridge->server, &config, &allocator) != WL_OK) goto fail;
   if (wl_loopback_init(&bridge->cable, wl_endpoint_link(calculator_endpoint_handle(bridge->client)),

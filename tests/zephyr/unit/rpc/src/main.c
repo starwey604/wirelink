@@ -149,7 +149,7 @@ ZTEST(wirelink_rpc, test_init_validation_and_storage_boundaries) {
                 WL_RPC_OK);
 }
 
-ZTEST(wirelink_rpc, test_client_capacity_id_wrap_and_conflict) {
+ZTEST(wirelink_rpc, test_client_capacity_id_exhaustion_and_conflict) {
   uint32_t first = 0U;
   uint32_t second = 0U;
 
@@ -160,18 +160,18 @@ ZTEST(wirelink_rpc, test_client_capacity_id_wrap_and_conflict) {
   zassert_equal(first, UINT32_MAX);
   zassert_equal(
       wl_rpc_client_begin(&clients.client, 10U, 11U, 100U, 0U, &second),
-      WL_RPC_OK);
-  zassert_equal(second, 1U);
+      WL_RPC_ERR_ID_EXHAUSTED);
+  zassert_equal(second, 0U);
   zassert_equal(
       wl_rpc_client_begin_with_id(&clients.client, first, 10U, 11U, 100U, 0U),
       WL_RPC_ERR_OPERATION_CONFLICT);
   zassert_equal(
       wl_rpc_client_begin_with_id(&clients.client, 2U, 10U, 11U, 100U, 0U),
-      WL_RPC_ERR_NO_SLOT);
+      WL_RPC_OK);
   second = 99U;
   zassert_equal(
       wl_rpc_client_begin(&clients.client, 10U, 11U, 100U, 0U, &second),
-      WL_RPC_ERR_NO_SLOT);
+      WL_RPC_ERR_ID_EXHAUSTED);
   zassert_equal(second, 0U);
   zassert_equal(
       wl_rpc_client_begin_with_id(&clients.client, 0U, 10U, 11U, 100U, 0U),

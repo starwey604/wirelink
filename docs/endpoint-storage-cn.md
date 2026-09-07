@@ -2,15 +2,14 @@
 
 静态 `calculator_endpoint_t client = {0}` 仍是默认方式。只有不想由调用者保存大结构体，
 或需要绑定层统一管理对象时，才使用本篇的创建层。[English](endpoint-storage.md)。
-生成 ABI 25；线上消息和帧格式不变。
+生成 ABI 26；创建层复用[自动会话](session-cn.md)，托管 RPC 采用元数据 v2。
 
 ## 分配器只决定存储来自哪里
 
 ```c
 calculator_endpoint_t *client = NULL;
 calculator_endpoint_config_t config;
-calculator_endpoint_config_defaults(&config, session_id);
-config.clock = clock;
+calculator_endpoint_config_defaults(&config, wl_platform_environment());
 wl_err_t error = calculator_endpoint_create(&client, &config, &allocator);
 ```
 

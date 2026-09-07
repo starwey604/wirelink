@@ -1,13 +1,14 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 25；本轮不发布、合并 main 或改变线上格式。
+状态：内部开发，生成 ABI 26；不发布、不合并 main。托管 RPC 元数据升至 v2，
+Compact-v1 帧格式和显式映射消息不变；两端须成对升级。
 入门顺序：[安装](installation-cn.md) → [遥测](getting-started-cn.md) →
 [RPC](tutorial-rpc-cn.md) → [集成](tutorial-integration-cn.md)。[English](default-endpoint.md)。
 
 ## 普通业务入口
 
 WLC 为有界、单帧 profile 生成 `<runtime>_endpoint.h`。
-声明一个零初始化且地址稳定的 `*_endpoint_t`，初始化时提供 session 和 clock，
+声明一个零初始化且地址稳定的 `*_endpoint_t`，初始化时选择平台环境，自动生成 session，
 连接适配器后使用 send/read、异步 RPC 和 step。不要访问 `private_state`。
 
 该头文件因静态 C 布局而包含 runtime 头；它是推荐的阅读入口，不声称隐藏了所有
@@ -20,7 +21,9 @@ WLC 为有界、单帧 profile 生成 `<runtime>_endpoint.h`。
 | 通用端点 | owner、时钟采样、适配器挂载、事件推进和关闭 |
 | WLC 默认端点 | 静态存储推导、类型化业务转换、RPC 提交和通知 |
 | 适配器 | 输入发布、发送完成、唤醒和停止驱动 |
-| 应用 | 消息内容、handler、时钟来源、调度时机 |
+| 应用 | 消息内容、handler、平台环境选择、调度时机 |
+
+默认使用 `wl_platform_environment()`，自定义来源见[自动会话](session-cn.md)。
 
 ## 普通 RPC 合同
 
@@ -54,7 +57,7 @@ TTL 是最长保留时间，不保证整个窗口不淘汰。严格保留使用
 该端点的翻译单元一致设置，不能仅给某个 .c 定义。运行时 count 不得大于静态容量。
 `config.advanced`、`config.link` 是专家覆盖入口，默认响应存储和队列不能无限扩张。
 
-payload 上限包含托管 RPC 12 字节元数据；仅 profile 选中消息参与计算。
+payload 上限包含托管 RPC 20 字节元数据；仅 profile 选中消息参与计算。
 队列按最大请求而非最大响应预留；多个服务共用最大请求/响应暂存 union。
 可靠链路仍只有一个 TX 槽。近 2 KiB 响应会显著增大 endpoint，见[实施记录](rpc-usability-progress-cn.md)。
 选中消息无界或超过单帧能力时 `HAS_DEFAULT_ENDPOINT=0`，应收敛 schema 或使用高级装配。

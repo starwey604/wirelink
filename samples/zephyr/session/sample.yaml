@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+sample:
+  name: Wirelink automatic session and RPC ownership
+tests:
+  sample.wirelink.session:
+    tags: [wirelink, wlc, rpc]
+    platform_allow: [native_sim, qemu_cortex_m3, qemu_riscv32, qemu_x86_64]
+    integration_platforms: [native_sim, qemu_cortex_m3]
+    timeout: 60
+    harness: console
+    harness_config:
+      type: one_line
+      regex: ['SESSION_P0 ALL PASS']

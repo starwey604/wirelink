@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+cmake_minimum_required(VERSION 3.28.0)
+set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../..")
+list(APPEND ZEPHYR_EXTRA_MODULES ${WIRELINK_ROOT})
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(wirelink_session)
+include(${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake)
+set(SESSION_TEST_TARGET app)
+include(${WIRELINK_ROOT}/tests/session/matrix.cmake)
+if(BOARD MATCHES "dm_mc02")
+  target_compile_definitions(app PRIVATE SESSION_REQUIRE_NATIVE=1)
+endif()

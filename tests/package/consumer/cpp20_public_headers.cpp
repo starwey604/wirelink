@@ -7,11 +7,13 @@
 #include <wirelink/crc.h>
 #include <wirelink/diagnostics.h>
 #include <wirelink/endpoint.h>
+#include <wirelink/environment.h>
 #include <wirelink/fifo.h>
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
 #include <wirelink/link.h>
 #include <wirelink/loopback.h>
+#include <wirelink/platform.h>
 #include <wirelink/port.h>
 #include <wirelink/profile.h>
 #include <wirelink/rpc.h>
@@ -28,6 +30,9 @@ static_assert(__cplusplus >= 202002L);
 static_assert(std::is_standard_layout_v<wl_codec_bytes_t>);
 static_assert(std::is_standard_layout_v<wl_frame_view_t>);
 static_assert(std::is_standard_layout_v<wl_event_t>);
+static_assert(std::is_standard_layout_v<wl_environment_t>);
+static_assert(std::is_trivially_copyable_v<wl_environment_t>);
+static_assert(std::is_standard_layout_v<wl_session_source_t>);
 static_assert(std::is_standard_layout_v<wl_fifo_t>);
 static_assert(std::is_standard_layout_v<wl_fifo_view_t>);
 static_assert(std::is_standard_layout_v<wl_latest_t>);

@@ -5,7 +5,7 @@ v1 frame header. New applications should use the generated managed RPC endpoint
 described in the [RPC tutorial](tutorial-rpc.md). The following sections specify
 its wire/ownership boundary, then the advanced low-level engine.
 
-## Managed RPC and mapped interoperability (codegen ABI 25)
+## Managed RPC and mapped interoperability (codegen ABI 26)
 
 Request and response delivery independently default to reliable. Override a
 binding with `@delivery(unreliable)`. Omitted defaults, explicit reliable
@@ -24,16 +24,17 @@ payload encoding and profile identity. Mapping names may differ between request
 and response; the numeric values for a call must match. Partial mappings are a
 compiler error. There is no automatic wire-format detection or fallback.
 
-Managed RPC adds this fixed 12-byte prefix before the ordinary business codec body:
+Managed RPC adds this fixed 20-byte prefix before the ordinary business codec body:
 
 | Offset | Size | Value |
 | --- | --- | --- |
 | 0 | 1 | `0x00`, invalid as a legacy codec field tag |
-| 1 | 1 | Metadata version `1` |
+| 1 | 1 | Metadata version `2` |
 | 2 | 1 | Kind: request `1`, response `2` |
 | 3 | 1 | Reserved, must be zero |
 | 4 | 4 | Nonzero correlation ID, unsigned big-endian |
 | 8 | 4 | Signed 32-bit business status, two's-complement big-endian |
+| 12 | 8 | Nonzero originating client session, big-endian; echoed in every reply |
 
 Requests carry status zero. Successful responses carry status zero and the encoded
 response body. Rejections carry nonzero status and **no body**, even if the response
@@ -115,7 +116,7 @@ heap, thread, or clock. Managed-only runtimes omit the old typed encoding scratc
 advanced manual requests encode into the TX claim. Ordinary asynchronous requests
 first encode into a bounded request queue, then copy into the TX claim. Replies
 encode into their reserved cache segment.
-Static link/response capacities include the 12-byte prefix; canonical-request
+Static link/response capacities include the 20-byte prefix; canonical-request
 fingerprints cover only business codec bytes and are computed, not transmitted.
 
 ## Correlation is not business idempotency
@@ -127,13 +128,16 @@ with the same business arguments may execute again. Durable or cross-retry
 idempotency needs an explicit business key/state machine; it is not supplied by
 this correlation mechanism.
 
-Local handle generations do not add a wire incarnation. A reused numeric call ID
-cannot distinguish arbitrarily delayed old responses. Drain/reset the transport
-when replacing a client instance, avoid wire-ID reuse while old replies can remain,
-and do not claim this format provides cross-reboot response freshness. Reliable
-server peer observation scopes request replay, not durable exactly-once execution
-or client-side freshness across restarts. Unreliable requests have no such reliable
-peer-session scope. These limitations also apply to the mapped path.
+Managed v2 matches the originating client session and call number. Endpoint
+reconstruction obtains a fresh identity, isolating old-instance responses even
+when a number is reused. Unreliable requests also carry identity and partition
+the cache. Zero identity is malformed; a reliable request must match its link
+sender. A response for another instance reports SESSION_MISMATCH diagnostically
+without affecting other calls. No automatic v1/v2 fallback is provided.
+Identity is neither authentication nor an ordered version; this does not reject
+arbitrary old requests or provide durable exactly-once execution. Mapped RPC has
+no new identity field and retains its integration-owned freshness requirements.
+See [automatic sessions](session.md) for source and exhaustion contracts.
 
 ## Low-level allocation and scheduling
 

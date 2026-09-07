@@ -125,6 +125,9 @@ wl_err_t wl_config_requirements(const wl_config_t *config,
 wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
                  const wl_storage_t *storage);
 wl_err_t wl_get_config(const wl_ctx_t *ctx, wl_config_t *out_config);
+/* Read-only initialized sender identity for generated/integration code.
+ * NULL returns zero. This is not a business operation identifier. */
+uint64_t wl_link_session_id(const wl_ctx_t *ctx);
 wl_err_t wl_rx_get_counters(const wl_ctx_t *ctx,
                             wl_rx_counters_t *out_counters);
 

@@ -52,6 +52,7 @@ An application should normally use the generated `<runtime>_endpoint.h` and
 | `Wirelink::host` | Optional C++20 threaded host executor | None unless enabled/linked |
 | `Wirelink::asio_udp` | Optional C++20 UDP adapter and readiness waiting | None unless enabled/linked |
 | `Wirelink::storage` | Optional bounded fixed-block allocator | None unless enabled/linked |
+| `Wirelink::platform` | Native monotonic clock and fresh session source | None unless linked |
 | WLC-generated target | Schema codec, bindings, or one role runtime | Only selected schema/profile |
 
 Asio UDP is installed when enabled, without exposing Asio headers. Astrial
@@ -63,6 +64,7 @@ adapters remain source-integrated platform targets.
 | --- | --- |
 | `link.h` | Endpoint/application owner: init, send, poll, events, TX results |
 | `endpoint.h`, `wait.h` | Generic endpoint attachment, clock and platform wait contracts |
+| `environment.h`, `platform.h` | Injectable clock/session environment and optional native provider |
 | `rpc_result.h`, `rpc_sync.h` | Per-call outcomes and platform proxy contract |
 | `allocator.h`, `storage/fixed_pool.h` | Optional creation allocator and fixed-pool backend |
 | `pump.h` | Owner-loop composition and deadline merging |
@@ -98,8 +100,9 @@ copied or moved.
 
 Peers agree out of band on envelope, integrity, payload bound, and transmission
 unit bound. A nonzero `session_id` is a boot/incarnation identifier for reliable
-traffic, not a node address. The application provisions it from randomness or
-persistent monotonic state and must not reuse it while old traffic can survive.
+traffic, not a node address. Default endpoints provision it through the platform
+environment; raw link users still own their source contract. Never reuse it while
+old traffic can survive. See [automatic sessions](session.md).
 
 ### Sending
 
@@ -208,7 +211,7 @@ bounded slots and a recent-result cache. Manual calls/tokens and
 Explicit field mappings remain a separate interoperability mode.
 See [platform integration](rpc-platform.md) for waiters and background proxies.
 
-## WLC-Generated Surface (ABI 25)
+## WLC-Generated Surface (ABI 26)
 
 WLC deliberately splits these entries:
 
@@ -272,10 +275,9 @@ append fields to closed v1 configuration/event structures. See
 
 ## Pre-1.0 Review Points
 
-Managed RPC may need to echo a client session identity to guarantee response
-freshness across client reconstruction. Local handle generations do not solve
-wire-ID reuse with stale replies; see the [RPC contract](rpc-runtime.md). Such a
-change would affect RPC payloads, independently of the compact-v1 link frame.
+ABI 26 / managed metadata v2 resolves response ownership by echoing the originating
+client identity and checking it with the call number across every delivery
+combination. See the [RPC contract](rpc-runtime.md). Compact-v1 framing is unchanged.
 
 The following are intentionally visible for the API review rather than hidden
 behind documentation:

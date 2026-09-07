@@ -26,6 +26,8 @@ enum {
   WL_RPC_ERR_RESPONSE_TOO_LARGE = -1007,
   WL_RPC_ERR_CACHE_FULL = -1008,
   WL_RPC_ERR_MALFORMED_METADATA = -1009,
+  WL_RPC_ERR_SESSION_MISMATCH = -1010,
+  WL_RPC_ERR_ID_EXHAUSTED = -1011,
 };
 
 const char *wl_rpc_err_str(wl_rpc_err_t error);

@@ -123,6 +123,16 @@ set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
 set(WIRELINK_ASIO_INCLUDE_DIR "" CACHE PATH
   "Directory containing standalone Asio's asio.hpp")
 
+set(_wirelink_platform_default OFF)
+if(PROJECT_IS_TOP_LEVEL AND CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$")
+  set(_wirelink_platform_default ON)
+endif()
+option(WIRELINK_BUILD_PLATFORM "Build the native clock/session provider" ${_wirelink_platform_default})
+unset(_wirelink_platform_default)
+if(WIRELINK_BUILD_PLATFORM OR WIRELINK_BUILD_GETTING_STARTED)
+  add_subdirectory(runtime/platform)
+endif()
+
 if(WIRELINK_BUILD_STORAGE)
   add_subdirectory(runtime/storage)
 endif()
@@ -272,6 +282,8 @@ if(WIRELINK_INSTALL)
     include/wirelink/alignment.h
     include/wirelink/bulk.h
     include/wirelink/clock.h
+    include/wirelink/environment.h
+    include/wirelink/platform.h
     include/wirelink/cobs.h
     include/wirelink/codec.h
     include/wirelink/crc.h

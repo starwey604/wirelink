@@ -6,10 +6,9 @@ Wirelink 需要知道“经过了多久”，才能决定何时重传未确认�
 
 ## 普通应用怎样使用
 
-教程提供 `example_clock()`。C++ 主机也可以使用库的
-`wirelink::host::monotonic_clock()`（`wirelink/host/clock.hpp`），底层是
-`std::chrono::steady_clock`；它返回 C 的 `wl_clock_t`，可交给 C 业务代码。
-固件则包装自己已有的毫秒运行时间函数：
+默认使用 `wl_platform_environment()`，其中包含时钟和自动身份来源。
+主机链接 `Wirelink::platform`，Zephyr 启用 `CONFIG_WIRELINK_PLATFORM`。
+已有产品时间源可仅覆盖环境中的时钟，保留自动身份：
 
 ```c
 static wl_time_ms_t read_uptime(void *user) {
@@ -18,13 +17,13 @@ static wl_time_ms_t read_uptime(void *user) {
 }
 
 static telemetry_endpoint_t endpoint;
-wl_clock_t clock = {read_uptime, NULL};
-/* session_id 由应用按启动身份策略生成。 */
-int result = telemetry_endpoint_init(&endpoint, session_id, clock);
+wl_environment_t environment = wl_platform_environment(); /* wirelink/platform.h */
+environment.clock = (wl_clock_t){read_uptime, NULL};
+int result = telemetry_endpoint_init(&endpoint, environment);
 ```
 
-需要详细配置时，在 `endpoint_config_defaults()` 后填写 `config.clock`。
-默认配置无法替固件选择时钟，所以空函数会被拒绝。此后 `step(endpoint)`、
+需要详细配置时，在 `endpoint_config_defaults()` 后填写 `config.environment.clock`。
+空时钟函数会被拒绝；裸机自定义完整环境见[自动会话](session-cn.md)。此后 `step(endpoint)`、
 `*_async(..., timeout_ms, callback, context, optional_call)` 都不再传 `now_ms`；
 即时 handler 直接填响应。高级 `call/complete/reject` 也复用端点时钟。
 应用自己的发布频率仍由应用决定。
@@ -48,12 +47,13 @@ int result = telemetry_endpoint_init(&endpoint, session_id, clock);
 
 ## 高级路径如何迁移
 
-核心、生成代码和消费者一起重建；不要将 ABI 20 的头文件或端点布局混入 ABI 21。
-本次不改变线上帧格式或 schema 编码字节。
+核心、生成代码和消费者一起重建，不要混用不同生成 ABI 的头文件或端点布局。
+时钟注入于 ABI 21 引入，当时不改变编码；当前 ABI 26 还引入了
+[自动会话和托管 RPC v2](session-cn.md)，托管 RPC 两端必须配套升级。
 
-| 接口 | ABI 21 用法 |
+| 接口 | 当前用法 |
 | --- | --- |
-| 默认端点初始化 | `init(endpoint, session_id, clock)` 或填写 `config.clock` |
+| 当前默认端点初始化 | `init(endpoint, environment)` 或填写 `config.environment.clock` |
 | 默认 step、RPC、通用 hint | 去掉显式 `now_ms` |
 | `wl_send_reliable`、`wl_tx_payload_commit` | 在 `out_handle` 前加 `now_ms` |
 | codec binding 的 `*_send` | 在 `delivery` 后加 `now_ms`；unreliable 忽略它 |

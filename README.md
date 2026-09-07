@@ -24,9 +24,10 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The current dev tutorials use unreleased codegen ABI 25: owned RPC business
+The current dev tutorials use unreleased codegen ABI 26: owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
-recycling, and optional one-allocation endpoint creation.
+recycling, optional one-allocation endpoint creation, and automatic session identities.
+Managed RPC v2 binds replies to the originating client session; both peers must upgrade.
 Use the exact WLC revision in [installation](docs/installation.md); older release
 assets do not contain this API. Implementation/H7 handoff evidence is recorded in
 [the milestone log](docs/rpc-usability-progress-cn.md).
@@ -41,6 +42,7 @@ assets do not contain this API. Implementation/H7 handoff evidence is recorded i
    [async](docs/tutorial-rpc-async.md) and [deferred](docs/tutorial-rpc-deferred.md) tutorials.
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    configure an endpoint clock once with [`endpoint-clock.md`](docs/endpoint-clock.md),
+   select a default or bare-metal environment with [`session.md`](docs/session.md),
    then integrate its wakeups with [`rpc-platform.md`](docs/rpc-platform.md).
    Optional creation and fixed pools are covered in
    [`endpoint-storage.md`](docs/endpoint-storage.md).

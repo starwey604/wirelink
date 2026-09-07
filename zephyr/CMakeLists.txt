@@ -2,6 +2,10 @@
 
 zephyr_library_named(wirelink)
 
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_PLATFORM
+  ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/zephyr/src/environment.c
+)
+
 zephyr_library_sources_ifdef(CONFIG_WIRELINK
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_receiver.c
   ${ZEPHYR_CURRENT_MODULE_DIR}/src/bulk_sender.c

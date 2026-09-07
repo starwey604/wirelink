@@ -13,9 +13,8 @@ extern "C" {
 /* Example support, not a Wirelink core API. The C++ implementation owns the
  * desktop UDP adapter; business examples remain ordinary C11 programs. */
 typedef struct example_udp example_udp_t;
-uint64_t example_session_id(void);
+#include "wirelink/platform.h"
 wl_time_ms_t example_now_ms(void);
-wl_clock_t example_clock(void);
 int example_running(void);
 int example_ports(int argc, char **argv, uint16_t *local, uint16_t *peer);
 int example_int32(const char *text, int32_t *value);

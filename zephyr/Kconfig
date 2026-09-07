@@ -12,6 +12,14 @@ config WIRELINK
 
 if WIRELINK
 
+config WIRELINK_PLATFORM
+	bool "Enable the native clock/session environment"
+	select CSPRNG_NEEDED
+	help
+	  Provide default endpoint time and random instance identities. Without a
+	  real CSPRNG, identity acquisition fails; applications can inject their
+	  own source instead. Does not use the insecure testing generator.
+
 config WIRELINK_STORAGE
 	bool "Enable the optional fixed-block endpoint allocator"
 	help

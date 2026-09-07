@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "calculator_endpoint.h"
+#include "../../support/test_environment.h"
 
 static wl_time_ms_t now(void *context) { (void)context; return 1U; }
 
@@ -8,7 +9,7 @@ int main(void) {
   add_request_value_t request;
   add_response_value_t response;
   const wl_clock_t clock = {now, NULL};
-  if (calculator_endpoint_init(&endpoint, 1, clock) != WL_OK) return 1;
+  if (calculator_endpoint_init(&endpoint, test_environment_id(1, clock)) != WL_OK) return 1;
   add_request_value_clear(&request);
   request.has_left = request.has_right = true;
   request.left = 20; request.right = 22;

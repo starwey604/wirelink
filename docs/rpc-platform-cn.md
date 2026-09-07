@@ -1,7 +1,7 @@
 # RPC 同步调用与平台等待
 
 先读[加法教程](tutorial-rpc-cn.md)。这里面向接入平台、后台线程或自定义时钟的开发者。
-[English](rpc-platform.md)。本接口从生成 ABI 24 引入，当前配对为 ABI 25；
+[English](rpc-platform.md)。本接口从生成 ABI 24 引入，当前配对为 ABI 26；
 只改变本地接口，不改变线上帧或 RPC 格式。
 
 ## 一个调用入口，两种执行方式

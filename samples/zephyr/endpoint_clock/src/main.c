@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <zephyr/kernel.h>
+#include "../../../../tests/support/test_environment.h"
 #include <zephyr/sys/printk.h>
 #include "calculator_advanced.h"
 #include "wirelink/loopback.h"
@@ -36,9 +37,9 @@ static int configure(int selected_mode) {
   calculator_endpoint_config_t a, b;
   calculator_endpoint_close(&client);
   calculator_endpoint_close(&server);
-  CHECK(calculator_endpoint_config_defaults(&a, 1U) == WL_OK);
-  CHECK(calculator_endpoint_config_defaults(&b, 2U) == WL_OK);
-  a.clock = b.clock = (wl_clock_t){read_clock, NULL};
+  CHECK(calculator_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){0})) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){0})) == WL_OK);
+  a.environment.clock = b.environment.clock = (wl_clock_t){read_clock, NULL};
   CHECK(calculator_runtime_config_enable_client(&a.advanced) == WL_OK);
   CHECK(calculator_runtime_config_enable_server(&b.advanced) == WL_OK);
   a.link.ack_timeout_ms = b.link.ack_timeout_ms = 20U;
@@ -107,7 +108,7 @@ static int performance(void) {
   enum { ITERATIONS = 20000 };
   calculator_endpoint_close(&client);
   calculator_endpoint_close(&server);
-  CHECK(calculator_endpoint_init(&client, 3U, (wl_clock_t){read_clock, NULL}) == WL_OK);
+  CHECK(calculator_endpoint_init(&client, test_environment_id(3U, (wl_clock_t){read_clock, NULL})) == WL_OK);
   const uint32_t reads = clock_reads;
   const uint32_t begin = k_cycle_get_32();
   for (unsigned i = 0; i < ITERATIONS; ++i)

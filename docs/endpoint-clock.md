@@ -7,10 +7,9 @@ ABI 21 moves this input from every default endpoint operation to initialization.
 
 ## Ordinary applications
 
-The tutorials provide `example_clock()`. On a C++ host, the library also provides
-`wirelink::host::monotonic_clock()` in `wirelink/host/clock.hpp`; it uses
-`std::chrono::steady_clock` and can return a C `wl_clock_t` to C business code.
-Firmware can wrap its existing millisecond uptime counter:
+Use `wl_platform_environment()` for the default clock and automatic identity
+source. Link `Wirelink::platform` on desktop or enable `CONFIG_WIRELINK_PLATFORM`
+on Zephyr. Existing products can override only the clock:
 
 ```c
 static wl_time_ms_t read_uptime(void *user) {
@@ -19,14 +18,14 @@ static wl_time_ms_t read_uptime(void *user) {
 }
 
 static telemetry_endpoint_t endpoint;
-wl_clock_t clock = {read_uptime, NULL};
-/* session_id comes from the application's startup identity policy. */
-int result = telemetry_endpoint_init(&endpoint, session_id, clock);
+wl_environment_t environment = wl_platform_environment(); /* wirelink/platform.h */
+environment.clock = (wl_clock_t){read_uptime, NULL};
+int result = telemetry_endpoint_init(&endpoint, environment);
 ```
 
-For configurable initialization, fill `config.clock` after
-`endpoint_config_defaults()`. Defaults cannot choose a firmware's clock; a null
-function is rejected. Then use `step(endpoint)` and ordinary
+For configurable initialization, fill `config.environment.clock` after
+`endpoint_config_defaults()`. A null clock function is rejected; custom boards
+can inject an [environment](session.md). Then use `step(endpoint)` and ordinary
 `*_async(..., timeout_ms, callback, context, optional_call)` without `now_ms`.
 Immediate handlers fill responses directly. Advanced `call(..., timeout_ms, &call)`,
 `complete(..., &response)`, and `reject(..., status)` without `now_ms`.
@@ -54,12 +53,14 @@ its clock context must survive `stop()`.
 
 ## Advanced API migration
 
-Rebuild core, generated code, and consumers together; do not mix ABI 20 headers
-or static endpoint layouts with ABI 21. Wire framing and schema bytes do not change.
+Rebuild core, generated code, and consumers together; do not mix generated ABI
+headers or endpoint layouts. Clock injection arrived in ABI 21 without changing
+wire bytes. Current ABI 26 also introduces [automatic sessions and managed RPC v2](session.md),
+which requires paired managed-RPC peer upgrades.
 
-| API | ABI 21 use |
+| API | Current use |
 | --- | --- |
-| Generated default init | `init(endpoint, session_id, clock)` or `config.clock` |
+| Current generated default init | `init(endpoint, environment)` or `config.environment.clock` |
 | Generated step / RPC / generic hint | Remove explicit `now_ms` |
 | `wl_send_reliable` / `wl_tx_payload_commit` | Add `now_ms` before `out_handle` |
 | Codec binding `*_send` | Add `now_ms` after `delivery`; ignored for unreliable |

@@ -54,13 +54,14 @@ wirelink_wlc_generate_runtime(
   PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.bind.wl")
 add_executable(telemetry_subscriber main.c tutorial_host.cpp)
 target_link_libraries(telemetry_subscriber PRIVATE
-  telemetry_protocol Wirelink::asio_udp)
+  telemetry_protocol Wirelink::asio_udp Wirelink::platform)
 ```
 
 `wirelink_wlc_generate_codec()` 生成并编译消息类型、编解码和类型化发送代码。
 `wirelink_wlc_generate_runtime()` 根据 profile 生成默认端点及 LATEST 接收接口。
 `CODEC_TARGET` 指明复用哪份消息代码。链接 `telemetry_protocol` 会带入 codec 和核心；
-`Wirelink::asio_udp` 是可选的主机传输，不进入固件核心。
+`Wirelink::asio_udp` 是可选的主机传输，`Wirelink::platform` 提供默认时钟和身份来源，
+两者均不进入固件核心。
 
 从 Wirelink 根目录安装已经构建的教程依赖：
 
@@ -83,7 +84,7 @@ cmake --build /path/to/temperature-display/build --config Release
 Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 
 独立消费者不需要 Asio 源码路径：安装的 UDP 库已编译好，不把 Asio 头文件暴露给应用。
-WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 25 编译器。
+WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 ABI 26 编译器。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
 [WLC 指南](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README-cn.md)。
@@ -103,7 +104,7 @@ WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定
 | `integrity`，完整性校验 | 如何检测传输中的意外字节损坏 | 两端约定相同模式，例如 CRC32C |
 | `max_payload_len`，payload bound | 编码后一条消息内容最多多少字节 | 覆盖要发送/接收的消息，不含包头和校验 |
 | `max_transmission_unit` | 底层允许的完整包有多大 | 覆盖消息、包头、校验和封装开销 |
-| `session_id` | 区分这次启动与旧启动的可靠流量 | 按下文选择非零启动标识 |
+| 平台环境 | 提供时钟和新实例身份 | 使用 `wl_platform_environment()`，无需手填 ID |
 | `ack_timeout_ms`、`max_retries` | 可靠发送等多久重试、最多重试几次 | 考虑传输延迟、对端调度和故障恢复要求 |
 
 “带外配置”就是你在固件/主机程序里预先约定这些值；Wirelink v1 不会自动交换和协商它们。
@@ -131,7 +132,7 @@ CRC 检测损坏，不认证发送者，也不加密内容。
 
 <a id="session-identity"></a>
 
-### 真实设备重启后如何选择会话标识
+### 真实设备重启后怎样区分旧流量
 
 想象设备重启了，但连接里还残留着重启前的包或确认。
 如果新旧包只靠容易重新从头计数的序号来区分，就可能把旧确认当成新请求的确认。
@@ -140,14 +141,10 @@ CRC 检测损坏，不认证发送者，也不加密内容。
 可靠数据包和确认包携带相关会话标识，使协议能区分旧会话的流量。
 **非零**只是数值不能为 0，因为 0 被接口保留为无效值。
 
-它不是用来选择“把包发给哪个设备”的地址。Wirelink 连接的是两端，
-本身不提供按节点地址寻路。本例用 0x1001、0x2002 表示两个隔离的模拟端，
-方便输出和测试可重复；真实设备不能每次重启都照抄这些固定值。
-
-一种做法是每次启动生成一个新的非零随机数，常称为 **boot nonce**，
-也就是“这次启动使用的随机标识”；另一种做法是在持久存储中维护启动计数，
-每次启动先递增再使用。目标都是避免旧包仍可能存在时复用同一个标识。
-随机方案还要考虑碰撞概率；它不是认证密码或加密密钥。
+它不是地址。默认端点在每次 init/create 中通过平台来源自动生成新标识；普通应用
+不需要自己选数、保存启动计数或实现随机函数。托管 RPC 响应会回送原客户端身份，
+旧实例的同号响应不会完成新调用。平台默认来源、裸机函数指针接入和耗尽处理
+见[自动会话](session-cn.md)。显式字段映射模式的旧响应隔离仍由产品集成负责。
 
 
 ## 4. 把本机 UDP 换成设备传输
@@ -191,9 +188,9 @@ Asio UDP 的 `open(wl_endpoint_t&, ...)` 和 loopback 的 `wl_loopback_connect()
 中断/驱动回调可发布接收数据，并记录发送完成信息、唤醒 owner；
 不要在中断里执行 RPC 处理函数。
 
-默认端点内部调用初始化时配置的时钟。只需填写一次 `config.clock`，无需为了刷新时间
-先取时间或运行裸 pump。主机可用 `wirelink::host::monotonic_clock()`，固件可包装
-系统运行时间函数，见[时钟示例与契约](endpoint-clock-cn.md)。
+默认端点内部调用初始化时配置的时钟。默认平台环境已提供时钟；仅需定制时才覆盖
+`config.environment.clock`，无需为了刷新时间先取时间或运行裸 pump。
+见[时钟示例与契约](endpoint-clock-cn.md)。
 
 仅当你有意采用高级 link/runtime 手动组装时，每轮工作才是：
 

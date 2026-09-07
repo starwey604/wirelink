@@ -23,6 +23,7 @@ MTU 和 payload limit。
 `Wirelink::loopback`、`Wirelink::diagnostics` CMake target 组成。后两者独立链接；
 `Wirelink::host` 只在构建可选 C++20 runtime 时安装。`rx_ring_state.h` 和 `src/`
 中的文件即使源码 checkout 可见也属于 private。
+可选 `Wirelink::platform` 提供默认时钟/身份环境，不给核心增加 OS 依赖。
 
 `wl_ctx_t` 是通过 `max_align_t` 对齐、可静态分配的 opaque 类型。
 `WL_CONTEXT_STORAGE_SIZE` 及其对齐为 v1 预留；应用不得检查或持久化 private bytes。

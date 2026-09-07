@@ -8,7 +8,7 @@ user-confirmed power cycle of each. H1 is complete; no implementation changes
 were needed. Evidence, probe-recovery history and limitations are in the
 [H7 validation record](../../../docs/rpc-h1-h7-validation-cn.md).
 
-The sample covers bounded strings, a 2031-byte response, request snapshotting,
+The sample covers bounded strings, a 2023-byte response, request snapshotting,
 100 consecutive operations within cache TTL, full-capacity bursts, BUSY admission,
 one-slot callback chaining, rejection, cancellation, queue deadlines across uint32
 wrap, failed admission, close notification and stale handles. Saved responses

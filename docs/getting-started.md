@@ -109,13 +109,11 @@ is needed. The business name comes from `telemetry.wl`, not the directory's `00`
 is ordinary, public example support, not a generated file or core API:
 
 - `example_udp_open()` attaches localhost UDP to the initialized endpoint.
-- `example_clock()` supplies a clock callback, configured once at initialization.
-  `example_now_ms()` is only used for this example's publishing/exit schedule;
-  Wirelink reads its configured clock internally. `example_session_id()`
-  obtains a nonzero random identifier for this run.
+- `example_now_ms()` is only used for the application's publishing/exit schedule;
+  sending and stepping do not take timestamps.
 - `example_udp_wait()` waits for socket readiness or the nearest deadline;
   it never dispatches business callbacks or creates a communication thread.
-- `example_udp_close()` closes the endpoint and frees desktop resources.
+- Close the generated endpoint first; `example_udp_close()` then frees the desktop adapter.
   `CHECK` only reports an unexpected result and exits the example.
 
 The [C++ implementation](../examples/common/tutorial_host.cpp) isolates platform
@@ -123,6 +121,11 @@ support and uses Wirelink's Asio UDP adapter. The business programs remain C11;
 Python does not implement either peer.
 
 ## 5. Complete publisher
+
+`wl_platform_environment()` is a Wirelink library API, not an example helper.
+It supplies the platform clock and identity source. Initialization generates the
+endpoint's identity internally; no session ID or random-number management is
+required from business code. Custom boards can later read [platform sessions](session.md).
 
 [publisher.c](../examples/00_telemetry/publisher.c):
 
@@ -136,7 +139,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49000, peer = 49001;
   telemetry_t value;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, example_session_id(), example_clock()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&publisher, wl_platform_environment()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
   CHECK(udp != NULL);
 
@@ -179,7 +182,7 @@ int main(int argc, char **argv) {
   telemetry_t value;
   int complete = 0;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&subscriber, example_session_id(), example_clock()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&subscriber, wl_platform_environment()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
   CHECK(udp != NULL);
   puts("telemetry subscriber ready");

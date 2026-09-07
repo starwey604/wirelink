@@ -87,8 +87,8 @@ int main(int argc, char **argv) {
   uint32_t queries = 0;
   uint16_t local = 49201, peer = 49200;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(device_info_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
-  config.clock = example_clock();
+  CHECK(device_info_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+
   config.on_get_info = get_info;
   config.get_info_user_data = &queries;
   CHECK(device_info_endpoint_init_config(&server, &config) == WL_OK);
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49200, peer = 49201;
   CHECK(example_ports(argc, argv, &local, &peer));
   info_request_value_clear(&request);
-  CHECK(device_info_endpoint_init(&client, example_session_id(), example_clock()) == WL_OK);
+  CHECK(device_info_endpoint_init(&client, wl_platform_environment()) == WL_OK);
   example_udp_t *udp = example_udp_open(device_info_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
 

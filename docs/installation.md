@@ -14,9 +14,10 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-Use the pinned **WLC 0.4.0 with codegen ABI 25** revision below, including
+Use the pinned **WLC 0.4.0 with codegen ABI 26** revision below, including
 initialization-time endpoint clocks, `@delivery(...)`, and default RPC reliability.
-ABI 25 changes generated C APIs/layouts, not schema encoding or Wirelink frame bytes.
+ABI 26 adds automatic identities and managed RPC metadata v2; upgrade both peers.
+Business codec bytes, mapped RPC and Compact-v1 frame format are unchanged.
 No new package or tag is published by this iteration.
 
 If supplied with a matching internal binary, extract it to a stable location and
@@ -44,9 +45,9 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.4.0` and `25`. Codegen ABI identifies generated C interfaces/layouts,
+Expect `wlc 0.4.0` and `26`. Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
-switching modes needs coordinated peers. Clock injection does not change bytes;
+switching modes or managed metadata versions needs coordinated peers;
 rebuild core and generated consumers together. A missing command or
 different ABI means a different compiler build is needed. CMake checks both
 values before generation rather than leaving a header mismatch for firmware compilation.

@@ -1,19 +1,19 @@
 # H2: RPC platform, storage and CPU probes
 
-Standalone ABI 25 validation, not product firmware. Two Zephyr tasks exchange
+Standalone ABI 26 validation, not product firmware. Two Zephyr tasks exchange
 native packets through bounded RAM queues with latched data/credit notifications.
 One task owns each endpoint. This is not USB/UART/DMA hardware validation.
 
 The sample checks one/four-slot endpoint creation from a two-block pool, allocation
 and init failure rollback, pool exhaustion, 100 synchronous string-bearing calls,
-rejection, a 2031-byte response, 20 asynchronous completions, and a separate task
+rejection, a 2023-byte response, 20 asynchronous completions, and a separate task
 interrupting a long synchronous wait. Both owners stop/join before destruction;
 copied responses remain valid, and no endpoint allocator is called during RPCs.
 
 It reports cycle-counter frequency, endpoint bytes, wait counts and unused stack.
 `scheduled_RAM` measures 100 round trips with interrupts/scheduling enabled and a
 completion-containing owner pass, not isolated RPC completion CPU cost. Separate
-bounded IRQ-off batches measure an idle step, encode/decode of 2031 bytes and
+bounded IRQ-off batches measure an idle step, encode/decode of 2023 bytes and
 volatile full-value copy after other tasks have joined. No subtractive timer
 overhead correction is applied. Cortex-M uses DWT CYCCNT for CPU passes/batches,
 not SysTick's interrupt-dependent wrap accounting while IRQs are masked. The
@@ -28,7 +28,7 @@ west build -b dm_mc02/stm32h723xx /path/to/wirelink/samples/zephyr/rpc_platform 
   -d /path/to/wirelink/build/rpc-h2-h7-four -- \
   -DBOARD_ROOT=/path/to/Ragtime_Firmwares/firmware \
   -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/matching/abi25/wlc
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/matching/abi26/wlc
 ```
 
 Repeat with a separate directory and `-DWIRELINK_RPC_TEST_CAPACITY=1`. The sample

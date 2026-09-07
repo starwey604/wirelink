@@ -8,4 +8,4 @@ message Response @id(3) {
   required string<31> name @id(2);
 }
 message Empty @id(4) {}
-message Large @id(5) { required bytes<2031> data @id(1); }
+message Large @id(5) { required bytes<2023> data @id(1); }

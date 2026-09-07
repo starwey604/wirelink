@@ -47,6 +47,7 @@ enum {
   WL_ERR_CANCELLED = -39,         /**< 事务已取消 */
   WL_ERR_PROTOCOL_VERSION = -40,  /**< 帧版本不兼容 */
   WL_ERR_REENTRANT = -41,        /**< 回调重入或并发访问 */
+  WL_ERR_ID_EXHAUSTED = -42,     /**< 需在安全关闭后重建通信实例 */
 
   /* --- 序列化与反序列化错误 (-40 ~ -49) --- */
   WL_ERR_CORRUPT_PAYLOAD =

@@ -2,15 +2,15 @@
 
 Static `calculator_endpoint_t client = {0}` remains the default. Use creation
 when a caller or language binding should not embed the large endpoint object.
-[中文](endpoint-storage-cn.md). Codegen ABI 25 changes local layout, not wire bytes.
+[中文](endpoint-storage-cn.md). Codegen ABI 26 uses [automatic sessions](session.md)
+and managed RPC metadata v2; creation shares ordinary endpoint initialization.
 
 ## The allocator supplies storage, not message lifetimes
 
 ```c
 calculator_endpoint_t *client = NULL;
 calculator_endpoint_config_t config;
-calculator_endpoint_config_defaults(&config, session_id);
-config.clock = clock;
+calculator_endpoint_config_defaults(&config, wl_platform_environment());
 wl_err_t error = calculator_endpoint_create(&client, &config, &allocator);
 ```
 

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Previous combined example, retained as a deterministic regression test. */
 #include <limits.h>
+#include "../../support/test_environment.h"
 #include <stdint.h>
 #include <stdio.h>
 
@@ -50,8 +51,8 @@ int main(void) {
   quickstart_add_result_t operation;
   quickstart_add_call_t call;
 
-  CHECK(quickstart_endpoint_config_defaults(&client_config, 0x1001U) == WL_OK);
-  CHECK(quickstart_endpoint_config_defaults(&server_config, 0x2002U) == WL_OK);
+  CHECK(quickstart_endpoint_config_defaults(&client_config, test_environment_id(0x1001U, (wl_clock_t){0})) == WL_OK);
+  CHECK(quickstart_endpoint_config_defaults(&server_config, test_environment_id(0x2002U, (wl_clock_t){0})) == WL_OK);
   CHECK(quickstart_runtime_config_enable_client(&client_config.advanced) == WL_OK);
   CHECK(quickstart_runtime_config_enable_server(&server_config.advanced) == WL_OK);
   client_config.link.ack_timeout_ms = 20U;
@@ -62,7 +63,7 @@ int main(void) {
   server_config.advanced.rpc_server_cache_ttl_ms = 10000U;
   server_config.advanced.add_request_handler = handle_add;
   server_config.advanced.add_user_data = &calculator;
-  client_config.clock = server_config.clock = (wl_clock_t){read_clock, &calculator};
+  client_config.environment.clock = server_config.environment.clock = (wl_clock_t){read_clock, &calculator};
   CHECK(quickstart_endpoint_init_config(&controller, &client_config) == WL_OK);
   CHECK(quickstart_endpoint_init_config(&device, &server_config) == WL_OK);
   CHECK(wl_loopback_connect(&cable, quickstart_endpoint_handle(&controller),

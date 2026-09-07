@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
     CHECK(example_int32(argv[4], &request.right));
   }
 
-  CHECK(calculator_endpoint_init(&client, example_session_id(), example_clock()) == WL_OK);
+  CHECK(calculator_endpoint_init(&client, wl_platform_environment()) == WL_OK);
   example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
   CHECK(udp != NULL);
   CHECK(calculator_endpoint_add_async(&client, &request, 1500U,

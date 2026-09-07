@@ -50,8 +50,11 @@ wl_err_t wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle, wl_tx_state_t 
   return WL_OK;
 }
 
-static wl_err_t encode(const void *request, uint32_t id, uint8_t *out,
+uint64_t wl_link_session_id(const wl_ctx_t *ctx) { (void)ctx; return 1U; }
+
+static wl_err_t encode(const void *request, uint32_t id, uint64_t session, uint8_t *out,
     size_t capacity, size_t *length) {
+  (void)session;
   if (encode_error) return encode_error;
   if (capacity < 8U) return WL_ERR_BUF_TOO_SMALL;
   memcpy(out, &id, sizeof(id));

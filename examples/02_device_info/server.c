@@ -24,8 +24,8 @@ int main(int argc, char **argv) {
   uint32_t queries = 0;
   uint16_t local = 49201, peer = 49200;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(device_info_endpoint_config_defaults(&config, example_session_id()) == WL_OK);
-  config.clock = example_clock();
+  CHECK(device_info_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+
   config.on_get_info = get_info;
   config.get_info_user_data = &queries;
   CHECK(device_info_endpoint_init_config(&server, &config) == WL_OK);

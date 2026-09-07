@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "calculator_endpoint.h"
+#include "../../../tests/support/test_environment.h"
 #include "wirelink/asio/udp_adapter.hpp"
 #include "wirelink/host/executor.hpp"
 #include <array>
@@ -89,8 +90,8 @@ static void active_call_shutdown(bool fail_wait) {
     }, &counts};
   calculator_endpoint_t* endpoint = nullptr;
   calculator_endpoint_config_t endpoint_config;
-  CHECK(calculator_endpoint_config_defaults(&endpoint_config, 91) == WL_OK);
-  endpoint_config.clock = wirelink::host::monotonic_clock();
+  CHECK(calculator_endpoint_config_defaults(&endpoint_config,
+      test_environment_id(91, wirelink::host::monotonic_clock())) == WL_OK);
   CHECK(calculator_endpoint_create(&endpoint, &endpoint_config, &allocator) == WL_OK);
   wirelink::asio::UdpAdapterConfig config;
   config.bind_address = "127.0.0.1";
@@ -149,10 +150,10 @@ int main() {
   Executor client_executor, server_executor;
   calculator_endpoint_t client{}, server{};
   const wl_clock_t clock{[](void*) { return manual_time.load(); }, nullptr};
-  CHECK(calculator_endpoint_init(&client, 71, clock) == WL_OK);
+  CHECK(calculator_endpoint_init(&client, test_environment_id(71, clock)) == WL_OK);
   calculator_endpoint_config_t config;
-  CHECK(calculator_endpoint_config_defaults(&config, 72) == WL_OK);
-  config.clock = clock; config.on_add = add; config.add_user_data = &server;
+  CHECK(calculator_endpoint_config_defaults(&config, test_environment_id(72, clock)) == WL_OK);
+  config.on_add = add; config.add_user_data = &server;
   CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);
   wirelink::asio::UdpAdapterConfig udp_config;
   udp_config.bind_address = "127.0.0.1";

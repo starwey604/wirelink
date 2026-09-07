@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "rpc_validation_endpoint.h"
+#include "../../../../tests/support/test_environment.h"
 #include "wirelink/storage/fixed_pool.h"
 #include "wirelink/zephyr/wait.h"
 #include "wirelink/port.h"
@@ -121,7 +122,7 @@ static int32_t execute(void *context, const request_value_t *request, response_v
 static int32_t download(void *context, const empty_value_t *request, large_value_t *response) {
   (void)context; (void)request;
   response->has_data = true;
-  response->data.length = 2031;
+  response->data.length = 2023;
   memset(response->data.data, 0xa5, response->data.length);
   return 0;
 }
@@ -177,19 +178,18 @@ int main(void) {
       RPC_VALIDATION_ENDPOINT_ALIGNMENT, 2) == WL_OK);
   wl_allocator_t allocator = {allocate, deallocate, &pool};
   rpc_validation_endpoint_config_t config;
-  CHECK(rpc_validation_endpoint_config_defaults(&config, 101) == WL_OK);
-  config.clock = (wl_clock_t){now, &client};
+  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(101, (wl_clock_t){0})) == WL_OK);
+  config.environment.clock = (wl_clock_t){now, &client};
   fail_allocation = true;
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_ERR_NO_MEM);
   CHECK(client.endpoint == NULL && wl_fixed_pool_in_use(&pool) == 0);
   fail_allocation = false;
   rpc_validation_endpoint_config_t bad = config;
-  bad.clock.now_ms = NULL;
+  bad.environment.clock.now_ms = NULL;
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &bad, &allocator) == WL_ERR_INVALID_ARG);
   CHECK(client.endpoint == NULL && wl_fixed_pool_in_use(&pool) == 0 && deallocations == 1);
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_OK);
-  config.link.session_id = 102;
-  config.clock.user_data = &server;
+  config.environment.clock.user_data = &server;
   config.on_execute = execute;
   config.execute_user_data = &server;
   config.on_download = download;
@@ -224,7 +224,7 @@ int main(void) {
   empty_value_t empty;
   empty_value_clear(&empty);
   result = rpc_validation_endpoint_download_sync(client.endpoint, &empty, &large, 2000);
-  CHECK(result.status == WL_RPC_SUCCESS && large.data.length == 2031 && large.data.data[2030] == 0xa5);
+  CHECK(result.status == WL_RPC_SUCCESS && large.data.length == 2023 && large.data.data[2022] == 0xa5);
   uint32_t completion_cycles = 0;
   request.input = 41;
   for (unsigned i = 0; i < 20; ++i) {
@@ -256,7 +256,7 @@ int main(void) {
   CHECK(k_thread_stack_space_get(&server_thread, &unused_server) == 0);
   CHECK(rpc_validation_endpoint_destroy(&client.endpoint) == WL_OK);
   CHECK(rpc_validation_endpoint_destroy(&server.endpoint) == WL_OK);
-  CHECK(wl_fixed_pool_in_use(&pool) == 0 && response.output == 42 && large.data.data[2030] == 0xa5);
+  CHECK(wl_fixed_pool_in_use(&pool) == 0 && response.output == 42 && large.data.data[2022] == 0xa5);
   qsort(roundtrips, 100, sizeof(roundtrips[0]), compare);
   printk("RPC_H2 tasks calls=122 callbacks=20 hot_alloc=0 waits=%u/%u stack_unused=%u/%u\n",
       client.waits, server.waits, (unsigned)unused_main, (unsigned)unused_server);
@@ -265,8 +265,8 @@ int main(void) {
 
   /* Isolate CPU paths after both other tasks joined; IRQ-off bounded batches.
    * QEMU/native numbers are functional diagnostics, never H7 performance. */
-  CHECK(rpc_validation_endpoint_config_defaults(&config, 103) == WL_OK);
-  config.clock = (wl_clock_t){now, &client};
+  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(103, (wl_clock_t){0})) == WL_OK);
+  config.environment.clock = (wl_clock_t){now, &client};
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_OK);
   const unsigned reads = client.reads;
   const unsigned key = irq_lock();
@@ -296,9 +296,9 @@ int main(void) {
   for (unsigned i = 0; i < 128; ++i) copied = large;
   const uint32_t copy_cycles = cycle_now() - start;
   irq_unlock(locked);
-  CHECK(decoded.data.length == 2031 && copied.data.data[2030] == 0xa5);
+  CHECK(decoded.data.length == 2023 && copied.data.data[2022] == 0xa5);
   CHECK(k_thread_stack_space_get(k_current_get(), &unused_main) == 0);
-  printk("RPC_H2 isolated cycles idle=%u encode2031=%u decode2031=%u volatile_copy=%u irq=off reads_per_idle=1 stack_unused=%u\n",
+  printk("RPC_H2 isolated cycles idle=%u encode2023=%u decode2023=%u volatile_copy=%u irq=off reads_per_idle=1 stack_unused=%u\n",
       idle_cycles / 128, encode_cycles / 32, decode_cycles / 32, copy_cycles / 128, (unsigned)unused_main);
   CHECK(rpc_validation_endpoint_destroy(&client.endpoint) == WL_OK);
   CHECK(wl_fixed_pool_in_use(&pool) == 0 && allocations == deallocations + 2); /* Two NULL failures. */

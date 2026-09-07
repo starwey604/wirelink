@@ -4,6 +4,7 @@
 
 #include "wirelink/pump.h"
 #include "wirelink/wait.h"
+#include "wirelink/environment.h"
 
 #ifdef __cplusplus
 extern "C" {

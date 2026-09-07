@@ -271,6 +271,10 @@ const char *wl_rpc_err_str(wl_rpc_err_t error) {
     return "response cache full";
   case WL_RPC_ERR_MALFORMED_METADATA:
     return "malformed RPC metadata";
+  case WL_RPC_ERR_SESSION_MISMATCH:
+    return "RPC session mismatch";
+  case WL_RPC_ERR_ID_EXHAUSTED:
+    return "RPC operation identities exhausted";
   default:
     return "unknown rpc error";
   }
@@ -367,9 +371,10 @@ wl_rpc_err_t wl_rpc_client_begin(wl_rpc_client_t *client,
   }
   impl = client_impl(client);
   candidate = impl->next_operation_id;
+  if (candidate == 0U) return WL_RPC_ERR_ID_EXHAUSTED;
   for (attempts = 0U; attempts <= (uint32_t)impl->slot_count; ++attempts) {
     if (candidate == 0U) {
-      candidate = 1U;
+      return WL_RPC_ERR_ID_EXHAUSTED;
     }
     if (client_find(impl, candidate, NULL) == NULL) {
       break;
@@ -386,9 +391,6 @@ wl_rpc_err_t wl_rpc_client_begin(wl_rpc_client_t *client,
     return error;
   }
   impl->next_operation_id = candidate + 1U;
-  if (impl->next_operation_id == 0U) {
-    impl->next_operation_id = 1U;
-  }
   *out_operation_id = candidate;
   return WL_RPC_OK;
 }

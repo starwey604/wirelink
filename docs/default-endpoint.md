@@ -1,6 +1,7 @@
 # Default endpoint: design and boundaries
 
-Internal development, codegen ABI 25. No release, main merge or wire-format change.
+Internal development, codegen ABI 26. No release or main merge. Managed RPC uses
+metadata v2 and requires paired upgrades; Compact-v1 framing and mapped payloads stay unchanged.
 Read [installation](installation.md), [telemetry](getting-started.md),
 [RPC](tutorial-rpc.md), then [integration](tutorial-integration.md).
 [中文](default-endpoint-cn.md).
@@ -8,8 +9,10 @@ Read [installation](installation.md), [telemetry](getting-started.md),
 ## Ordinary application entry
 
 WLC emits `<runtime>_endpoint.h` for bounded one-frame profiles. Zero-initialize a
-stable `*_endpoint_t`, supply session and clock, attach an adapter and use
+stable `*_endpoint_t`, supply a platform environment, attach an adapter and use
 send/read, asynchronous RPC and step. Never modify `private_state`.
+Initialization generates the identity automatically. The default is
+`wl_platform_environment()`; custom sources are described in [automatic sessions](session.md).
 
 The header transitively includes runtime declarations to support static C layout;
 it is the recommended entry, not an opaque ABI hiding every declaration.
@@ -63,7 +66,7 @@ consistently across every translation unit using that endpoint. Runtime counts
 cannot exceed it. `config.advanced` and `config.link` are expert overrides.
 Queues are bounded and the link still has a single TX slot.
 
-Only selected messages contribute to storage; managed metadata adds 12 bytes.
+Only selected messages contribute to storage; managed metadata adds 20 bytes.
 Request queues use the largest request bound, not the largest response bound.
 Services share a largest-request/response scratch union. Near-2-KiB responses
 substantially enlarge endpoints; see the [implementation record](rpc-usability-progress-cn.md).

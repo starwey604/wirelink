@@ -49,6 +49,7 @@ Wirelink 是一个无动态分配、由单一 owner 驱动的点对点链路，�
 | `Wirelink::host` | 可选的 C++20 线程化主机 executor | 未启用或未链接则无代价 |
 | `Wirelink::asio_udp` | 可选的 C++20 UDP 与就绪等待 | 未启用或未链接则无代价 |
 | `Wirelink::storage` | 可选的有界固定块分配器 | 未启用或未链接则无代价 |
+| `Wirelink::platform` | 默认单调时钟与新会话身份来源 | 未链接则无代价 |
 | WLC 生成 target | schema codec、bindings 或单个角色 runtime | 仅所选 schema/profile |
 
 Asio UDP 启用后可随包安装，不向消费者暴露 Asio 头文件。Astrial 仍是源码集成的平台 target。
@@ -59,6 +60,7 @@ Asio UDP 启用后可随包安装，不向消费者暴露 Asio 头文件。Astri
 | --- | --- |
 | `link.h` | endpoint/application owner：初始化、发送、poll、事件、TX 结果 |
 | `endpoint.h`、`wait.h` | 通用端点挂载、时钟和平台等待合同 |
+| `environment.h`、`platform.h` | 可注入的时钟/身份环境和可选平台默认实现 |
 | `rpc_result.h`、`rpc_sync.h` | 每调用结果与平台代理合同 |
 | `allocator.h`、`storage/fixed_pool.h` | 可选创建分配器和固定池后端 |
 | `pump.h` | owner loop 组合与 deadline 合并 |
@@ -92,7 +94,8 @@ Asio UDP 启用后可随包安装，不向消费者暴露 Asio 头文件。Astri
 
 通信双方通过带外方式约定 envelope、integrity、payload 上限和 transmission
 unit 上限。非零 `session_id` 是可靠流量的启动/实例标识，不是节点地址。
-应用从随机数或持久化单调计数器产生它；旧流量仍可能存在时不得复用。
+普通端点从平台环境自动取得它；高级裸 link 用户仍须提供正确的身份来源。
+旧流量仍可能存在时不得复用，详见[自动会话](session-cn.md)。
 
 ### 发送
 
@@ -191,7 +194,7 @@ ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `n
 手动 call/token 和 `config.advanced` 是高级入口，详见[默认端点](default-endpoint-cn.md)。
 已有字段映射仍为独立的互操作模式。
 
-## WLC 生成接口（ABI 25）
+## WLC 生成接口（ABI 26）
 
 WLC 有意拆分以下入口：
 
@@ -260,8 +263,8 @@ identity 是彼此独立的兼容域。Compact-v1 字节向量已经冻结；生
   header；
 - 对可靠非 RPC 流量手动执行 peer observation 是否足够易发现，还是应引入统一的
   session object。
-- 托管 RPC 是否应在响应中回送客户端会话标识，以提供跨客户端重建的响应新鲜度；
-  当前本地句柄代次不解决线上旧响应与复用编号的混淆，见 [RPC 合同](rpc-runtime-cn.md)。
+- 托管 RPC 响应归属已由 ABI 26 / 元数据 v2 收敛：自动身份与编号共同校验，
+  覆盖客户端重建及所有 delivery 组合，见 [RPC 合同](rpc-runtime-cn.md)。
 
 上述设计在 1.0 前仍可调整。RPC 元数据的演进可能改变 RPC payload，
 但不需要改变 Compact-v1 链路帧格式。

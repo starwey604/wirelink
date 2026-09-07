@@ -43,6 +43,15 @@ elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+if(TARGET Wirelink::platform)
+  add_executable(wirelink_wlc_platform_consumer platform.c)
+  target_link_libraries(wirelink_wlc_platform_consumer PRIVATE
+    generated_calculator Wirelink::platform)
+  set_target_properties(wirelink_wlc_platform_consumer PROPERTIES
+    C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+  add_test(NAME wirelink_wlc_platform_consumer COMMAND wirelink_wlc_platform_consumer)
+endif()
+
 add_test(NAME wirelink_wlc_package_consumer
   COMMAND wirelink_wlc_package_consumer)
 

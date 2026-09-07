@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "rpc_validation_endpoint.h"
+#include "../../../../tests/support/test_environment.h"
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include "wirelink/loopback.h"
@@ -71,7 +72,7 @@ static void done(void *context, const wl_rpc_completion_t *result, const respons
   if (closing) {
     request_value_t value = request();
     CHECK(rpc_validation_endpoint_execute_async(&client, &value, 100, done, &completions, NULL) == WL_ERR_NOT_INITIALIZED);
-    CHECK(rpc_validation_endpoint_init(&client, 99, (wl_clock_t){read_clock, NULL}) == WL_ERR_REENTRANT);
+    CHECK(rpc_validation_endpoint_init(&client, test_environment_id(99, (wl_clock_t){read_clock, NULL})) == WL_ERR_REENTRANT);
   }
   if (chained != 0) {
     request_value_t value = request();
@@ -83,15 +84,15 @@ static void done(void *context, const wl_rpc_completion_t *result, const respons
 static void download_done(void *context, const wl_rpc_completion_t *result, const large_value_t *output) {
   (void)context;
   CHECK(result->status == WL_RPC_SUCCESS && output != NULL);
-  CHECK(output->data.length == 2031 && output->data.data[2030] == 0xa5);
+  CHECK(output->data.length == 2023 && output->data.data[2022] == 0xa5);
   large_saved = *output;
   ++completions;
 }
 static void initialize(void) {
   rpc_validation_endpoint_config_t config;
-  CHECK(rpc_validation_endpoint_init(&client, 1, (wl_clock_t){read_clock, NULL}) == WL_OK);
-  CHECK(rpc_validation_endpoint_config_defaults(&config, 2) == WL_OK);
-  config.clock = (wl_clock_t){read_clock, NULL};
+  CHECK(rpc_validation_endpoint_init(&client, test_environment_id(1, (wl_clock_t){read_clock, NULL})) == WL_OK);
+  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(2, (wl_clock_t){0})) == WL_OK);
+  config.environment.clock = (wl_clock_t){read_clock, NULL};
   config.on_execute = execute;
   config.execute_user_data = &handlers;
   config.on_download = download;
@@ -193,7 +194,7 @@ int main(void) {
   initialize();
   CHECK(rpc_validation_endpoint_cancel(&client, &handle) != WL_OK);
   CHECK(saved.output == 42 && memcmp(saved.name.data, "abc", 3) == 0);
-  CHECK(large_saved.data.length == 2031 && large_saved.data.data[2030] == 0xa5);
+  CHECK(large_saved.data.length == 2023 && large_saved.data.data[2022] == 0xa5);
   close_pair();
   /* Real Zephyr uptime, without a preparatory owner pass. */
   real_clock = true;
@@ -207,7 +208,7 @@ int main(void) {
   CHECK(clock_reads == before + 1);
   wait_for(target);
   close_pair();
-  CHECK(saved.output == 42 && large_saved.data.data[2030] == 0xa5);
+  CHECK(saved.output == 42 && large_saved.data.data[2022] == 0xa5);
   printk("async endpoint: capacity=%u bytes=%zu completions=%u handlers=%u\n",
       (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY, sizeof(client), completions, handlers);
   printk("RPC_H1 ALL PASS\n");

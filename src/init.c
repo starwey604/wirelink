@@ -9,6 +9,10 @@
 #include "context.h"
 #include "rx_ring.h"
 
+uint64_t wl_link_session_id(const wl_ctx_t *ctx) {
+  return ctx != NULL ? wl_ctx_impl_const(ctx)->session_id : 0U;
+}
+
 static size_t wl_max_unit_size(const wl_config_t *config) {
   const size_t raw = wl_frame_raw_size(config->max_payload_len, config->integrity);
   if (raw == 0U) {

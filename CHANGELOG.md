@@ -8,6 +8,16 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- ABI 26 replaces manual default-endpoint session IDs with a C environment
+  descriptor (clock plus injectable identity source). Optional desktop/Zephyr
+  platform providers obtain fresh identities at init/create, never per packet.
+- Managed RPC metadata v2 echoes the originating client session in all request/
+  response delivery combinations, rejecting stale-instance responses without
+  affecting other calls. Metadata grows from 12 to 20 bytes; upgrade both peers.
+  Mapped payloads, business codecs and Compact-v1 framing remain unchanged.
+- Stop automatic RPC numbering at exhaustion rather than wrapping into old IDs;
+  existing work drains and safe close/reinitialization obtains a fresh identity.
+
 - ABI 25 adds optional allocator-backed endpoint create/destroy with one initial
   allocation, alignment validation, init rollback and close-before-free. Retain
   static ownership and allocation-free protocol hot paths; add a separate fixed

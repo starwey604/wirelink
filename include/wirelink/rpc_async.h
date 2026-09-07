@@ -15,7 +15,8 @@ extern "C" {
 typedef struct wl_rpc_async wl_rpc_async_t;
 typedef void (*wl_rpc_callback_t)(void);
 typedef wl_err_t (*wl_rpc_async_encode_fn)(const void *request,
-    uint32_t operation_id, uint8_t *out, size_t capacity, size_t *length);
+    uint32_t operation_id, uint64_t session_id,
+    uint8_t *out, size_t capacity, size_t *length);
 
 typedef struct {
   /* prepare copies/decodes a terminal result into generator-owned scratch.
