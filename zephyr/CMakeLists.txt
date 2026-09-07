@@ -71,8 +71,13 @@ zephyr_include_directories(
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/usb_bulk/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_irq/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/zephyr/include
+  ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/storage/include
 )
 
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_WAIT
   ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/zephyr/src/wait.c
+)
+
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_STORAGE
+  ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/storage/src/fixed_pool.c
 )

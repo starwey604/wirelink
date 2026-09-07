@@ -14,9 +14,9 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-Use the pinned **WLC 0.4.0 with codegen ABI 24** revision below, including
+Use the pinned **WLC 0.4.0 with codegen ABI 25** revision below, including
 initialization-time endpoint clocks, `@delivery(...)`, and default RPC reliability.
-ABI 24 changes generated C APIs/layouts, not schema encoding or Wirelink frame bytes.
+ABI 25 changes generated C APIs/layouts, not schema encoding or Wirelink frame bytes.
 No new package or tag is published by this iteration.
 
 If supplied with a matching internal binary, extract it to a stable location and

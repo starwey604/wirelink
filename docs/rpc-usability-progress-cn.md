@@ -229,3 +229,27 @@ M3 实现配对：Wirelink `39316f3`，消费者锁定提交 `a225fa8` / WLC `dd
 Wirelink 覆盖三种桌面 OS、安装包、UDP、FFI、Astrial、Sanitizer、fuzz、Twister 和 ESP32-S3 构建。
 M4 正在实现（本地门槛后与最后远端任务重叠，未提前进行实板）；H2、M5/H3 尚未做。
 libflorid/Ragtime 产品依赖、main、tag 和长期测试未改动。
+
+## M4：可选创建层（ABI 25，验收中）
+
+生成 `endpoint_create(&pointer, &config, &allocator)` / `endpoint_destroy(&pointer)`：
+创建一次申请完整端点，失败回滚；关闭/quiesce/完成通知后才配对释放。静态入口保留，
+所有端点共享重入保护，分配式 close/reinit 保留分配器所有权。无全局 allocator、
+逐消息分配或隐式 heap 回退；context 生命周期、旧别名失效和后台先 stop/join 明确写入合同。
+可选 `Wirelink::storage` / `CONFIG_WIRELINK_STORAGE` 提供最多 64 块的单 owner 固定池。
+中英文[存储文档](endpoint-storage-cn.md)及 C/C++/Python 消费实例已补充。
+
+本地门槛已通过：
+
+- WLC 115 项、fmt/clippy；静态和分配式端点重跑一/四槽×四种 delivery 的 sync/async 测试。
+  覆盖 misalignment、NULL 分配、初始化阶段失败、池耗尽、描述符复制、回调销毁拒绝及 close/reinit。
+- `build/rpc-m4-twister`：50/50 配置、301/301 用例通过，无编译器警告。
+- `build/rpc-m4-host`：13 个 CTest 通过；其中 C++/Python 各 2000 次同步调用，
+  初始化两次分配，热路径零端点分配器调用。后台在途 stop/IO 错误后 join/destroy 通过。
+- `build/rpc-m4-sanitize`：11 个原生 ASan/UBSan 用例；两个 Python 用例预加载 ASan 后通过。
+  WLC 针对性生成 C Sanitizer 全通过，覆盖大值、取消、关闭及池释放后的调用栈清理。
+- `build/rpc-m4-package`：四个安装包消费者通过，包括已安装的固定池和真实生成 create/destroy。
+
+H2 样例在 `samples/zephyr/rpc_platform`，native_sim 的四槽手动运行已通过，
+完整模拟矩阵和 H7 构建/远端配对 CI 仍在验证；尚未烧录 H2，不声明 M4/H2 全部完成。
+M5 产品迁移尚未开始。

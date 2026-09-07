@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+foreach(target wirelink wirelink_storage wirelink_loopback calculator_codec calculator_protocol)
+  set_property(TARGET ${target} PROPERTY POSITION_INDEPENDENT_CODE ON)
+endforeach()
+add_library(wirelink_storage_bridge SHARED bridge.c)
+target_compile_definitions(wirelink_storage_bridge PRIVATE STORAGE_BRIDGE_BUILD)
+target_link_libraries(wirelink_storage_bridge PRIVATE calculator_protocol Wirelink::storage Wirelink::loopback)
+add_executable(wirelink_storage_bridge_cpp consumer.cpp)
+target_compile_features(wirelink_storage_bridge_cpp PRIVATE cxx_std_20)
+target_link_libraries(wirelink_storage_bridge_cpp PRIVATE wirelink_storage_bridge)
+add_test(NAME wirelink_storage_bridge_cpp COMMAND wirelink_storage_bridge_cpp)
+add_test(NAME wirelink_storage_bridge_python
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/consumer.py $<TARGET_FILE:wirelink_storage_bridge>)
+set_tests_properties(wirelink_storage_bridge_cpp wirelink_storage_bridge_python PROPERTIES TIMEOUT 30)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(wirelink_storage_bridge PRIVATE -Wall -Wextra -Wpedantic)
+endif()

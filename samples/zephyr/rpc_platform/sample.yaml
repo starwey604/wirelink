@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+sample:
+  name: Wirelink synchronous RPC platform and storage
+  description: Two tasks, latched wait/stop, pool allocation and cycle/stack probes
+common:
+  tags: [wirelink, wlc, rpc, memory]
+  platform_allow: [native_sim, qemu_riscv32, qemu_x86_64]
+  integration_platforms: [native_sim, qemu_riscv32, qemu_x86_64]
+  timeout: 120
+  harness: console
+  harness_config:
+    type: one_line
+    regex: ['RPC_H2 ALL PASS']
+tests:
+  sample.wirelink.rpc_platform: {}
+  sample.wirelink.rpc_platform.one_slot:
+    extra_args: [WIRELINK_RPC_TEST_CAPACITY=1]

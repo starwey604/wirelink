@@ -186,7 +186,7 @@ ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `n
 手动 call/token 和 `config.advanced` 是高级入口，详见[默认端点](default-endpoint-cn.md)。
 已有字段映射仍为独立的互操作模式。
 
-## WLC 生成接口（ABI 24）
+## WLC 生成接口（ABI 25）
 
 WLC 有意拆分以下入口：
 

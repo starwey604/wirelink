@@ -12,6 +12,12 @@ config WIRELINK
 
 if WIRELINK
 
+config WIRELINK_STORAGE
+	bool "Enable the optional fixed-block endpoint allocator"
+	help
+	  Creates generated endpoints in caller-supplied fixed pools. No heap
+	  fallback and no allocations during protocol operation.
+
 config WIRELINK_ZEPHYR_WAIT
 	bool "Enable the Zephyr owner-task RPC waiter"
 	depends on MULTITHREADING

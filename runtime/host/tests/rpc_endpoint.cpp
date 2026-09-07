@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
+#include <new>
 #include <thread>
 #include <asio.hpp>
 
@@ -76,12 +77,25 @@ static int32_t add(void* p, const add_request_value_t* request, add_response_val
 
 static void active_call_shutdown(bool fail_wait) {
   Executor executor;
-  calculator_endpoint_t endpoint{};
-  CHECK(calculator_endpoint_init(&endpoint, 91, wirelink::host::monotonic_clock()) == WL_OK);
+  struct Counts { unsigned allocated{}, freed{}; } counts;
+  const wl_allocator_t allocator{
+    [](void* p, size_t size, size_t alignment) -> void* {
+      ++static_cast<Counts*>(p)->allocated;
+      return ::operator new(size, std::align_val_t(alignment), std::nothrow);
+    },
+    [](void* p, void* object, size_t, size_t alignment) {
+      ++static_cast<Counts*>(p)->freed;
+      ::operator delete(object, std::align_val_t(alignment));
+    }, &counts};
+  calculator_endpoint_t* endpoint = nullptr;
+  calculator_endpoint_config_t endpoint_config;
+  CHECK(calculator_endpoint_config_defaults(&endpoint_config, 91) == WL_OK);
+  endpoint_config.clock = wirelink::host::monotonic_clock();
+  CHECK(calculator_endpoint_create(&endpoint, &endpoint_config, &allocator) == WL_OK);
   wirelink::asio::UdpAdapterConfig config;
   config.bind_address = "127.0.0.1";
   std::error_code error;
-  auto udp = UdpAdapter::open(*calculator_endpoint_handle(&endpoint), config, error);
+  auto udp = UdpAdapter::open(*calculator_endpoint_handle(endpoint), config, error);
   CHECK(udp && !error);
   ::asio::io_context io;
   ::asio::ip::udp::socket blackhole(io, {::asio::ip::udp::v4(), 0});
@@ -89,7 +103,7 @@ static void active_call_shutdown(bool fail_wait) {
   struct Wait {
     wl_waiter_t underlying;
     std::atomic<bool> entered{}, fail{};
-  } wait{*wl_endpoint_waiter(calculator_endpoint_handle(&endpoint))};
+  } wait{*wl_endpoint_waiter(calculator_endpoint_handle(endpoint))};
   const wl_waiter_t descriptor{
     [](void* p, uint32_t maximum) -> wl_err_t {
       auto& self = *static_cast<Wait*>(p);
@@ -99,15 +113,15 @@ static void active_call_shutdown(bool fail_wait) {
     }, &wait,
     [](void* p) { auto& self = *static_cast<Wait*>(p); self.underlying.notify(self.underlying.user_data); }
   };
-  CHECK(wl_endpoint_set_waiter(calculator_endpoint_handle(&endpoint), &descriptor) == WL_OK);
-  CHECK(executor.initialize(calculator_endpoint_driver(&endpoint)) == WL_OK);
+  CHECK(wl_endpoint_set_waiter(calculator_endpoint_handle(endpoint), &descriptor) == WL_OK);
+  CHECK(executor.initialize(calculator_endpoint_driver(endpoint)) == WL_OK);
   CHECK(executor.start() == WL_OK);
   std::thread caller([&] {
     add_request_value_t request{};
     request.has_left = request.has_right = true;
     add_response_value_t response{};
     response.sum = 123;
-    const auto result = calculator_endpoint_add_sync(&endpoint, &request, &response, 1000000);
+    const auto result = calculator_endpoint_add_sync(endpoint, &request, &response, 1000000);
     CHECK(result.status == (fail_wait ? WL_RPC_FAILED : WL_RPC_CANCELLED));
     if (fail_wait) CHECK(result.local_error == WL_ERR_IO);
     CHECK(response.sum == 123);
@@ -126,6 +140,9 @@ static void active_call_shutdown(bool fail_wait) {
   caller.join();
   executor.stop();
   CHECK(executor.stats().m_rpc_completed == 1);
+  CHECK(counts.allocated == 1 && counts.freed == 0);
+  CHECK(calculator_endpoint_destroy(&endpoint) == WL_OK && endpoint == nullptr);
+  CHECK(counts.freed == 1); // Joined proxy/owner; UDP destruction must not touch freed link.
 }
 
 int main() {

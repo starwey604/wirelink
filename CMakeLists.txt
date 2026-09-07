@@ -110,6 +110,8 @@ option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
   "Build the optional C++20 threaded session runtime" OFF)
+option(WIRELINK_BUILD_STORAGE
+  "Build the optional fixed-block endpoint allocator" OFF)
 option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_BUILD_GETTING_STARTED
@@ -120,6 +122,10 @@ set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
   "Astrial source tree used when no astrial target is already available")
 set(WIRELINK_ASIO_INCLUDE_DIR "" CACHE PATH
   "Directory containing standalone Asio's asio.hpp")
+
+if(WIRELINK_BUILD_STORAGE)
+  add_subdirectory(runtime/storage)
+endif()
 
 if(WIRELINK_BUILD_HOST_RUNTIME)
   enable_language(CXX)
@@ -284,6 +290,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/rpc_async.h
     include/wirelink/rpc_result.h
     include/wirelink/rpc_sync.h
+    include/wirelink/allocator.h
     include/wirelink/span.h
     include/wirelink/types.h
     include/wirelink/version.h

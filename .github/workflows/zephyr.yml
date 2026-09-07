@@ -48,7 +48,7 @@ jobs:
           --outdir twister-out
 
       # Exercise the same generated-code sample used for the H7 clock check.
-      # ABI 24 has no release asset: build the matching standalone host compiler.
+      # ABI 25 has no release asset: build the matching standalone host compiler.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
@@ -64,6 +64,7 @@ jobs:
           west twister
           -T ${{ github.workspace }}/wirelink/samples/zephyr/endpoint_clock
           -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_usability
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_platform
           -p native_sim
           -p qemu_cortex_m3
           -p qemu_riscv32

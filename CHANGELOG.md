@@ -8,6 +8,10 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### Typed application runtime
 
+- ABI 25 adds optional allocator-backed endpoint create/destroy with one initial
+  allocation, alignment validation, init rollback and close-before-free. Retain
+  static ownership and allocation-free protocol hot paths; add a separate fixed
+  pool backend, C++/Python lifecycle tests, and H2 task/wait/storage instrumentation.
 - ABI 24 adds typed synchronous RPC using the existing completion/deadline path,
   per-call local errors, platform readiness waiters, and a bounded host executor
   proxy. Queuing consumes the original budget; shutdown wakes blocked callers.

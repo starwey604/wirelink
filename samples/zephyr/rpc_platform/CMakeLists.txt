@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+cmake_minimum_required(VERSION 3.28.0)
+set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../..")
+list(APPEND ZEPHYR_EXTRA_MODULES ${WIRELINK_ROOT})
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(wirelink_rpc_platform)
+include(${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake)
+wirelink_wlc_generate_codec(TARGET validation_codec
+  SCHEMA "${CMAKE_CURRENT_LIST_DIR}/../rpc_usability/rpc_validation.wl")
+wirelink_wlc_generate_runtime(TARGET validation_protocol CODEC_TARGET validation_codec
+  PROFILE "${CMAKE_CURRENT_LIST_DIR}/../rpc_usability/rpc_validation.bind.wl")
+target_link_libraries(validation_codec PUBLIC zephyr_interface)
+set(WIRELINK_RPC_TEST_CAPACITY 4 CACHE STRING "Static RPC capacity for H2")
+target_compile_definitions(validation_protocol PUBLIC RPC_VALIDATION_ENDPOINT_RPC_CAPACITY=${WIRELINK_RPC_TEST_CAPACITY})
+target_sources(app PRIVATE src/main.c)
+target_link_libraries(app PRIVATE validation_protocol)

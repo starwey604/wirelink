@@ -202,7 +202,7 @@ bounded slots and a recent-result cache. Manual calls/tokens and
 Explicit field mappings remain a separate interoperability mode.
 See [platform integration](rpc-platform.md) for waiters and background proxies.
 
-## WLC-Generated Surface (ABI 24)
+## WLC-Generated Surface (ABI 25)
 
 WLC deliberately splits these entries:
 

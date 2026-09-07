@@ -46,7 +46,7 @@ jobs:
       - name: Test package consumer
         run: ctest --test-dir consumer-build --build-config Release --output-on-failure
 
-      # The internal ABI 24 compiler is not a published release asset yet.
+      # The internal ABI 25 compiler is not a published release asset yet.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
@@ -78,6 +78,7 @@ jobs:
           cmake -S . -B udp-build -DCMAKE_BUILD_TYPE=Release
           -DWIRELINK_BUILD_GETTING_STARTED=ON
           -DWIRELINK_BUILD_HOST_RUNTIME=ON
+          -DWIRELINK_BUILD_STORAGE=ON
           -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
           -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
           -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
@@ -90,6 +91,15 @@ jobs:
 
       - name: Install UDP adapter
         run: cmake --install udp-build --config Release --prefix ${{ github.workspace }}/udp-install
+
+      - name: Configure installed allocator and generated consumer
+        run: cmake -S tests/package/wlc_consumer -B storage-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/udp-install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Build installed allocator consumer
+        run: cmake --build storage-consumer-build --config Release --parallel
+
+      - name: Test installed allocator consumer
+        run: ctest --test-dir storage-consumer-build --build-config Release --output-on-failure
 
       - name: Configure installed UDP consumer
         run: cmake -S tests/package/udp_consumer -B udp-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/udp-install -DCMAKE_BUILD_TYPE=Release

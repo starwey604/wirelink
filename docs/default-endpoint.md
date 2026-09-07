@@ -107,4 +107,5 @@ LATEST/FIFO still require retainable pointer-free messages; this stage does not
 expand IDL or introduce streaming.
 
 See the [implementation record](rpc-usability-progress-cn.md) for H1 evidence
-and M3 software gates. M4 allocator creation and M5 product migration remain pending.
+and M3 software gates. Optional [allocator creation](endpoint-storage.md) retains
+the static execution path; M4 software/H2 acceptance is in progress. M5 remains pending.

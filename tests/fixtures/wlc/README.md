@@ -73,6 +73,9 @@ enums and message bounds. The advanced borrowed `control.h` includes it. Value
 codecs share the existing wire implementation; frozen schema/vector tests do
 not change to demonstrate the new endpoint API.
 
+ABI 25 adds optional allocator-backed create/destroy and shared lifecycle guards.
+The static fixture does not opt into dynamic creation; all frame/codec bytes stay frozen.
+
 ABI 24 adds a generated endpoint driver for platform ownership and sync integration.
 Mapped-RPC fixtures retain their existing wire bytes; ordinary sync behavior is
 covered by WLC tests and the installed managed-RPC consumer.

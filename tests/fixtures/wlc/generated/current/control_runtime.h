@@ -4,6 +4,7 @@
 #include "control_bindings.h"
 #include <wirelink/pump.h>
 #include <wirelink/endpoint.h>
+#include <wirelink/allocator.h>
 #include <wirelink/frame.h>
 #include <string.h>
 #include <wirelink/fifo.h>
@@ -19,7 +20,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 24U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 25U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -369,6 +370,9 @@ typedef struct {
 typedef struct {
   struct {
     wl_endpoint_t owner;
+    wl_allocator_t allocator; /* Zero for caller-owned static storage. */
+    bool stepping;
+    bool closing;
     control_runtime_instance_t instance;
     union {
       control_runtime_default_storage_alignment_t alignment;
@@ -387,6 +391,14 @@ typedef struct {
     uint8_t rx_fifo[CONTROL_ENDPOINT_UNIT_CAPACITY];
   } private_state;
 } control_endpoint_t;
+
+#if defined(__cplusplus)
+#define CONTROL_ENDPOINT_ALIGNMENT alignof(control_endpoint_t)
+#elif defined(_MSC_VER)
+#define CONTROL_ENDPOINT_ALIGNMENT __alignof(control_endpoint_t)
+#else
+#define CONTROL_ENDPOINT_ALIGNMENT _Alignof(control_endpoint_t)
+#endif
 
 /* Config descriptors can be temporary; callbacks/user_data must outlive use.
  * Ordinary client capability and registered server handlers are assembled by init. */
@@ -454,6 +466,8 @@ static inline wl_err_t control_endpoint_init_config(
   int result;
   if (endpoint == NULL || config == NULL || config->event_budget == 0U)
     return WL_ERR_INVALID_ARG;
+  if (endpoint->private_state.stepping || endpoint->private_state.closing)
+    return WL_ERR_REENTRANT;
   if (wl_endpoint_link(control_endpoint_handle(endpoint)) != NULL)
     return WL_ERR_INVALID_STATE;
   if (config->clock.now_ms == NULL) return WL_ERR_INVALID_ARG;
@@ -506,11 +520,12 @@ static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint, uint6
 static inline wl_err_t control_endpoint_step(control_endpoint_t *endpoint) {
   int result;
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
-
+  if (endpoint->private_state.stepping || endpoint->private_state.closing) return WL_ERR_REENTRANT;
+  endpoint->private_state.stepping = true;
   memset(&endpoint->private_state.result, 0, sizeof(endpoint->private_state.result));
   result = wl_endpoint_step(&endpoint->private_state.owner,
                              endpoint->private_state.event_budget);
-
+  endpoint->private_state.stepping = false;
   if (result != WL_OK) return result;
   if (endpoint->private_state.pump.last_service_result != WL_RPC_OK) {
     if (control_runtime_result_ok(&endpoint->private_state.result)) {
@@ -530,9 +545,11 @@ static inline const control_runtime_result_t *control_endpoint_result(const cont
 
 static inline wl_err_t control_endpoint_close(control_endpoint_t *endpoint) {
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
-
+  if (endpoint->private_state.stepping || endpoint->private_state.closing) return WL_ERR_REENTRANT;
+  endpoint->private_state.closing = true;
   wl_endpoint_close(control_endpoint_handle(endpoint));
 
+  endpoint->private_state.closing = false;
   return WL_OK;
 }
 
@@ -550,6 +567,56 @@ static inline wl_endpoint_driver_t control_endpoint_driver(control_endpoint_t *e
   driver.step = control_endpoint_driver_step;
   driver.close = control_endpoint_driver_close;
   return driver;
+}
+
+/* Optional creation: one allocation for the complete endpoint and all protocol
+ * storage. *out must be NULL; failure leaves it unchanged. No global allocator
+ * or fallback heap. Configure transport/waiting after successful creation. */
+static inline wl_err_t control_endpoint_create(control_endpoint_t **out,
+    const control_endpoint_config_t *config, const wl_allocator_t *allocator) {
+  control_endpoint_t *endpoint;
+  wl_allocator_t storage;
+  int error;
+  if (out == NULL || *out != NULL || config == NULL || allocator == NULL ||
+      allocator->allocate == NULL || allocator->deallocate == NULL) return WL_ERR_INVALID_ARG;
+  storage = *allocator;
+  endpoint = (control_endpoint_t *)storage.allocate(storage.context,
+      sizeof(*endpoint), CONTROL_ENDPOINT_ALIGNMENT);
+  if (endpoint == NULL) return WL_ERR_NO_MEM;
+  if ((uintptr_t)endpoint % CONTROL_ENDPOINT_ALIGNMENT != 0U) {
+    storage.deallocate(storage.context, endpoint, sizeof(*endpoint), CONTROL_ENDPOINT_ALIGNMENT);
+    return WL_ERR_INVALID_ARG;
+  }
+  memset(endpoint, 0, sizeof(*endpoint));
+  error = control_endpoint_init_config(endpoint, config);
+  if (error != WL_OK) {
+    (void)control_endpoint_close(endpoint);
+    storage.deallocate(storage.context, endpoint, sizeof(*endpoint), CONTROL_ENDPOINT_ALIGNMENT);
+    return error;
+  }
+  endpoint->private_state.allocator = storage;
+  *out = endpoint;
+  return WL_OK;
+}
+
+/* Owner safe point, after background executor stop and all caller joins.
+ * Close/quiesce and finish callbacks before freeing. Reentrant failure leaves
+ * the pointer alive. Static storage must use close, not destroy. NULL is a no-op.
+ * Copies of this owning pointer are invalid after successful destruction. */
+static inline wl_err_t control_endpoint_destroy(control_endpoint_t **owner) {
+  control_endpoint_t *endpoint;
+  wl_allocator_t storage;
+  int error;
+  if (owner == NULL) return WL_ERR_INVALID_ARG;
+  endpoint = *owner;
+  if (endpoint == NULL) return WL_OK;
+  storage = endpoint->private_state.allocator;
+  if (storage.deallocate == NULL) return WL_ERR_INVALID_STATE;
+  error = control_endpoint_close(endpoint);
+  if (error != WL_OK) return error;
+  *owner = NULL;
+  storage.deallocate(storage.context, endpoint, sizeof(*endpoint), CONTROL_ENDPOINT_ALIGNMENT);
+  return WL_OK;
 }
 /* Delivery follows this binding. Use codec sends to override explicitly. */
 static inline control_send_result_t control_endpoint_send_joint_command(control_endpoint_t *endpoint, const joint_command_t *message) {
