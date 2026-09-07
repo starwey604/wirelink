@@ -20,7 +20,7 @@
 3. 对照阅读 [`adapters-cn.md`](adapters-cn.md) 和
    [`application-layer-cn.md`](application-layer-cn.md)，检查 producer、
    consumer、pump 与关闭流程的划分。
-4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README-cn.md) 和
+4. 阅读 [WLC 中文指南](https://github.com/starwey604/wlc/blob/c6b6a8fa560a15c45d564aad0afd197b13682de8/README-cn.md) 和
    [`schema-v1-cn.md`](schema-v1-cn.md)，再查看代表性的生成头文件
    [`control_runtime.h`](../tests/fixtures/wlc/generated/current/control_runtime.h)。
 5. 按需阅读策略层：[`latest-mailbox-cn.md`](latest-mailbox-cn.md)、

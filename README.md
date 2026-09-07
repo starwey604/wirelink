@@ -47,7 +47,7 @@ assets do not contain this API. Implementation/H7 handoff evidence is recorded i
    Optional creation and fixed pools are covered in
    [`endpoint-storage.md`](docs/endpoint-storage.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/9314249746000e044e50550d3fd4a4474143b865/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/c6b6a8fa560a15c45d564aad0afd197b13682de8/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and

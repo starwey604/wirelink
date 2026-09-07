@@ -81,5 +81,8 @@ SESSION_P0 ALL PASS
 
 ## 配对收尾
 
-固定 Wirelink/WLC 配套 dev 提交，更新 CI、安装篇和 WLC 文档链接的旧 SHA，
-再跑远端 Windows/macOS 平台验证。未完成前不宣称远端跨平台验收通过。
+- Wirelink 实现：`0e9391e8a3b83e386ca530f9f13237109e7dd61e`。
+- WLC 实现/文档：`c6b6a8fa560a15c45d564aad0afd197b13682de8`，生成 ABI 26。
+- CI 和安装篇固定此 WLC；WLC 的生成 C 测试反向固定上述 Wirelink 实现提交。
+  两仓库都只推送 `dev/wirelink-p0-hardening`，不变更 main/tag。
+- 远端 Windows/macOS 平台验证尚待完成；未完成前不宣称远端跨平台验收通过。
