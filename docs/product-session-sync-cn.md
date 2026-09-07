@@ -68,7 +68,8 @@ Linux Sanitizer 的 io_uring ON/OFF 两条路径，Windows CI 单独构建固定
 - Willow H7、Willow trigger H7、Willow H5、Willow HIL H7 全部交叉构建通过。
   固件工作区 Zephyr `577e42ad1878`，SDK 1.0.1；有既存的 H7 IWDG EWI 配置警告、
   空 library 提示及 Ruckig GCC 参数 ABI 提示，没有把这些称为无警告构建。
-- HIL host、persistence host 编译通过。当前未执行本轮 HIL 或持久化实板测试。
+- HIL host、persistence host 编译通过。后续 H7 USB 功能验证通过，严格性能未通过；
+  [完整实板记录](product-session-hil-cn.md)。持久化实板测试本轮未执行。
 
 新产物位于各仓库 `build/*session-abi26*`；主机 Sanitizer 使用
 `build/session-abi26-sanitize` / `build/session-abi26-epoll`。
@@ -78,16 +79,14 @@ Linux Sanitizer 的 io_uring ON/OFF 两条路径，Windows CI 单独构建固定
 | Willow H7 完整应用 | 353668 B | 117424 B | `46c2c289563f7101162f61ed14eb1c0ec0e6f3ac13ba72070380a6ca109dde57` |
 | Willow HIL H7 | 167096 B | 76360 B | `e665bb9e76c306b4ebe8ddb7c967b90c9bc55e1c99e4812713a07f643e69801b` |
 
-## 实板关卡：待连接恢复
+## 实板关卡：功能通过，性能待收敛
 
-本机 J-Link 609799419 已识别；1 MHz、100 kHz 和自动复位下连接均无法 attach H7。
-尚未烧录，板上仍是前一轮独立 session 测试镜像。连接日志：
-`Ragtime_Firmwares/build/session-abi26-jlink.log`。
-
-用户重新拔插并按住 RESET 后，在同一个 Commander 会话中连接，提示松开后重连。
-成功后直接烧录 `build/willow-hil-session-abi26/zephyr/zephyr.elf`，无需备份旧固件。
-使用无电机的 HIL 验证身份/设置事务、500 Hz 命令遥测、普通重建及 adversarial reconnect；
-USB 时延、CPU 开销必须记录本次实测，不能引用上一轮 ABI 25 数字充当结果。
+用户拔插并按住/松开 RESET 后连接成功，已烧录并校验上述 HIL 镜像。
+90000 次长窗口回显、100 次完整生命周期、两轮 adversarial reconnect 功能均通过。
+三批严格性能测试各有失败窗；关闭探针后仍出现 75.602 ms 长尾，尚未确认根因。
+板端协议错误/漏 tick/deadline miss 为零。结果、测量边界和日志见
+[完整实板记录](product-session-hil-cn.md)，不能将本轮归纳为“全部验收通过”。
+板上保留普通 HIL 镜像，Commander/RTT 已退出；不需要用户再次按 RESET。
 
 ## 保留的独立演进议题
 
@@ -97,5 +96,5 @@ USB 时延、CPU 开销必须记录本次实测，不能引用上一轮 ABI 25 �
    这次依赖升级不自动获得 v2 的完整旧响应隔离，也没有改变线上业务编码。
 2. **发布闭环**：独立 WLC 分发、Python sdist 中的 Wirelink 依赖收录、wheel 构建环境的
    固定编译器安装，以及干净环境/各平台验证，留在恢复发布前处理。本次不触发发布。
-3. **产品性能和长稳**：恢复连接后先完成本轮 HIL，再决定是否加入新的长期测试。
-   暂不修改正在运行的长期测试版本。
+3. **产品性能和长稳**：优先定位 Linux 主机接收/唤醒/回调的偶发长尾，再跑严格 HIL，
+   然后决定是否加入新的长期测试。暂不修改正在运行的长期测试版本。
