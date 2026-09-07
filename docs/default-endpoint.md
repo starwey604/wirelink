@@ -72,6 +72,12 @@ inventing storage. Constrain the schema or choose advanced assembly.
 
 ## Driving, diagnostics and close
 
+Ordinary `endpoint_<service>_sync()` drives and waits on the owning thread, or
+uses a bound host executor proxy. UDP installs waiting automatically; custom
+platforms supply a waiter once. Missing waiting is an explicit error, not a busy
+loop. See [platform integration](rpc-platform.md) for deadlines, thread-safe
+proxy clocks, stop notification and lifetimes. Async remains the event-loop entry.
+
 Step samples the clock once; callback submissions reuse that sample.
 Advanced link/runtime calls still take explicit time. Never run two owners.
 A successful step means normal progress, not RPC success.
@@ -100,6 +106,5 @@ zero-copy large data and manual dispatch belong to advanced assembly.
 LATEST/FIFO still require retainable pointer-free messages; this stage does not
 expand IDL or introduce streaming.
 
-See the [implementation record](rpc-usability-progress-cn.md) for software evidence
-and H1 preparation. M3 synchronous waiting, M4 allocator creation and M5 product
-migration are outside this stage.
+See the [implementation record](rpc-usability-progress-cn.md) for H1 evidence
+and M3 software gates. M4 allocator creation and M5 product migration remain pending.

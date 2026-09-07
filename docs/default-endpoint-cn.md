@@ -84,5 +84,9 @@ loopback 的两端共享一个 owner，关闭任一端会停止连接；两端�
 不与普通异步调用混用同一次调用的资源。零复制大数据、定制 arena、手动事件分发使用高级装配。
 LATEST/FIFO 当前仍限制可保留的无借用消息；本轮没有顺便扩展 IDL 或流式传输。
 
-软件与 H1 准备证据见[实施记录](rpc-usability-progress-cn.md)。
-M3 同步等待、M4 分配器创建层、M5 产品迁移均不属于本轮。
+普通 `endpoint_<service>_sync()` 在 owner 线程推进/等待，绑定 host executor 后则通过代理提交。
+UDP 自动安装等待方式；自定义平台初始化时提供 waiter，缺少时明确报错，不忙等。
+异步仍为事件循环入口。时钟、停止和存活期见[平台接入](rpc-platform-cn.md)。
+
+H1 证据及 M3 软件验收见[实施记录](rpc-usability-progress-cn.md)。
+M4 分配器创建层、M5 产品迁移仍待推进。
