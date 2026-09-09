@@ -12,6 +12,7 @@ set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 
 target_sources(testbinary PRIVATE
   src/main.c
+  src/mixed_tx.c
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
   ${WIRELINK_ROOT}/src/frame.c

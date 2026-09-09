@@ -43,6 +43,8 @@ wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
   }
 
   if (impl->has_event != 0U || impl->tx_unreliable_completions != 0U ||
+      (impl->tx_pending_event != WL_EVT_NONE &&
+       !(impl->tx_inflight != 0U && impl->in_flight_reliable != 0U)) ||
       wl_rx_work_pending(ctx, impl) != 0) {
     out_hint->work_pending = 1U;
   }
@@ -51,9 +53,13 @@ wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
    * A pending control unit has priority over DATA and suppresses timeout work
    * in wl_poll().  Its sink already returned BUSY or another unit is still in
    * flight, so an adapter activity notification—not a zero-delay loop—must
-   * wake the consumer.  tx_queued has the same BUSY-only meaning.
+   * wake the consumer. DATA may now be unreliable while a reliable ACK timer
+   * expires; that timer cannot reuse the physical unit until I/O completes.
+   * An application holding a claim must commit/abort before retry work resumes.
    */
   if (impl->control_pending == 0U &&
+      impl->tx_inflight == 0U && impl->tx_queued == 0U &&
+      impl->tx_claim_active == 0U &&
       impl->tx_state == WL_TX_STATE_WAITING_ACK &&
       impl->tx_wait_state == WL_TX_WAIT_ACK &&
       impl->config.ack_timeout_ms != 0U) {

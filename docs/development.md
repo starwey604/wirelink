@@ -117,8 +117,8 @@ assertion so future changes cannot silently exceed the reserved storage.
 
 ## Core storage contract
 
-The v1 core has one application TX slot, one control/ACK TX slot, and one RX
-event slot. `wl_init()` receives a `wl_storage_t`; its buffers remain owned by
+The v1 core has one reliable transaction, one physical DATA unit, one control/ACK
+unit, and one RX event slot. `wl_init()` receives a `wl_storage_t`; its buffers remain owned by
 the caller and must outlive the context. The configuration and storage
 descriptor values are copied during initialization, so those two input
 structures may be temporary. Use `wl_config_requirements()` before allocation
@@ -126,8 +126,8 @@ to obtain the exact worst-case buffer sizes for the configured profile. A
 profile's `max_transmission_unit`, when nonzero, must accommodate the complete
 envelope including COBS delimiters or a length prefix.
 
-Application bytes are copied before a send is accepted and are encoded into
-the caller-supplied TX unit buffer. The pointer given to a `WL_SINK_STARTED`
+Application bytes are copied or encoded into owned storage before a send is
+accepted. The pointer given to a `WL_SINK_STARTED`
 callback remains valid until its matching `wl_tx_complete()`. ACK/control
 units use their own buffer and are submitted before a queued application unit.
 Unreliable local completions are represented by a bounded counter rather than
@@ -139,8 +139,18 @@ the next unreliable send before serialization or sink invocation.
 For `NATIVE_PACKET`, `wl_tx_payload_claim()` exposes the payload region inside
 the final TX unit. After the caller fills it, `wl_tx_payload_commit()` writes
 the header and integrity trailer around those bytes without staging the
-payload. The claim is single-owner, and reliable retransmission keeps the same
-unit borrowed until the transaction reaches a terminal state.
+payload. The claim is single-owner. While a reliable transaction waits for ACK,
+unreliable DATA may reuse the physical unit. Before the first such reuse, a
+direct reliable payload is saved into the existing `tx_payload` region. A later
+retry rebuilds the reliable frame; retries without intervening DATA reuse the
+encoded image. Stream claims use the physical unit in place when the retained
+reliable payload occupies the usual staging buffer. No extra packet buffer or
+generated storage field is required.
+
+`tx_payload`, `tx_unit` and `control_unit` must be pairwise disjoint;
+`wl_init()` rejects overlapping declared TX spans. Only the active physical
+submission borrows the unit until its matching completion. Holding a payload
+claim prevents DATA retry work until commit/abort. Keep claims short-lived.
 
 Advanced `wl_send_reliable()` and `wl_tx_payload_commit()` take explicit `now_ms`
 before `out_handle`. Use the same local monotonic clock as poll/runtime deadlines;

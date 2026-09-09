@@ -10,7 +10,7 @@
 #include "wirelink/wirelink.h"
 #include "context.h"
 
-static size_t frame_encode_calls;
+size_t frame_encode_calls;
 int __real_wl_frame_encode(const wl_wire_packet_t *, wl_envelope_type_t,
                           uint8_t *, size_t, size_t *);
 int __wrap_wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
@@ -306,7 +306,8 @@ ZTEST(wirelink_protocol_unit, test_busy_send_queues_for_poll_retry)
                    sizeof(tx_mem), script, 1);
 
   zassert_ok(wl_send_unreliable(&ctx, 1U, (const uint8_t *)"", 0U));
-  zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_SENDING);
+  zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_IDLE);
+  zassert_equal(wl_ctx_impl(&ctx)->tx_handle, 0U);
   zassert_equal(wl_ctx_impl(&ctx)->tx_queued, 1U);
 }
 
@@ -1495,7 +1496,7 @@ ZTEST(wirelink_protocol_unit,
                 WL_ERR_QUEUE_FULL);
   zassert_equal(cap.call_count, 1U);
   zassert_equal(wl_ctx_impl(&ctx)->tx_token, token_before);
-  zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_SUCCESS);
+  zassert_equal(wl_ctx_impl(&ctx)->tx_state, WL_TX_STATE_IDLE);
   zassert_mem_equal(tx_mem, tx_before, sizeof(tx_mem));
 
   zassert_equal(wl_tx_payload_claim(&ctx, 0x95U, WL_DELIVERY_UNRELIABLE,

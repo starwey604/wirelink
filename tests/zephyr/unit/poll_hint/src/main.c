@@ -379,4 +379,30 @@ ZTEST(wirelink_poll_hint_unit,
   expect_hint(&fixture->ctx, 1U, 0U, WL_POLL_NO_DEADLINE_MS);
 }
 
+ZTEST(wirelink_poll_hint_unit, test_expired_ack_waits_for_telemetry_physical_resource) {
+  for (unsigned busy = 0U; busy < 2U; ++busy) {
+    const wl_sink_result_t script[] = {WL_SINK_SENT,
+        busy != 0U ? WL_SINK_BUSY : WL_SINK_STARTED, WL_SINK_SENT, WL_SINK_SENT};
+    struct fixture *fixture = fixture_init(WL_ENVELOPE_NATIVE_PACKET, 5U, 1U,
+                                           script, ARRAY_SIZE(script));
+    wl_tx_handle_t handle;
+    wl_event_t event;
+    zassert_ok(wl_send_reliable(&fixture->ctx, 21U, NULL, 0U, 0U, &handle));
+    zassert_equal(wl_poll(&fixture->ctx, 1U, &event), WL_ERR_NO_DATA);
+    zassert_ok(wl_send_unreliable(&fixture->ctx, 23U, NULL, 0U));
+    expect_hint(&fixture->ctx, 10U, 0U, WL_POLL_NO_DEADLINE_MS);
+    if (busy == 0U) {
+      zassert_equal(wl_poll(&fixture->ctx, 10U, &event), WL_ERR_NO_DATA);
+      zassert_equal(fixture->sink.call_count, 2U);
+      zassert_ok(wl_tx_complete(&fixture->ctx, fixture->sink.last_token, WL_OK));
+      expect_hint(&fixture->ctx, 10U, 1U, 0U);
+    }
+    zassert_ok(wl_poll(&fixture->ctx, 10U, &event));
+    zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+    zassert_equal(event.handle, 0U);
+    zassert_equal(fixture->sink.call_count, busy != 0U ? 4U : 3U);
+    expect_hint(&fixture->ctx, 10U, 0U, 5U);
+  }
+}
+
 ZTEST_SUITE(wirelink_poll_hint_unit, NULL, NULL, NULL, NULL, NULL);

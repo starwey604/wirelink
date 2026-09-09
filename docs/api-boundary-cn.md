@@ -107,6 +107,9 @@ handle，其终态事件表示链路送达或失败，并不表示应用已经�
 裸 reliable send 和 payload commit 在输出 handle 前接收 `now_ms`，与 poll/runtime
 截止时间共用时钟来源和起点；默认生成端点内部取已配置的时钟，业务调用不传时间。
 
+可靠事务等待 ACK 时，不可靠 DATA 可以使用空闲的物理发送单元；不必等可靠句柄回收。
+已接受的物理 I/O、背压、优先 ACK 和到期重传仍会约束发送。这不增加可靠窗口或业务 API。
+
 生成的类型化 sender 在内部使用 `wl_tx_payload_claim()`/`commit()`，直接编码到
 Wirelink 拥有的存储中；编码失败用 `abort()` 结束 claim。除非数据已经编码，
 应用应优先使用生成的类型化操作。

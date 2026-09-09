@@ -110,6 +110,9 @@ old traffic can survive. See [automatic sessions](session.md).
 returns a handle whose terminal event means link delivery or failure, never
 application execution. `wl_tx_status()`, `wl_tx_cancel()`, and `wl_tx_take()`
 operate on that retained transaction; only `take()` releases a terminal slot.
+An outstanding reliable handle does not by itself reserve the physical DATA
+unit: unreliable sends may proceed while ACK is pending. Physical I/O,
+backpressure, control traffic and due reliable retries still arbitrate that unit.
 
 Raw reliable send and payload commit take `now_ms` before the output handle,
 using the same clock domain as poll/runtime deadlines. Default generated

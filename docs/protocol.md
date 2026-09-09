@@ -362,7 +362,7 @@ IDLE -> SENDING -> WAITING_ACK -> SUCCESS
              +----------------------------------> CANCELLED
 ```
 
-- `SENDING`: the sink accepted an asynchronous submission.
+- `SENDING`: the DATA unit is queued or owns an asynchronous I/O lease.
 - `WAITING_ACK`: local transmission completed; the peer ACK is pending.
 - `SUCCESS`: a valid matching ACK was received.
 - `FAILED`: local I/O policy or retry exhaustion ended the transaction.
@@ -374,6 +374,24 @@ success from `wl_send_unreliable()` or `wl_send_reliable()`, and retries the
 submission from a later `wl_poll()`. While the unit is queued, another
 application send returns `WL_ERR_BUSY`. `WL_SINK_BUSY` therefore means
 temporary adapter backpressure, not that the caller must resubmit the message.
+
+Waiting for a reliable ACK is separate from owning the physical DATA unit.
+Once local I/O finishes, unreliable DATA may use the idle unit while the single
+reliable transaction remains reserved. Unreliable completion, failure or
+backpressure does not restart that transaction's ACK timer or change its result.
+Even a terminal reliable handle need not block telemetry while awaiting `take()`.
+
+ACK/control units keep priority. A due reliable retry blocks admission of new
+unreliable DATA until `wl_poll()` services it; already accepted I/O is not
+preempted. Continue driving the owner and honoring adapter wakes. Infinite
+backpressure or an owner that cannot keep up cannot provide bounded freshness.
+An expired ACK timer does not create immediate poll work while a DATA I/O lease,
+queued unit or application claim still prevents use of the physical resource.
+
+If a matching ACK arrives during retransmission, the reliable result can become
+successful before that I/O completes. Its terminal event and `take()` wait for
+the reliable I/O lease to drain. Conversely, taking or cancelling a reliable
+transaction never retires an unrelated unreliable I/O lease.
 
 An asynchronous attempt starts its ACK/retry timing only after the adapter
 reports successful local completion. A synchronous sink starts timing when its

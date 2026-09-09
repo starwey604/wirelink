@@ -148,6 +148,19 @@ sink 暂时 busy 不消费 attempt。core 保留单个 unit，首次 send 仍成
 重试；期间其他 send 返回 `WL_ERR_BUSY`。异步 attempt 在 adapter 本地成功 completion 后才
 开始 ACK timer，同步 sink 在返回 SENT 时开始。
 
+等待可靠 ACK 与占用物理发送资源已经分开。本地 I/O 完成后，不可靠 DATA 可以使用空闲
+发送单元；仍然只有一个可靠事务。不可靠发送的完成、失败或背压不会重置可靠事务的计时、
+重试次数或结果。可靠句柄即使已完成但尚未 `take()`，也不再单独阻塞遥测。
+
+ACK/control 优先；可靠重传到期后，先拒绝新的不可靠 DATA，让下一次 `wl_poll()` 推进重传。
+已接受的 I/O 不会被抢占。物理 I/O、BUSY 队列或业务 claim 占用缓冲时，到期计时器不会
+制造无法推进的零等待轮询。owner 必须持续运行，并处理 adapter 的完成/可写唤醒；永久
+背压或消费速度不足时，不能承诺数据年龄上界。
+
+重传 I/O 尚未完成时收到匹配 ACK，可以先将逻辑结果标为成功，但终态 event 和 `take()`
+要等可靠 I/O 释放缓冲区。反过来，回收或取消可靠事务不会回收同时存在的不可靠 I/O。
+模拟验收与取舍见[混合流量记录](mixed-traffic-progress-cn.md)。
+
 timeout/retry 是本地策略，不上 wire。比较必须 wrap-safe：
 
 ```c

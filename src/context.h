@@ -41,7 +41,9 @@ typedef struct {
   wl_sink_fn sink;
   void *sink_user_data;
 
+  /* Logical reliable transaction. Unreliable I/O never changes its state. */
   wl_tx_state_t tx_state;
+  wl_event_type_t tx_pending_event; /* Publish only after the DATA lease drains. */
   wl_tx_handle_t tx_handle;
   uint32_t tx_unreliable_completions;
   wl_io_token_t tx_token;
@@ -50,16 +52,13 @@ typedef struct {
   uint16_t tx_retries_max;
   uint16_t tx_retries_used;
   uint32_t tx_sequence;
-  uint32_t tx_retry_sequence;
   uint32_t tx_waiting_seq;
   uint8_t tx_inflight;
   wl_tx_wait_reason_t tx_wait_state;
-  uint8_t tx_current_reliable;
   uint8_t tx_cancel_requested;
   uint16_t tx_generation;
   int tx_result_code;
   uint16_t tx_last_message_id;
-  uint8_t tx_last_flags;
   uint8_t tx_claim_active;
   uint8_t tx_claim_reliable;
   uint16_t tx_claim_message_id;
@@ -74,13 +73,14 @@ typedef struct {
   wl_event_t event;
   uint8_t has_event;
   uint8_t in_callback;
-  uint8_t in_flight_reliable;
+  uint8_t in_flight_reliable; /* Kind of the queued or in-flight DATA unit. */
   uint8_t control_pending;
   uint8_t control_inflight;
   uint8_t tx_queued;
-  /* Immutable DATA bytes already in storage.tx_unit; zero until encoded.
-   * Control ACKs have separate storage and must not invalidate this image. */
+  /* Cached reliable image in tx_unit. Telemetry may invalidate this image,
+   * but tx_payload then retains the original request for a later retry. */
   size_t tx_encoded_len;
+  size_t tx_unreliable_len;
   size_t control_len;
   uint8_t rx_event_leased;
   uint8_t rx_candidate_source;
@@ -105,6 +105,13 @@ static inline wl_ctx_impl_t *wl_ctx_impl(wl_ctx_t *ctx) {
 
 static inline const wl_ctx_impl_t *wl_ctx_impl_const(const wl_ctx_t *ctx) {
   return (const wl_ctx_impl_t *)(const void *)ctx;
+}
+
+static inline int wl_tx_retry_due(const wl_ctx_impl_t *impl, wl_time_ms_t now) {
+  return impl->tx_state == WL_TX_STATE_WAITING_ACK &&
+         impl->tx_wait_state == WL_TX_WAIT_ACK &&
+         impl->config.ack_timeout_ms != 0U &&
+         (wl_time_ms_t)(now - impl->tx_start_ts) >= impl->config.ack_timeout_ms;
 }
 
 #endif /* WIRELINK_SRC_CONTEXT_H_ */

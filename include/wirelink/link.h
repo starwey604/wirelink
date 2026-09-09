@@ -81,9 +81,10 @@ typedef struct {
   size_t max_transmission_unit;
 } wl_config_t;
 
-/* Storage remains reserved for the link until it is quiesced. In particular,
- * tx_unit and control_unit must not overlap: an ACK can be prepared while the
- * encoded DATA unit is retained for backpressure or reliable retransmission.
+/* Storage remains reserved for the link until it is quiesced. tx_payload,
+ * tx_unit and control_unit must be pairwise disjoint (checked by wl_init):
+ * the reliable payload can outlive an intervening unreliable DATA image,
+ * and an ACK can be prepared while a DATA unit is owned by the sink.
  * Sinks read units; they must not modify them, even after completing an I/O. */
 typedef struct {
   uint8_t *tx_payload;
@@ -137,6 +138,10 @@ wl_err_t wl_rx_get_counters(const wl_ctx_t *ctx,
 
 wl_err_t wl_send_unreliable(wl_ctx_t *ctx, uint16_t message_id,
                             const uint8_t *payload, size_t payload_len);
+/* One reliable transaction remains reserved until take(). While it waits for
+ * ACK, unreliable DATA may use the idle physical unit. ACKs and due retries
+ * take priority; queued/in-flight I/O still backpressures every DATA sender.
+ * Continue polling on the same clock, including during sustained telemetry. */
 wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t message_id,
                           const uint8_t *payload, size_t payload_len,
                           wl_time_ms_t now_ms,

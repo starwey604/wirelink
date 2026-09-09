@@ -13,6 +13,13 @@ uint64_t wl_link_session_id(const wl_ctx_t *ctx) {
   return ctx != NULL ? wl_ctx_impl_const(ctx)->session_id : 0U;
 }
 
+static int storage_overlaps(const uint8_t *a, size_t a_size,
+                             const uint8_t *b, size_t b_size) {
+  const uintptr_t first = (uintptr_t)a;
+  const uintptr_t second = (uintptr_t)b;
+  return first <= second ? second - first < a_size : first - second < b_size;
+}
+
 static size_t wl_max_unit_size(const wl_config_t *config) {
   const size_t raw = wl_frame_raw_size(config->max_payload_len, config->integrity);
   if (raw == 0U) {
@@ -91,6 +98,16 @@ wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
         storage->rx_fifo_size < requirements.rx_fifo_size))) {
     return WL_ERR_BUF_TOO_SMALL;
   }
+  /* Retained reliable payload, reusable DATA image and control image have
+   * distinct lifetimes. Validate once, never on the per-byte hot path. */
+  if (storage_overlaps(storage->tx_payload, storage->tx_payload_size,
+                       storage->tx_unit, storage->tx_unit_size) ||
+      storage_overlaps(storage->tx_payload, storage->tx_payload_size,
+                       storage->control_unit, storage->control_unit_size) ||
+      storage_overlaps(storage->tx_unit, storage->tx_unit_size,
+                       storage->control_unit, storage->control_unit_size)) {
+    return WL_ERR_INVALID_ARG;
+  }
 
   memset(ctx, 0, sizeof(*ctx));
   wl_ctx_impl(ctx)->config = *config;
@@ -104,9 +121,6 @@ wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
   wl_ctx_impl(ctx)->tx_unreliable_completions = 0U;
   wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_IDLE;
   wl_ctx_impl(ctx)->tx_last_message_id = 0U;
-  wl_ctx_impl(ctx)->tx_last_flags = 0U;
-  wl_ctx_impl(ctx)->tx_current_reliable = 0U;
-  wl_ctx_impl(ctx)->tx_retry_sequence = 0U;
   wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
   wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
   wl_ctx_impl(ctx)->tx_payload = (wl_span_t){storage->tx_payload, 0U};

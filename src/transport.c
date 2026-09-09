@@ -48,10 +48,11 @@ wl_err_t wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle) {
       wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_FAILED || wl_ctx_impl(ctx)->tx_state == WL_TX_STATE_CANCELLED) {
     return WL_ERR_INVALID_STATE;
   }
-  if (wl_ctx_impl(ctx)->tx_inflight != 0U) {
+  if (wl_ctx_impl(ctx)->tx_inflight != 0U && wl_ctx_impl(ctx)->in_flight_reliable != 0U) {
     wl_ctx_impl(ctx)->tx_cancel_requested = 1U;
-  } else {
+  } else if (wl_ctx_impl(ctx)->tx_queued != 0U && wl_ctx_impl(ctx)->in_flight_reliable != 0U) {
     wl_ctx_impl(ctx)->tx_queued = 0U;
+    wl_ctx_impl(ctx)->in_flight_reliable = 0U;
   }
   wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_CANCELLED;
   wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
@@ -87,7 +88,7 @@ wl_err_t wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
   if (handle == 0U || handle != wl_ctx_impl(ctx)->tx_handle) {
     return WL_ERR_NOT_FOUND;
   }
-  if (wl_ctx_impl(ctx)->tx_inflight != 0U ||
+  if ((wl_ctx_impl(ctx)->tx_inflight != 0U && wl_ctx_impl(ctx)->in_flight_reliable != 0U) ||
       (wl_ctx_impl(ctx)->tx_state != WL_TX_STATE_SUCCESS &&
        wl_ctx_impl(ctx)->tx_state != WL_TX_STATE_FAILED &&
        wl_ctx_impl(ctx)->tx_state != WL_TX_STATE_CANCELLED)) {
@@ -97,8 +98,8 @@ wl_err_t wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
   out_result->result = wl_ctx_impl(ctx)->tx_result_code;
   out_result->retries_used = wl_ctx_impl(ctx)->tx_retries_used;
   wl_ctx_impl(ctx)->tx_handle = 0U;
+  wl_ctx_impl(ctx)->tx_pending_event = WL_EVT_NONE;
   wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_IDLE;
-  wl_ctx_impl(ctx)->tx_current_reliable = 0U;
   wl_ctx_impl(ctx)->tx_cancel_requested = 0U;
   wl_ctx_impl(ctx)->tx_wait_state = WL_TX_WAIT_NONE;
   wl_ctx_impl(ctx)->tx_waiting_seq = 0U;
