@@ -95,13 +95,13 @@ then reopen PowerShell. Rustup places installed commands in
 
 ## Install the matching WLC compiler
 
-Wirelink currently pairs with WLC 0.5.0 and codegen ABI 30. Install that exact
+Wirelink currently pairs with WLC 0.6.0 and codegen ABI 31. Install that exact
 source tag with Cargo:
 
 ```sh
 cargo install \
   --git https://github.com/starwey604/wlc.git \
-  --tag v0.5.0 \
+  --tag v0.6.0 \
   --locked
 ```
 
@@ -124,8 +124,8 @@ wlc codegen-abi
 Expected output:
 
 ```text
-wlc 0.5.0
-30
+wlc 0.6.0
+31
 ```
 
 If `wlc` is not found, restart the terminal and check that Cargo's binary
@@ -182,7 +182,7 @@ which also exercises WLC and Asio.
     'CMake reports version 3.21 or newer.',
     'My C and C++ compilers run from the terminal.',
     'Cargo runs from the terminal.',
-    'WLC reports version 0.5.0 and codegen ABI 30.',
+    'WLC reports version 0.6.0 and codegen ABI 31.',
     'The Wirelink core build completes.',
   ]}
 />

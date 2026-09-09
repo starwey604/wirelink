@@ -48,12 +48,12 @@ jobs:
           --outdir twister-out
 
       # Exercise the same generated-code sample used for the H7 clock check.
-      # Build the exact standalone WLC 0.5.0 / ABI 30 host compiler.
+      # Build the exact standalone WLC 0.6.0 / ABI 31 host compiler.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 120b9af130753d2ba0d137882916bfe207d3d312
+          ref: 9d41a4e8b2109f2fdc3e582b5acff5de0dab9207
           path: .tools/wlc
 
       - name: Build matching WLC

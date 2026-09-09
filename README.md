@@ -16,19 +16,19 @@ The [Chinese tutorial](docs/getting-started-cn.md) follows the same sequence.
 Install WLC independently using [environment setup](docs/installation.md)
 ([中文](docs/installation-cn.md)); no nested WLC checkout is required.
 
-The current release is the `0.9.0` release candidate for the v1 wire protocol
-and C API. Exact wire bytes are frozen by the
+The current release is `0.6.0`, a pre-1.0 library using wire protocol v1.
+Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in
 [`docs/compatibility.md`](docs/compatibility.md). The C surface contract is in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The current dev tutorials use unreleased codegen ABI 30: owned RPC business
+The tutorials use WLC v0.6.0 / codegen ABI 31: owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
 Managed RPC v2 binds replies to the originating client session; both peers must upgrade.
-Use the matching development WLC described in [installation](docs/installation.md); older release
+Use the matching WLC release described in [installation](docs/installation.md); older release
 assets do not contain this API. Implementation/H7 handoff evidence is recorded in
 [the milestone log](docs/rpc-usability-progress-cn.md).
 

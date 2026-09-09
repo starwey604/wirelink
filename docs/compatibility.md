@@ -1,7 +1,8 @@
 # Wirelink compatibility policy
 
-Wirelink `0.9.x` is the release-candidate line for protocol v1 and the intended
-1.x C API. This policy separates four compatibility domains that evolve at
+Wirelink `0.6.x` is a pre-1.0 library line using protocol v1. The earlier `0.9.0`
+source version was an untagged development placeholder. This policy separates
+four compatibility domains that evolve at
 different rates.
 
 ## Wire protocol
@@ -50,7 +51,7 @@ as normal for a C library.
 
 Until 1.0, source or ABI corrections may occur between `0.x` minor releases
 and will be recorded in [`CHANGELOG.md`](../CHANGELOG.md). CMake therefore
-considers only the same minor `0.9.x` line package-compatible. Starting with
+considers only the same minor `0.6.x` line package-compatible. Starting with
 1.0, Wirelink follows semantic versioning: incompatible public C API or ABI
 changes require a new major library version. Additive functions and enum
 values may appear in minor releases; applications should include a `default`

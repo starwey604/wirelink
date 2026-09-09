@@ -4,9 +4,15 @@ All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for the release-candidate
 line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
-## Unreleased
+## 0.6.0 — 2026-09-09
 
-### Product policies on generated endpoints (development ABI 31)
+First tagged Wirelink release, paired with WLC v0.6.0 / generated ABI 31.
+The former `0.9.0` source version was an untagged development placeholder, not
+a published release. Core framing remains protocol v1. Rebuild generated-code
+consumers; changing a product from mapped to managed RPC requires both peers
+to be deployed together. Earlier internal iteration notes below remain for context.
+
+### Product policies on generated endpoints (codegen ABI 31)
 
 - Compose owner-local event observation, business progress and deadlines with
   generated endpoint dispatch using `wl_endpoint_set_policy`; event ownership
@@ -17,8 +23,8 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
   completes its outstanding transfer. Product wrappers no longer need their own
   reliable-response handle reaper. Generated host drivers use complete readiness
   hints so consumed telemetry does not add an empty owner pass.
-- Rebuild all consumers with the development compiler (codegen ABI 31). No
-  release/tag or automatic source bootstrap pair is published for this ABI.
+- Rebuild all consumers with WLC v0.6.0 (codegen ABI 31). The source bootstrap
+  pins that compiler's commit and remotely verified archive SHA-256.
   These assembly changes alone do not alter framing or RPC metadata.
 
 ### WLC v0.5.0 release pairing

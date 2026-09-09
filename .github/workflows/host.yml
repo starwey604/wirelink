@@ -57,12 +57,12 @@ jobs:
           cmake --build profile-build --config Release --parallel
           ctest --test-dir profile-build --build-config Release --output-on-failure
 
-      # Build the exact WLC 0.5.0 / ABI 30 source paired with this tree.
+      # Build the exact WLC 0.6.0 / ABI 31 source paired with this tree.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 120b9af130753d2ba0d137882916bfe207d3d312
+          ref: 9d41a4e8b2109f2fdc3e582b5acff5de0dab9207
           path: .tools/wlc
 
       - name: Build matching WLC

@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: ISC
 include_guard(GLOBAL)
 
-# Published v0.5.0 source pair; digest verified against the remote archive.
-set(WIRELINK_WLC_SOURCE_ABI "30" CACHE INTERNAL
+# Published v0.6.0 source pair; digest verified against the remote archive.
+set(WIRELINK_WLC_SOURCE_ABI "31" CACHE INTERNAL
   "Codegen ABI of the last distributed WLC source pair" FORCE)
-set(WIRELINK_WLC_SOURCE_REVISION "120b9af130753d2ba0d137882916bfe207d3d312"
+set(WIRELINK_WLC_SOURCE_REVISION "9d41a4e8b2109f2fdc3e582b5acff5de0dab9207"
   CACHE INTERNAL "Paired WLC source commit" FORCE)
 set(WIRELINK_WLC_SOURCE_SHA256
-  "db2d6d62d01a612e7af11eeb80b072c39cbee90146b2de186ddaac94c5b99962"
+  "8b4b2939d4873c649d48d4614dd1b9173ce386870f637ff1caa2fe9c670b268b"
   CACHE INTERNAL "Paired WLC source archive digest" FORCE)
 
 function(_wirelink_wlc_bootstrap out_executable)

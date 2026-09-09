@@ -14,17 +14,17 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-This tree requires **WLC 0.5.0 with codegen ABI 30**, adding composed
-profiles, profile-selected endpoint layouts and private validated RPC paths. ABI 30 preserves
-ABI 26 wire formats. The v0.5.0 release gives this API its own
-compiler version: published v0.4.0 is ABI 12 and cannot generate this API.
+This tree requires **WLC 0.6.0 with codegen ABI 31**, including generated endpoint
+readiness and product-policy integration. These ABI changes preserve the ABI 30
+wire formats. WLC v0.5.0 generates ABI 30 and v0.4.0 generates ABI 12; neither
+can generate this tree's API.
 Download your platform's archive and `SHA256SUMS` from the
-[WLC v0.5.0 release](https://github.com/starwey604/wlc/releases/tag/v0.5.0).
+[WLC v0.6.0 release](https://github.com/starwey604/wlc/releases/tag/v0.6.0).
 Verify the archive's SHA-256, then extract it to a stable location and
 add its executable directory to `PATH`. Alternatively pass
 `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc` when configuring Wirelink.
 
-Without a matching binary, first obtain the matching **WLC v0.5.0 source**,
+Without a matching binary, first obtain the matching **WLC v0.6.0 source**,
 then build in that independent checkout:
 
 ```sh
@@ -34,8 +34,8 @@ cargo build --release --locked
 
 Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
 this does not replace your installed compiler. The checkout can live anywhere.
-The matching source commit is `120b9af130753d2ba0d137882916bfe207d3d312`
-(`v0.5.0`). Use this tag/commit rather than a moving branch.
+The matching source commit is `9d41a4e8b2109f2fdc3e582b5acff5de0dab9207`
+(`v0.6.0`). Use this tag/commit rather than a moving branch.
 
 ## 3. Verify installation
 
@@ -44,7 +44,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.5.0` and `30` from the executable you will pass to CMake.
+Expect `wlc 0.6.0` and `31` from the executable you will pass to CMake.
 Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
@@ -70,7 +70,7 @@ virtual serial driver.
 ## 5. Automatic downloads
 
 If no matching compiler is supplied explicitly or on PATH, CMake downloads the
-pinned v0.5.0 source, verifies its SHA-256 and builds a host executable with
+pinned v0.6.0 source, verifies its SHA-256 and builds a host executable with
 Rust/Cargo. It caches the result under `WIRELINK_WLC_CACHE_DIR`; a firmware
 `CARGO_BUILD_TARGET` does not change the host tool's target. First use needs
 network access and a Rust 2024 toolchain. For offline builds, supply the compiler
