@@ -136,6 +136,8 @@ option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_BUILD_GETTING_STARTED
   "Build the WLC-generated UDP tutorials (requires compatible WLC and Asio)" OFF)
+option(WIRELINK_BUILD_DOCS
+  "Build the Astro/Starlight documentation site" OFF)
 option(WIRELINK_INSTALL
   "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
 set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
@@ -262,6 +264,40 @@ endif()
 
 if(WIRELINK_BUILD_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+if(WIRELINK_BUILD_DOCS)
+  find_program(WIRELINK_NPM_EXECUTABLE npm REQUIRED)
+  set(_wirelink_site_dir "${PROJECT_SOURCE_DIR}/site")
+  set(_wirelink_docs_deps_stamp
+    "${CMAKE_CURRENT_BINARY_DIR}/wirelink-docs-deps.stamp")
+
+  add_custom_command(
+    OUTPUT "${_wirelink_docs_deps_stamp}"
+    COMMAND "${WIRELINK_NPM_EXECUTABLE}" ci
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_wirelink_docs_deps_stamp}"
+    DEPENDS
+      "${_wirelink_site_dir}/package.json"
+      "${_wirelink_site_dir}/package-lock.json"
+    WORKING_DIRECTORY "${_wirelink_site_dir}"
+    COMMENT "Installing Wirelink documentation dependencies"
+    VERBATIM)
+
+  add_custom_target(wirelink_docs
+    COMMAND "${WIRELINK_NPM_EXECUTABLE}" run build
+    COMMAND "${CMAKE_COMMAND}" -E remove_directory
+      "${CMAKE_CURRENT_BINARY_DIR}/docs"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+      "${_wirelink_site_dir}/dist" "${CMAKE_CURRENT_BINARY_DIR}/docs"
+    DEPENDS "${_wirelink_docs_deps_stamp}"
+    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/docs/wirelink/index.html"
+    WORKING_DIRECTORY "${_wirelink_site_dir}"
+    COMMENT "Building Wirelink documentation"
+    USES_TERMINAL
+    VERBATIM)
+
+  unset(_wirelink_docs_deps_stamp)
+  unset(_wirelink_site_dir)
 endif()
 
 if(WIRELINK_BUILD_FRAMING_BENCHMARK)

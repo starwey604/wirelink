@@ -1,0 +1,40 @@
+---
+title: Wirelink
+description: Bounded typed communication for embedded and desktop systems.
+template: splash
+hero:
+  tagline: Exchange typed messages over point-to-point links while your application keeps control of memory, transport, and execution.
+  actions:
+    - text: Send the first message
+      link: ./learn/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View source
+      link: https://github.com/starwey604/wirelink
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<div class="signal-strip" aria-hidden="true">
+  <span></span><i></i><span></span><i></i><span></span>
+</div>
+
+Wirelink is an allocation-free C11 protocol engine for two endpoints connected by
+a serial, packet, or application-provided transport. Start with a localhost
+example, then carry the same message model to firmware.
+
+<CardGrid>
+  <Card title="Start with behavior" icon="add-document">
+    Run two programs, send temperature readings, and observe how latest-value
+    delivery behaves before learning the underlying API.
+  </Card>
+  <Card title="Keep resource use bounded" icon="setting">
+    Generated endpoints use explicit storage and bounded work. The core does not
+    own threads, a heap, hardware, or a clock.
+  </Card>
+  <Card title="Choose the right guarantee" icon="open-book">
+    Learn latest values, FIFO streams, RPC, bulk transfer, ownership, and session
+    behavior as separate decisions.
+  </Card>
+</CardGrid>

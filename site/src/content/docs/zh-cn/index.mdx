@@ -1,0 +1,36 @@
+---
+title: Wirelink
+description: 面向嵌入式与桌面系统的有界类型化通信。
+template: splash
+hero:
+  tagline: 在点对点链路上交换类型明确的消息，同时让应用继续掌控内存、传输和执行。
+  actions:
+    - text: 发送第一条消息
+      link: ./learn/getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: 查看源码
+      link: https://github.com/starwey604/wirelink
+      icon: external
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<div class="signal-strip" aria-hidden="true">
+  <span></span><i></i><span></span><i></i><span></span>
+</div>
+
+Wirelink 是一个不依赖动态分配的 C11 点对点协议引擎。它可以运行在串口、保留包边界的传输，
+或者应用自己提供的传输之上。你可以先在本机运行示例，再把相同的消息模型带到固件中。
+
+<CardGrid>
+  <Card title="先观察行为" icon="add-document">
+    运行两个程序，发送温度读数，并先观察 latest 的行为，再学习底层 API。
+  </Card>
+  <Card title="保持资源有界" icon="setting">
+    生成的 endpoint 使用显式存储和有界工作量。核心不占有线程、堆、硬件或时钟。
+  </Card>
+  <Card title="分别选择保证" icon="open-book">
+    逐步学习 latest、FIFO、RPC、大块传输、所有权和会话行为，避免把不同保证混在一起。
+  </Card>
+</CardGrid>

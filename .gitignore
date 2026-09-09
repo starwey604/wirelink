@@ -7,3 +7,7 @@ cmake-build*
 compile_commands.json
 /plan.md
 __pycache__/
+/site/.astro/
+/site/dist/
+/site/node_modules/
+/site/.wrangler/

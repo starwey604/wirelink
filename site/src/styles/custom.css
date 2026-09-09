@@ -1,0 +1,90 @@
+@import '@fontsource-variable/ibm-plex-sans';
+
+:root {
+  --sl-font: 'IBM Plex Sans Variable', system-ui, sans-serif;
+  --sl-color-accent-low: #123640;
+  --sl-color-accent: #5bbdc5;
+  --sl-color-accent-high: #b7eef0;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e8eef2;
+  --sl-color-gray-2: #bdc9d2;
+  --sl-color-gray-3: #8495a3;
+  --sl-color-gray-4: #526574;
+  --sl-color-gray-5: #304351;
+  --sl-color-gray-6: #1d2f3c;
+  --sl-color-black: #10232f;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #e1f0f3;
+  --sl-color-accent: #176f79;
+  --sl-color-accent-high: #123e4c;
+  --sl-color-white: #142b38;
+  --sl-color-gray-1: #243c49;
+  --sl-color-gray-2: #49616e;
+  --sl-color-gray-3: #6e818b;
+  --sl-color-gray-4: #a5b2b9;
+  --sl-color-gray-5: #d8dfe3;
+  --sl-color-gray-6: #edf1f3;
+  --sl-color-gray-7: #f7f9fa;
+  --sl-color-black: #ffffff;
+}
+
+.hero > img,
+.hero > .hero-html {
+  filter: none;
+}
+
+.signal-strip {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto;
+  align-items: center;
+  width: min(32rem, 86vw);
+  margin-block: 2.25rem 0.5rem;
+  color: var(--sl-color-accent-high);
+}
+
+.signal-strip span {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: var(--sl-color-black);
+}
+
+.signal-strip i {
+  height: 2px;
+  background: currentColor;
+  opacity: 0.72;
+}
+
+.signal-strip span:nth-of-type(2) {
+  width: 1rem;
+  height: 1rem;
+  border-color: #d47a2f;
+  box-shadow: 0 0 0 5px color-mix(in srgb, #d47a2f 18%, transparent);
+}
+
+.sl-markdown-content {
+  max-width: 76ch;
+}
+
+.sl-markdown-content code:not(:where(.not-content *)) {
+  border-radius: 0.2rem;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .signal-strip span:nth-of-type(2) {
+    animation: wirelink-signal 2.8s ease-in-out infinite;
+  }
+}
+
+@keyframes wirelink-signal {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, #d47a2f 12%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, #d47a2f 22%, transparent);
+  }
+}

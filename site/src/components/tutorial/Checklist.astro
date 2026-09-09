@@ -1,0 +1,137 @@
+---
+interface Props {
+  id: string;
+  title?: string;
+  items: string[];
+  progressTemplate?: string;
+}
+
+const {
+  id,
+  title = 'You can now',
+  items,
+  progressTemplate = '{done} of {total} complete',
+} = Astro.props;
+---
+
+<section
+  class="checklist"
+  data-wirelink-checklist={id}
+  data-progress-template={progressTemplate}
+>
+  <h2>{title}</h2>
+  <ul>
+    {items.map((item, index) => (
+      <li>
+        <label>
+          <input type="checkbox" data-index={String(index)} />
+          <span>{item}</span>
+        </label>
+      </li>
+    ))}
+  </ul>
+  <p class="progress" data-progress aria-live="polite"></p>
+</section>
+
+<script>
+  function initializeChecklists() {
+    document
+      .querySelectorAll<HTMLElement>('[data-wirelink-checklist]')
+      .forEach((checklist) => {
+        if (checklist.dataset.initialized) return;
+        checklist.dataset.initialized = 'true';
+
+        const id = checklist.dataset.wirelinkChecklist || 'lesson';
+        const storageKey = `wirelink:checklist:${id}`;
+        const inputs = [...checklist.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];
+        const progress = checklist.querySelector<HTMLElement>('[data-progress]');
+
+        function render() {
+          const completed = inputs.filter((input) => input.checked).length;
+          const template = checklist.dataset.progressTemplate || '{done} of {total} complete';
+          if (progress) {
+            progress.textContent = template
+              .replace('{done}', String(completed))
+              .replace('{total}', String(inputs.length));
+          }
+        }
+
+        try {
+          const saved = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          if (Array.isArray(saved)) {
+            inputs.forEach((input, index) => {
+              input.checked = saved.includes(index);
+            });
+          }
+        } catch {
+          localStorage.removeItem(storageKey);
+        }
+
+        inputs.forEach((input) => {
+          input.addEventListener('change', () => {
+            const completed = inputs
+              .map((entry, index) => (entry.checked ? index : -1))
+              .filter((index) => index >= 0);
+            localStorage.setItem(storageKey, JSON.stringify(completed));
+            render();
+          });
+        });
+        render();
+      });
+  }
+
+  initializeChecklists();
+  document.addEventListener('astro:page-load', initializeChecklists);
+</script>
+
+<style>
+  .checklist {
+    margin-block: 2rem;
+    padding: 1.25rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.35rem;
+  }
+
+  h2 {
+    margin-top: 0;
+    font-size: var(--sl-text-h3);
+  }
+
+  ul {
+    display: grid;
+    gap: 0.65rem;
+    margin: 1rem 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  label {
+    display: flex;
+    gap: 0.7rem;
+    align-items: flex-start;
+    cursor: pointer;
+  }
+
+  input {
+    width: 1.05rem;
+    height: 1.05rem;
+    margin-top: 0.25rem;
+    accent-color: var(--sl-color-accent);
+  }
+
+  input:focus-visible {
+    outline: 3px solid var(--sl-color-accent);
+    outline-offset: 3px;
+  }
+
+  input:checked + span {
+    color: var(--sl-color-gray-3);
+    text-decoration: line-through;
+  }
+
+  .progress {
+    margin-bottom: 0;
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-sm);
+  }
+</style>

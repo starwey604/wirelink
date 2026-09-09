@@ -1,0 +1,166 @@
+---
+title: 让显示端读取最新温度
+description: 运行两个 Wirelink endpoint，观察 latest 如何保留最新值。
+sidebar:
+  order: 1
+---
+
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+
+测温设备不断产生读数，显示端只关心当前温度。本课使用两个独立程序，通过本机 UDP
+交换这个值。不需要开发板，也不需要虚拟串口。
+
+**完成本课后，你能够：**
+
+- 运行 Wirelink 发布端和订阅端；
+- 解释 `latest` 在收到数据后保留哪个值；
+- 区分 latest 值保留与 unreliable 投递。
+
+## 准备工具
+
+你需要 CMake 3.21 或更新版本、C11 与 C++20 编译器，以及 standalone Asio。
+WLC 0.5.0 会生成消息专用的 C 接口。安装 Rust 后，CMake 可以自动下载并构建匹配的
+WLC 源码。
+
+在 Wirelink 仓库旁边克隆经过测试的 Asio 版本：
+
+```sh
+git clone --branch asio-1-38-1 --depth 1 \
+  https://github.com/chriskohlhoff/asio.git asio-source
+```
+
+如果希望使用预编译工具，可以从
+[WLC 发布页](https://github.com/starwey604/wlc/releases/tag/v0.5.0)下载 WLC 0.5.0。
+
+## 构建示例
+
+在 Wirelink 仓库根目录执行下面的命令。把 Asio 路径替换为包含 `asio.hpp` 的目录：
+
+```sh
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF \
+  -DWIRELINK_BUILD_GETTING_STARTED=ON \
+  -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio-source/asio/include
+cmake --build build/tutorials --config Release --parallel
+```
+
+第一次配置可能需要构建 WLC，因此会花费更多时间。后续构建会复用缓存的主机工具。
+
+## 运行两个 endpoint
+
+先在终端 A 启动订阅端：
+
+```sh
+./build/tutorials/examples/00_telemetry/telemetry_subscriber
+```
+
+看到 `telemetry subscriber ready` 后，在终端 B 启动发布端：
+
+```sh
+./build/tutorials/examples/00_telemetry/telemetry_publisher
+```
+
+订阅端应显示类似输出：
+
+```text
+latest sample=1 temperature=23.50 C
+latest sample=2 temperature=23.50 C
+latest sample=3 temperature=23.50 C
+latest sample=4 temperature=23.50 C
+latest sample=5 temperature=23.50 C
+```
+
+UDP 不保证送达，因此中间采样不一定全部出现。订阅端收到第 5 个采样后退出；十秒内没有
+收到则报告超时。
+
+:::note[Windows 程序路径]
+Visual Studio 多配置构建会把程序放在 `Release` 目录，例如
+`build/tutorials/examples/00_telemetry/Release/telemetry_subscriber.exe`。
+:::
+
+## 描述消息
+
+示例在
+[`telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl)
+中定义数据：
+
+```text
+version 1;
+
+message Telemetry @id(10) {
+  required uint32 sample @id(1);
+  required int32 temperature_centi_c @id(2);
+}
+```
+
+这份 **schema（消息定义）** 给两个 endpoint 提供相同的字段名、类型和稳定编号。
+endpoint 编码这些字段，而不是直接发送 C 结构体的内存布局。
+
+## 选择如何保留收到的值
+
+配套的
+[`telemetry.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.bind.wl)
+包含两个独立选择：
+
+```text
+profile version 1;
+
+latest Telemetry {
+  delivery = unreliable;
+}
+```
+
+- `latest Telemetry` 保留最后收到的值，新值会替换尚未读取的旧值。
+- `delivery = unreliable` 不等待链路确认，也不因丢失而重传。
+
+latest 值保留描述数据**收到以后**如何保存。unreliable 投递描述数据在**链路上**如何发送。
+温度会持续刷新，通常可以容忍某个中间读数丢失，所以本例把两者组合使用。
+
+<MultipleChoice
+  id="latest-versus-delivery-zh-cn"
+  question="应用再次读取之前，发布端发送了采样 3、4、5，而且三个采样都到达了订阅端。latest 应返回哪个值？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: '采样 3，因为它最先到达',
+      correct: false,
+      feedback: '新值到达时，latest 会替换尚未读取的旧值。',
+    },
+    {
+      label: '采样 5，因为它最后到达',
+      correct: true,
+      feedback: '正确。latest 返回最近收到的值。',
+    },
+    {
+      label: '按顺序返回全部三个采样',
+      correct: false,
+      feedback: 'FIFO 用于保留有序序列；latest 只保留一个当前值。',
+    },
+  ]}
+/>
+
+## 做一次修改
+
+打开
+[`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)，
+把 `value.temperature_centi_c` 从 `2350` 改为 `2410`。重新构建并运行两个程序，显示端应输出
+`24.10 C`。
+
+这个变化说明生成的消息携带了应用数据；它没有改变值保留或投递策略。
+
+<Checklist
+  id="getting-started-zh-cn"
+  title="完成检查"
+  progressTemplate="已完成 {done}/{total} 项"
+  items={[
+    '我能运行发布端和订阅端。',
+    '我能解释 latest 保留哪个值。',
+    '我能区分值保留与投递。',
+  ]}
+/>
+
+## 下一步
+
+下一课将在同一个双端系统中加入 RPC 请求，并区分链路投递与业务完成。

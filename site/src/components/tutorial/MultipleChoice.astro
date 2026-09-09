@@ -1,0 +1,154 @@
+---
+interface Choice {
+  label: string;
+  correct: boolean;
+  feedback: string;
+}
+
+interface Props {
+  id: string;
+  question: string;
+  choices: Choice[];
+  checkLabel?: string;
+  emptyFeedback?: string;
+}
+
+const {
+  id,
+  question,
+  choices,
+  checkLabel = 'Check answer',
+  emptyFeedback = 'Choose an answer first.',
+} = Astro.props;
+---
+
+<form class="quiz" data-wirelink-quiz={id} data-empty-feedback={emptyFeedback}>
+  <fieldset>
+    <legend>{question}</legend>
+    <div class="choices">
+      {choices.map((choice, index) => (
+        <label>
+          <input
+            type="radio"
+            name={id}
+            value={String(index)}
+            data-correct={String(choice.correct)}
+            data-feedback={choice.feedback}
+          />
+          <span>{choice.label}</span>
+        </label>
+      ))}
+    </div>
+  </fieldset>
+  <button type="submit">{checkLabel}</button>
+  <p class="feedback" data-feedback aria-live="polite" hidden></p>
+</form>
+
+<script>
+  function initializeQuizzes() {
+    document.querySelectorAll<HTMLFormElement>('[data-wirelink-quiz]').forEach((form) => {
+      if (form.dataset.initialized) return;
+      form.dataset.initialized = 'true';
+
+      const feedback = form.querySelector<HTMLElement>('[data-feedback]');
+      form.addEventListener('change', () => {
+        if (feedback) feedback.hidden = true;
+      });
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        const selected = form.querySelector<HTMLInputElement>('input:checked');
+        if (!feedback) return;
+
+        if (!selected) {
+          feedback.textContent = form.dataset.emptyFeedback || 'Choose an answer first.';
+          feedback.dataset.result = 'pending';
+        } else {
+          feedback.textContent = selected.dataset.feedback || '';
+          feedback.dataset.result = selected.dataset.correct === 'true' ? 'correct' : 'incorrect';
+        }
+        feedback.hidden = false;
+      });
+    });
+  }
+
+  initializeQuizzes();
+  document.addEventListener('astro:page-load', initializeQuizzes);
+</script>
+
+<style>
+  .quiz {
+    margin-block: 1.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-left: 0.3rem solid var(--sl-color-accent);
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--sl-color-gray-6) 38%, transparent);
+  }
+
+  fieldset {
+    padding: 0;
+    border: 0;
+  }
+
+  legend {
+    margin-bottom: 0.85rem;
+    font-weight: 650;
+  }
+
+  .choices {
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  label {
+    display: flex;
+    gap: 0.65rem;
+    align-items: flex-start;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.3rem;
+    cursor: pointer;
+  }
+
+  label:has(input:checked) {
+    border-color: var(--sl-color-accent);
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+  }
+
+  input {
+    margin-top: 0.28rem;
+  }
+
+  button {
+    margin-top: 1rem;
+    padding: 0.5rem 0.85rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: var(--sl-color-accent);
+    color: #fff;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  button:focus-visible,
+  input:focus-visible {
+    outline: 3px solid var(--sl-color-accent);
+    outline-offset: 3px;
+  }
+
+  .feedback {
+    margin: 1rem 0 0;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+  }
+
+  .feedback[data-result='correct'] {
+    color: var(--sl-color-green-high);
+  }
+
+  .feedback[data-result='incorrect'] {
+    color: var(--sl-color-orange-high);
+  }
+</style>
