@@ -152,18 +152,30 @@ The first long run exposed two boundary bugs that short smoke tests did not:
 
 - A direct ring claim at physical offset 4080 left only 16 bytes before the
   4096-byte ring end. Submitting that short tail to libusb caused a transfer
-  overflow when the next full USB packet arrived. Both USB adapters now pause
-  instead of submitting a claim shorter than `maximum_read_size`; after the
-  consumer drains the ring, the next claim normalizes at offset zero.
+  overflow when the next full USB packet arrived. The initial fix paused until
+  the consumer drained the ring. The 2026-09-10 composed-device HIL exposed a
+  remaining deadlock: a partial COBS frame cannot drain before its delimiter
+  arrives. Both adapters now use packet-aligned direct claims and one packet
+  of staging for a shorter physical tail, retaining staged bytes across
+  backpressure until they can be committed across the ring boundary.
 - A 512-byte application payload expands beyond a 512-byte USB read after the
   Wirelink header, CRC32C, and COBS envelope. The benchmark and board sample now
   use the 576-byte configured transmission unit as their read size.
 
-These constraints are part of the adapter contract: a direct USB read buffer
-must not be an arbitrary short ring tail, and its configured read size must fit
-the largest encoded transmission unit (with suitable endpoint-packet
-alignment). The echo samples use a separate payload mailbox so they can release
+These constraints are part of the adapter contract: a USB read buffer must
+hold at least one full endpoint packet. COBS stream reads may split an encoded
+frame across multiple transfers; the RX FIFO/fallback still need sufficient
+frame capacity. Native-packet reads must fit the whole encoded unit. The echo
+samples use a separate payload mailbox so they can release
 the borrowed RX event before rearming OUT and retry safely if TX is busy.
+
+The H723 failure snapshot had an 8192-byte ring, read cursor 6369, write cursor
+7905, 1536 bytes of incomplete frame, and only 287 bytes at the physical tail.
+The USB adapter had no RX in flight and repeatedly paused without overflow.
+The shared producer helper regression exercises these exact cursors with both
+64-byte and 512-byte packets, a one-byte tail, retained backpressure, and
+zero-length/invalid completions. Real H723 verification uses full-speed USB;
+the 512-byte case is a software test, not a high-speed hardware measurement.
 
 ### 2026-08-31 host API and CPU/latency iteration
 

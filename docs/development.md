@@ -351,6 +351,13 @@ consumer-side service contract. The host controller writes directly into a
 `wl_rx_dma_claim()` span; the libusb event thread publishes and finishes that
 claim, while protocol polling remains in the application thread. TX borrows
 the stable Wirelink unit and forwards completion through an atomic mailbox.
+Both USB adapters round direct stream requests down to whole endpoint packets.
+When a physical ring tail cannot hold one packet, a single packet staging
+buffer bridges the wrap; it is not rearmed until retained bytes are published.
+Waiting for an incomplete COBS frame to drain here would deadlock. The host
+event thread owns staging/draining and notifies after publication; Zephyr
+transfers producer ownership from completion to owner-side rearm through its
+RX-active/rearm atomics. Native-packet ingress retains its separate unit queue.
 
 The direct USB mapping uses exactly one outstanding IN transfer. This is a
 consequence of variable-length Bulk transfers rather than a libusb limitation:
