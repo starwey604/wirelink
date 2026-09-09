@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: ISC
 include_guard(GLOBAL)
 
-# Last distributable source pair. ABI 29 is currently a local development
+# Last distributable source pair. ABI 30 is currently a local development
 # iteration; require its explicit compiler until a matching source is published.
 set(WIRELINK_WLC_SOURCE_ABI "26" CACHE INTERNAL
   "Codegen ABI of the last distributed WLC source pair" FORCE)

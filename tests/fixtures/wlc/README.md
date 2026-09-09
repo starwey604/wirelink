@@ -1,6 +1,7 @@
 # WLC conformance fixture
 
-The current artifacts use ABI 29. Canonical fingerprints use a generated private
+The current artifacts use ABI 30; previous artifacts remain frozen.
+Profile-selected endpoint layouts can omit unused roles/transport buffers. Canonical fingerprints use a generated private
 sink instead of a canonical byte buffer; owned conversion reuses validated decode
 results. These changes do not alter this fixture's mapped RPC, codec bytes or
 frozen frame vectors. Regenerate the complete artifact set for layout changes.

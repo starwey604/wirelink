@@ -14,6 +14,9 @@ Both endpoints reuse one RPC contract. CMake composes that file with
 `client.bind.wl` (LATEST reception) or `server.bind.wl` (send-only telemetry).
 The outgoing 100-channel message is larger than every RPC: its bound must size
 the default endpoint even though the sender has no receive mailbox.
+Both local profiles select `native_packet` and their own `rpc_role`. WLC removes
+unused transport/RPC storage; handlers and client calls need no extra switches.
+See [layout options and memory results](../../docs/endpoint-layout.md).
 
 Set `config.user_data` once for ordinary handlers. Non-null per-service
 `<service>_user_data` overrides it; NULL inherits. Advanced deferred contexts and
@@ -22,8 +25,8 @@ handlers; transport, RPC dispatch and result recycling are not application code.
 
 ## Build and run
 
-Use the matching development WLC 0.4.0 / codegen ABI 29 and standalone Asio.
-ABI 29 has no published bootstrap source pair yet: build the development compiler
+Use the matching development WLC 0.4.0 / codegen ABI 30 and standalone Asio.
+ABI 30 has no published bootstrap source pair yet: build the development compiler
 in its separate workspace with `cargo build --release --locked`, verify
 `wlc codegen-abi`, and pass its executable explicitly. No nested WLC checkout is required.
 

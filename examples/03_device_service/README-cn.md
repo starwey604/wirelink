@@ -39,17 +39,19 @@
 
 ## 两端为何还有各自的 profile
 
-共享的 `services.bind.wl` 描述 RPC 合同，端侧文件只描述自己的遥测用途：
+共享的 `services.bind.wl` 描述 RPC 合同，端侧文件描述自己的角色、封装和遥测用途：
 
 ```wl
 // server.bind.wl：发送，不创建接收邮箱。
 profile version 1;
+endpoint { envelope = native_packet; rpc_role = server; }
 send DeviceTelemetry { delivery = unreliable; }
 ```
 
 ```wl
 // client.bind.wl：接收，只保留最新值。
 profile version 1;
+endpoint { envelope = native_packet; rpc_role = client; }
 latest DeviceTelemetry { delivery = unreliable; }
 ```
 
@@ -57,17 +59,21 @@ CMake 用 `PROFILES services.bind.wl server.bind.wl` 组合它们。WLC 不做�
 重复服务、重复同方向路由以及把 RPC 消息同时声明成普通消息都会报错。
 文件顺序不影响生成结果；两端 profile identity 可以不同，RPC 合同必须一致。
 
+每端的一处 `endpoint` 声明让 WLC 裁掉 stream FIFO 和另一侧 RPC 存储。
+新增 RPC 不修改这些配置；角色不是逐服务开关。省略配置时仍保留通用布局。
+详细边界和 RAM 对照见[端点布局裁剪](../../docs/endpoint-layout-cn.md)。
+
 发送声明参与端点缓冲区上限计算，不分配 retained 存储。这里的 100 通道遥测比任意 RPC 都大，
 用它验证“只发送的消息也能正确推导容量”。旧 `latest/fifo` 仍提供同 delivery 的对称发送助手；
 单向发送端使用 `send` 即可，不需要虚构一个接收邮箱。
 
 ## 构建与运行
 
-本开发迭代需要 **WLC 0.4.0 / 生成 ABI 29**。ABI 26 的公开源码快照不能生成此接口；
+本开发迭代需要 **WLC 0.4.0 / 生成 ABI 30**。ABI 26 的公开源码快照不能生成此接口；
 目前需要显式指定本轮配套的开发编译器，不会自动下载旧版代替。
 WLC 可以放在任意目录，不要求嵌套在 Wirelink 仓库内。
 
-在独立 WLC 工作区执行 `cargo build --release --locked`，确认 `wlc codegen-abi` 输出 `28`。
+在独立 WLC 工作区执行 `cargo build --release --locked`，确认 `wlc codegen-abi` 输出 `30`。
 从 Wirelink 根目录构建：
 
 ```sh

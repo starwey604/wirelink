@@ -58,14 +58,14 @@ wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
 
 wl_err_t control_runtime_config_enable_client(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
-  if (config->rpc_client_slot_count == 0U || config->rpc_client_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
+  if (!CONTROL_RUNTIME_HAS_RPC_CLIENT || config->rpc_client_slot_count == 0U || config->rpc_client_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
   config->rpc_client_enabled = 1U;
   return WL_OK;
 }
 
 wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
-  if (config->rpc_server_pending_slot_count == 0U || config->rpc_server_cache_slot_count == 0U || config->rpc_server_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
+  if (!CONTROL_RUNTIME_HAS_RPC_SERVER || config->rpc_server_pending_slot_count == 0U || config->rpc_server_cache_slot_count == 0U || config->rpc_server_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
   config->rpc_server_enabled = 1U;
   return WL_OK;
 }
@@ -77,6 +77,11 @@ control_runtime_storage_t control_runtime_default_storage_descriptor(control_run
     descriptor.size = sizeof(storage->bytes);
   }
   return descriptor;
+}
+
+static int control_runtime_roles_valid(const control_runtime_config_t *config) {
+  (void)config;
+  return WL_OK;
 }
 
 const char *control_runtime_init_issue_str(control_runtime_init_issue_t issue) {
@@ -170,6 +175,7 @@ static int control_runtime_layout(const control_runtime_config_t *config, uint8_
     result = control_runtime_storage_region(&cursor, _Alignof(arm_mit_command_t), 1U, route_requirements.storage_size, out_layout == NULL ? NULL : &out_layout->arm_mit_command_latest_storage, NULL);
     if (result != WL_OK) return result;
   }
+  if (control_runtime_roles_valid(config) != WL_OK) return WL_ERR_NOT_SUPPORTED;
   if (config->rpc_client_enabled > 1U || config->rpc_server_enabled > 1U) return WL_ERR_INVALID_ARG;
   if (config->rpc_client_enabled != 0U) {
     if (config->rpc_client_slot_count == 0U || config->rpc_client_response_capacity == 0U) return WL_ERR_INVALID_ARG;
@@ -215,6 +221,7 @@ static int control_runtime_init_validate(const control_runtime_instance_t *insta
   if (instance == NULL || config == NULL || storage == NULL || requirements == NULL || diagnostic == NULL)
     return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_NULL_ARGUMENT, instance == NULL ? "instance" : config == NULL ? "config" : storage == NULL ? "storage" : requirements == NULL ? "requirements" : "diagnostic", 1U, 0U, WL_ERR_INVALID_ARG);
   if (config->joint_command_fifo_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RETAINED_CAPACITY, "joint_command_fifo_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (control_runtime_roles_valid(config) != WL_OK) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "endpoint.rpc_role", 0U, 1U, WL_ERR_NOT_SUPPORTED);
   if (config->rpc_client_enabled > 1U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "rpc_client_enabled", 1U, config->rpc_client_enabled, WL_ERR_INVALID_ARG);
   if (config->rpc_server_enabled > 1U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "rpc_server_enabled", 1U, config->rpc_server_enabled, WL_ERR_INVALID_ARG);
   if (config->rpc_client_enabled != 0U && config->rpc_client_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY, "rpc_client_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
@@ -287,6 +294,7 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     if (result != WL_OK) goto init_failed;
     instance->runtime.arm_mit_command_latest = &instance->arm_mit_command_latest;
   }
+#if CONTROL_RUNTIME_HAS_RPC_CLIENT
   if (config->rpc_client_enabled != 0U) {
     const wl_rpc_client_config_t client_config = {
       (wl_rpc_client_slot_t *)layout.rpc_client_slots,
@@ -302,6 +310,8 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     }
     instance->runtime.rpc_client = &instance->rpc_client;
   }
+#endif
+#if CONTROL_RUNTIME_HAS_RPC_SERVER
   if (config->rpc_server_enabled != 0U) {
     const wl_rpc_server_config_t server_config = {
       (wl_rpc_server_pending_slot_t *)layout.rpc_server_pending_slots,
@@ -321,12 +331,17 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     }
     instance->runtime.rpc_server = &instance->rpc_server;
   }
+#endif
+#if CONTROL_RUNTIME_HAS_RPC_SERVER
   if (config->rpc_server_enabled != 0U) {
     instance->runtime.home.request_scratch = &instance->home_scratch.request;
     instance->runtime.home.request_handler = config->home_request_handler;
     instance->runtime.home.user_data = config->home_user_data;
   }
+#endif
+#if CONTROL_RUNTIME_HAS_RPC_CLIENT
   if (config->rpc_client_enabled != 0U) instance->runtime.home.response_scratch = &instance->home_scratch.response;
+#endif
   if (config->rpc_client_enabled != 0U || config->rpc_server_enabled != 0U) instance->runtime.rpc_encode_scratch = &instance->rpc_encode_scratch;
   return WL_OK;
 

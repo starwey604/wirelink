@@ -20,7 +20,11 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 29U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 30U
+
+/* Generated capabilities, not application overrides. */
+#define CONTROL_RUNTIME_HAS_RPC_CLIENT 1
+#define CONTROL_RUNTIME_HAS_RPC_SERVER 1
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -350,10 +354,11 @@ control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, 
  * All profile-selected messages must have finite one-frame bounds. */
 #define CONTROL_HAS_DEFAULT_ENDPOINT 1
 #define CONTROL_ENDPOINT_MAX_PAYLOAD 138U
-/* Reserve for any supported envelope using CRC32C (the largest checksum). */
+/* Layout is fixed by the local profile; CRC32C bounds also cover smaller CRCs. */
 #define CONTROL_ENDPOINT_RAW_CAPACITY (CONTROL_ENDPOINT_MAX_PAYLOAD + WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
 #define CONTROL_ENDPOINT_UNIT_CAPACITY (CONTROL_ENDPOINT_RAW_CAPACITY + CONTROL_ENDPOINT_RAW_CAPACITY / 254U + 2U)
 #define CONTROL_ENDPOINT_CONTROL_CAPACITY (WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC + 2U)
+#define CONTROL_ENDPOINT_RX_FIFO_CAPACITY CONTROL_ENDPOINT_UNIT_CAPACITY
 #define CONTROL_ENDPOINT_RUNTIME_CAPACITY CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY
 
 typedef struct {
@@ -391,7 +396,7 @@ typedef struct {
     uint8_t tx_unit[CONTROL_ENDPOINT_UNIT_CAPACITY];
     uint8_t control_unit[CONTROL_ENDPOINT_CONTROL_CAPACITY];
     uint8_t rx_fallback[CONTROL_ENDPOINT_UNIT_CAPACITY];
-    uint8_t rx_fifo[CONTROL_ENDPOINT_UNIT_CAPACITY];
+    uint8_t rx_fifo[CONTROL_ENDPOINT_RX_FIFO_CAPACITY];
   } private_state;
 } control_endpoint_t;
 
@@ -476,12 +481,13 @@ static inline wl_err_t control_endpoint_init_config(
     return WL_ERR_INVALID_STATE;
   if (config->environment.clock.now_ms == NULL || config->link.session_id != 0U)
     return WL_ERR_INVALID_ARG;
+
+  runtime_config = config->advanced;
+
   link_config = config->link;
   result = wl_session_next(config->environment.session,
       endpoint->private_state.previous_session, &link_config.session_id);
   if (result != WL_OK) return result;
-  runtime_config = config->advanced;
-
 
   memset(&link_storage, 0, sizeof(link_storage));
   link_storage.tx_payload = endpoint->private_state.tx_payload;
