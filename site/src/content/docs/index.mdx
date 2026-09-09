@@ -5,8 +5,8 @@ template: splash
 hero:
   tagline: Exchange typed messages over point-to-point links while your application keeps control of memory, transport, and execution.
   actions:
-    - text: Send the first message
-      link: ./learn/getting-started/
+    - text: Set up Wirelink
+      link: ./learn/environment-setup/
       icon: right-arrow
       variant: primary
     - text: View source
@@ -25,9 +25,9 @@ a serial, packet, or application-provided transport. Start with a localhost
 example, then carry the same message model to firmware.
 
 <CardGrid>
-  <Card title="Start with behavior" icon="add-document">
-    Run two programs, send temperature readings, and observe how latest-value
-    delivery behaves before learning the underlying API.
+  <Card title="Prepare once" icon="add-document">
+    Install the compiler, CMake, Cargo, and WLC once. Every lesson after that
+    starts from a checked toolchain instead of repeating setup instructions.
   </Card>
   <Card title="Keep resource use bounded" icon="setting">
     Generated endpoints use explicit storage and bounded work. The core does not

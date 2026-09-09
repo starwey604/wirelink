@@ -1,0 +1,190 @@
+---
+title: Set up your development environment
+description: Install and verify the tools used throughout the Wirelink learning path.
+sidebar:
+  order: 1
+---
+
+import { TabItem, Tabs } from '@astrojs/starlight/components';
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+Wirelink applications are C11 programs. WLC is a separate host tool that turns
+`.wl` message definitions into C source before your compiler builds the
+application. Set up both parts once, and the rest of this learning path can start
+with working tools.
+
+**After this lesson, you can:**
+
+- build C11 and C++20 programs with CMake;
+- run Cargo and the matching WLC compiler from your terminal;
+- let CMake find standalone Asio without an extra path argument.
+
+## Install the native build tools
+
+The first tutorials require Git, CMake 3.21 or newer, a C11 compiler, a C++20
+compiler, and standalone Asio. Choose the command for your system.
+
+<Tabs syncKey="host-system">
+  <TabItem label="Ubuntu / WSL">
+    ```sh
+    sudo apt update
+    sudo apt install build-essential cmake git curl libasio-dev
+    ```
+
+    `build-essential` provides GCC, G++, and the native build tools. This is the
+    shortest path for Ubuntu and for Ubuntu running under WSL 2.
+  </TabItem>
+
+  <TabItem label="Fedora">
+    ```sh
+    sudo dnf install gcc gcc-c++ cmake git curl asio-devel
+    ```
+  </TabItem>
+
+  <TabItem label="macOS">
+    Install the Apple command-line compiler, then install CMake and Asio with
+    Homebrew:
+
+    ```sh
+    xcode-select --install
+    brew install cmake asio
+    ```
+
+    Apple Clang replaces GCC in this environment and supports the language
+    features used by the tutorials.
+  </TabItem>
+</Tabs>
+
+:::note[Native Windows]
+Wirelink also builds with Visual Studio 2022. Install the **Desktop development
+with C++** workload, Git, CMake, and standalone Asio. The learning path uses
+shell commands, so Ubuntu under WSL 2 is the more direct route if you do not
+already maintain a native CMake environment.
+:::
+
+Check the compiler aliases and CMake now. The final command must report CMake
+3.21 or newer:
+
+```sh
+cc --version
+c++ --version
+cmake --version
+```
+
+## Install Rust and Cargo
+
+[Rustup](https://rust-lang.org/tools/install/) installs the current stable Rust
+toolchain and Cargo together. On Linux, WSL, or macOS, run the official installer:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Accept the default stable toolchain. Open a new terminal afterward, or load the
+updated environment in the current shell:
+
+```sh
+. "$HOME/.cargo/env"
+cargo --version
+```
+
+On native Windows, use the `rustup-init.exe` installer from the same Rust page,
+then reopen PowerShell. Rustup places installed commands in
+`%USERPROFILE%\.cargo\bin`.
+
+## Install the matching WLC compiler
+
+Wirelink currently pairs with WLC 0.5.0 and codegen ABI 30. Install that exact
+source tag with Cargo:
+
+```sh
+cargo install \
+  --git https://github.com/starwey604/wlc.git \
+  --tag v0.5.0 \
+  --locked
+```
+
+This puts the `wlc` executable in Cargo's binary directory, normally
+`$HOME/.cargo/bin`. CMake searches the host `PATH`, checks both compatibility
+values, and uses the executable automatically.
+
+:::caution[Use the Git command above]
+The `wlc` package name on crates.io belongs to an unrelated Wayland project.
+Running bare `cargo install wlc` does not install the Wirelink schema compiler.
+:::
+
+Verify the installation:
+
+```sh
+wlc --version
+wlc codegen-abi
+```
+
+Expected output:
+
+```text
+wlc 0.5.0
+30
+```
+
+If `wlc` is not found, restart the terminal and check that Cargo's binary
+directory is present in `PATH`.
+
+## Get the Wirelink source
+
+Choose a working directory and clone the repository:
+
+```sh
+git clone https://github.com/starwey604/wirelink.git
+cd wirelink
+```
+
+Run a small core build to verify the compiler and CMake together:
+
+```sh
+cmake -S . -B build/environment-check \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF \
+  -DWIRELINK_BUILD_EXAMPLES=OFF
+cmake --build build/environment-check --config Release --parallel
+```
+
+This build checks the core toolchain. The next lesson enables the UDP tutorial,
+which also exercises WLC and Asio.
+
+<MultipleChoice
+  id="environment-wlc-discovery"
+  question="After this setup, how does a Wirelink CMake build choose WLC?"
+  choices={[
+    {
+      label: 'It finds wlc on the host PATH and validates its version and codegen ABI',
+      correct: true,
+      feedback: 'Correct. The installed compiler is reused only when both compatibility checks pass.',
+    },
+    {
+      label: 'It compiles every .wl file directly with GCC',
+      correct: false,
+      feedback: 'GCC compiles the generated C. WLC reads the .wl definitions first.',
+    },
+    {
+      label: 'It downloads the newest WLC release for every build',
+      correct: false,
+      feedback: 'CMake first reuses a matching wlc from PATH. It does not follow an unpinned newest release.',
+    },
+  ]}
+/>
+
+<Checklist
+  id="environment-setup"
+  title="Environment ready"
+  items={[
+    'CMake reports version 3.21 or newer.',
+    'My C and C++ compilers run from the terminal.',
+    'Cargo runs from the terminal.',
+    'WLC reports version 0.5.0 and codegen ABI 30.',
+    'The Wirelink core build completes.',
+  ]}
+/>
+
+Continue with [displaying the latest temperature](../getting-started/).

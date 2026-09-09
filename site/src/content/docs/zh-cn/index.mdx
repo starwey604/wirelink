@@ -5,8 +5,8 @@ template: splash
 hero:
   tagline: 在点对点链路上交换类型明确的消息，同时让应用继续掌控内存、传输和执行。
   actions:
-    - text: 发送第一条消息
-      link: ./learn/getting-started/
+    - text: 配置开发环境
+      link: ./learn/environment-setup/
       icon: right-arrow
       variant: primary
     - text: 查看源码
@@ -24,8 +24,9 @@ Wirelink 是一个不依赖动态分配的 C11 点对点协议引擎。它可以
 或者应用自己提供的传输之上。你可以先在本机运行示例，再把相同的消息模型带到固件中。
 
 <CardGrid>
-  <Card title="先观察行为" icon="add-document">
-    运行两个程序，发送温度读数，并先观察 latest 的行为，再学习底层 API。
+  <Card title="一次准备好工具" icon="add-document">
+    一次安装编译器、CMake、Cargo 和 WLC。后续课程从已经验证的工具链开始，不再重复
+    环境安装步骤。
   </Card>
   <Card title="保持资源有界" icon="setting">
     生成的 endpoint 使用显式存储和有界工作量。核心不占有线程、堆、硬件或时钟。

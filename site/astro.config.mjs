@@ -38,8 +38,11 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Learn',
-          translations: { 'zh-cn': '学习' },
-          items: [{ slug: 'learn/getting-started' }],
+          translations: { 'zh-CN': '学习' },
+          items: [
+            { slug: 'learn/environment-setup' },
+            { slug: 'learn/getting-started' },
+          ],
         },
       ],
     }),
