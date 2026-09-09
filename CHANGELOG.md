@@ -6,6 +6,25 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### Reliable RPC and telemetry coexistence
+
+- Separate the reliable transaction from physical DATA I/O so unreliable
+  telemetry can progress while ACK is pending. Retain one reliable window,
+  prioritize control/due retries and preserve asynchronous I/O lifetimes.
+- Reuse existing TX buffers: save a direct reliable payload only when telemetry
+  needs its encoded unit, then rebuild on retry. Uninterrupted retries still
+  reuse the encoded image. Public context/storage sizes and codegen ABI 29 stay
+  unchanged; initialization now rejects overlapping declared TX storage spans.
+- Keep unreliable completion independent of reliable state, and reliable
+  cancellation independent of unrelated DATA I/O. Defer reliable terminal
+  events until their I/O lease drains, and avoid lost terminal
+  events behind RX. Add deterministic host/Zephyr mixed-traffic tests and focused
+  lifecycle/hint coverage. See `docs/mixed-traffic-progress-cn.md` for measured
+  freshness gains, saturation tradeoffs and the physical-backpressure limit.
+- Add paired H7 DWT measurements for mixed traffic, cached retries and retries
+  reconstructed after telemetry. Record normal-load CPU, re-encoding costs and
+  image sizes in `docs/mixed-traffic-h7-cn.md`; model ages are not USB/UART latency.
+
 ### WLC generator maintainability
 
 - Split codec and runtime generators by responsibility, moving the shared C

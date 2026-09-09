@@ -89,6 +89,9 @@ For hardware-free performance regressions, see
 [`benchmarks/api`](benchmarks/api/README.md) ([中文](benchmarks/api/README-cn.md)):
 Google Benchmark CPU/loopback measurements, static endpoint sizes and separate
 two-process UDP latency/CPU reports. Dependencies and timing gates are opt-in.
+The [mixed-traffic regression](benchmarks/mixed_traffic/README.md) uses deterministic
+protocol time to measure telemetry age, update gaps and RPC completion under ACK
+loss/backpressure; it is not a CPU benchmark or a hardware latency prediction.
 The optional [executor contention matrix](benchmarks/api/EXECUTOR-cn.md) measures
 real multi-producer RPC/LATEST handoff; a separate
 [H7 CPU harness](benchmarks/zephyr/willow_cpu/README-cn.md) measures the product HIL.

@@ -1,4 +1,6 @@
-# 本轮优化的 Git 提交索引
+# 优化迭代的 Git 提交索引
+
+本文保留前一轮 A/B/C 的整理记录；最新的可靠 RPC／遥测共存批次见文末。
 
 整理日期：2026-09-09。范围是多 RPC 维护体验、生成 API 内存收敛、帧与 RPC/codec
 性能优化，以及 A 的取舍、B/C 生成器重构和后续性能复核。
@@ -90,3 +92,48 @@ WLC 的 A 阶段有完整冻结源码，故保留“功能/优化 → 生成快�
 
 因此复用功能基准无需本机采样，但精确复核历史数字需要对应原始材料；
 本次没有把仅在本机存在的材料描述为已经随 Git 分发。
+
+## 追加批次：可靠 RPC 与高频遥测共存
+
+起点为 Wirelink `c206c1e`。本批次在 `dev/wirelink-p0-hardening` 创建四笔本地提交，
+不改写前一轮历史，不推送、不合并 main、不创建 tag，不更新产品依赖 pin。
+WLC 没有新增改动或提交，仍配对 `115f48132a5a761bc47f5c7880de940ea6fb2275`，
+生成 ABI 29、公开 context/storage 尺寸和线上帧格式不变。
+
+| 提交 | 内容与审阅重点 |
+| --- | --- |
+| `ee578b3` | `perf: decouple reliable ACK waits from DATA transmission`。拆开可靠事务与物理 DATA，保留 ACK/重试优先级及异步借用；复用既有 payload 存储，覆盖迟到 ACK、取消/回收、时钟回绕、重叠存储拒绝和等待提示。同步更新中英文 API/协议合同。 |
+| `74fea04` | `test: cover telemetry freshness under RPC loss and backpressure`。共享主机/Zephyr 混合流量模型、42 条记录、持续数据年龄、RPC 进展断言、独立旧核心对照，以及主机/H7 完整报告校验器。 |
+| `0355a82` | `test: add H7 mixed-traffic and retry CPU measurements`。独立 H7 app，DWT tick CPU 与缓存/重编码重传微基准；要求 LTO，并明确模拟时间与真实 CPU 的边界。 |
+| 本节所在的文档提交 | `docs: record mixed-traffic and H7 acceptance`。纳入两阶段完整报告、资源及重编码代价，更新 README、CHANGELOG 和本索引。 |
+
+这是对已验证最终改动按职责拆分的提交，不伪造实验发生顺序。第二笔包含后续 H7 app
+复用的报告校验器和可选计时 hooks；普通主机/Zephyr 构建不启用这些 hooks。
+文档提交可用 `git log --oneline --grep='docs: record mixed-traffic and H7 acceptance'`
+查询，避免自引用哈希。
+
+### 本次提交前重新验证
+
+- protocol / poll_hint：2/2 配置、56/56 用例，零警告。
+- 主机 Release 重建后 20/20 CTest，含 C/C++、Python bridge、服务扩展等。
+- 混合流量 Release 与 Clang ASan/UBSan 重建后，各 3/3 CTest。
+- 四份既有有效 H7 捕获通过完整性校验；新旧 BIN/ELF、WLC 和全部捕获摘要匹配。
+- 各提交暂存区 `git diff --cached --check` 通过。
+
+整理日志位于本机 `build/mixed-traffic-commit.g1ozmB/`。本次不重复性能采样、不操作
+H7，也不把之前的 37 配置/250 用例、WLC 139 项或实板采集称为本次重新运行。
+
+### 证据与保留边界
+
+1. [实现与模拟验收](mixed-traffic-progress-cn.md)：持续年龄、更新间隔、饱和场景
+   RPC 代价、存储和调度边界。
+2. [H7 实测](mixed-traffic-h7-cn.md)：四份有效记录，720 次正确 RPC，23,040 次计时内
+   核心操作；正常平均 CPU 基本持平，缓存重传的小幅固定开销与重编码成本均保留。
+
+H7 运行的是板内受控通道，年龄数字仍为模拟协议时间；它不是实际 USB/Willow 链路验收。
+板上仍为新版独立 mixed-traffic 测试固件，不是 Willow；本次未改变停核及调试断开状态。
+没有迁移 libflorid、Ragtime_Firmwares 或 Touchstone。
+
+既有 `AGENTS.md` 原样保留且不纳入 Git；独立 `wlc/` 不作为目录或 gitlink 提交。
+`build/` 的原始采样、冻结产物、无效 RTT 记录和日志保留在本机，不删除、不提交。
+阶段文档中的“尚未提交”描述属于采集当时，当前提交状态以本节为准。
