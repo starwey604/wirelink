@@ -248,6 +248,16 @@ typedef struct wl_rpc_request_identity {
   uint64_t peer_session_id;
 } wl_rpc_request_identity_t;
 
+/* Reliable response terminal observation, not proof of application execution
+ * at the peer. SUCCESS means link ACK; TIMEOUT/FAILED must not trigger a
+ * success-only action such as reboot. Identity and event are borrowed only
+ * during this callback. Record intent and act after the owner pass: do not
+ * take the TX event, reenter the server, step, close, or reboot here.
+ * Retransmitted cached responses may produce additional notifications. */
+typedef void (*wl_rpc_response_observer_fn)(void *user_data,
+    const wl_rpc_request_identity_t *identity, int32_t application_status,
+    const wl_event_t *event);
+
 /*
  * Generation-stamped authority for one accepted server execution. Copy this
  * value when work completes asynchronously. Session discard, abandon, or
@@ -406,6 +416,10 @@ wl_rpc_err_t wl_rpc_server_response_sent(
  */
 wl_rpc_err_t wl_rpc_server_on_tx_event(wl_rpc_server_t *server,
                                        const wl_event_t *event);
+/* Owner-side setup. NULL disables observation. No allocation or ownership
+ * transfer; callback context must outlive the initialized server. */
+wl_rpc_err_t wl_rpc_server_set_response_observer(wl_rpc_server_t *server,
+    wl_rpc_response_observer_fn observer, void *user_data);
 
 /*
  * Forget every pending/cached operation owned by one nonzero peer session.

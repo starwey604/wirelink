@@ -25,6 +25,25 @@ typedef struct {
   wl_pump_deadline_hint_fn deadline_hint;
 } wl_endpoint_policy_t;
 
+/* Statically assembled owner-local services. The array and contexts are
+ * borrowed until close. Callbacks run on the endpoint owner, never recursively
+ * step/close it or release/take observed events. Progress follows generated
+ * RPC progress, in rotating order; each callback should do bounded work and
+ * return true only when another immediate pass can make progress. A blocked
+ * service must supply a deadline or arrange a transport/owner wakeup.
+ * A nonzero RX session is observed before dispatch, including direct routes.
+ * The initial observation has previous_session == 0. Close runs in reverse
+ * array order, after adapter quiescence, while the link is still valid. */
+typedef struct {
+  void *user_data;
+  wl_pump_application_progress_fn progress;
+  wl_pump_deadline_hint_fn deadline_hint;
+  void (*on_peer_session)(void *user_data, wl_ctx_t *link,
+                         uint64_t previous_session, uint64_t session,
+                         wl_time_ms_t now_ms);
+  void (*on_close)(void *user_data, wl_ctx_t *link);
+} wl_endpoint_service_t;
+
 /* Default owner-side assembly, normally embedded by WLC. Zero-initialize
  * before first init; never copy/move while initialized. Members are private.
  * This object creates no thread and owns no transport or external buffers. */
@@ -32,6 +51,10 @@ typedef struct wl_endpoint {
   wl_ctx_t private_link;
   wl_pump_hooks_t private_hooks;
   wl_endpoint_policy_t private_policy;
+  const wl_endpoint_service_t *private_services;
+  size_t private_service_count;
+  size_t private_service_cursor;
+  uint64_t private_peer_session;
   wl_pump_result_t private_step;
   wl_clock_t private_clock;
   wl_waiter_t private_waiter;
@@ -40,6 +63,7 @@ typedef struct wl_endpoint {
   uint8_t private_stepping;
   uint8_t private_policy_pending;
   uint8_t private_ready;
+  uint8_t private_started;
 } wl_endpoint_t;
 
 /* Generated lifecycle bridge; storage/transport remain owned by the caller.
@@ -68,6 +92,9 @@ wl_err_t wl_endpoint_attach(wl_endpoint_t *endpoint,
  * Generated dispatch/storage ownership is never replaced by this policy. */
 wl_err_t wl_endpoint_set_policy(wl_endpoint_t *endpoint,
                                 const wl_endpoint_policy_t *policy);
+/* Before the first step only. NULL with zero count clears the binding. */
+wl_err_t wl_endpoint_set_services(wl_endpoint_t *endpoint,
+    const wl_endpoint_service_t *services, size_t count);
 /* Setup-only platform integration; a NULL descriptor disables sync waiting.
  * Storing this descriptor does not create a thread or perform a wait. */
 wl_err_t wl_endpoint_set_waiter(wl_endpoint_t *endpoint, const wl_waiter_t *waiter);

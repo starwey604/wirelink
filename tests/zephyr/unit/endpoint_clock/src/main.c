@@ -244,4 +244,49 @@ ZTEST(wirelink_endpoint_clock, test_commit_uses_explicit_time) {
   wl_endpoint_close(&first.endpoint);
 }
 
+static unsigned service_trace[8], service_trace_count;
+static uint8_t service_pending;
+static uint8_t composed_progress(void *context, wl_ctx_t *link, wl_time_ms_t now_ms) {
+  (void)link; (void)now_ms;
+  service_trace[service_trace_count++] = *(unsigned *)context;
+  return service_pending;
+}
+static uint32_t composed_deadline(const void *context, wl_time_ms_t now_ms) {
+  (void)now_ms;
+  return *(const unsigned *)context + 10U;
+}
+static void composed_close(void *context, wl_ctx_t *link) {
+  zassert_equal(link, wl_endpoint_link(&first.endpoint));
+  service_trace[service_trace_count++] = *(unsigned *)context + 10U;
+  zassert_equal(wl_endpoint_step(&first.endpoint, 1U), WL_ERR_REENTRANT);
+}
+ZTEST(wirelink_endpoint_clock, test_static_service_rotation_hints_and_close) {
+  unsigned one = 1U, two = 2U;
+  wl_endpoint_service_t services[] = {
+    {&one, composed_progress, composed_deadline, NULL, composed_close},
+    {&two, composed_progress, composed_deadline, NULL, composed_close}
+  };
+  init(&first, 0U);
+  service_trace_count = 0U;
+  service_pending = 1U;
+  zassert_equal(wl_endpoint_set_services(&first.endpoint, NULL, 1U), WL_ERR_INVALID_ARG);
+  zassert_ok(wl_endpoint_set_services(&first.endpoint, services, 2U));
+  wl_poll_hint_t hint;
+  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_equal(hint.next_deadline_ms, 11U);
+  zassert_ok(wl_endpoint_step(&first.endpoint, 1U));
+  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_equal(hint.next_deadline_ms, 0U);
+  service_pending = 0U;
+  zassert_ok(wl_endpoint_step(&first.endpoint, 1U));
+  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_equal(hint.next_deadline_ms, 11U);
+  zassert_equal(wl_endpoint_set_services(&first.endpoint, NULL, 0U), WL_ERR_INVALID_STATE);
+  wl_endpoint_close(&first.endpoint);
+  wl_endpoint_close(&first.endpoint);
+  const unsigned expected[] = {1U, 2U, 2U, 1U, 12U, 11U};
+  zassert_equal(service_trace_count, ARRAY_SIZE(expected));
+  zassert_mem_equal(service_trace, expected, sizeof(expected));
+}
+
 ZTEST_SUITE(wirelink_endpoint_clock, NULL, NULL, NULL, NULL, NULL);

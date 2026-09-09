@@ -45,6 +45,8 @@ typedef struct {
   wl_rpc_server_pending_slot_t *pending_slots;
   wl_rpc_server_cache_slot_t *cache_slots;
   uint8_t *response_storage;
+  wl_rpc_response_observer_fn response_observer;
+  void *response_observer_data;
   uint64_t next_generation;
   uint32_t pending_timeout_ms;
   uint32_t cache_ttl_ms;
@@ -1323,6 +1325,15 @@ wl_rpc_err_t wl_rpc_server_response_sent(
   return WL_RPC_OK;
 }
 
+wl_rpc_err_t wl_rpc_server_set_response_observer(wl_rpc_server_t *server,
+    wl_rpc_response_observer_fn observer, void *user_data) {
+  if (!server_initialized(server))
+    return server == NULL ? WL_RPC_ERR_INVALID_ARG : WL_RPC_ERR_NOT_INITIALIZED;
+  server_impl(server)->response_observer = observer;
+  server_impl(server)->response_observer_data = user_data;
+  return WL_RPC_OK;
+}
+
 wl_rpc_err_t wl_rpc_server_on_tx_event(wl_rpc_server_t *server,
                                        const wl_event_t *event) {
   wl_rpc_server_impl_t *impl;
@@ -1349,6 +1360,9 @@ wl_rpc_err_t wl_rpc_server_on_tx_event(wl_rpc_server_t *server,
     }
     cache->tx_handle = 0U;
     cache->delivery_state = WL_RPC_RESPONSE_DELIVERED;
+    if (impl->response_observer != NULL)
+      impl->response_observer(impl->response_observer_data, &cache->identity,
+                              cache->application_status, event);
     return WL_RPC_OK;
   }
   return WL_RPC_ERR_NOT_FOUND;

@@ -322,6 +322,13 @@ static void endpoint_quiesced(void *user_data) {
   ++*calls;
 }
 
+static void endpoint_service_closed(void *user_data, wl_ctx_t *link) {
+  unsigned int *calls = user_data;
+  zassert_not_null(link);
+  zassert_equal(*calls, 2U); /* One service pass, then adapter quiescence. */
+  ++*calls;
+}
+
 static wl_time_ms_t endpoint_clock(void *user_data) {
   return *(wl_time_ms_t *)user_data;
 }
@@ -351,13 +358,16 @@ ZTEST(wirelink_pump_unit, test_endpoint_assembly_lifecycle_and_service_errors) {
   adapter.service = failing_endpoint_service;
   adapter.quiesce = endpoint_quiesced;
   zassert_ok(wl_endpoint_attach(&endpoint, &adapter));
+  const wl_endpoint_service_t application_service = {
+    .user_data = &calls, .on_close = endpoint_service_closed};
+  zassert_ok(wl_endpoint_set_services(&endpoint, &application_service, 1U));
   zassert_equal(wl_endpoint_attach(&endpoint, &adapter), WL_ERR_BUSY);
   zassert_equal(wl_endpoint_step(&endpoint, 4U), WL_ERR_INVALID_STATE);
   zassert_equal(calls, 1U);
   zassert_equal(wl_endpoint_last_step(&endpoint)->service_errors, 1U);
   wl_endpoint_close(&endpoint);
   wl_endpoint_close(&endpoint);
-  zassert_equal(calls, 2U);
+  zassert_equal(calls, 3U);
   zassert_is_null(wl_endpoint_link(&endpoint));
   zassert_ok(wl_endpoint_init(&endpoint, &fixture->config, &storage, &clock, NULL));
   zassert_false(wl_endpoint_has_adapter(&endpoint));

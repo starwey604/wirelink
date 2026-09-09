@@ -82,6 +82,44 @@ static wl_rpc_server_response_t server_acquire_response(void) {
   return response;
 }
 
+static unsigned observed_responses;
+static wl_event_type_t observed_terminal;
+static void observe_response(void *context, const wl_rpc_request_identity_t *request,
+                              int32_t status, const wl_event_t *event) {
+  zassert_equal(context, &servers);
+  zassert_equal(request->operation_id, 71U);
+  zassert_equal(status, 9);
+  ++observed_responses;
+  observed_terminal = event->type;
+}
+
+ZTEST(wirelink_rpc, test_response_terminal_observer) {
+  wl_rpc_request_identity_t request = identity(71U, 1U);
+  wl_rpc_server_request_t accepted;
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_response_t response;
+  wl_event_t event = {.type = WL_EVT_TX_SUCCESS, .handle = 123U};
+  server_init(WL_RPC_CACHE_REJECT_NEW, 0U, 0U, 2U, 2U);
+  observed_responses = 0U;
+  zassert_equal(wl_rpc_server_set_response_observer(&servers.server, observe_response, &servers), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_begin(&servers.server, &request, 0U, &disposition, &accepted, &response), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_complete(&servers.server, &accepted, 9, NULL, 0U, 0U, &response), WL_RPC_OK);
+  const wl_event_type_t terminals[] = {WL_EVT_TX_SUCCESS, WL_EVT_TX_TIMEOUT, WL_EVT_TX_FAILED};
+  for (size_t i = 0U; i < ARRAY_SIZE(terminals); ++i) {
+    if (i != 0U)
+      zassert_equal(wl_rpc_server_begin(&servers.server, &request, 0U, &disposition, &accepted, &response), WL_RPC_OK);
+    response = server_acquire_response();
+    zassert_equal(wl_rpc_server_response_submitted(&servers.server, &response, event.handle), WL_RPC_OK);
+    event.type = terminals[i];
+    zassert_equal(wl_rpc_server_on_tx_event(&servers.server, &event), WL_RPC_OK);
+    zassert_equal(observed_responses, i + 1U);
+    zassert_equal(observed_terminal, event.type);
+    zassert_equal(wl_rpc_server_on_tx_event(&servers.server, &event), WL_RPC_ERR_NOT_FOUND);
+    zassert_equal(observed_responses, i + 1U);
+  }
+  zassert_equal(wl_rpc_server_set_response_observer(&servers.server, NULL, NULL), WL_RPC_OK);
+}
+
 static void server_mark_next_sent(void) {
   wl_rpc_server_response_t response = server_acquire_response();
 
