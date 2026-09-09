@@ -1534,8 +1534,14 @@ wl_rpc_err_t wl_rpc_server_get_deadline_hint(const wl_rpc_server_t *server,
 
     if (cache->active != 0U &&
         cache->delivery_state == WL_RPC_RESPONSE_READY) {
-      nearest = 0U;
-      break;
+      out_hint->next_deadline_ms = 0U;
+      return WL_RPC_OK;
+    }
+    if (impl->cache_ttl_ms != 0U && cache->active != 0U &&
+        cache->delivery_state == WL_RPC_RESPONSE_DELIVERED) {
+      const uint32_t remaining =
+          deadline_remaining(now_ms, cache->completed_at, impl->cache_ttl_ms);
+      if (remaining < nearest) nearest = remaining;
     }
   }
   if (impl->pending_timeout_ms != 0U) {
@@ -1549,22 +1555,6 @@ wl_rpc_err_t wl_rpc_server_get_deadline_hint(const wl_rpc_server_t *server,
       }
       remaining = deadline_remaining(now_ms, pending->started_at,
                                      impl->pending_timeout_ms);
-      if (remaining < nearest) {
-        nearest = remaining;
-      }
-    }
-  }
-  if (impl->cache_ttl_ms != 0U) {
-    for (i = 0U; i < impl->cache_slot_count; ++i) {
-      const wl_rpc_server_cache_impl_t *cache = server_cache_const(impl, i);
-      uint32_t remaining;
-
-      if (cache->active == 0U ||
-          cache->delivery_state != WL_RPC_RESPONSE_DELIVERED) {
-        continue;
-      }
-      remaining =
-          deadline_remaining(now_ms, cache->completed_at, impl->cache_ttl_ms);
       if (remaining < nearest) {
         nearest = remaining;
       }

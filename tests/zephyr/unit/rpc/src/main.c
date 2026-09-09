@@ -675,6 +675,40 @@ ZTEST(wirelink_rpc, test_server_generation_wrap_evicts_true_oldest) {
                 WL_RPC_OK);
 }
 
+ZTEST(wirelink_rpc, test_deadline_merges_ready_delivered_and_pending_without_mutation) {
+  wl_rpc_server_disposition_t disposition;
+  wl_rpc_server_request_t requests[3];
+  wl_rpc_server_response_t response;
+  wl_rpc_deadline_hint_t hint;
+  wl_rpc_server_expiry_t expiry;
+  server_init(WL_RPC_CACHE_REJECT_NEW, 50U, 30U, 3U, 3U);
+  for (uint32_t i = 0U; i < 3U; ++i) {
+    const wl_rpc_request_identity_t id = identity(i + 1U, i + 1U);
+    zassert_equal(wl_rpc_server_begin(&servers.server, &id, i == 0U ? 100U : 115U,
+        &disposition, &requests[i], &response), WL_RPC_OK);
+    zassert_equal(disposition, WL_RPC_SERVER_NEW);
+  }
+  zassert_equal(wl_rpc_server_complete(&servers.server, &requests[0], 0, NULL, 0U,
+      100U, &response), WL_RPC_OK);
+  server_mark_next_sent();
+  zassert_equal(wl_rpc_server_get_deadline_hint(&servers.server, 120U, &hint), WL_RPC_OK);
+  zassert_equal(hint.next_deadline_ms, 10U); /* Delivered cache beats pending. */
+  zassert_equal(wl_rpc_server_complete(&servers.server, &requests[2], 0, NULL, 0U,
+      115U, &response), WL_RPC_OK);
+  const struct server_fixture before = servers;
+  zassert_equal(wl_rpc_server_get_deadline_hint(&servers.server, 120U, &hint), WL_RPC_OK);
+  zassert_equal(hint.next_deadline_ms, 0U); /* READY beats both timers. */
+  zassert_mem_equal(&before, &servers, sizeof(servers));
+  response = server_acquire_response();
+  zassert_equal(wl_rpc_server_response_submitted(&servers.server, &response, 7U), WL_RPC_OK);
+  zassert_equal(wl_rpc_server_get_deadline_hint(&servers.server, 120U, &hint), WL_RPC_OK);
+  zassert_equal(hint.next_deadline_ms, 10U); /* In-flight has no cache expiry. */
+  zassert_equal(wl_rpc_server_poll(&servers.server, 130U, &expiry), WL_RPC_OK);
+  zassert_equal(expiry.cache_expired, 1U);
+  zassert_equal(wl_rpc_server_get_deadline_hint(&servers.server, 130U, &hint), WL_RPC_OK);
+  zassert_equal(hint.next_deadline_ms, 35U); /* Remaining pending request. */
+}
+
 ZTEST(wirelink_rpc, test_server_pending_and_cache_expiry_wrap) {
   wl_rpc_request_identity_t first = identity(1U, 1U);
   wl_rpc_request_identity_t second = identity(2U, 2U);
