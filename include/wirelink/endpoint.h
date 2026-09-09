@@ -12,12 +12,26 @@ extern "C" {
 
 struct wl_rpc_executor;
 
+/* Optional owner-local product policy, composed with generated dispatch.
+ * Observe events before dispatch; never release RX or take the observed TX.
+ * progress runs after all events, before generated RPC service. Return true
+ * only for work that needs another pass, not for already consumed work.
+ * No callback may recursively step/close the endpoint. */
+typedef struct {
+  void *user_data;
+  void (*on_event)(void *user_data, wl_ctx_t *link,
+                   const wl_event_t *event, wl_time_ms_t now_ms);
+  wl_pump_application_progress_fn progress;
+  wl_pump_deadline_hint_fn deadline_hint;
+} wl_endpoint_policy_t;
+
 /* Default owner-side assembly, normally embedded by WLC. Zero-initialize
  * before first init; never copy/move while initialized. Members are private.
  * This object creates no thread and owns no transport or external buffers. */
 typedef struct wl_endpoint {
   wl_ctx_t private_link;
   wl_pump_hooks_t private_hooks;
+  wl_endpoint_policy_t private_policy;
   wl_pump_result_t private_step;
   wl_clock_t private_clock;
   wl_waiter_t private_waiter;
@@ -46,6 +60,10 @@ uint8_t wl_endpoint_has_adapter(const wl_endpoint_t *endpoint);
  * remain owned by the generated assembly. Attach before driving the owner. */
 wl_err_t wl_endpoint_attach(wl_endpoint_t *endpoint,
                            const wl_pump_hooks_t *adapter);
+/* Setup-only. Copies the descriptor, not its context; NULL clears it.
+ * Generated dispatch/storage ownership is never replaced by this policy. */
+wl_err_t wl_endpoint_set_policy(wl_endpoint_t *endpoint,
+                                const wl_endpoint_policy_t *policy);
 /* Setup-only platform integration; a NULL descriptor disables sync waiting.
  * Storing this descriptor does not create a thread or perform a wait. */
 wl_err_t wl_endpoint_set_waiter(wl_endpoint_t *endpoint, const wl_waiter_t *waiter);

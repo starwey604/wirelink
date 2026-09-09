@@ -6,6 +6,17 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### Product policies on generated endpoints (development ABI 31)
+
+- Compose owner-local event observation, business progress and deadlines with
+  generated endpoint dispatch using `wl_endpoint_set_policy`; event ownership
+  remains in Wirelink. Ordinary endpoints need no additional hooks.
+- WLC allows one build-wide COBS RX FIFO capacity override and exposes typed
+  deferred-token identity inspection for advanced scheduling/diagnostics.
+- Rebuild all consumers with the development compiler (codegen ABI 31). No
+  release/tag or automatic source bootstrap pair is published for this ABI.
+  These assembly changes alone do not alter framing or RPC metadata.
+
 ### WLC v0.5.0 release pairing
 
 - Merge the accumulated development branches into main and require WLC

@@ -15,6 +15,31 @@ struct fixture {
 
 static struct fixture first, second;
 
+static unsigned policy_events, policy_passes;
+static void observe_event(void *context, wl_ctx_t *link,
+                          const wl_event_t *ev, wl_time_ms_t now) {
+  struct fixture *f = context;
+  (void)link;
+  (void)ev;
+  zassert_equal(f->events, policy_events++); /* Before generated dispatch. */
+  wl_time_ms_t snapshot;
+  zassert_ok(wl_endpoint_now(&f->endpoint, &snapshot));
+  zassert_equal(snapshot, now);
+  zassert_equal(wl_endpoint_set_policy(&f->endpoint, NULL), WL_ERR_REENTRANT);
+}
+static uint8_t policy_progress(void *context, wl_ctx_t *link, wl_time_ms_t now) {
+  (void)context;
+  (void)link;
+  (void)now;
+  ++policy_passes;
+  return 0U;
+}
+static uint32_t policy_deadline(const void *context, wl_time_ms_t now) {
+  (void)context;
+  (void)now;
+  return 3U;
+}
+
 static wl_time_ms_t read_clock(void *user_data) {
   struct fixture *f = user_data;
   ++f->reads;
@@ -114,6 +139,32 @@ ZTEST(wirelink_endpoint_clock, test_first_send_and_idle_gap) {
   zassert_equal(first.sends, 4U);
   (void)handle;
   wl_endpoint_close(&first.endpoint);
+}
+
+ZTEST(wirelink_endpoint_clock, test_policy_composes_without_consuming_events) {
+  init(&first, 100U);
+  policy_events = policy_passes = 0U;
+  wl_endpoint_policy_t policy = {.user_data = &first,
+    .on_event = observe_event, .progress = policy_progress,
+    .deadline_hint = policy_deadline};
+  zassert_ok(wl_endpoint_set_policy(&first.endpoint, &policy));
+  memset(&policy, 0, sizeof(policy));
+  (void)send(&first);
+  first.time += 5U;
+  zassert_ok(wl_endpoint_step(&first.endpoint, 8U));
+  first.time += 5U;
+  zassert_ok(wl_endpoint_step(&first.endpoint, 8U));
+  zassert_equal(first.events, 1U);
+  zassert_equal(policy_events, 1U);
+  zassert_equal(policy_passes, 2U);
+  wl_poll_hint_t hint;
+  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_equal(hint.next_deadline_ms, 3U);
+  zassert_ok(wl_endpoint_set_policy(&first.endpoint, NULL));
+  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_equal(hint.next_deadline_ms, UINT32_MAX);
+  wl_endpoint_close(&first.endpoint);
+  zassert_equal(wl_endpoint_set_policy(&first.endpoint, &policy), WL_ERR_NOT_INITIALIZED);
 }
 
 ZTEST(wirelink_endpoint_clock, test_completion_service_uses_current_pass) {
