@@ -4,6 +4,17 @@ All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for the release-candidate
 line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
+## 0.7.0-dev — unreleased
+
+- Pair with WLC 0.7.0-dev / ABI 32 for static schema imports and borrowed
+  direct routes; rebuild generated code and consumers together.
+- Add static endpoint service progress/deadline/session/close hooks and
+  reliable RPC response terminal observers without changing wire formats.
+- Track imported schemas transitively in CMake; add a mixed RPC/telemetry/bulk
+  example tested on the host and H723 (RAM sink, loopback only).
+- Development builds require an explicit matching compiler; do not fall back
+  to the published ABI 31 archive. No release tag or archive is created here.
+
 ## 0.6.0 — 2026-09-09
 
 First tagged Wirelink release, paired with WLC v0.6.0 / generated ABI 31.

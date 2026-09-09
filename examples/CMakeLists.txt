@@ -3,6 +3,10 @@
 add_executable(wirelink_bare_metal_loopback bare_metal_loopback.c)
 target_link_libraries(wirelink_bare_metal_loopback PRIVATE Wirelink::loopback)
 
+if(WIRELINK_BUILD_COMPOSED_SERVICES)
+  add_subdirectory(04_composed_services)
+endif()
+
 if(WIRELINK_BUILD_GETTING_STARTED)
   add_library(wirelink_tutorial_host STATIC common/tutorial_host.cpp)
   target_include_directories(wirelink_tutorial_host PUBLIC common)

@@ -11,6 +11,22 @@ Each step reads the endpoint clock once, then runs:
 2. Bounded event polling. Policy observes each event **before** generated
    dispatch. It must not release that event or take its TX handle.
 3. Policy progress, then generated runtime/RPC service.
+4. Statically bound `wl_endpoint_service_t` progress callbacks, in rotating order.
+
+`wl_endpoint_set_services()` borrows one immutable array before the first step.
+Its deadline hints merge with the existing hints. Session hooks see nonzero RX
+sessions before dispatch (first observation has previous session zero); use them
+to reset bulk/application state and call generated `*_runtime_peer_observe()`
+when the first new-session message can be non-RPC. Unreliable compact-v1 DATA
+does not carry a session; do not infer a peer reboot from such traffic.
+Close invokes service cleanup in reverse order after adapter quiescence.
+See [the runnable composition example](../examples/04_composed_services/README.md).
+
+Rotation is cooperative scheduling between these callbacks, not a bandwidth
+reservation. RPC retains first admission to the shared reliable TX slot. Bound
+RPC admission and telemetry during upload in product policy; an unbounded RPC
+producer can starve bulk. A blocked callback must not report immediate work
+without a possible transition: use transport wakeups or a future deadline.
 
 Policy progress must not wait or run another event loop. Report follow-up work
 only when another pass is needed; consuming the current work alone is not a

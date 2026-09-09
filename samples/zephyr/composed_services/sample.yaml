@@ -1,0 +1,11 @@
+sample:
+  name: Static RPC telemetry bulk composition
+tests:
+  sample.wirelink.composed_services:
+    tags: [wirelink, rpc, bulk]
+    platform_allow: [native_sim, qemu_cortex_m3, qemu_riscv32, qemu_x86_64]
+    integration_platforms: [native_sim]
+    harness: console
+    harness_config:
+      type: one_line
+      regex: ["COMPOSED_SERVICES PASS"]

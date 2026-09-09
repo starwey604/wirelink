@@ -20,7 +20,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 31U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 32U
 
 /* Generated capabilities, not application overrides. */
 #define CONTROL_RUNTIME_HAS_RPC_CLIENT 1
@@ -370,6 +370,8 @@ typedef struct {
   /* Expert policy/storage overrides; ordinary applications use defaults. */
   control_runtime_config_t advanced;
 
+
+  wl_rpc_response_observer_fn on_response_terminal;
   size_t event_budget;
   control_runtime_result_fn on_result;
   /* Shared context for on_result and ordinary on_<rpc> handlers. Advanced
@@ -487,6 +489,7 @@ static inline wl_err_t control_endpoint_init_config(
 
   runtime_config = config->advanced;
 
+
   link_config = config->link;
   result = wl_session_next(config->environment.session,
       endpoint->private_state.previous_session, &link_config.session_id);
@@ -509,6 +512,10 @@ static inline wl_err_t control_endpoint_init_config(
   if (result != WL_OK) return result;
 
 
+  if (config->on_response_terminal != NULL) {
+    if (endpoint->private_state.instance.runtime.rpc_server == NULL) return WL_ERR_INVALID_ARG;
+    if (wl_rpc_server_set_response_observer(endpoint->private_state.instance.runtime.rpc_server, config->on_response_terminal, config->user_data) != WL_RPC_OK) return WL_ERR_INVALID_STATE;
+  }
   result = control_runtime_pump_init(&endpoint->private_state.pump,
       &endpoint->private_state.instance.runtime, control_endpoint_record, endpoint);
   if (result != WL_OK) return result;

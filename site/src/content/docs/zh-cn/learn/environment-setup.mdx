@@ -88,19 +88,17 @@ PowerShell。Rustup 默认把命令安装到 `%USERPROFILE%\.cargo\bin`。
 
 ## 安装匹配的 WLC 编译器
 
-当前 Wirelink 与 WLC 0.6.0、生成代码 ABI 31 配套。使用 Cargo 安装这个确定的源码标签：
+当前开发版与 WLC 0.7.0-dev、生成代码 ABI 32 配套，尚无已发布的 ABI 32 包。
+从本地配套 WLC 源码安装（提交 `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29`）：
 
 ```sh
-cargo install \
-  --git https://github.com/starwey604/wlc.git \
-  --tag v0.6.0 \
-  --locked
+cargo install --path /path/to/paired-wlc --locked
 ```
 
 命令会把 `wlc` 可执行文件放入 Cargo 的二进制目录，通常是 `$HOME/.cargo/bin`。
 CMake 会从主机 `PATH` 中查找它，检查两个兼容性值，然后自动使用它。
 
-:::caution[请使用上面的 Git 安装命令]
+:::caution[请使用上面的本地源码安装命令]
 crates.io 上的 `wlc` 包名属于另一个 Wayland 项目。裸执行 `cargo install wlc` 不会安装
 Wirelink schema 编译器。
 :::
@@ -115,8 +113,8 @@ wlc codegen-abi
 预期输出：
 
 ```text
-wlc 0.6.0
-31
+wlc 0.7.0-dev
+32
 ```
 
 如果系统找不到 `wlc`，请重启终端，并检查 Cargo 的二进制目录是否已经加入 `PATH`。
@@ -174,7 +172,7 @@ cmake --build build/environment-check --config Release --parallel
     'CMake 显示 3.21 或更新版本。',
     'C 与 C++ 编译器可以从终端运行。',
     'Cargo 可以从终端运行。',
-    'WLC 显示版本 0.6.0、生成代码 ABI 31。',
+    'WLC 显示版本 0.7.0-dev、生成代码 ABI 32。',
     'Wirelink 核心构建成功完成。',
   ]}
 />

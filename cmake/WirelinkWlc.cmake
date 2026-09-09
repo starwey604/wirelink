@@ -3,9 +3,9 @@ include_guard(GLOBAL)
 # These values are consumed by functions that may be called from a parent
 # directory after Wirelink itself was added with add_subdirectory(). Keep them
 # in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.6.0" CACHE INTERNAL
+set(WIRELINK_WLC_VERSION "0.7.0-dev" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_ABI "31" CACHE INTERNAL
+set(WIRELINK_WLC_CODEGEN_ABI "32" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Fetch and build pinned WLC source when no matching host compiler is installed" ON)
@@ -61,6 +61,21 @@ function(_wirelink_wlc_validate_executable executable out_valid out_reason)
 
   set(${out_valid} TRUE PARENT_SCOPE)
   set(${out_reason} "" PARENT_SCOPE)
+endfunction()
+
+# Resolve imported files at configure time and refresh edges after edits.
+function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
+  execute_process(COMMAND "${executable}" dependencies "${schema}"
+    RESULT_VARIABLE _result OUTPUT_VARIABLE _inputs ERROR_VARIABLE _error
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT _result STREQUAL "0")
+    message(FATAL_ERROR "Cannot resolve Wirelink schema imports: ${_error}")
+  endif()
+  string(REPLACE "\r\n" "\n" _inputs "${_inputs}")
+  string(REPLACE "\n" ";" _inputs "${_inputs}")
+  # Reconfigure when an import edge changes, then refresh the transitive set.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_inputs})
+  set(${out_dependencies} "${_inputs}" PARENT_SCOPE)
 endfunction()
 
 # Generate one profile-specific runtime target against an existing codec
@@ -149,6 +164,7 @@ function(wirelink_wlc_generate_runtime)
     "${_output_dir}/${_runtime_name}_runtime.c"
     "${_output_dir}/${_runtime_name}_runtime_manifest.json")
   set(_generated_source "${_output_dir}/${_runtime_name}_runtime.c")
+  _wirelink_wlc_schema_dependencies("${_wlc}" "${_schema}" _schema_dependencies)
   set(_manifest
     "${_output_dir}/${_runtime_name}_runtime_manifest.json")
   set(_codegen_stamp
@@ -170,7 +186,7 @@ function(wirelink_wlc_generate_runtime)
       -P "${_manifest_verifier}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${_codegen_stamp}"
     DEPENDS
-      "${_schema}"
+      ${_schema_dependencies}
       ${_profiles}
       "${_wlc}"
       "${_manifest_verifier}"
@@ -363,10 +379,12 @@ function(wirelink_wlc_generate_codec)
   set(_manifest "${_output_dir}/${_module}_manifest.json")
   set(_command
     "${_wlc}" compile "${_schema}" --out-dir "${_output_dir}")
-  set(_depends "${_schema}" "${_wlc}")
+  _wirelink_wlc_schema_dependencies("${_wlc}" "${_schema}" _schema_dependencies)
+  set(_depends ${_schema_dependencies} "${_wlc}")
   if(WLC_PREVIOUS)
     list(APPEND _command --previous "${_previous}")
-    list(APPEND _depends "${_previous}")
+    _wirelink_wlc_schema_dependencies("${_wlc}" "${_previous}" _previous_dependencies)
+    list(APPEND _depends ${_previous_dependencies})
   endif()
   set(_codegen_stamp "${_output_dir}/.${_module}-wlc-codec.stamp")
   set(_manifest_verifier

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(wirelink VERSION 0.6.0 LANGUAGES C)
+project(wirelink VERSION 0.7.0 LANGUAGES C)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -136,6 +136,8 @@ option(WIRELINK_BUILD_EXAMPLES
   "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
 option(WIRELINK_BUILD_GETTING_STARTED
   "Build the WLC-generated UDP tutorials (requires compatible WLC and Asio)" OFF)
+option(WIRELINK_BUILD_COMPOSED_SERVICES
+  "Build the static RPC/telemetry/bulk composition example (requires matching WLC)" OFF)
 option(WIRELINK_BUILD_DOCS
   "Build the Astro/Starlight documentation site" OFF)
 option(WIRELINK_INSTALL

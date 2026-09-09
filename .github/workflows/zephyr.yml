@@ -48,12 +48,12 @@ jobs:
           --outdir twister-out
 
       # Exercise the same generated-code sample used for the H7 clock check.
-      # Build the exact standalone WLC 0.6.0 / ABI 31 host compiler.
+      # Paired development WLC 0.7.0-dev / ABI 32 (publish both repos).
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 9d41a4e8b2109f2fdc3e582b5acff5de0dab9207
+          ref: 18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29
           path: .tools/wlc
 
       - name: Build matching WLC
@@ -63,6 +63,7 @@ jobs:
         run: >-
           west twister
           -T ${{ github.workspace }}/wirelink/samples/zephyr/endpoint_clock
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/composed_services
           -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_usability
           -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_platform
           -T ${{ github.workspace }}/wirelink/samples/zephyr/session

@@ -16,7 +16,7 @@ The [Chinese tutorial](docs/getting-started-cn.md) follows the same sequence.
 Install WLC independently using [environment setup](docs/installation.md)
 ([中文](docs/installation-cn.md)); no nested WLC checkout is required.
 
-The current release is `0.6.0`, a pre-1.0 library using wire protocol v1.
+This development tree is `0.7.0-dev`, a pre-1.0 library using wire protocol v1.
 Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in
@@ -24,13 +24,16 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The tutorials use WLC v0.6.0 / codegen ABI 31: owned RPC business
+The tutorials require matching WLC 0.7.0-dev / codegen ABI 32: static schema
+composition, borrowed direct routes, service lifecycle hooks, and owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
 Managed RPC v2 binds replies to the originating client session; both peers must upgrade.
-Use the matching WLC release described in [installation](docs/installation.md); older release
+Build the matching development WLC described in [installation](docs/installation.md); older release
 assets do not contain this API. Implementation/H7 handoff evidence is recorded in
 [the milestone log](docs/rpc-usability-progress-cn.md).
+See the [RPC/telemetry/bulk composition example](examples/04_composed_services/README.md)
+and [product integration notes](docs/composed-services-cn.md).
 
 ## Documentation path
 

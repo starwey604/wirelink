@@ -95,21 +95,19 @@ then reopen PowerShell. Rustup places installed commands in
 
 ## Install the matching WLC compiler
 
-Wirelink currently pairs with WLC 0.6.0 and codegen ABI 31. Install that exact
-source tag with Cargo:
+This development tree pairs with WLC 0.7.0-dev and codegen ABI 32. There is no
+published ABI 32 archive yet. Install from the matching local WLC checkout
+(paired commit `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29`):
 
 ```sh
-cargo install \
-  --git https://github.com/starwey604/wlc.git \
-  --tag v0.6.0 \
-  --locked
+cargo install --path /path/to/paired-wlc --locked
 ```
 
 This puts the `wlc` executable in Cargo's binary directory, normally
 `$HOME/.cargo/bin`. CMake searches the host `PATH`, checks both compatibility
 values, and uses the executable automatically.
 
-:::caution[Use the Git command above]
+:::caution[Use the local-source command above]
 The `wlc` package name on crates.io belongs to an unrelated Wayland project.
 Running bare `cargo install wlc` does not install the Wirelink schema compiler.
 :::
@@ -124,8 +122,8 @@ wlc codegen-abi
 Expected output:
 
 ```text
-wlc 0.6.0
-31
+wlc 0.7.0-dev
+32
 ```
 
 If `wlc` is not found, restart the terminal and check that Cargo's binary
@@ -182,7 +180,7 @@ which also exercises WLC and Asio.
     'CMake reports version 3.21 or newer.',
     'My C and C++ compilers run from the terminal.',
     'Cargo runs from the terminal.',
-    'WLC reports version 0.6.0 and codegen ABI 31.',
+    'WLC reports version 0.7.0-dev and codegen ABI 32.',
     'The Wirelink core build completes.',
   ]}
 />

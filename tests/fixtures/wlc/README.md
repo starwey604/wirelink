@@ -1,6 +1,8 @@
 # WLC conformance fixture
 
-The current artifacts use development ABI 31; previous artifacts remain frozen.
+The current artifacts use development ABI 32; previous artifacts remain frozen.
+ABI 32 adds static schema imports, borrowed direct RX routes and reliable RPC
+response observation. This fixture retains its original mapped RPC wire format.
 Profile-selected endpoint layouts can omit unused roles/transport buffers. Canonical fingerprints use a generated private
 sink instead of a canonical byte buffer; owned conversion reuses validated decode
 results. These changes do not alter this fixture's mapped RPC, codec bytes or
