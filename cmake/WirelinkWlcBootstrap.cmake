@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: ISC
 include_guard(GLOBAL)
 
-# Last distributable source pair. ABI 30 is currently a local development
-# iteration; require its explicit compiler until a matching source is published.
-set(WIRELINK_WLC_SOURCE_ABI "26" CACHE INTERNAL
+# Published v0.5.0 source pair; digest verified against the remote archive.
+set(WIRELINK_WLC_SOURCE_ABI "30" CACHE INTERNAL
   "Codegen ABI of the last distributed WLC source pair" FORCE)
-set(WIRELINK_WLC_SOURCE_REVISION "c6b6a8fa560a15c45d564aad0afd197b13682de8"
+set(WIRELINK_WLC_SOURCE_REVISION "120b9af130753d2ba0d137882916bfe207d3d312"
   CACHE INTERNAL "Paired WLC source commit" FORCE)
 set(WIRELINK_WLC_SOURCE_SHA256
-  "5cf4b100f0f43fb0a799a7c614d8937f787292f043814e76614f2405ec456e86"
+  "db2d6d62d01a612e7af11eeb80b072c39cbee90146b2de186ddaac94c5b99962"
   CACHE INTERNAL "Paired WLC source archive digest" FORCE)
 
 function(_wirelink_wlc_bootstrap out_executable)

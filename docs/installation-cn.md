@@ -15,10 +15,10 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 当前工作区需要 **WLC 0.5.0、生成 ABI 30**，支持共享 profile 组合、
 按端侧角色/传输裁剪静态内存、只发送声明和共享 handler 上下文。ABI 30 不改变 ABI 26 的线上格式。
-v0.5.0 发布准备为内部 ABI 30 分配了独立版本号；已发布的 v0.4.0 是 ABI 12，不能生成此 API。
-创建本地 tag 不等于远端已发布或已有预编译包。
+v0.5.0 为 ABI 30 分配了独立版本号；已发布的 v0.4.0 是 ABI 12，不能生成此 API。
 
-如果已经拿到配套的内部预编译 WLC，把它解压到一个固定目录，并将可执行文件所在目录
+从 [WLC v0.5.0 发布页](https://github.com/starwey604/wlc/releases/tag/v0.5.0)
+下载对应平台的压缩包和 `SHA256SUMS`，核对 SHA-256 后解压到固定目录，将可执行文件所在目录
 加入 `PATH`。也可以在配置 Wirelink 时显式传入
 `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc`。
 
@@ -31,8 +31,8 @@ cargo build --release --locked
 
 把 `target/release/wlc`（Windows 为 `wlc.exe`）的绝对路径传给 CMake；
 这不会替换系统里已有的工具。WLC 源码与 Wirelink 可以放在不同位置。
-最近的分发快照 `c6b6a8fa560a15c45d564aad0afd197b13682de8` 仍是 ABI 26，
-不能用于此工作区。待本轮源码配对发布后再固定新提交和校验值，不假定远程分支已经更新。
+配套源码提交为 `120b9af130753d2ba0d137882916bfe207d3d312`（`v0.5.0`）。
+请固定这个 tag/提交，而不是跟随持续变化的分支。
 
 ## 3. 检查安装
 
@@ -64,9 +64,10 @@ git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.g
 
 ## 5. 关于自动下载
 
-当前 ABI 30 没有已发布的配套源码，因此自动下载路径会明确报错，不会下载 ABI 26 代替。
-请使用匹配的显式路径或 PATH 工具，建议同时设置 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF`。
-配对发布后才恢复固定提交、SHA-256 校验和主机 Cargo 构建的自动获取流程。
-用户无需复制开发者的 worktree 布局。
+没有显式指定或在 PATH 找到匹配编译器时，CMake 会下载固定提交的 v0.5.0 源码，
+核对 SHA-256，再用主机 Rust/Cargo 构建。结果缓存在 `WIRELINK_WLC_CACHE_DIR`；
+即使设置了固件的 `CARGO_BUILD_TARGET`，WLC 仍按主机平台构建。
+首次获取需要网络和支持 Rust 2024 edition 的工具链。离线构建请提供编译器，
+并设置 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF`。用户无需复制开发者的 worktree 布局。
 
 现在回到 [入门：最新温度显示](getting-started-cn.md)。

@@ -8,12 +8,12 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ### WLC v0.5.0 release pairing
 
-- Merge the accumulated development branches into local main and require WLC
+- Merge the accumulated development branches into main and require WLC
   0.5.0 / codegen ABI 30, removing the ambiguous reuse of version 0.4.0 for
   unpublished ABI changes. Published WLC v0.4.0 provides ABI 12.
-- Preparing a local compiler tag does not publish remote artifacts. Source
-  bootstrap remains guarded until the matching remote archive has been verified;
-  use an explicit matching compiler for local builds.
+- Publish the paired WLC v0.5.0 source and restore automatic host bootstrap
+  with a pinned commit and remotely verified SHA-256. Installed-package CI
+  exercises bootstrap with a firmware Cargo target override.
 
 ### Bounded host owner work
 

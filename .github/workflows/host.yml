@@ -69,12 +69,11 @@ jobs:
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
       - name: Configure WLC package consumer
-        # Use the verified local compiler until its remote source archive has a
-        # verified bootstrap digest. The guarded/offline path is tested below.
+        # Exercise verified source bootstrap independently of the local compiler.
         # A target override must not turn this host tool into firmware code.
         env:
           CARGO_BUILD_TARGET: thumbv7em-none-eabihf
-        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
 
       - name: Verify explicit and offline compiler resolution
         run: cmake -DWIRELINK_SOURCE_DIR=${{ github.workspace }} -DMATCHING_WLC=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }} -DMODE=check -P tests/package/wlc_resolution.cmake

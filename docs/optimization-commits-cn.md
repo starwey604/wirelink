@@ -197,3 +197,15 @@ ABI/实际生成 smoke 通过；全新 Release 主机 CTest 21/21，安装后 WL
 当前 CI/本地消费使用明确的配套编译器；获得推送授权后，先使 WLC 的 C 核心测试提交
 可远端访问，再发布 WLC 源码/tag，核实远端归档摘要并更新 Wirelink source pin、恢复
 自动 bootstrap 验收，最后确认两个 main 和发布工作流。不能把本地 tag 当作已发布包。
+
+### 授权推送后的源码配对
+
+同日获得推送授权后，已推送 Wirelink main、WLC main 和 annotated tag `v0.5.0`，
+触发远端 CI/Release。从 GitHub codeload 实际下载 WLC `120b9af` 归档，SHA-256 为
+`db2d6d62d01a612e7af11eeb80b072c39cbee90146b2de186ddaac94c5b99962`。
+源码 bootstrap 固定到该提交/摘要和 ABI 30，恢复安装消费 CI 的自动获取路径。
+
+本机用全新缓存、安装后的 CMake package，并设置
+`CARGO_BUILD_TARGET=thumbv7em-none-eabihf` 验证远端下载、校验和主机编译；
+生成的主机工具为 WLC 0.5.0 / ABI 30，消费 CTest 6/6 通过。
+日志：`build/publish-h7.RhJgRR/`。这项验收不替代各平台发布 CI 或 H7 通信验证。

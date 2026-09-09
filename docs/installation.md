@@ -16,11 +16,11 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 This tree requires **WLC 0.5.0 with codegen ABI 30**, adding composed
 profiles, profile-selected endpoint layouts and private validated RPC paths. ABI 30 preserves
-ABI 26 wire formats. The v0.5.0 release preparation gives this internal API its own
+ABI 26 wire formats. The v0.5.0 release gives this API its own
 compiler version: published v0.4.0 is ABI 12 and cannot generate this API.
-Creating a local tag does not publish it or create downloadable binaries.
-
-If supplied with a matching internal binary, extract it to a stable location and
+Download your platform's archive and `SHA256SUMS` from the
+[WLC v0.5.0 release](https://github.com/starwey604/wlc/releases/tag/v0.5.0).
+Verify the archive's SHA-256, then extract it to a stable location and
 add its executable directory to `PATH`. Alternatively pass
 `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc` when configuring Wirelink.
 
@@ -34,9 +34,8 @@ cargo build --release --locked
 
 Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
 this does not replace your installed compiler. The checkout can live anywhere.
-The last distributed source snapshot, `c6b6a8fa560a15c45d564aad0afd197b13682de8`,
-is still ABI 26 and cannot generate this API. A new source pin and digest will
-follow paired publication; do not assume the remote branch contains local changes.
+The matching source commit is `120b9af130753d2ba0d137882916bfe207d3d312`
+(`v0.5.0`). Use this tag/commit rather than a moving branch.
 
 ## 3. Verify installation
 
@@ -70,10 +69,11 @@ virtual serial driver.
 
 ## 5. Automatic downloads
 
-ABI 30 currently has no published source pair, so automatic bootstrap fails with
-an explicit diagnostic instead of fetching ABI 26. Supply a matching executable
-explicitly or on PATH; `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` is recommended during this
-development iteration. Pinned-source downloading, SHA-256 verification and host
-Cargo builds resume after paired publication. No consumer needs our worktree layout.
+If no matching compiler is supplied explicitly or on PATH, CMake downloads the
+pinned v0.5.0 source, verifies its SHA-256 and builds a host executable with
+Rust/Cargo. It caches the result under `WIRELINK_WLC_CACHE_DIR`; a firmware
+`CARGO_BUILD_TARGET` does not change the host tool's target. First use needs
+network access and a Rust 2024 toolchain. For offline builds, supply the compiler
+and set `WIRELINK_WLC_AUTO_DOWNLOAD=OFF`. No consumer needs our worktree layout.
 
 Continue with [displaying temperature](getting-started.md).
