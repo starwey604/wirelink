@@ -24,7 +24,7 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The current dev tutorials use unreleased codegen ABI 29: owned RPC business
+The current dev tutorials use unreleased codegen ABI 30: owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
 Managed RPC v2 binds replies to the originating client session; both peers must upgrade.

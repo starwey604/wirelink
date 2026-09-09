@@ -6,6 +6,20 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### Profile-selected endpoint memory (codegen ABI 30)
+
+- Add one local `endpoint { envelope = native_packet; rpc_role = server; }`
+  declaration, composable with shared RPC definitions. Defaults remain any
+  envelope and both roles; duplicate layout declarations are rejected.
+- Size fixed-envelope buffers and omit stream FIFO for packet layouts. Remove
+  opposite-role RPC instances, slots, retained payloads and owned/decode scratch;
+  server-only endpoints omit client submission/sync state. Reject unsupported
+  runtime role/envelope changes instead of restoring storage implicitly.
+- Select separate layouts in the 12-service UDP example without changing business
+  code. Add C/C++ role/envelope/capacity tests; record host and Cortex-M7 static
+  sizes in `docs/endpoint-layout-cn.md`. Keep wire format, ownership, product
+  repositories and release pins unchanged; regenerate paired ABI 30 artifacts.
+
 ### Reliable RPC and telemetry coexistence
 
 - Separate the reliable transaction from physical DATA I/O so unreliable

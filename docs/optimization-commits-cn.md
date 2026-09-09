@@ -137,3 +137,20 @@ H7 运行的是板内受控通道，年龄数字仍为模拟协议时间；它�
 既有 `AGENTS.md` 原样保留且不纳入 Git；独立 `wlc/` 不作为目录或 gitlink 提交。
 `build/` 的原始采样、冻结产物、无效 RTT 记录和日志保留在本机，不删除、不提交。
 阶段文档中的“尚未提交”描述属于采集当时，当前提交状态以本节为准。
+
+## 追加批次：端侧角色与传输的静态内存裁剪
+
+本批次保持两个仓库的 `dev/wirelink-p0-hardening`，不推送、不合并 main、不创建 tag。
+
+| 仓库 / 提交 | 内容 |
+| --- | --- |
+| WLC `d1632f2` | `feat: trim endpoint storage by local role and envelope`：profile 布局声明、角色/封装裁剪、ABI 30、C/C++ 组合测试与生成快照。 |
+| Wirelink `20dda01` | `build: adopt ABI 30 role-specific endpoint layouts`：配套工具检查、current fixture 和 12 RPC 示例端侧 profile。 |
+| 本节所在的文档提交 | `docs: record endpoint layout acceptance and paired commits`：中英文配置说明、尺寸数据、验证与本索引。 |
+
+详细结果见[端点布局裁剪](endpoint-layout-cn.md)：WLC 142 项、主机 20 项、
+Zephyr 12 配置 / 39 用例及相关 Sanitizer 验证。整理提交前重新运行布局与生成快照
+4 项测试，日志为 `build/endpoint-layout.wbBqMM/precommit-tests.log`；不把上一阶段
+完整回归说成此次提交时全部重跑。Cortex-M7 数字是编译布局，不是实板 CPU 测量。
+previous fixture、线上帧格式、业务 C 文件和产品依赖未改变。
+`AGENTS.md`、独立 `wlc/` 和 `build/` 仍按上文边界保留，不纳入 Wirelink 提交。

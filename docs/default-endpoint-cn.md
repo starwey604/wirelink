@@ -1,6 +1,6 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 29；不发布、不合并 main。托管 RPC 元数据使用 v2，
+状态：内部开发，生成 ABI 30；不发布、不合并 main。托管 RPC 元数据使用 v2，
 Compact-v1 帧格式和显式映射消息不变；两端须成对升级。
 入门顺序：[安装](installation-cn.md) → [遥测](getting-started-cn.md) →
 [RPC](tutorial-rpc-cn.md) → [集成](tutorial-integration-cn.md)。[English](default-endpoint.md)。
@@ -56,7 +56,12 @@ ABI 27 保持 ABI 26 的 codec 和线上格式；生成消费者须使用配套 
 
 ## 配置与 RAM
 
-普通 client 能力初始化时就绪；注册 handler 自动启用 server。常规代码无需 enable 角色。
+内存敏感的部署在端侧 profile 中声明一次
+`endpoint { envelope = native_packet; rpc_role = server; }`。
+WLC 移除不需要的传输缓冲和另一侧 RPC 存储，业务 handler 不加开关。
+不声明时保留 `any` / `both`；见[布局配置与尺寸验收](endpoint-layout-cn.md)。
+
+保留的 client 能力初始化时就绪；注册 handler 自动启用 server。常规代码无需 enable 角色。
 默认 native-packet、CRC32C、ACK 等待 100 ms、最多重传 4 次、每轮事件预算 16。
 这些是可覆盖的起点，不是所有设备/链路的最佳参数。
 
@@ -75,7 +80,8 @@ payload 上限包含托管 RPC 20 字节元数据；仅 profile 选中消息参�
 ABI 29 让有界 profile 的 runtime 解码暂存跨服务共用，规范化指纹直接计算，不再预留
 规范化字节缓冲及容量配置。分发不能重入；延迟 handler 保存自持输入和 token，不能保存暂存区指针。
 含无界消息的高级 runtime 保留逐服务解码对象，避免覆盖用户配置的 repeated backing。
-可靠链路仍只有一个 TX 槽。近 2 KiB 响应会显著增大 endpoint，见[实施记录](rpc-usability-progress-cn.md)。
+可靠事务仍为单窗口；等待 ACK 时不再独占物理 DATA 发送资源。
+近 2 KiB 响应会显著增大 endpoint，见[布局裁剪](endpoint-layout-cn.md)。
 选中消息无界或超过单帧能力时 `HAS_DEFAULT_ENDPOINT=0`，应收敛 schema 或使用高级装配。
 
 ## 调度、诊断与关闭

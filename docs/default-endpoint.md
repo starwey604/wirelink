@@ -1,6 +1,6 @@
 # Default endpoint: design and boundaries
 
-Internal development, codegen ABI 29. No release or main merge. Managed RPC uses
+Internal development, codegen ABI 30. No release or main merge. Managed RPC uses
 metadata v2 and requires paired upgrades; Compact-v1 framing and mapped payloads stay unchanged.
 Read [installation](installation.md), [telemetry](getting-started.md),
 [RPC](tutorial-rpc.md), then [integration](tutorial-integration.md).
@@ -27,6 +27,11 @@ input, TX completion, wakeup and quiescence. Applications provide business logic
 and scheduling. Core owns no heap, thread or OS clock.
 
 ## Ordinary RPC contract
+
+Deployment profiles may select a fixed envelope and local RPC role to trim
+storage: [endpoint layout configuration](endpoint-layout.md). Omitted layout
+properties retain `any` / `both`; client-only configs omit server handlers, and
+server-only ordinary headers omit client call helpers.
 
 `endpoint_<service>_async(endpoint, request, timeout, callback, context, optional_call)`
 snapshots the request before acceptance. WL_OK means accepted; WL_ERR_BUSY means
@@ -80,7 +85,8 @@ original deadline. No new remote BUSY frame or fabricated rejection is introduce
 Set `<PREFIX>_ENDPOINT_RPC_CAPACITY=1` at build time to reduce static capacity,
 consistently across every translation unit using that endpoint. Runtime counts
 cannot exceed it. `config.advanced` and `config.link` are expert overrides.
-Queues are bounded and the link still has a single TX slot.
+Queues are bounded and reliable transactions remain single-window; waiting for
+an ACK no longer reserves the physical DATA transmitter exclusively.
 
 Only selected messages contribute to storage; managed metadata adds 20 bytes.
 Request queues use the largest request bound, not the largest response bound.

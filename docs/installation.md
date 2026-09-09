@@ -14,8 +14,8 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-This development tree requires **WLC 0.4.0 with codegen ABI 29**, adding composed
-profiles, send-only bindings, shared handler context and private validated RPC paths. ABI 29 preserves
+This development tree requires **WLC 0.4.0 with codegen ABI 30**, adding composed
+profiles, profile-selected endpoint layouts and private validated RPC paths. ABI 30 preserves
 ABI 26 wire formats. No matching source snapshot, binary or tag has been published
 for this iteration; an older same-version release is not sufficient.
 
@@ -44,7 +44,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.4.0` and `29` from the executable you will pass to CMake.
+Expect `wlc 0.4.0` and `30` from the executable you will pass to CMake.
 Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
@@ -69,7 +69,7 @@ virtual serial driver.
 
 ## 5. Automatic downloads
 
-ABI 29 currently has no published source pair, so automatic bootstrap fails with
+ABI 30 currently has no published source pair, so automatic bootstrap fails with
 an explicit diagnostic instead of fetching ABI 26. Supply a matching executable
 explicitly or on PATH; `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` is recommended during this
 development iteration. Pinned-source downloading, SHA-256 verification and host
