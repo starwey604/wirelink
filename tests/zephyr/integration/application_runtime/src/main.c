@@ -195,7 +195,6 @@ ZTEST(wirelink_application_runtime,
   config.rpc_server_pending_slot_count = 2U;
   config.rpc_server_cache_slot_count = 2U;
   config.rpc_server_response_capacity = 32U;
-  config.home_canonical_request_capacity = 32U;
 
   memset(&requirements_instance, 0xA5, sizeof(requirements_instance));
   memset(&requirements_storage, 0, sizeof(requirements_storage));
@@ -477,7 +476,6 @@ static void rpc_init(void) {
   server_config.rpc_server_cache_slot_count = 1U;
   server_config.rpc_server_response_capacity = 32U;
   server_config.rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
-  server_config.home_canonical_request_capacity = 32U;
   server_config.home_request_handler = handle_home_request;
   server_config.home_user_data = &rpc_server;
 
@@ -493,11 +491,6 @@ static void rpc_init(void) {
                 &rpc_server.instance.rpc_server);
   zassert_equal(rpc_server.instance.runtime.home.request_scratch,
                 &rpc_server.instance.home_scratch.request);
-  zassert_not_null(
-      rpc_server.instance.runtime.home.canonical_request_scratch.data);
-  zassert_equal(
-      rpc_server.instance.runtime.home.canonical_request_scratch.capacity,
-      server_config.home_canonical_request_capacity);
   zassert_equal(rpc_server.instance.runtime.home.request_handler,
                 handle_home_request);
   zassert_equal(rpc_server.instance.runtime.home.user_data, &rpc_server);

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: ISC
 include_guard(GLOBAL)
 
-# Internal ABI 26 has no matching release binary. Pin the source archive as
-# well as its commit; never silently accept an older same-version release.
+# Last distributable source pair. ABI 29 is currently a local development
+# iteration; require its explicit compiler until a matching source is published.
+set(WIRELINK_WLC_SOURCE_ABI "26" CACHE INTERNAL
+  "Codegen ABI of the last distributed WLC source pair" FORCE)
 set(WIRELINK_WLC_SOURCE_REVISION "c6b6a8fa560a15c45d564aad0afd197b13682de8"
   CACHE INTERNAL "Paired WLC source commit" FORCE)
 set(WIRELINK_WLC_SOURCE_SHA256
@@ -10,6 +12,12 @@ set(WIRELINK_WLC_SOURCE_SHA256
   CACHE INTERNAL "Paired WLC source archive digest" FORCE)
 
 function(_wirelink_wlc_bootstrap out_executable)
+  if(NOT WIRELINK_WLC_SOURCE_ABI STREQUAL WIRELINK_WLC_CODEGEN_ABI)
+    message(FATAL_ERROR
+      "WLC development ABI ${WIRELINK_WLC_CODEGEN_ABI} has no published source pair yet. "
+      "Build the matching development compiler and set WIRELINK_WLC_EXECUTABLE. "
+      "The pinned ABI ${WIRELINK_WLC_SOURCE_ABI} compiler cannot generate this API.")
+  endif()
   find_program(_cargo NAMES cargo NO_CMAKE_FIND_ROOT_PATH)
   find_program(_rustc NAMES rustc NO_CMAKE_FIND_ROOT_PATH)
   if(NOT _cargo OR NOT _rustc)

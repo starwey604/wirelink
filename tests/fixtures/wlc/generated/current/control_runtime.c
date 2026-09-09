@@ -31,22 +31,11 @@ const char *control_runtime_result_str(const control_runtime_result_t *result) {
   }
 }
 
-static uint64_t control_rpc_request_fingerprint(const uint8_t *data, size_t length) {
-  static const uint8_t domain[] = "wlc.rpc.canonical-request.v1";
-  uint64_t hash = UINT64_C(0xcbf29ce484222325);
-  size_t index;
-  for (index = 0U; index + 1U < sizeof(domain); ++index) {
-    hash ^= (uint64_t)domain[index];
-    hash *= UINT64_C(0x00000100000001b3);
-  }
-  hash ^= UINT64_C(0xff);
-  hash *= UINT64_C(0x00000100000001b3);
-  for (index = 0U; index < length; ++index) {
-    hash ^= (uint64_t)data[index];
-    hash *= UINT64_C(0x00000100000001b3);
-  }
-  return hash;
-}
+static const uint64_t control_rpc_fingerprint_seed = UINT64_C(0x24faaea3493c1c2e);
+wl_codec_status_t home_request_wlc_detail_fingerprint(const home_request_t *, uint64_t *, size_t *);
+#if HOME_REQUEST_HAS_VALUE
+void home_request_wlc_detail_value_copy(const home_request_t *, home_request_value_t *);
+#endif
 
 static void control_runtime_cancel_peer_tx(void *context, wl_tx_handle_t handle) {
   if (context != NULL) (void)wl_tx_cancel((wl_ctx_t *)context, handle);
@@ -64,7 +53,6 @@ wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
   config->rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
   config->rpc_client_response_capacity = 12U;
   config->rpc_server_response_capacity = 12U;
-  config->home_canonical_request_capacity = 12U;
   return WL_OK;
 }
 
@@ -78,7 +66,6 @@ wl_err_t control_runtime_config_enable_client(control_runtime_config_t *config) 
 wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
   if (config->rpc_server_pending_slot_count == 0U || config->rpc_server_cache_slot_count == 0U || config->rpc_server_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
-  if (config->home_canonical_request_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
   config->rpc_server_enabled = 1U;
   return WL_OK;
 }
@@ -102,7 +89,6 @@ const char *control_runtime_init_issue_str(control_runtime_init_issue_t issue) {
     case CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY: return "RPC server capacity is zero";
     case CONTROL_RUNTIME_INIT_RPC_TIMEOUT: return "RPC timeout exceeds wrap-safe range";
     case CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY: return "unknown RPC cache policy";
-    case CONTROL_RUNTIME_INIT_RPC_CANONICAL_CAPACITY: return "canonical request capacity is zero";
     case CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW: return "runtime layout size overflow";
     case CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL: return "runtime storage is too small";
     case CONTROL_RUNTIME_INIT_STORAGE_NULL: return "runtime storage data is null";
@@ -139,10 +125,9 @@ typedef struct {
   void *rpc_server_cache_slots;
   void *rpc_server_responses;
   size_t rpc_server_responses_size;
-  void *home_canonical_request_storage;
 } control_runtime_layout_t;
 
-static int control_runtime_storage_region(control_runtime_storage_cursor_t *cursor, size_t alignment, size_t count, size_t element_size, void **out_data, size_t *out_size) {
+static inline int control_runtime_storage_region(control_runtime_storage_cursor_t *cursor, size_t alignment, size_t count, size_t element_size, void **out_data, size_t *out_size) {
   size_t aligned;
   size_t region_size;
   if (cursor == NULL || alignment == 0U || (alignment & (alignment - 1U)) != 0U) return WL_ERR_INVALID_ARG;
@@ -206,9 +191,6 @@ static int control_runtime_layout(const control_runtime_config_t *config, uint8_
     if (result != WL_OK) return result;
     result = control_runtime_storage_region(&cursor, 1U, config->rpc_server_cache_slot_count, config->rpc_server_response_capacity, out_layout == NULL ? NULL : &out_layout->rpc_server_responses, out_layout == NULL ? NULL : &out_layout->rpc_server_responses_size);
     if (result != WL_OK) return result;
-    if (config->home_canonical_request_capacity == 0U) return WL_ERR_INVALID_ARG;
-    result = control_runtime_storage_region(&cursor, 1U, 1U, config->home_canonical_request_capacity, out_layout == NULL ? NULL : &out_layout->home_canonical_request_storage, NULL);
-    if (result != WL_OK) return result;
   }
   if (out_requirements != NULL) {
     out_requirements->storage_size = cursor.offset;
@@ -243,7 +225,6 @@ static int control_runtime_init_validate(const control_runtime_instance_t *insta
   if (config->rpc_server_enabled != 0U && config->rpc_server_pending_timeout_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_pending_timeout_ms", UINT32_C(0x7fffffff), config->rpc_server_pending_timeout_ms, WL_ERR_INVALID_ARG);
   if (config->rpc_server_enabled != 0U && config->rpc_server_cache_ttl_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_cache_ttl_ms", UINT32_C(0x7fffffff), config->rpc_server_cache_ttl_ms, WL_ERR_INVALID_ARG);
   if (config->rpc_server_enabled != 0U && config->rpc_server_cache_policy != WL_RPC_CACHE_REJECT_NEW && config->rpc_server_cache_policy != WL_RPC_CACHE_EVICT_OLDEST) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY, "rpc_server_cache_policy", 0U, (size_t)config->rpc_server_cache_policy, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->home_canonical_request_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CANONICAL_CAPACITY, "home_canonical_request_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
   result = control_runtime_requirements(config, requirements);
   if (result != WL_OK) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW, "config", 0U, 0U, result);
   if (storage->size < requirements->storage_size) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL, "storage.size", requirements->storage_size, storage->size, WL_ERR_BUF_TOO_SMALL);
@@ -342,8 +323,6 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
   }
   if (config->rpc_server_enabled != 0U) {
     instance->runtime.home.request_scratch = &instance->home_scratch.request;
-    instance->runtime.home.canonical_request_scratch.data = (uint8_t *)layout.home_canonical_request_storage;
-    instance->runtime.home.canonical_request_scratch.capacity = config->home_canonical_request_capacity;
     instance->runtime.home.request_handler = config->home_request_handler;
     instance->runtime.home.user_data = config->home_user_data;
   }
@@ -625,7 +604,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       break;
     }
     case HOME_REQUEST_MESSAGE_ID: {
-      wl_rpc_request_identity_t identity = {0};
+      wl_rpc_request_identity_t identity = {.request_fingerprint = control_rpc_fingerprint_seed};
       wl_rpc_server_request_t server_request = {0};
       wl_rpc_server_response_t replay = {0};
       size_t canonical_length = 0U;
@@ -647,7 +626,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
         }
         if (observation.changed != 0U) result.detail.rpc.peer_changed = 1U;
       }
-      if (runtime->home.request_scratch == NULL || runtime->home.canonical_request_scratch.data == NULL) {
+      if (runtime->home.request_scratch == NULL) {
         result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;
         break;
       }
@@ -662,7 +641,7 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
         break;
       }
       result.detail.rpc.operation_id = runtime->home.request_scratch->operation_id;
-      result.detail.rpc.codec_status = home_request_encode(runtime->home.request_scratch, runtime->home.canonical_request_scratch.data, runtime->home.canonical_request_scratch.capacity, &canonical_length);
+      result.detail.rpc.codec_status = home_request_wlc_detail_fingerprint(runtime->home.request_scratch, &identity.request_fingerprint, &canonical_length);
       if (result.detail.rpc.codec_status != WL_CODEC_OK) {
         result.domain = CONTROL_RUNTIME_CODEC_ERROR;
         break;
@@ -671,7 +650,6 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       identity.operation_id = result.detail.rpc.operation_id;
       identity.request_message_id = HOME_REQUEST_MESSAGE_ID;
       identity.response_message_id = HOME_RESPONSE_MESSAGE_ID;
-      identity.request_fingerprint = control_rpc_request_fingerprint(runtime->home.canonical_request_scratch.data, canonical_length);
       identity.peer_session_id = event->peer_session_id;
       result.detail.rpc.rpc_result = wl_rpc_server_begin(runtime->rpc_server, &identity, now_ms, &result.detail.rpc.rpc_disposition, &server_request, &replay);
       if (result.detail.rpc.rpc_result != WL_RPC_OK) {

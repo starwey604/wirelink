@@ -1,6 +1,6 @@
 # 默认端点：设计与边界
 
-状态：内部开发，生成 ABI 26；不发布、不合并 main。托管 RPC 元数据升至 v2，
+状态：内部开发，生成 ABI 29；不发布、不合并 main。托管 RPC 元数据使用 v2，
 Compact-v1 帧格式和显式映射消息不变；两端须成对升级。
 入门顺序：[安装](installation-cn.md) → [遥测](getting-started-cn.md) →
 [RPC](tutorial-rpc-cn.md) → [集成](tutorial-integration-cn.md)。[English](default-endpoint.md)。
@@ -37,9 +37,22 @@ WLC 为有界、单帧 profile 生成 `<runtime>_endpoint.h`。
 有界 string/bytes 用 `length` 和内嵌 `data[]`，字符串长度是字节数。
 
 `config.on_<service>` 注册即时 handler：接收 const request、填写 response，返回 0
-表示成功，非零仅表示业务拒绝。可选 `<service>_user_data` 不承担框架回包职责。
+表示成功，非零仅表示业务拒绝。普通 handler 和诊断共用 `config.user_data`；
+非 NULL 的 `config.<service>_user_data` 可覆盖单个服务，NULL 表示继承。
+这些上下文不承担框架回包职责。高级 handler 和单次完成回调仍显式指定上下文，不隐式继承。
 需要慢任务时显式选择 `config.advanced.<service>_request_handler` 的延迟 token 模式；
 同一个服务不能同时注册两种 handler。
+
+## 随业务增加 RPC
+
+RPC 定义只保留在一份共享 profile 中，通过 CMake `PROFILES` 或重复的 WLC `--profile`
+与端侧路由组合。文件顺序不形成覆盖关系；重复声明和冲突直接报错。
+`send Message` 生成发送助手并参与 payload 容量推导，不创建接收邮箱；
+对端独立选择 `latest` 或 `fifo` 接收。
+
+[12 个设备服务示例](../examples/03_device_service/README-cn.md)展示按业务模块注册 handler，
+并实际验证新增第 13 个服务无需修改传输、主循环、构建规则或其他 handler。
+ABI 27 保持 ABI 26 的 codec 和线上格式；生成消费者须使用配套 WLC 重新构建。
 
 ## 配置与 RAM
 
@@ -59,6 +72,9 @@ TTL 是最长保留时间，不保证整个窗口不淘汰。严格保留使用
 
 payload 上限包含托管 RPC 20 字节元数据；仅 profile 选中消息参与计算。
 队列按最大请求而非最大响应预留；多个服务共用最大请求/响应暂存 union。
+ABI 29 让有界 profile 的 runtime 解码暂存跨服务共用，规范化指纹直接计算，不再预留
+规范化字节缓冲及容量配置。分发不能重入；延迟 handler 保存自持输入和 token，不能保存暂存区指针。
+含无界消息的高级 runtime 保留逐服务解码对象，避免覆盖用户配置的 repeated backing。
 可靠链路仍只有一个 TX 槽。近 2 KiB 响应会显著增大 endpoint，见[实施记录](rpc-usability-progress-cn.md)。
 选中消息无界或超过单帧能力时 `HAS_DEFAULT_ENDPOINT=0`，应收敛 schema 或使用高级装配。
 

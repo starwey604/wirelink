@@ -13,27 +13,25 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 ## 2. 获取与 Wirelink 匹配的 WLC
 
-当前教程需要下文固定提交的 **WLC 0.4.0、生成 ABI 26**，包括初始化时配置时钟、
-`@delivery(...)` 和默认可靠语法。ABI 26 增加自动身份，托管 RPC 元数据升级为 v2，
-两端须配套升级；普通 schema 编码、显式映射 RPC 和 Compact-v1 帧格式不变。
-这不表示旧的同版本发行包已经包含新功能。此轮没有发布新包或新 tag。
+当前开发工作区需要 **WLC 0.4.0、生成 ABI 29**，支持共享 profile 组合、
+只发送消息声明和普通 handler 共用上下文。ABI 29 不改变 ABI 26 的线上格式。
+此轮尚未发布配套源码快照、预编译包或 tag；已发布的同版本工具不一定匹配。
 
 如果已经拿到配套的内部预编译 WLC，把它解压到一个固定目录，并将可执行文件所在目录
 加入 `PATH`。也可以在配置 Wirelink 时显式传入
 `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc`。
 
-没有匹配的预编译程序时，在任意工作目录单独获取 WLC 源码并安装：
+没有匹配的预编译程序时，请先取得本轮配套的 **WLC 开发源码**，再在其目录构建：
 
 ```sh
-git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout c6b6a8fa560a15c45d564aad0afd197b13682de8
-cargo install --path wlc-source --locked --force
+cargo build --release --locked
+./target/release/wlc codegen-abi
 ```
 
-这会把 `wlc` 安装到 Cargo 的可执行程序目录。确保该目录在 `PATH` 中。
-`--force` 会替换那里原有的 WLC；需要并存时用 Cargo 的 `--root` 指定独立安装目录，
-再将对应的可执行文件路径传给 CMake。`wlc-source` 与 Wirelink 项目可以放在不同位置。
-开发分支会继续演进，可复现构建应记录实际使用的 WLC 提交，而不是长期追踪分支头。
+把 `target/release/wlc`（Windows 为 `wlc.exe`）的绝对路径传给 CMake；
+这不会替换系统里已有的工具。WLC 源码与 Wirelink 可以放在不同位置。
+最近的分发快照 `c6b6a8fa560a15c45d564aad0afd197b13682de8` 仍是 ABI 26，
+不能用于此工作区。待本轮源码配对发布后再固定新提交和校验值，不假定远程分支已经更新。
 
 ## 3. 检查安装
 
@@ -42,7 +40,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-本轮期望分别输出 `wlc 0.4.0` 和 `26`。
+本轮期望分别输出 `wlc 0.4.0` 和 `28`。请检查将传给 CMake 的那个可执行文件。
 ABI 是生成 C 接口与布局的修订编号，不是线上协议版本。
 托管与旧映射 RPC 的 payload 格式不同；托管 v1/v2 也不互通。
 必须一起重建核心和生成消费者，并成对部署通信双方。
@@ -65,13 +63,9 @@ git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.g
 
 ## 5. 关于自动下载
 
-若没有匹配的显式路径或 PATH 工具，默认 CMake 会获取上文固定提交的源码压缩包，
-校验 SHA-256，再用主机 Rust/Cargo 和锁定依赖构建 WLC。缓存位于
-`WIRELINK_WLC_CACHE_DIR`，按源码提交及主机架构隔离；交叉编译固件不会生成板端 WLC。
-这条路径需要主机 Rust/Cargo（支持 Rust 2024 edition）及首次获取源码/依赖的网络连接，
-不使用旧 ABI 的同版本 release 包，不在系统目录安装工具。
-
-教程仍展示显式安装路径，便于离线和版本并存。设置 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF`
-可禁止自动获取/构建；此时必须提供匹配的 WLC。用户无需复制开发者的 worktree 布局。
+当前 ABI 29 没有已发布的配套源码，因此自动下载路径会明确报错，不会下载 ABI 26 代替。
+请使用匹配的显式路径或 PATH 工具，建议同时设置 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF`。
+配对发布后才恢复固定提交、SHA-256 校验和主机 Cargo 构建的自动获取流程。
+用户无需复制开发者的 worktree 布局。
 
 现在回到 [入门：最新温度显示](getting-started-cn.md)。

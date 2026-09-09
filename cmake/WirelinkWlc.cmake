@@ -5,7 +5,7 @@ include_guard(GLOBAL)
 # in the global CMake cache so function call-site scope cannot hide them.
 set(WIRELINK_WLC_VERSION "0.4.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_ABI "26" CACHE INTERNAL
+set(WIRELINK_WLC_CODEGEN_ABI "29" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Fetch and build pinned WLC source when no matching host compiler is installed" ON)
@@ -75,7 +75,7 @@ function(wirelink_wlc_generate_runtime)
     OUTPUT_DIR
     RUNTIME_NAME)
   cmake_parse_arguments(WLC
-    "${_options}" "${_one_value_args}" "" ${ARGN})
+    "${_options}" "${_one_value_args}" "PROFILES" ${ARGN})
 
   if(WLC_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR
@@ -93,8 +93,11 @@ function(wirelink_wlc_generate_runtime)
     message(FATAL_ERROR
       "wirelink_wlc_generate_runtime requires an existing CODEC_TARGET")
   endif()
-  if(NOT WLC_PROFILE)
-    message(FATAL_ERROR "wirelink_wlc_generate_runtime requires PROFILE")
+  if(WLC_PROFILE AND WLC_PROFILES)
+    message(FATAL_ERROR "Use PROFILE or PROFILES, not both")
+  endif()
+  if(NOT WLC_PROFILE AND NOT WLC_PROFILES)
+    message(FATAL_ERROR "wirelink_wlc_generate_runtime requires PROFILE or PROFILES")
   endif()
 
   get_target_property(_schema "${WLC_CODEC_TARGET}" WIRELINK_WLC_SCHEMA)
@@ -110,11 +113,17 @@ function(wirelink_wlc_generate_runtime)
       "wirelink_wlc_generate_codec")
   endif()
 
-  get_filename_component(_profile "${WLC_PROFILE}" ABSOLUTE
-    BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-  if(NOT EXISTS "${_profile}")
-    message(FATAL_ERROR "Wirelink binding profile does not exist: ${_profile}")
-  endif()
+  set(_profiles)
+  set(_profile_args)
+  foreach(_input IN LISTS WLC_PROFILE WLC_PROFILES)
+    get_filename_component(_profile "${_input}" ABSOLUTE
+      BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(NOT EXISTS "${_profile}")
+      message(FATAL_ERROR "Wirelink binding profile does not exist: ${_profile}")
+    endif()
+    list(APPEND _profiles "${_profile}")
+    list(APPEND _profile_args --profile "${_profile}")
+  endforeach()
   if(WLC_RUNTIME_NAME)
     set(_runtime_name "${WLC_RUNTIME_NAME}")
   else()
@@ -151,7 +160,7 @@ function(wirelink_wlc_generate_runtime)
     BYPRODUCTS ${_generated}
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output_dir}"
     COMMAND "${_wlc}" compile-runtime "${_schema}"
-      --profile "${_profile}"
+      ${_profile_args}
       --runtime-name "${_runtime_name}"
       --out-dir "${_output_dir}"
     COMMAND "${CMAKE_COMMAND}"
@@ -162,7 +171,7 @@ function(wirelink_wlc_generate_runtime)
     COMMAND "${CMAKE_COMMAND}" -E touch "${_codegen_stamp}"
     DEPENDS
       "${_schema}"
-      "${_profile}"
+      ${_profiles}
       "${_wlc}"
       "${_manifest_verifier}"
     COMMENT "Generating Wirelink runtime ${_runtime_name}"
@@ -183,7 +192,7 @@ function(wirelink_wlc_generate_runtime)
   set_property(TARGET "${WLC_TARGET}" PROPERTY
     WIRELINK_WLC_SCHEMA "${_schema}")
   set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_PROFILE "${_profile}")
+    WIRELINK_WLC_PROFILE "${_profiles}")
   set_property(TARGET "${WLC_TARGET}" PROPERTY
     WIRELINK_WLC_EXECUTABLE "${_wlc}")
   set_property(TARGET "${WLC_TARGET}" PROPERTY

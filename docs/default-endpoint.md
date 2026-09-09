@@ -1,6 +1,6 @@
 # Default endpoint: design and boundaries
 
-Internal development, codegen ABI 26. No release or main merge. Managed RPC uses
+Internal development, codegen ABI 29. No release or main merge. Managed RPC uses
 metadata v2 and requires paired upgrades; Compact-v1 framing and mapped payloads stay unchanged.
 Read [installation](installation.md), [telemetry](getting-started.md),
 [RPC](tutorial-rpc.md), then [integration](tutorial-integration.md).
@@ -42,9 +42,25 @@ and inline data arrays; string length is in bytes.
 
 Register `config.on_<service>` for an immediate handler taking const request and
 mutable response. Return zero for success, nonzero solely for business rejection.
-Optional `<service>_user_data` is business context, not reply machinery.
+Ordinary handlers and diagnostics share `config.user_data`. A non-NULL
+`config.<service>_user_data` overrides it for one service; NULL inherits.
+These are business contexts, not reply machinery. Deferred handlers and per-call
+completions retain explicit contexts and do not inherit the shared pointer.
 Long-running work explicitly selects the advanced deferred-token handler under
 `config.advanced.<service>_request_handler`; registering both forms is an error.
+
+## Growing a service collection
+
+Keep RPC declarations in one shared profile and combine them with endpoint-local
+routes using CMake `PROFILES` or repeated WLC `--profile`. Order does not override
+definitions: duplicates and conflicts fail generation. A `send Message` binding
+generates sending and contributes to payload bounds without a receive mailbox;
+the receiving endpoint independently selects `latest` or `fifo`.
+
+The [12-service example](../examples/03_device_service/README.md) shows module-local
+handler registration and tests adding a thirteenth service without editing the
+transport, owner loop, build rules or other handlers. ABI 27 leaves ABI 26 codec
+and wire bytes unchanged; generated consumers must be rebuilt with matching WLC.
 
 ## Defaults and RAM
 
@@ -68,7 +84,11 @@ Queues are bounded and the link still has a single TX slot.
 
 Only selected messages contribute to storage; managed metadata adds 20 bytes.
 Request queues use the largest request bound, not the largest response bound.
-Services share a largest-request/response scratch union. Near-2-KiB responses
+Services share a largest-request/response scratch union and bounded runtime decode
+scratch across services. ABI 29 computes canonical fingerprints without a separate
+canonical-request byte buffer. Dispatch must not reenter; deferred work copies
+inputs and tokens, not scratch pointers. Unbounded profiles retain per-service
+decode objects for caller-configured repeated backing. Near-2-KiB responses
 substantially enlarge endpoints; see the [implementation record](rpc-usability-progress-cn.md).
 Unbounded/oversized selections emit HAS_DEFAULT_ENDPOINT=0 rather than silently
 inventing storage. Constrain the schema or choose advanced assembly.

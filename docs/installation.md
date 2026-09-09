@@ -14,29 +14,28 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-Use the pinned **WLC 0.4.0 with codegen ABI 26** revision below, including
-initialization-time endpoint clocks, `@delivery(...)`, and default RPC reliability.
-ABI 26 adds automatic identities and managed RPC metadata v2; upgrade both peers.
-Business codec bytes, mapped RPC and Compact-v1 frame format are unchanged.
-No new package or tag is published by this iteration.
+This development tree requires **WLC 0.4.0 with codegen ABI 29**, adding composed
+profiles, send-only bindings, shared handler context and private validated RPC paths. ABI 29 preserves
+ABI 26 wire formats. No matching source snapshot, binary or tag has been published
+for this iteration; an older same-version release is not sufficient.
 
 If supplied with a matching internal binary, extract it to a stable location and
 add its executable directory to `PATH`. Alternatively pass
 `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc` when configuring Wirelink.
 
-Without a matching binary, independently obtain and install the WLC source:
+Without a matching binary, first obtain the matching **development WLC source**,
+then build in that independent checkout:
 
 ```sh
-git clone --branch dev/wirelink-p0-hardening https://github.com/starwey604/wlc.git wlc-source
-git -C wlc-source checkout c6b6a8fa560a15c45d564aad0afd197b13682de8
-cargo install --path wlc-source --locked --force
+cargo build --release --locked
+./target/release/wlc codegen-abi
 ```
 
-Cargo installs `wlc` in its binary directory; ensure that directory is on `PATH`.
-`--force` replaces an existing WLC there. Use Cargo's `--root` for a separate
-installation and pass its executable explicitly if versions must coexist.
-The source directory can be anywhere, independent of Wirelink. Record the exact
-WLC commit for reproducible development builds instead of tracking a moving branch.
+Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
+this does not replace your installed compiler. The checkout can live anywhere.
+The last distributed source snapshot, `c6b6a8fa560a15c45d564aad0afd197b13682de8`,
+is still ABI 26 and cannot generate this API. A new source pin and digest will
+follow paired publication; do not assume the remote branch contains local changes.
 
 ## 3. Verify installation
 
@@ -45,7 +44,8 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.4.0` and `26`. Codegen ABI identifies generated C interfaces/layouts,
+Expect `wlc 0.4.0` and `29` from the executable you will pass to CMake.
+Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
 rebuild core and generated consumers together. A missing command or
@@ -69,16 +69,10 @@ virtual serial driver.
 
 ## 5. Automatic downloads
 
-Without a matching explicit or PATH executable, CMake fetches the pinned source
-archive above, verifies its SHA-256, and builds WLC with host Rust/Cargo and locked
-dependencies. `WIRELINK_WLC_CACHE_DIR` separates builds by source commit and host
-triple; firmware cross-compilation never produces a target-device WLC.
-This fallback needs Rust/Cargo supporting edition 2024 and network access for
-the initial source/dependency fetch. It neither accepts an older same-version
-release binary nor installs a tool into system directories.
-
-Tutorials still show explicit installation for offline and side-by-side use.
-`WIRELINK_WLC_AUTO_DOWNLOAD=OFF` disables automatic fetching/building and requires
-a matching supplied compiler. No consumer needs our worktree layout.
+ABI 29 currently has no published source pair, so automatic bootstrap fails with
+an explicit diagnostic instead of fetching ABI 26. Supply a matching executable
+explicitly or on PATH; `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` is recommended during this
+development iteration. Pinned-source downloading, SHA-256 verification and host
+Cargo builds resume after paired publication. No consumer needs our worktree layout.
 
 Continue with [displaying temperature](getting-started.md).

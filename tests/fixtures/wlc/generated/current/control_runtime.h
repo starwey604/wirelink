@@ -20,7 +20,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 26U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 29U
 
 #define CONTROL_RPC_REQUEST_FINGERPRINT_ALGORITHM "fnv1a64-canonical-request-v1"
 
@@ -126,7 +126,6 @@ typedef int32_t (*control_home_rpc_request_handler_fn)(void *user_data, const ho
 typedef struct {
   home_request_t *request_scratch;
   home_response_t *response_scratch;
-  control_encode_scratch_t canonical_request_scratch;
   control_home_rpc_request_handler_fn request_handler;
   void *user_data;
 } control_home_rpc_t;
@@ -193,7 +192,6 @@ typedef struct {
   uint32_t rpc_server_pending_timeout_ms;
   uint32_t rpc_server_cache_ttl_ms;
   wl_rpc_cache_policy_t rpc_server_cache_policy;
-  size_t home_canonical_request_capacity;
   control_home_rpc_request_handler_fn home_request_handler;
   void *home_user_data;
 } control_runtime_config_t;
@@ -223,7 +221,6 @@ typedef union {
    12U + \
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
-   12U + \
    12U)
 
 typedef union {
@@ -231,6 +228,7 @@ typedef union {
   uint8_t bytes[CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY];
 } control_runtime_default_storage_t;
 
+typedef union { home_request_t request; home_response_t response; } control_runtime_home_decode_detail_t;
 typedef struct {
   size_t storage_size;
   size_t storage_alignment;
@@ -248,8 +246,11 @@ typedef struct {
   wl_rpc_client_t rpc_client;
   wl_rpc_server_t rpc_server;
   control_runtime_rpc_encode_scratch_t rpc_encode_scratch;
-  /* Dispatch is serialized; request and response decode scratch lifetimes do not overlap. */
-  union { home_request_t request; home_response_t response; } home_scratch;
+  /* One dispatch at a time: bounded services share decode scratch.
+   * Views are callback-scoped; deferred work must copy its input. */
+  union {
+    control_runtime_home_decode_detail_t home_scratch;
+  };
 } control_runtime_instance_t;
 
 typedef int32_t control_runtime_init_issue_t;
@@ -262,7 +263,6 @@ enum {
   CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY,
   CONTROL_RUNTIME_INIT_RPC_TIMEOUT,
   CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY,
-  CONTROL_RUNTIME_INIT_RPC_CANONICAL_CAPACITY,
   CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW,
   CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL,
   CONTROL_RUNTIME_INIT_STORAGE_NULL,
@@ -364,6 +364,8 @@ typedef struct {
 
   size_t event_budget;
   control_runtime_result_fn on_result;
+  /* Shared context for on_result and ordinary on_<rpc> handlers. Advanced
+   * deferred handlers and per-call completion contexts remain explicit. */
   void *user_data;
 } control_endpoint_config_t;
 
