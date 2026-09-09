@@ -20,7 +20,7 @@ extern "C" {
 #define CONTROL_BINDING_PROFILE_VERSION 1U
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 30U
+#define CONTROL_RUNTIME_CODEGEN_ABI_VERSION 31U
 
 /* Generated capabilities, not application overrides. */
 #define CONTROL_RUNTIME_HAS_RPC_CLIENT 1
@@ -163,6 +163,7 @@ typedef struct {
   wl_rpc_server_t *rpc_server;
   wl_rpc_peer_t rpc_peer;
   wl_rpc_peer_observation_t rpc_peer_observation;
+  wl_tx_handle_t rpc_retiring_tx;
   control_runtime_rpc_encode_scratch_t *rpc_encode_scratch;
   control_home_rpc_t home;
 } control_runtime_t;
@@ -358,7 +359,9 @@ control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, 
 #define CONTROL_ENDPOINT_RAW_CAPACITY (CONTROL_ENDPOINT_MAX_PAYLOAD + WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
 #define CONTROL_ENDPOINT_UNIT_CAPACITY (CONTROL_ENDPOINT_RAW_CAPACITY + CONTROL_ENDPOINT_RAW_CAPACITY / 254U + 2U)
 #define CONTROL_ENDPOINT_CONTROL_CAPACITY (WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC + 2U)
+#ifndef CONTROL_ENDPOINT_RX_FIFO_CAPACITY
 #define CONTROL_ENDPOINT_RX_FIFO_CAPACITY CONTROL_ENDPOINT_UNIT_CAPACITY
+#endif
 #define CONTROL_ENDPOINT_RUNTIME_CAPACITY CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY
 
 typedef struct {
@@ -581,6 +584,7 @@ static inline wl_endpoint_driver_t control_endpoint_driver(control_endpoint_t *e
   driver.context = endpoint;
   driver.step = control_endpoint_driver_step;
   driver.close = control_endpoint_driver_close;
+  driver.readiness_complete = 1U;
   return driver;
 }
 

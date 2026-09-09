@@ -125,6 +125,7 @@ wl_err_t wl_endpoint_set_policy(wl_endpoint_t *endpoint,
   if (endpoint->private_stepping) return WL_ERR_REENTRANT;
   if (policy != NULL) endpoint->private_policy = *policy;
   else memset(&endpoint->private_policy, 0, sizeof(endpoint->private_policy));
+  endpoint->private_policy_pending = 0U;
   return WL_OK;
 }
 

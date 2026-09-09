@@ -13,6 +13,10 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
   remains in Wirelink. Ordinary endpoints need no additional hooks.
 - WLC allows one build-wide COBS RX FIFO capacity override and exposes typed
   deferred-token identity inspection for advanced scheduling/diagnostics.
+- Retire cancelled old-peer response handles, immediately or after the adapter
+  completes its outstanding transfer. Product wrappers no longer need their own
+  reliable-response handle reaper. Generated host drivers use complete readiness
+  hints so consumed telemetry does not add an empty owner pass.
 - Rebuild all consumers with the development compiler (codegen ABI 31). No
   release/tag or automatic source bootstrap pair is published for this ABI.
   These assembly changes alone do not alter framing or RPC metadata.

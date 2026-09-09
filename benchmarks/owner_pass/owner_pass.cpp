@@ -143,7 +143,7 @@ struct Workload {
       CHECK(wl_endpoint_attach(&endpoint, &hooks) == WL_OK);
       const wl_endpoint_driver_t driver{&endpoint, &endpoint,
         [](void *p) { return wl_endpoint_step(static_cast<wl_endpoint_t *>(p), 64); },
-        [](void *p) -> wl_err_t { wl_endpoint_close(static_cast<wl_endpoint_t *>(p)); return WL_OK; }};
+        [](void *p) -> wl_err_t { wl_endpoint_close(static_cast<wl_endpoint_t *>(p)); return WL_OK; }, 0U};
       CHECK(executor.initialize(driver) == WL_OK);
     } else {
       CHECK(executor.initialize(config, storage) == WL_OK);

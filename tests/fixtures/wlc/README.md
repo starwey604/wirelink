@@ -1,12 +1,17 @@
 # WLC conformance fixture
 
-The current artifacts use ABI 30; previous artifacts remain frozen.
+The current artifacts use development ABI 31; previous artifacts remain frozen.
 Profile-selected endpoint layouts can omit unused roles/transport buffers. Canonical fingerprints use a generated private
 sink instead of a canonical byte buffer; owned conversion reuses validated decode
 results. These changes do not alter this fixture's mapped RPC, codec bytes or
 frozen frame vectors. Regenerate the complete artifact set for layout changes.
 Shared decode members use predeclared detail typedefs so the same generated
 headers compile as strict C11 and C++.
+
+ABI 31 composes product policy with default endpoint ownership, identifies
+complete driver readiness hints and retires old-peer response TX handles.
+Only current generated artifacts are refreshed; the mapped schema and frozen
+wire vectors remain unchanged.
 
 Current codec planning selects lookup by field count/ID density and specializes
 single fixed packed arrays, including `ArmMitCommand`. ABI 29 and frozen wire
