@@ -9,6 +9,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#include <mswsock.h>
+#endif
+
 namespace wirelink::asio
 {
 class UdpAdapter::Impl
@@ -96,6 +100,20 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_ctx_t& link,
         link_config.envelope == WL_ENVELOPE_COBS_STREAM, requirements.tx_unit_size);
     impl->socket.open(address.is_v6() ? ::asio::ip::udp::v6() : ::asio::ip::udp::v4(), error);
     if (error) return nullptr;
+#if defined(_WIN32)
+    // A telemetry peer may not have bound its port yet, or may have closed it.
+    // Do not turn an ICMP Port Unreachable for a previous datagram into a
+    // fatal receive error. Wirelink's reliable/RPC deadlines still detect loss.
+    BOOL report_port_unreachable = FALSE;
+    DWORD returned = 0;
+    if (::WSAIoctl(impl->socket.native_handle(), SIO_UDP_CONNRESET,
+                  &report_port_unreachable, sizeof(report_port_unreachable),
+                  nullptr, 0, &returned, nullptr, nullptr) == SOCKET_ERROR)
+    {
+        error = std::error_code(::WSAGetLastError(), std::system_category());
+        return nullptr;
+    }
+#endif
     // No address reuse: an accidentally duplicated tutorial port must fail.
     impl->socket.bind({address, config.bind_port}, error);
     if (error) return nullptr;

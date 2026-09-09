@@ -25,6 +25,11 @@
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()`，可用时配合 `wait_for_activity()` | `quiesce()` |
 | Asio UDP | native packet；显式旧 COBS | `open()` 绑定 socket；端点重载自动 attach | `service()`；按截止时间 `wait_for_activity()` | `quiesce()` 或关闭端点 |
 
+UDP 对端可以晚启动或先关闭。Windows 下关闭 `SIO_UDP_CONNRESET` 通知，避免之前
+数据报触发的 ICMP Port Unreachable 终止后续接收。对端不可用仍由可靠事务/RPC
+超时反映；UDP 发送成功不保证送达。参见
+[Winsock IOCTL 文档](https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls)。
+
 类型化 adapter 暴露平台专用配置与统计；C core 不增加虚调用，也不拥有等待原语。
 
 ## Owner Loop 模式

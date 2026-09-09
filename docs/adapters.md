@@ -24,6 +24,12 @@ the next transport notification and give the owner one more service pass.
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()` and `wait_for_activity()` where available | `quiesce()` |
 | Asio UDP | native packet; explicit legacy COBS | `open()` and socket bind; endpoint overload attaches hooks | `service()`; deadline-aware `wait_for_activity()` | `quiesce()` or endpoint close |
 
+The UDP adapter permits the peer to bind later or close first. On Windows it
+disables `SIO_UDP_CONNRESET` reporting: an ICMP Port Unreachable from a previous
+datagram does not terminate reception. Reliable/RPC deadlines still detect an
+absent peer; successful UDP send does not promise delivery. See
+[Winsock IOCTLs](https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls).
+
 Typed adapters expose platform-specific configuration and statistics; the C
 core does not add virtual dispatch or own their wait primitives.
 

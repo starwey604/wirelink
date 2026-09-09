@@ -14,6 +14,9 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 - Publish the paired WLC v0.5.0 source and restore automatic host bootstrap
   with a pinned commit and remotely verified SHA-256. Installed-package CI
   exercises bootstrap with a firmware Cargo target override.
+- Fix Windows UDP startup/shutdown ordering: disable ICMP Port Unreachable
+  receive resets, and test a telemetry server running before its client binds.
+  Reliable/RPC timeout behavior and other socket errors remain unchanged.
 
 ### Bounded host owner work
 

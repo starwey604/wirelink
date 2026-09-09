@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run the real many-service client/server; Python is not a protocol peer."""
 import argparse
+import time
 
 from udp_processes import Process, endpoint_ports
 
@@ -11,6 +12,11 @@ def check_pair(client_path, server_path, extended=False):
     client = None
     try:
         server.ready("device service server ready")
+        # Exercise telemetry sent before the client binds. Winsock normally
+        # reports the resulting ICMP Port Unreachable on the server's receive.
+        time.sleep(0.2)
+        if server.process.poll() is not None:
+            raise RuntimeError("server stopped before client startup:\n" + "".join(server.lines))
         client = Process([str(client_path), str(client_port), str(server_port)])
         code, output = client.output(timeout=15)
         expected = ["device RPCs: OK", "calculator RPCs: OK", "deferred self-test: OK",
