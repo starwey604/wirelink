@@ -51,7 +51,7 @@ struct Gate {
     }, [](void* p) -> wl_err_t {
       auto& self = *static_cast<Gate*>(p);
       return self.generated.close(self.generated.context);
-    }};
+    }, 0U};
   }
   void hold(Executor& executor) {
     std::unique_lock lock(mutex);

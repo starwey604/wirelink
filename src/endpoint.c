@@ -3,6 +3,58 @@
 
 #include <string.h>
 
+static wl_pump_event_disposition_t endpoint_event(void *context, wl_ctx_t *link,
+    const wl_event_t *event, wl_time_ms_t now_ms) {
+  wl_endpoint_t *endpoint = context;
+  if (endpoint->private_policy.on_event != NULL)
+    endpoint->private_policy.on_event(endpoint->private_policy.user_data,
+                                       link, event, now_ms);
+  return endpoint->private_hooks.on_event != NULL
+      ? endpoint->private_hooks.on_event(endpoint->private_hooks.application_user_data,
+                                         link, event, now_ms)
+      : WL_PUMP_EVENT_UNHANDLED;
+}
+
+static uint8_t endpoint_progress(void *context, wl_ctx_t *link, wl_time_ms_t now_ms) {
+  wl_endpoint_t *endpoint = context;
+  uint8_t progress = 0U;
+  if (endpoint->private_policy.progress != NULL)
+    progress = endpoint->private_policy.progress(endpoint->private_policy.user_data,
+                                                  link, now_ms);
+  endpoint->private_policy_pending = progress;
+  if (endpoint->private_hooks.application_progress != NULL)
+    progress |= endpoint->private_hooks.application_progress(
+        endpoint->private_hooks.application_user_data, link, now_ms);
+  return progress;
+}
+
+static uint32_t endpoint_deadline(const void *context, wl_time_ms_t now_ms) {
+  const wl_endpoint_t *endpoint = context;
+  uint32_t deadline = UINT32_MAX;
+  if (endpoint->private_hooks.application_deadline_hint != NULL)
+    deadline = endpoint->private_hooks.application_deadline_hint(
+        endpoint->private_hooks.application_user_data, now_ms);
+  if (endpoint->private_policy.deadline_hint != NULL) {
+    uint32_t policy = endpoint->private_policy.deadline_hint(
+        endpoint->private_policy.user_data, now_ms);
+    if (policy < deadline) deadline = policy;
+  }
+  return deadline;
+}
+
+static wl_pump_hooks_t endpoint_hooks(const wl_endpoint_t *endpoint) {
+  wl_pump_hooks_t hooks = endpoint->private_hooks;
+  if (endpoint->private_policy.on_event != NULL ||
+      endpoint->private_policy.progress != NULL ||
+      endpoint->private_policy.deadline_hint != NULL) {
+    hooks.application_user_data = (void *)endpoint;
+    hooks.on_event = endpoint_event;
+    hooks.application_progress = endpoint_progress;
+    hooks.application_deadline_hint = endpoint_deadline;
+  }
+  return hooks;
+}
+
 wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
                          const wl_storage_t *storage,
                          const wl_clock_t *clock,
@@ -14,12 +66,14 @@ wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
   result = wl_init(&endpoint->private_link, config, storage);
   if (result != WL_OK) return result;
   memset(&endpoint->private_hooks, 0, sizeof(endpoint->private_hooks));
+  memset(&endpoint->private_policy, 0, sizeof(endpoint->private_policy));
   memset(&endpoint->private_step, 0, sizeof(endpoint->private_step));
   endpoint->private_clock = *clock;
   memset(&endpoint->private_waiter, 0, sizeof(endpoint->private_waiter));
   endpoint->private_executor = NULL;
   endpoint->private_now = 0U;
   endpoint->private_stepping = 0U;
+  endpoint->private_policy_pending = 0U;
   if (application != NULL) {
     endpoint->private_hooks.application_user_data = application->application_user_data;
     endpoint->private_hooks.application_progress = application->application_progress;
@@ -64,6 +118,17 @@ wl_err_t wl_endpoint_set_waiter(wl_endpoint_t *endpoint, const wl_waiter_t *wait
   return WL_OK;
 }
 
+wl_err_t wl_endpoint_set_policy(wl_endpoint_t *endpoint,
+                                const wl_endpoint_policy_t *policy) {
+  if (endpoint == NULL) return WL_ERR_INVALID_ARG;
+  if (!endpoint->private_ready) return WL_ERR_NOT_INITIALIZED;
+  if (endpoint->private_stepping) return WL_ERR_REENTRANT;
+  if (policy != NULL) endpoint->private_policy = *policy;
+  else memset(&endpoint->private_policy, 0, sizeof(endpoint->private_policy));
+  endpoint->private_policy_pending = 0U;
+  return WL_OK;
+}
+
 const wl_waiter_t *wl_endpoint_waiter(const wl_endpoint_t *endpoint) {
   return endpoint != NULL && endpoint->private_ready && endpoint->private_waiter.wait != NULL
       ? &endpoint->private_waiter : NULL;
@@ -99,14 +164,17 @@ wl_err_t wl_endpoint_now(const wl_endpoint_t *endpoint, wl_time_ms_t *now_ms) {
 
 wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, size_t event_budget) {
   int result;
+  wl_pump_hooks_t hooks;
   if (endpoint == NULL) return WL_ERR_INVALID_ARG;
   if (endpoint->private_ready == 0U) return WL_ERR_NOT_INITIALIZED;
   if (event_budget == 0U) return WL_ERR_INVALID_ARG;
   if (endpoint->private_stepping != 0U) return WL_ERR_REENTRANT;
   endpoint->private_now = endpoint->private_clock.now_ms(endpoint->private_clock.user_data);
   endpoint->private_stepping = 1U;
+  endpoint->private_policy_pending = 0U;
+  hooks = endpoint_hooks(endpoint);
   result = wl_pump_step(&endpoint->private_link, endpoint->private_now, event_budget,
-                       &endpoint->private_hooks, &endpoint->private_step);
+                       &hooks, &endpoint->private_step);
   endpoint->private_stepping = 0U;
   if (result != WL_OK) return result;
   if (endpoint->private_step.service_errors != 0U) return endpoint->private_step.service_result;
@@ -118,11 +186,15 @@ wl_err_t wl_endpoint_get_hint(const wl_endpoint_t *endpoint,
                              wl_poll_hint_t *hint) {
   wl_time_ms_t now_ms;
   int result;
+  wl_pump_hooks_t hooks;
   if (hint == NULL) return WL_ERR_INVALID_ARG;
   result = wl_endpoint_now(endpoint, &now_ms);
   if (result != WL_OK) return result;
-  return wl_pump_get_hint(&endpoint->private_link, now_ms,
-                          &endpoint->private_hooks, hint);
+  hooks = endpoint_hooks(endpoint);
+  result = wl_pump_get_hint(&endpoint->private_link, now_ms, &hooks, hint);
+  if (result == WL_OK && endpoint->private_policy_pending != 0U)
+    hint->next_deadline_ms = 0U;
+  return result;
 }
 
 const wl_pump_result_t *wl_endpoint_last_step(const wl_endpoint_t *endpoint) {
@@ -131,8 +203,10 @@ const wl_pump_result_t *wl_endpoint_last_step(const wl_endpoint_t *endpoint) {
 
 void wl_endpoint_close(wl_endpoint_t *endpoint) {
   if (endpoint == NULL || endpoint->private_ready == 0U) return;
+  if (endpoint->private_stepping != 0U) return;
   wl_pump_quiesce(&endpoint->private_hooks);
   memset(&endpoint->private_hooks, 0, sizeof(endpoint->private_hooks));
+  memset(&endpoint->private_policy, 0, sizeof(endpoint->private_policy));
   memset(&endpoint->private_clock, 0, sizeof(endpoint->private_clock));
   memset(&endpoint->private_waiter, 0, sizeof(endpoint->private_waiter));
   endpoint->private_ready = 0U;

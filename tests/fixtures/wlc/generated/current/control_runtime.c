@@ -37,8 +37,16 @@ wl_codec_status_t home_request_wlc_detail_fingerprint(const home_request_t *, ui
 void home_request_wlc_detail_value_copy(const home_request_t *, home_request_value_t *);
 #endif
 
+typedef struct { wl_ctx_t *link; control_runtime_t *runtime; } control_peer_cancel_context_t;
 static void control_runtime_cancel_peer_tx(void *context, wl_tx_handle_t handle) {
-  if (context != NULL) (void)wl_tx_cancel((wl_ctx_t *)context, handle);
+  control_peer_cancel_context_t *cancel = context;
+  wl_tx_result_t ignored;
+  if (cancel == NULL) return;
+  (void)wl_tx_cancel(cancel->link, handle);
+  /* A cancelled transaction need not emit a terminal event. Take it now, or
+   * retain just its handle until the adapter releases physical TX storage. */
+  if (wl_tx_take(cancel->link, handle, &ignored) == WL_ERR_INVALID_STATE)
+    cancel->runtime->rpc_retiring_tx = handle;
 }
 
 wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
@@ -360,10 +368,11 @@ int control_runtime_init_checked(control_runtime_instance_t *instance, const con
 }
 
 wl_rpc_err_t control_runtime_peer_observe(wl_ctx_t *ctx, control_runtime_t *runtime, uint64_t peer_session_id, wl_rpc_peer_observation_t *out_observation) {
+  control_peer_cancel_context_t cancel = {ctx, runtime};
   wl_rpc_err_t result;
   if (out_observation != NULL) memset(out_observation, 0, sizeof(*out_observation));
   if (ctx == NULL || runtime == NULL || runtime->rpc_server == NULL || peer_session_id == 0U || out_observation == NULL) return WL_RPC_ERR_INVALID_ARG;
-  result = wl_rpc_peer_observe(runtime->rpc_server, &runtime->rpc_peer, peer_session_id, control_runtime_cancel_peer_tx, ctx, out_observation);
+  result = wl_rpc_peer_observe(runtime->rpc_server, &runtime->rpc_peer, peer_session_id, control_runtime_cancel_peer_tx, &cancel, out_observation);
   if (result == WL_RPC_OK && out_observation->changed != 0U) runtime->rpc_peer_observation = *out_observation;
   return result;
 }
@@ -404,6 +413,11 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
   if (out_result != NULL) memset(out_result, 0, sizeof(*out_result));
   if (ctx == NULL || runtime == NULL || out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
   out_result->response = control_runtime_result(NULL);
+  if (runtime->rpc_retiring_tx != 0U) {
+    wl_tx_result_t ignored;
+    int retired = wl_tx_take(ctx, runtime->rpc_retiring_tx, &ignored);
+    if (retired == WL_OK || retired == WL_ERR_NOT_FOUND) runtime->rpc_retiring_tx = 0U;
+  }
   result = control_runtime_poll(runtime, now_ms, &out_result->deadlines);
   if (result != WL_RPC_OK) return result;
   if (runtime->rpc_server == NULL) return WL_RPC_OK;

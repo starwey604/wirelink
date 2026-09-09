@@ -83,7 +83,7 @@ struct Pair {
     check(perf_endpoint_close(&p.client) == WL_OK);
     return perf_endpoint_close(&p.server);
   }
-  wl_endpoint_driver_t driver() { return {perf_endpoint_handle(&client), this, step, close}; }
+  wl_endpoint_driver_t driver() { return {perf_endpoint_handle(&client), this, step, close, 0U}; }
 };
 
 struct Latest {
