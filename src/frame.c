@@ -49,7 +49,7 @@ static void write_u64_be(uint8_t *p, uint64_t v) {
 
 typedef struct {
   size_t encoded_len;
-  uint8_t code;
+  unsigned int code;
 } wl_cobs_count_state_t;
 
 typedef struct {
@@ -79,11 +79,8 @@ size_t wl_frame_packet_header_size(wl_packet_type_t type, uint8_t flags) {
              : WL_FRAME_BASE_HEADER_SIZE;
 }
 
-static size_t frame_write_header(const wl_wire_packet_t *packet,
-                                 uint8_t header[WL_FRAME_HEADER_SIZE]) {
-  const size_t header_len =
-      wl_frame_packet_header_size(packet->type, packet->flags);
-
+static void frame_write_header(const wl_wire_packet_t *packet, size_t header_len,
+                                uint8_t header[WL_FRAME_HEADER_SIZE]) {
   header[0] = (uint8_t)(WL_FRAME_PREFIX | frame_packet_kind(packet));
   header[1] = 0U;
   write_u16_be(&header[2], packet->message_id);
@@ -91,7 +88,6 @@ static size_t frame_write_header(const wl_wire_packet_t *packet,
     write_u64_be(&header[4], (uint64_t)packet->session_id);
     write_u32_be(&header[12], packet->sequence);
   }
-  return header_len;
 }
 
 static size_t frame_write_integrity(const wl_wire_packet_t *packet,
@@ -120,20 +116,19 @@ static size_t frame_write_integrity(const wl_wire_packet_t *packet,
 
 static void cobs_count_span(wl_cobs_count_state_t *state, const uint8_t *data,
                             size_t length) {
+  /* Each input byte contributes one output byte, including a replaced zero.
+   * Only a full nonzero run contributes an extra code byte. */
+  size_t encoded_len = state->encoded_len + length;
+  unsigned int code = state->code;
   for (size_t i = 0U; i < length; ++i) {
-    if (data[i] == 0U) {
-      ++state->encoded_len;
-      state->code = 1U;
-      continue;
-    }
-
-    ++state->encoded_len;
-    ++state->code;
-    if (state->code == 0xFFU) {
-      ++state->encoded_len;
-      state->code = 1U;
+    code = data[i] == 0U ? 1U : code + 1U;
+    if (code == 0xFFU) {
+      ++encoded_len;
+      code = 1U;
     }
   }
+  state->encoded_len = encoded_len;
+  state->code = code;
 }
 
 static size_t frame_cobs_encoded_size(const uint8_t *header,
@@ -152,22 +147,37 @@ static size_t frame_cobs_encoded_size(const uint8_t *header,
 
 static void cobs_encode_span(wl_cobs_encode_state_t *state,
                              const uint8_t *data, size_t length) {
+  if (length == 0U) {
+    return;
+  }
+  /* State is private stack storage, separate from every input/output span.
+   * Publish once per span instead of reloading it after every byte store.
+   * The caller stages aliased payload ahead of output; read each byte before
+   * writing it to preserve that forward-encoding invariant. */
+  uint8_t *const out = state->out;
+  size_t write_index = state->write_index;
+  size_t code_index = state->code_index;
+  uint8_t code = state->code;
   for (size_t i = 0U; i < length; ++i) {
-    if (data[i] == 0U) {
-      state->out[state->code_index] = state->code;
-      state->code = 1U;
-      state->code_index = state->write_index++;
+    const uint8_t value = data[i];
+    if (value == 0U) {
+      out[code_index] = code;
+      code = 1U;
+      code_index = write_index++;
       continue;
     }
 
-    state->out[state->write_index++] = data[i];
-    ++state->code;
-    if (state->code == 0xFFU) {
-      state->out[state->code_index] = state->code;
-      state->code = 1U;
-      state->code_index = state->write_index++;
+    out[write_index++] = value;
+    ++code;
+    if (code == 0xFFU) {
+      out[code_index] = code;
+      code = 1U;
+      code_index = write_index++;
     }
   }
+  state->write_index = write_index;
+  state->code_index = code_index;
+  state->code = code;
 }
 
 static size_t frame_cobs_encode(const uint8_t *header,
@@ -214,7 +224,7 @@ static int frame_integrity_is_valid(wl_integrity_t integrity) {
          value <= (int64_t)WL_INTEGRITY_CRC32C;
 }
 
-static void frame_write_raw(const uint8_t *header,
+static inline void frame_write_raw(const uint8_t *header,
                             size_t header_len,
                             const wl_wire_packet_t *packet,
                             const uint8_t *integrity, size_t integrity_len,
@@ -223,7 +233,13 @@ static void frame_write_raw(const uint8_t *header,
   if (packet->payload_len != 0U) {
     memmove(out + header_len, packet->payload, packet->payload_len);
   }
-  memcpy(out, header, header_len);
+  /* Both validated header variants share the four-byte base. Fixed-size
+   * copies let the compiler inline these small fields on packet envelopes. */
+  memcpy(out, header, WL_FRAME_BASE_HEADER_SIZE);
+  if (header_len == WL_FRAME_RELIABLE_HEADER_SIZE) {
+    memcpy(out + WL_FRAME_BASE_HEADER_SIZE, header + WL_FRAME_BASE_HEADER_SIZE,
+           WL_FRAME_RELIABLE_HEADER_SIZE - WL_FRAME_BASE_HEADER_SIZE);
+  }
   if (integrity_len != 0U) {
     memcpy(out + header_len + packet->payload_len, integrity,
            integrity_len);
@@ -378,25 +394,34 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
     return WL_ERR_PAYLOAD_TOO_LONG;
   }
 
-  (void)frame_write_header(packet, header);
+  frame_write_header(packet, header_len, header);
   crc_len = frame_write_integrity(packet, header, header_len, integrity);
 
   switch (envelope) {
   case WL_ENVELOPE_COBS_STREAM: {
     const uint8_t *payload = packet->payload;
-    size_t cobs_len = frame_cobs_encoded_size(
-        header, header_len, payload, packet->payload_len, integrity, crc_len);
+    size_t cobs_len = wl_cobs_encoded_max_size(raw_len);
+    const int overlap = spans_overlap(payload, packet->payload_len, out, cobs_len);
+    /* Normal link storage fits the worst case. Disjoint input can therefore
+     * be encoded in one pass. Tight buffers and aliases still need the exact
+     * size: preserve failure-before-write and the overlap staging offset. */
+    if (out_cap < cobs_len + 1U || overlap) {
+      cobs_len = frame_cobs_encoded_size(
+          header, header_len, payload, packet->payload_len, integrity, crc_len);
+    }
     if (out_cap < cobs_len + 1U) {
       return WL_ERR_BUF_TOO_SMALL;
     }
     if (out == NULL) {
       return WL_ERR_INVALID_ARG;
     }
-    if (spans_overlap(payload, packet->payload_len, out, cobs_len)) {
+    if (overlap) {
       /*
        * COBS expands by at least one byte. Staging the aliased payload at
        * its logical raw-frame offset leaves enough lead for safe forward
-       * encoding, while keeping the normal non-aliased path copy-free.
+       * encoding, while keeping the normal non-aliased path copy-free. A
+       * worst-case-only overlap may stage unnecessarily, but all staging
+       * writes fit the exact output size and need no second overlap check.
        */
       payload = out + (cobs_len - raw_len) + header_len;
       memmove((uint8_t *)payload, packet->payload, packet->payload_len);

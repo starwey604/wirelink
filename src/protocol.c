@@ -71,25 +71,12 @@ static int wl_complete_unreliable_tx(wl_ctx_t *ctx) {
   wl_ctx_impl(ctx)->tx_last_flags = 0U;
   wl_ctx_impl(ctx)->tx_payload.data = wl_ctx_impl(ctx)->storage.tx_payload;
   wl_ctx_impl(ctx)->tx_payload.length = 0U;
+  wl_ctx_impl(ctx)->tx_encoded_len = 0U;
   return WL_OK;
 }
 
 static int wl_send_tx_payload(wl_ctx_t *ctx) {
-  wl_wire_packet_t wire = {
-      .type = WL_PACKET_DATA,
-      .integrity = wl_ctx_impl(ctx)->initialized != 0U
-                       ? wl_ctx_impl(ctx)->config.integrity
-                       : WL_INTEGRITY_NONE,
-      .flags = wl_ctx_impl(ctx)->tx_last_flags,
-      .message_id = wl_ctx_impl(ctx)->tx_last_message_id,
-      .session_id = wl_ctx_impl(ctx)->session_id,
-      .sequence = wl_ctx_impl(ctx)->tx_retry_sequence,
-      .payload = wl_ctx_impl(ctx)->tx_payload.data,
-      .payload_len = wl_ctx_impl(ctx)->tx_payload.length,
-  };
-  size_t encoded_len = 0U;
   wl_sink_result_t sink_result;
-  int ret;
 
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -101,10 +88,22 @@ static int wl_send_tx_payload(wl_ctx_t *ctx) {
     return WL_ERR_REENTRANT;
   }
 
-  ret = wl_frame_encode(&wire, wl_ctx_impl(ctx)->config.envelope, wl_ctx_impl(ctx)->storage.tx_unit,
-                       wl_ctx_impl(ctx)->storage.tx_unit_size, &encoded_len);
-  if (ret != WL_OK) {
-    return ret;
+  if (wl_ctx_impl(ctx)->tx_encoded_len == 0U) {
+    const wl_wire_packet_t wire = {
+        .type = WL_PACKET_DATA,
+        .integrity = wl_ctx_impl(ctx)->config.integrity,
+        .flags = wl_ctx_impl(ctx)->tx_last_flags,
+        .message_id = wl_ctx_impl(ctx)->tx_last_message_id,
+        .session_id = wl_ctx_impl(ctx)->session_id,
+        .sequence = wl_ctx_impl(ctx)->tx_retry_sequence,
+        .payload = wl_ctx_impl(ctx)->tx_payload.data,
+        .payload_len = wl_ctx_impl(ctx)->tx_payload.length,
+    };
+    size_t encoded_len = 0U;
+    int ret = wl_frame_encode(&wire, wl_ctx_impl(ctx)->config.envelope,
+        wl_ctx_impl(ctx)->storage.tx_unit, wl_ctx_impl(ctx)->storage.tx_unit_size, &encoded_len);
+    if (ret != WL_OK) return ret;
+    wl_ctx_impl(ctx)->tx_encoded_len = encoded_len;
   }
 
   if (wl_ctx_impl(ctx)->tx_token == UINT32_MAX) {
@@ -115,7 +114,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx) {
 
   wl_ctx_impl(ctx)->in_callback = 1;
   sink_result = wl_ctx_impl(ctx)->sink(wl_ctx_impl(ctx)->sink_user_data, wl_ctx_impl(ctx)->tx_token,
-                          wl_ctx_impl(ctx)->storage.tx_unit, encoded_len);
+                          wl_ctx_impl(ctx)->storage.tx_unit, wl_ctx_impl(ctx)->tx_encoded_len);
   wl_ctx_impl(ctx)->in_callback = 0;
 
   if (sink_result == WL_SINK_STARTED) {
@@ -156,6 +155,7 @@ static int wl_send_tx_payload(wl_ctx_t *ctx) {
 
 static void wl_prepare_tx_payload(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
                                   uint8_t reliable, uint8_t direct) {
+  wl_ctx_impl(ctx)->tx_encoded_len = 0U;
   wl_ctx_impl(ctx)->tx_last_message_id = pkt->message_id;
   wl_ctx_impl(ctx)->tx_last_flags = pkt->flags;
   wl_ctx_impl(ctx)->tx_retry_sequence = pkt->sequence;
@@ -190,6 +190,7 @@ wl_err_t wl_tx_complete(wl_ctx_t *ctx, wl_io_token_t token, int io_result) {
     wl_ctx_impl(ctx)->tx_cancel_requested = 0U;
     wl_ctx_impl(ctx)->tx_payload.data = wl_ctx_impl(ctx)->storage.tx_payload;
     wl_ctx_impl(ctx)->tx_payload.length = 0U;
+    wl_ctx_impl(ctx)->tx_encoded_len = 0U;
     return WL_OK;
   }
   if (wl_ctx_impl(ctx)->tx_state != WL_TX_STATE_SENDING) {
@@ -407,6 +408,7 @@ static int wl_send_frame_internal(wl_ctx_t *ctx, const wl_wire_packet_t *pkt,
     wl_ctx_impl(ctx)->tx_last_flags = 0U;
     wl_ctx_impl(ctx)->tx_current_reliable = 0U;
     wl_ctx_impl(ctx)->tx_retry_sequence = 0U;
+    wl_ctx_impl(ctx)->tx_encoded_len = 0U;
     return ret;
   }
 

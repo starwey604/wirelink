@@ -5,6 +5,9 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr COMPONENTS unittest REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_protocol_unit)
 
+# Count actual encoder calls without production counters or hot-path hooks.
+target_link_options(testbinary PRIVATE -Wl,--wrap=wl_frame_encode)
+
 set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 
 target_sources(testbinary PRIVATE

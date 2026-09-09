@@ -81,6 +81,10 @@ typedef struct {
   size_t max_transmission_unit;
 } wl_config_t;
 
+/* Storage remains reserved for the link until it is quiesced. In particular,
+ * tx_unit and control_unit must not overlap: an ACK can be prepared while the
+ * encoded DATA unit is retained for backpressure or reliable retransmission.
+ * Sinks read units; they must not modify them, even after completing an I/O. */
 typedef struct {
   uint8_t *tx_payload;
   size_t tx_payload_size;

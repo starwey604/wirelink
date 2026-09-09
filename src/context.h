@@ -78,6 +78,9 @@ typedef struct {
   uint8_t control_pending;
   uint8_t control_inflight;
   uint8_t tx_queued;
+  /* Immutable DATA bytes already in storage.tx_unit; zero until encoded.
+   * Control ACKs have separate storage and must not invalidate this image. */
+  size_t tx_encoded_len;
   size_t control_len;
   uint8_t rx_event_leased;
   uint8_t rx_candidate_source;

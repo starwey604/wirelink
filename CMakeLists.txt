@@ -223,7 +223,9 @@ if(WIRELINK_BUILD_FUZZERS)
     message(FATAL_ERROR "WIRELINK_BUILD_FUZZERS requires Clang")
   endif()
   target_compile_options(wirelink PRIVATE
-    -fsanitize=address,undefined
+    # Instrument the core as well as the harness so fuzz feedback explores
+    # frame/protocol branches, not only the oracle's success/error checks.
+    -fsanitize=fuzzer-no-link,address,undefined
     -fno-omit-frame-pointer)
   # Any executable consuming the instrumented static archive must also link
   # the sanitizer runtimes, including the examples built by default.

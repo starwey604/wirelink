@@ -14,7 +14,116 @@ static uint8_t boundary_cobs[WL_FRAME_MAX_COBS_LEN];
 static uint8_t boundary_decoded[WL_FRAME_MAX_RAW_LEN];
 static uint8_t overlap_payload[600U];
 static uint8_t overlap_expected[WL_FRAME_MAX_COBS_LEN];
-static uint8_t overlap_arena[WL_FRAME_MAX_COBS_LEN * 2U];
+static uint8_t overlap_arena[WL_FRAME_MAX_COBS_LEN * 2U + 128U];
+
+ZTEST(wirelink_frame_unit, test_overlap_at_exact_and_worst_case_output_end)
+{
+  static uint8_t saved[sizeof(overlap_arena)];
+  /* The conservative overlap test may classify payload beyond the exact
+   * output boundary as aliased. Staging must only modify actual output. */
+  for (unsigned reliable = 0U; reliable < 2U; ++reliable) {
+    for (int integrity = WL_INTEGRITY_NONE; integrity <= WL_INTEGRITY_CRC32C; ++integrity) {
+      for (unsigned pattern = 0U; pattern < 2U; ++pattern) {
+        for (size_t i = 0U; i < sizeof(boundary_payload); ++i)
+          boundary_payload[i] = pattern == 0U || i % 17U == 0U ? 0U : (uint8_t)(i % 251U + 1U);
+        wl_wire_packet_t packet = {.type = WL_PACKET_DATA, .integrity = integrity,
+            .flags = reliable ? WL_PACKET_FLAG_RELIABLE : 0U, .message_id = 21U,
+            .session_id = 1U, .sequence = 255U, .payload = boundary_payload,
+            .payload_len = sizeof(boundary_payload)};
+        size_t raw_len, expected_len, actual_len;
+        zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET,
+            boundary_native, sizeof(boundary_native), &raw_len));
+        zassert_ok(wl_cobs_encode(boundary_native, raw_len,
+            overlap_expected, sizeof(overlap_expected) - 1U, &expected_len));
+        overlap_expected[expected_len++] = 0U;
+        const size_t worst_len = wl_cobs_encoded_max_size(raw_len) + 1U;
+        zassert_true(expected_len < worst_len);
+        const size_t offsets[] = {expected_len - 1U, expected_len,
+            worst_len - 1U, worst_len};
+        const size_t capacities[] = {expected_len - 1U, expected_len, worst_len};
+        for (size_t layout = 0U; layout < ARRAY_SIZE(offsets); ++layout) {
+          for (size_t capacity = 0U; capacity < ARRAY_SIZE(capacities); ++capacity) {
+            uint8_t *output = overlap_arena + 64U;
+            memset(overlap_arena, 0xA5, sizeof(overlap_arena));
+            packet.payload = output + offsets[layout];
+            memcpy((uint8_t *)packet.payload, boundary_payload, packet.payload_len);
+            memcpy(saved, overlap_arena, sizeof(saved));
+            int error = wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM,
+                output, capacities[capacity], &actual_len);
+            if (capacity == 0U) {
+              zassert_equal(error, WL_ERR_BUF_TOO_SMALL);
+              zassert_equal(actual_len, 0U);
+              zassert_mem_equal(overlap_arena, saved, sizeof(saved));
+            } else {
+              zassert_ok(error);
+              zassert_equal(actual_len, expected_len);
+              zassert_mem_equal(output, overlap_expected, expected_len);
+              zassert_mem_equal(overlap_arena, saved, 64U);
+              zassert_mem_equal(output + expected_len, saved + 64U + expected_len,
+                  sizeof(saved) - 64U - expected_len);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+ZTEST(wirelink_frame_unit, test_cobs_spare_exact_overlap_and_short_match_oracle)
+{
+  static const size_t lengths[] = {0U, 1U, 32U, 120U, 231U, 232U, 233U,
+      237U, 238U, 239U, 249U, 250U, 251U, 253U, 254U, 255U, 507U, 508U,
+      509U, 1024U, WL_FRAME_MAX_PAYLOAD};
+  for (unsigned pattern = 0U; pattern < 3U; ++pattern) {
+    for (size_t i = 0U; i < sizeof(boundary_payload); ++i)
+      boundary_payload[i] = pattern == 0U || (pattern == 2U && i % 17U == 0U)
+          ? 0U : (uint8_t)(i % 251U + 1U);
+    for (int integrity = WL_INTEGRITY_NONE; integrity <= WL_INTEGRITY_CRC32C; ++integrity) {
+      for (unsigned kind = 0U; kind < 3U; ++kind) {
+        for (size_t index = 0U; index < (kind == 2U ? 1U : ARRAY_SIZE(lengths)); ++index) {
+          wl_wire_packet_t packet = {.type = kind == 2U ? WL_PACKET_ACK : WL_PACKET_DATA,
+              .integrity = integrity, .flags = kind == 1U ? WL_PACKET_FLAG_RELIABLE : 0U,
+              .message_id = kind == 2U ? 0U : 21U, .session_id = UINT64_C(0x123456789abcdef0),
+              .sequence = 0xabcdef01U, .payload = boundary_payload, .payload_len = lengths[index]};
+          size_t raw_len, expected_len, actual_len;
+          zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET,
+              boundary_native, sizeof(boundary_native), &raw_len));
+          zassert_ok(wl_cobs_encode(boundary_native, raw_len,
+              overlap_expected, sizeof(overlap_expected) - 1U, &expected_len));
+          overlap_expected[expected_len++] = 0U;
+          for (unsigned exact = 0U; exact < 2U; ++exact) {
+            const size_t capacity = exact ? expected_len : sizeof(boundary_cobs);
+            memset(boundary_cobs, 0xA5, sizeof(boundary_cobs));
+            zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM,
+                boundary_cobs, capacity, &actual_len));
+            zassert_equal(actual_len, expected_len);
+            zassert_mem_equal(boundary_cobs, overlap_expected, expected_len);
+            for (size_t i = expected_len; i < sizeof(boundary_cobs); ++i)
+              zassert_equal(boundary_cobs[i], 0xA5);
+
+            /* Alias payload to output: this must retain the overlap-safe path. */
+            memcpy(boundary_cobs, boundary_payload, packet.payload_len);
+            packet.payload = boundary_cobs;
+            zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM,
+                boundary_cobs, capacity, &actual_len));
+            zassert_equal(actual_len, expected_len);
+            zassert_mem_equal(boundary_cobs, overlap_expected, expected_len);
+            packet.payload = boundary_payload;
+          }
+          memset(boundary_cobs, 0xA5, sizeof(boundary_cobs));
+          actual_len = SIZE_MAX;
+          zassert_equal(wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM,
+              boundary_cobs, expected_len - 1U, &actual_len), WL_ERR_BUF_TOO_SMALL);
+          zassert_equal(actual_len, 0U);
+          for (size_t i = 0U; i < sizeof(boundary_cobs); ++i)
+            zassert_equal(boundary_cobs[i], 0xA5);
+          zassert_equal(wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM,
+              NULL, sizeof(boundary_cobs), &actual_len), WL_ERR_INVALID_ARG);
+        }
+      }
+    }
+  }
+}
 
 ZTEST(wirelink_frame_unit, test_encode_decode_roundtrip_crc32c)
 {
@@ -255,7 +364,8 @@ ZTEST(wirelink_frame_unit, test_encode_preserves_overlapping_payload)
     size_t payload_offset;
     size_t output_offset;
   } layouts[] = {
-      {0U, 0U}, {64U, 0U}, {0U, 64U}, {128U, 64U}, {64U, 128U}};
+      {0U, 0U}, {64U, 0U}, {0U, 64U}, {128U, 64U}, {64U, 128U},
+      {1U, 0U}, {0U, 1U}, {1U, 1U}, {2U, 3U}, {3U, 2U}, {5U, 7U}, {7U, 5U}};
   wl_wire_packet_t packet = {
       .type = WL_PACKET_DATA,
       .integrity = WL_INTEGRITY_CRC32C,
@@ -297,6 +407,51 @@ ZTEST(wirelink_frame_unit, test_encode_preserves_overlapping_payload)
       zassert_equal(actual_len, expected_len);
       zassert_mem_equal(output, overlap_expected, expected_len,
                         "envelope %zu layout %zu", envelope, layout);
+    }
+  }
+}
+
+ZTEST(wirelink_frame_unit, test_packet_envelopes_accept_unaligned_output)
+{
+  static const size_t lengths[] = {0U, 1U, 3U, 32U, 255U, WL_FRAME_MAX_PAYLOAD};
+  for (size_t i = 0U; i < sizeof(boundary_payload); ++i) {
+    boundary_payload[i] = (uint8_t)i;
+  }
+  for (unsigned kind = 0U; kind < 3U; ++kind) {
+    for (int integrity = WL_INTEGRITY_NONE; integrity <= WL_INTEGRITY_CRC32C; ++integrity) {
+      for (int envelope = WL_ENVELOPE_NATIVE_PACKET; envelope <= WL_ENVELOPE_BUS_LENGTH16; ++envelope) {
+        for (size_t size = 0U; size < (kind == 2U ? 1U : ARRAY_SIZE(lengths)); ++size) {
+          wl_wire_packet_t packet = {
+              .type = kind == 2U ? WL_PACKET_ACK : WL_PACKET_DATA,
+              .flags = kind == 1U ? WL_PACKET_FLAG_RELIABLE : 0U,
+              .integrity = integrity, .message_id = kind == 2U ? 0U : 21U,
+              .session_id = UINT64_C(0x123456789ABCDEF0), .sequence = 255U,
+              .payload = boundary_payload, .payload_len = lengths[size]};
+          size_t expected_len, actual_len;
+          zassert_ok(wl_frame_encode(&packet, envelope, overlap_expected,
+              sizeof(overlap_expected), &expected_len));
+          for (size_t offset = 1U; offset <= 7U; ++offset) {
+            memset(overlap_arena, 0xA5, sizeof(overlap_arena));
+            uint8_t *output = overlap_arena + offset;
+            zassert_equal(wl_frame_encode(&packet, envelope, output,
+                expected_len - 1U, &actual_len), WL_ERR_BUF_TOO_SMALL);
+            zassert_equal(actual_len, 0U);
+            for (size_t i = 0U; i < sizeof(overlap_arena); ++i) {
+              zassert_equal(overlap_arena[i], 0xA5U);
+            }
+            zassert_ok(wl_frame_encode(&packet, envelope, output,
+                expected_len, &actual_len));
+            zassert_equal(actual_len, expected_len);
+            zassert_mem_equal(output, overlap_expected, expected_len);
+            for (size_t i = 0U; i < offset; ++i) {
+              zassert_equal(overlap_arena[i], 0xA5U);
+            }
+            for (size_t i = offset + expected_len; i < sizeof(overlap_arena); ++i) {
+              zassert_equal(overlap_arena[i], 0xA5U);
+            }
+          }
+        }
+      }
     }
   }
 }
