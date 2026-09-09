@@ -313,6 +313,8 @@ if(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK)
 endif()
 
 if(WIRELINK_INSTALL)
+  install(FILES include/wirelink/detail/usb_stream_rx.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/detail)
   install(TARGETS wirelink
     EXPORT WirelinkTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

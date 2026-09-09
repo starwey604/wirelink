@@ -182,13 +182,8 @@ static int bulk_request(struct usbd_class_data *class_data,
     } else {
       atomic_add(&adapter->rx_bytes, (atomic_val_t)buffer->len);
     }
-  } else if (buffer->len > 0U &&
-             wl_rx_dma_publish(adapter->link, &adapter->rx_claim, 0U,
-                               buffer->len) != WL_OK) {
-    (void)wl_rx_dma_abort(adapter->link);
-    atomic_inc(&adapter->errors);
-  } else if (wl_rx_dma_finish(adapter->link, &adapter->rx_claim) != WL_OK) {
-    (void)wl_rx_dma_abort(adapter->link);
+  } else if (wl_usb_stream_rx_complete(&adapter->stream_rx,
+               adapter->stream_rx.token, buffer->data, buffer->len) != WL_OK) {
     atomic_inc(&adapter->errors);
   } else {
     atomic_add(&adapter->rx_bytes, (atomic_val_t)buffer->len);
@@ -197,7 +192,6 @@ static int bulk_request(struct usbd_class_data *class_data,
   if (error != 0 && error != -ECONNABORTED) {
     atomic_inc(&adapter->errors);
   }
-  memset(&adapter->rx_claim, 0, sizeof(adapter->rx_claim));
   memset(&adapter->rx_unit_claim, 0, sizeof(adapter->rx_unit_claim));
   atomic_clear_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
   usbd_ep_buf_free(context, buffer);
@@ -336,7 +330,6 @@ static int queue_out(struct usbd_class_data *class_data,
   struct usbd_context *context = usbd_class_get_ctx(class_data);
   struct net_buf *buffer;
   struct udc_buf_info *info;
-  wl_rx_dma_claim_t claim;
   wl_rx_unit_claim_t unit_claim;
   size_t request_size;
   int result;
@@ -345,46 +338,32 @@ static int queue_out(struct usbd_class_data *class_data,
       atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE)) {
     return WL_OK;
   }
-  memset(&claim, 0, sizeof(claim));
   memset(&unit_claim, 0, sizeof(unit_claim));
+  const size_t packet_size = usbd_bus_speed(context) == USBD_SPEED_HS
+                                 ? WL_USB_HS_MPS : WL_USB_FS_MPS;
   result = adapter->native_unit_mode
                ? wl_rx_unit_claim(adapter->link, adapter->maximum_rx_size,
                                   &unit_claim)
-               : wl_rx_dma_claim(adapter->link, adapter->maximum_rx_size,
-                                 &claim);
+               : wl_usb_stream_rx_acquire(&adapter->stream_rx,
+                                          adapter->maximum_rx_size, packet_size);
   if (result != WL_OK) {
     atomic_inc(&adapter->rx_pauses);
     atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
     return result;
   }
-  /* Never expose a short physical ring tail as a USB transfer buffer. A full
-   * endpoint packet could overflow it before the stream can wrap. Waiting for
-   * the consumer lets the empty ring normalize back to physical offset zero. */
-  if (!adapter->native_unit_mode &&
-      claim.span.length < adapter->maximum_rx_size) {
-    result = wl_rx_dma_finish(adapter->link, &claim);
-    if (result != WL_OK) {
-      (void)wl_rx_dma_abort(adapter->link);
-      atomic_inc(&adapter->errors);
-      return result;
-    }
-    atomic_inc(&adapter->rx_pauses);
-    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
-    return WL_ERR_WOULD_BLOCK;
-  }
-
   request_size = adapter->native_unit_mode ? unit_claim.span.length
-                                           : claim.span.length;
+                                           : adapter->stream_rx.active_span.length;
   buffer = net_buf_alloc_with_data(&wl_usb_bulk_pool,
                                    adapter->native_unit_mode
                                        ? unit_claim.span.data
-                                       : claim.span.data,
+                                       : adapter->stream_rx.active_span.data,
                                    request_size, K_NO_WAIT);
   if (buffer == NULL) {
     if (adapter->native_unit_mode) {
       (void)wl_rx_unit_abort(adapter->link, &unit_claim);
     } else {
-      (void)wl_rx_dma_finish(adapter->link, &claim);
+      (void)wl_usb_stream_rx_complete(&adapter->stream_rx, adapter->stream_rx.token,
+                                     adapter->stream_rx.active_span.data, 0U);
     }
     atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
     return WL_ERR_WOULD_BLOCK;
@@ -393,17 +372,16 @@ static int queue_out(struct usbd_class_data *class_data,
   info = udc_get_buf_info(buffer);
   info->ep = WL_ZEPHYR_USB_BULK_OUT_EP;
 
-  adapter->rx_claim = claim;
   adapter->rx_unit_claim = unit_claim;
   atomic_set_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
   result = usbd_ep_enqueue(class_data, buffer);
   if (result != 0) {
     atomic_clear_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
-    memset(&adapter->rx_claim, 0, sizeof(adapter->rx_claim));
     if (adapter->native_unit_mode) {
       (void)wl_rx_unit_abort(adapter->link, &unit_claim);
     } else {
-      (void)wl_rx_dma_finish(adapter->link, &claim);
+      (void)wl_usb_stream_rx_complete(&adapter->stream_rx, adapter->stream_rx.token,
+                                     adapter->stream_rx.active_span.data, 0U);
     }
     usbd_ep_buf_free(context, buffer);
     atomic_inc(&adapter->errors);
@@ -437,6 +415,8 @@ int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
   adapter->maximum_rx_size = config->maximum_rx_size;
   adapter->native_unit_mode =
       link_config.envelope == WL_ENVELOPE_NATIVE_PACKET;
+  wl_usb_stream_rx_init(&adapter->stream_rx, adapter->link,
+                        adapter->rx_staging, sizeof(adapter->rx_staging));
   adapter->wake_user_data = config->wake_user_data;
   adapter->wake_consumer = config->wake_consumer;
   if (adapter->native_unit_mode) {

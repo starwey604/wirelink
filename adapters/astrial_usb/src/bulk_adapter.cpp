@@ -3,6 +3,7 @@
 #include "wirelink/astrial/usb_bulk_adapter.hpp"
 #include "wirelink/diagnostics/host_profile.hpp"
 #include "wirelink/detail/coalescing_event.hpp"
+#include "wirelink/detail/usb_stream_rx.h"
 
 #include <atomic>
 #include <span>
@@ -29,6 +30,9 @@ public:
           maximum_read_size(read_size), wake_policy(policy),
           activity_callback(callback), activity_user_data(callback_user_data)
     {
+        packet_size = device.endpoint_info().maximum_packet_size_in;
+        staging.resize(packet_size);
+        wl_usb_stream_rx_init(&stream_rx, &link, staging.data(), staging.size());
     }
 
     UsbBorrowedBuffer acquire_rx_buffer()
@@ -40,44 +44,30 @@ public:
             return {};
         }
 
-        wl_rx_dma_claim_t next{};
         wl_rx_unit_claim_t next_unit{};
+        const bool had_staged_bytes = !native_unit_mode && stream_rx.pending_length != 0;
         const int result = native_unit_mode
                                ? wl_rx_unit_claim(&link, maximum_read_size,
                                                   &next_unit)
-                               : wl_rx_dma_claim(&link, maximum_read_size,
-                                                 &next);
+                               : wl_usb_stream_rx_acquire(&stream_rx,
+                                                           maximum_read_size, packet_size);
+        // Completion can wake the owner before this next-acquire callback
+        // publishes staged bytes. Notify again after draining, including a
+        // partial drain that must wait for the consumer to release space.
+        if (had_staged_bytes) notify_activity();
         if (result != WL_OK)
         {
             rx_pauses.fetch_add(1, std::memory_order_relaxed);
             pause_rx();
             return {};
         }
-        // A short tail claim is not a safe USB transfer buffer: the host
-        // controller may receive a full endpoint packet and report overflow
-        // before Wirelink gets a chance to wrap the ring. Pause until the
-        // consumer drains the ring, allowing the next claim to normalize at
-        // physical offset zero.
-        if (!native_unit_mode && next.span.length < maximum_read_size)
-        {
-            if (wl_rx_dma_finish(&link, &next) != WL_OK)
-            {
-                (void)wl_rx_dma_abort(&link);
-                errors.fetch_add(1, std::memory_order_relaxed);
-            }
-            rx_pauses.fetch_add(1, std::memory_order_relaxed);
-            pause_rx();
-            return {};
-        }
-
-        claim = next;
         unit_claim = next_unit;
         claim_active = true;
         rx_paused.store(false, std::memory_order_release);
         rx_claims.fetch_add(1, std::memory_order_relaxed);
-        const auto& active = native_unit_mode ? unit_claim.span : claim.span;
+        const auto& active = native_unit_mode ? unit_claim.span : stream_rx.active_span;
         return {{active.data, active.length},
-                native_unit_mode ? unit_claim.token : claim.token};
+                native_unit_mode ? unit_claim.token : stream_rx.token};
     }
 
     void complete_rx(const std::error_code& error, UsbBorrowedBuffer buffer,
@@ -87,8 +77,8 @@ public:
         const auto now = diagnostics::timestamp();
         diagnostics::record(Stage::usb_rx_gap, last_rx_ns, now);
         last_rx_ns = now;
-        const auto& active = native_unit_mode ? unit_claim.span : claim.span;
-        const auto active_token = native_unit_mode ? unit_claim.token : claim.token;
+        const auto& active = native_unit_mode ? unit_claim.span : stream_rx.active_span;
+        const auto active_token = native_unit_mode ? unit_claim.token : stream_rx.token;
         if (!claim_active || buffer.token != active_token ||
             buffer.bytes.data() != active.data || length > active.length)
         {
@@ -97,9 +87,8 @@ public:
                 if (native_unit_mode)
                     (void)wl_rx_unit_abort(&link, &unit_claim);
                 else
-                    (void)wl_rx_dma_abort(&link);
+                    wl_usb_stream_rx_abort(&stream_rx);
                 claim_active = false;
-                claim = {};
                 unit_claim = {};
             }
             errors.fetch_add(1, std::memory_order_relaxed);
@@ -112,28 +101,22 @@ public:
             failed = error || length == 0 ||
                      wl_rx_unit_commit(&link, &unit_claim, length) != WL_OK;
         else
-        {
-            if (length > 0 && wl_rx_dma_publish(&link, &claim, 0, length) != WL_OK)
-                failed = true;
-            if (!failed && wl_rx_dma_finish(&link, &claim) != WL_OK)
-                failed = true;
-        }
+            failed = wl_usb_stream_rx_complete(&stream_rx, active_token,
+                                                buffer.bytes.data(), length) != WL_OK;
 
         if (failed)
         {
             if (native_unit_mode)
                 (void)wl_rx_unit_abort(&link, &unit_claim);
             else
-                (void)wl_rx_dma_abort(&link);
+                wl_usb_stream_rx_abort(&stream_rx);
             claim_active = false;
-            claim = {};
             unit_claim = {};
             errors.fetch_add(1, std::memory_order_relaxed);
             notify_activity();
             return;
         }
         claim_active = false;
-        claim = {};
         unit_claim = {};
         rx_bytes.fetch_add(length, std::memory_order_relaxed);
         rx_completions.fetch_add(1, std::memory_order_relaxed);
@@ -205,7 +188,9 @@ public:
     std::atomic<bool> rx_paused{false};
     bool claim_active{};
     bool native_unit_mode{};
-    wl_rx_dma_claim_t claim{};
+    wl_usb_stream_rx_t stream_rx{};
+    std::vector<std::uint8_t> staging;
+    std::size_t packet_size{};
     wl_rx_unit_claim_t unit_claim{};
     std::vector<std::uint8_t> unit_storage;
     std::atomic<bool> tx_active{false};
@@ -263,6 +248,9 @@ UsbBulkAdapter::open(wl_ctx_t& link, const UsbBulkAdapterConfig& config)
     usb_config.read_queue_depth = 1;
     auto opened = UsbBulkDevice::open(usb_config);
     if (!opened) return tl::make_unexpected(opened.error());
+    if (!opened->endpoint_info().maximum_packet_size_in ||
+        config.maximum_read_size < opened->endpoint_info().maximum_packet_size_in)
+        return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));
 
     auto adapter = std::unique_ptr<UsbBulkAdapter>(new UsbBulkAdapter(
         link, std::move(opened.value()), config.maximum_read_size,
@@ -400,10 +388,9 @@ void UsbBulkAdapter::quiesce() noexcept
     {
         if (m_impl->native_unit_mode)
             (void)wl_rx_unit_abort(&m_impl->link, &m_impl->unit_claim);
-        else
-            (void)wl_rx_dma_abort(&m_impl->link);
         m_impl->claim_active = false;
     }
+    if (!m_impl->native_unit_mode) wl_usb_stream_rx_abort(&m_impl->stream_rx);
     (void)wl_set_sink(&m_impl->link, nullptr, nullptr);
     m_impl->started.store(false, std::memory_order_release);
 }

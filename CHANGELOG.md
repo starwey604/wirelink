@@ -6,6 +6,11 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Fix USB Bulk COBS RX deadlock when a fragmented frame straddles a short
+  physical ring tail, on Zephyr and Astrial. Use a single packet staging
+  buffer only at the tail, retain blocked bytes, and keep ordinary RX direct.
+  USB request sizes are packet-aligned. No wire-format or codegen ABI change;
+  rebuild adapters/consumers (Zephyr adapter state grows by about 0.6 KiB).
 - Pair with WLC 0.7.0-dev / ABI 32 for static schema imports and borrowed
   direct routes; rebuild generated code and consumers together.
 - Add static endpoint service progress/deadline/session/close hooks and

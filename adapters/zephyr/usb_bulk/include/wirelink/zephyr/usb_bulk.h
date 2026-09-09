@@ -9,6 +9,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/port.h"
+#include "wirelink/detail/usb_stream_rx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,7 +68,8 @@ typedef struct wl_zephyr_usb_bulk {
   wl_zephyr_usb_bulk_wake_fn wake_consumer;
   void *cycle_counter_user_data;
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
-  wl_rx_dma_claim_t rx_claim;
+  wl_usb_stream_rx_t stream_rx;
+  uint8_t rx_staging[512]; /* One HS packet, only used at a short ring tail. */
   wl_rx_unit_claim_t rx_unit_claim;
   wl_io_token_t tx_token;
   bool native_unit_mode;
