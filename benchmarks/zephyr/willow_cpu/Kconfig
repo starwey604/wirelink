@@ -1,0 +1,2 @@
+# SPDX-License-Identifier: Apache-2.0
+source "$(RAGTIME_FIRMWARES_ROOT)/firmware/tests/apps/willow_wirelink_hil/Kconfig"

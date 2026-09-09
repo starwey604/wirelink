@@ -106,6 +106,14 @@ option(WIRELINK_BUILD_BULK_BENCHMARK
   "Build the host sequential bulk runtime benchmark" OFF)
 option(WIRELINK_BUILD_RPC_PEER_BENCHMARK
   "Build the host generated-RPC peer fast-path benchmark" OFF)
+option(WIRELINK_BUILD_API_BENCHMARKS
+  "Build generated endpoint CPU and localhost UDP regression benchmarks" OFF)
+option(WIRELINK_BUILD_FRAMING_BENCHMARK
+  "Build frame encoding and TX retry CPU benchmarks (Google Benchmark)" OFF)
+option(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK
+  "Build generated request validation/conversion CPU benchmarks" OFF)
+option(WIRELINK_BUILD_EXECUTOR_BENCHMARK
+  "Build multithreaded executor contention benchmarks (enables API benchmarks)" OFF)
 option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
@@ -147,6 +155,10 @@ if(WIRELINK_BUILD_STORAGE)
   add_subdirectory(runtime/storage)
 endif()
 
+if(WIRELINK_BUILD_EXECUTOR_BENCHMARK)
+  set(WIRELINK_BUILD_API_BENCHMARKS ON)
+  set(WIRELINK_BUILD_HOST_RUNTIME ON)
+endif()
 if(WIRELINK_BUILD_HOST_RUNTIME)
   enable_language(CXX)
   add_subdirectory(runtime/host)
@@ -198,7 +210,7 @@ if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
   add_subdirectory(adapters/astrial_usb)
 endif()
 
-if(WIRELINK_BUILD_GETTING_STARTED)
+if(WIRELINK_BUILD_GETTING_STARTED OR WIRELINK_BUILD_API_BENCHMARKS)
   set(WIRELINK_BUILD_ASIO_UDP_ADAPTER ON)
 endif()
 
@@ -223,6 +235,10 @@ if(WIRELINK_BUILD_RPC_PEER_BENCHMARK)
   add_subdirectory(benchmarks/rpc_peer)
 endif()
 
+if(WIRELINK_BUILD_API_BENCHMARKS)
+  add_subdirectory(benchmarks/api)
+endif()
+
 if(WIRELINK_BUILD_FUZZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "WIRELINK_BUILD_FUZZERS requires Clang")
@@ -241,6 +257,16 @@ endif()
 
 if(WIRELINK_BUILD_EXAMPLES)
   add_subdirectory(examples)
+endif()
+
+if(WIRELINK_BUILD_FRAMING_BENCHMARK)
+  enable_language(CXX)
+  add_subdirectory(benchmarks/framing)
+endif()
+
+if(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK)
+  enable_language(CXX)
+  add_subdirectory(benchmarks/rpc_validation)
 endif()
 
 if(WIRELINK_INSTALL)
