@@ -21,6 +21,7 @@ static uint8_t endpoint_progress(void *context, wl_ctx_t *link, wl_time_ms_t now
   if (endpoint->private_policy.progress != NULL)
     progress = endpoint->private_policy.progress(endpoint->private_policy.user_data,
                                                   link, now_ms);
+  endpoint->private_policy_pending = progress;
   if (endpoint->private_hooks.application_progress != NULL)
     progress |= endpoint->private_hooks.application_progress(
         endpoint->private_hooks.application_user_data, link, now_ms);
@@ -72,6 +73,7 @@ wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
   endpoint->private_executor = NULL;
   endpoint->private_now = 0U;
   endpoint->private_stepping = 0U;
+  endpoint->private_policy_pending = 0U;
   if (application != NULL) {
     endpoint->private_hooks.application_user_data = application->application_user_data;
     endpoint->private_hooks.application_progress = application->application_progress;
@@ -168,6 +170,7 @@ wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, size_t event_budget) {
   if (endpoint->private_stepping != 0U) return WL_ERR_REENTRANT;
   endpoint->private_now = endpoint->private_clock.now_ms(endpoint->private_clock.user_data);
   endpoint->private_stepping = 1U;
+  endpoint->private_policy_pending = 0U;
   hooks = endpoint_hooks(endpoint);
   result = wl_pump_step(&endpoint->private_link, endpoint->private_now, event_budget,
                        &hooks, &endpoint->private_step);
@@ -187,8 +190,10 @@ wl_err_t wl_endpoint_get_hint(const wl_endpoint_t *endpoint,
   result = wl_endpoint_now(endpoint, &now_ms);
   if (result != WL_OK) return result;
   hooks = endpoint_hooks(endpoint);
-  return wl_pump_get_hint(&endpoint->private_link, now_ms,
-                          &hooks, hint);
+  result = wl_pump_get_hint(&endpoint->private_link, now_ms, &hooks, hint);
+  if (result == WL_OK && endpoint->private_policy_pending != 0U)
+    hint->next_deadline_ms = 0U;
+  return result;
 }
 
 const wl_pump_result_t *wl_endpoint_last_step(const wl_endpoint_t *endpoint) {

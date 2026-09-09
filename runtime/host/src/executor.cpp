@@ -369,7 +369,8 @@ void Executor::s_run() noexcept {
         // their existing progress contract instead of inferring from the last
         // endpoint result that their entire driver is idle.
         const bool application_pending = m_driver.endpoint != nullptr
-            ? s_pump_result.progress != 0U : m_application_pending;
+            ? !m_driver.readiness_complete && s_pump_result.progress != 0U
+            : m_application_pending;
         // Without a readiness hint, a legacy service hook may need a follow-up
         // after RX/TX callbacks start adapter work. Do not infer that such an
         // adapter is idle merely because the core has consumed its events.

@@ -38,6 +38,7 @@ typedef struct wl_endpoint {
   const struct wl_rpc_executor *private_executor;
   wl_time_ms_t private_now;
   uint8_t private_stepping;
+  uint8_t private_policy_pending;
   uint8_t private_ready;
 } wl_endpoint_t;
 
@@ -48,6 +49,9 @@ typedef struct {
   void *context;
   wl_err_t (*step)(void *context);
   wl_err_t (*close)(void *context);
+  /* One means get_hint includes all follow-up work. Zero preserves the
+   * conservative progress contract of custom drivers. */
+  uint8_t readiness_complete;
 } wl_endpoint_driver_t;
 
 wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
