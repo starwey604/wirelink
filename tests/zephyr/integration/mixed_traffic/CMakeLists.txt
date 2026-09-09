@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: Apache-2.0
+cmake_minimum_required(VERSION 3.21)
+set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
+list(APPEND ZEPHYR_EXTRA_MODULES "${WIRELINK_ROOT}")
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(wirelink_mixed_traffic_integration)
+list(APPEND CMAKE_MODULE_PATH "${WIRELINK_ROOT}/cmake")
+include(WirelinkWlc)
+add_library(Wirelink::wirelink ALIAS wirelink)
+set(WORKLOAD "${WIRELINK_ROOT}/benchmarks/mixed_traffic")
+wirelink_wlc_generate_codec(TARGET mixed_codec SCHEMA "${WORKLOAD}/mixed.wl")
+target_link_libraries(mixed_codec PUBLIC zephyr_interface)
+wirelink_wlc_generate_runtime(TARGET mixed_runtime CODEC_TARGET mixed_codec
+  PROFILE "${WORKLOAD}/mixed.bind.wl" RUNTIME_NAME mixed)
+target_sources(app PRIVATE src/main.c "${WORKLOAD}/workload.c")
+target_include_directories(app PRIVATE "${WORKLOAD}")
+target_link_libraries(app PRIVATE mixed_runtime)
+target_compile_features(app PRIVATE c_std_11)
