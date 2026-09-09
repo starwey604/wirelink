@@ -1,0 +1,249 @@
+---
+title: Keep device information after a call
+description: Save an owned RPC response and use it after another call and endpoint shutdown.
+sidebar:
+  order: 4
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The calculator response in the previous lesson contained one integer. Device
+information is more demanding: a user interface may need to keep a name and
+firmware version while communication continues or after it stops.
+
+Wirelink's ordinary generated endpoint API returns an **owned value**. Its
+bounded strings live inside the generated C structure, so the application can
+copy the value and control how long that copy remains available.
+
+**After this lesson, you can:**
+
+- define and fill bounded string fields;
+- save a generated response with ordinary C assignment;
+- use the saved value after another call and endpoint shutdown;
+- distinguish an owned value from a borrowed view.
+
+## Before you begin
+
+Complete [requesting a result from a device](../request-a-result/) first. Keep
+using the same repository and `build/tutorials` build directory.
+
+Rebuild the tutorial programs after updating the source:
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## Run the device information example
+
+Start the device-side server in terminal A:
+
+```sh
+./build/tutorials/examples/02_device_info/device_info_server
+```
+
+Wait for `device info server ready`, then run the client in terminal B:
+
+```sh
+./build/tutorials/examples/02_device_info/device_info_client
+```
+
+The client makes two calls and prints these lines:
+
+```text
+current name=demo-sensor firmware=dev query=2
+saved after close name=demo-sensor firmware=dev query=1
+```
+
+The first line is the second response. The client then clears that response and
+closes its endpoint before printing the first response on the second line. The
+saved value still contains query 1 and both strings.
+
+Keep the server running until you finish the exercise near the end of this lesson.
+
+:::note[Windows executable path]
+Visual Studio multi-configuration builds place these programs under
+`build/tutorials/examples/02_device_info/Release/` and add the `.exe` suffix.
+:::
+
+## Give each string a bound
+
+The example defines its business data in
+[`device_info.wl`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/device_info.wl):
+
+```text
+version 1;
+
+message InfoRequest @id(30) {}
+
+message InfoResponse @id(31) {
+  required string<31> name @id(1);
+  required string<15> firmware @id(2);
+  required uint32 query_count @id(3);
+}
+```
+
+The empty `InfoRequest` means “describe this device”; it needs no placeholder
+field. `InfoResponse` supplies the name, firmware version, and a demonstration
+counter.
+
+`string<31>` reserves up to 31 UTF-8 bytes for `name`. It does not mean 31
+characters, and it does not allocate memory at runtime. The generated value has
+a `name.length` and a fixed-capacity `name.data` array.
+
+The binding remains the same reliable RPC shape introduced in the previous lesson:
+
+```text
+rpc GetInfo {
+  request = InfoRequest;
+  response = InfoResponse;
+}
+```
+
+## Fill the owned response
+
+The handler in
+[`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/server.c)
+copies its text into the generated response:
+
+```c
+const char name[] = "demo-sensor";
+const char firmware[] = "dev";
+
+response->has_name = response->has_firmware =
+    response->has_query_count = true;
+response->name.length = sizeof(name) - 1U;
+memcpy(response->name.data, name, sizeof(name) - 1U);
+response->firmware.length = sizeof(firmware) - 1U;
+memcpy(response->firmware.data, firmware, sizeof(firmware) - 1U);
+response->query_count = ++*queries;
+return 0;
+```
+
+Each required field receives a value and has its presence flag set. Subtracting
+one from `sizeof` excludes the C string terminator; the length records only the
+bytes sent by the schema field.
+
+These two literals fit their declared bounds. When the text comes from external
+input, check its byte length before copying it into a generated array.
+
+## Save the first result
+
+The key line in
+[`client.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/client.c)
+uses normal C structure assignment:
+
+```c
+const info_response_value_t saved = response;
+```
+
+This generated value contains its string arrays directly. Assigning it copies
+their stored bytes along with the lengths and presence flags. `saved` does not
+point back into `response` or the endpoint.
+
+The client then deliberately changes everything that might otherwise appear to
+own the first result:
+
+```c
+result = device_info_endpoint_get_info_sync(
+    &client, &request, &response, 1500U);
+CHECK(result.status == WL_RPC_SUCCESS);
+
+info_response_value_clear(&response);
+CHECK(device_info_endpoint_close(&client) == WL_OK);
+example_udp_close(udp);
+```
+
+The second call writes query 2 into `response`. Clearing that variable resets its
+fields, and closing the endpoint releases the communication state. None of those
+operations touch `saved`, which is why the final line can still print query 1.
+
+The saved result remains valid for the lifetime of the `saved` C variable. If it
+is a local variable, return from that function still ends its lifetime.
+
+## Owned values and borrowed views
+
+Wirelink also has advanced interfaces that expose a **borrowed view** into
+existing receive or runtime storage. Copying a view structure copies its pointers,
+not the bytes they refer to.
+
+| Form | Where the field bytes live | How long you can use them |
+| --- | --- | --- |
+| Owned `*_value_t` | Inside the generated value | For the lifetime of that C value |
+| Borrowed view | In storage owned elsewhere | Only for the API's documented borrow period |
+
+Use the ordinary generated endpoint API when bounded copies fit the application.
+If an advanced callback supplies a borrowed view and the data must outlive that
+callback, copy the required bytes into owned storage before returning.
+
+<MultipleChoice
+  id="owned-response-lifetime"
+  question="The client assigns response to saved, makes another call, clears response, and closes the endpoint. Can it still read saved.name?"
+  choices={[
+    {
+      label: 'Yes, because saved contains its own bounded string array',
+      correct: true,
+      feedback: 'Correct. Assignment copied the generated owned value, including its string bytes.',
+    },
+    {
+      label: 'No, closing the endpoint invalidates every previous response',
+      correct: false,
+      feedback: 'The ordinary response value is owned by the application, not borrowed from the endpoint.',
+    },
+    {
+      label: 'Only until response is cleared',
+      correct: false,
+      feedback: 'saved and response have separate arrays after the structure assignment.',
+    },
+  ]}
+/>
+
+<MultipleChoice
+  id="bounded-string-bytes"
+  question="What does the 31 in string<31> limit?"
+  choices={[
+    {
+      label: '31 Unicode characters',
+      correct: false,
+      feedback: 'A UTF-8 character may occupy more than one byte.',
+    },
+    {
+      label: '31 UTF-8 bytes stored in the generated value',
+      correct: true,
+      feedback: 'Correct. The schema bound is a byte capacity.',
+    },
+    {
+      label: 'A dynamically allocated 31-byte string',
+      correct: false,
+      feedback: 'The generated owned value uses a fixed-capacity array and requires no heap allocation.',
+    },
+  ]}
+/>
+
+## Try another device name
+
+In `examples/02_device_info/server.c`, change the literal:
+
+```c
+const char name[] = "lab-temperature-sensor";
+```
+
+Rebuild and run the client again. The new name should appear in both output lines,
+while the saved and current query numbers remain different. `sizeof(name) - 1U`
+keeps the stored byte length in step with this literal.
+
+<Checklist
+  id="save-device-info"
+  title="Lesson complete"
+  items={[
+    'I can define and fill a bounded string field.',
+    'I read generated strings using their stored byte lengths.',
+    'I can save an owned response with structure assignment.',
+    'I can distinguish an owned value from a borrowed view.',
+  ]}
+/>
+
+## Next step
+
+The next lesson will make the calculator RPC asynchronous so its main loop can
+continue doing other work while the result is pending.
