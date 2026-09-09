@@ -57,23 +57,24 @@ jobs:
           cmake --build profile-build --config Release --parallel
           ctest --test-dir profile-build --build-config Release --output-on-failure
 
-      # The internal ABI 26 compiler is not a published release asset yet.
+      # Build the exact WLC 0.5.0 / ABI 30 source paired with this tree.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: c6b6a8fa560a15c45d564aad0afd197b13682de8
+          ref: 120b9af130753d2ba0d137882916bfe207d3d312
           path: .tools/wlc
 
       - name: Build matching WLC
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
       - name: Configure WLC package consumer
-        # Exercise automatic source bootstrap against installed CMake helpers.
+        # Use the verified local compiler until its remote source archive has a
+        # verified bootstrap digest. The guarded/offline path is tested below.
         # A target override must not turn this host tool into firmware code.
         env:
           CARGO_BUILD_TARGET: thumbv7em-none-eabihf
-        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
 
       - name: Verify explicit and offline compiler resolution
         run: cmake -DWIRELINK_SOURCE_DIR=${{ github.workspace }} -DMATCHING_WLC=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }} -DMODE=check -P tests/package/wlc_resolution.cmake

@@ -173,3 +173,27 @@ Release 20 项、ASan/UBSan 19+2 项、TSan 5+5 项、安装消费 OFF/ON 各 3 
 
 仅本地 dev 提交，不推送、不合并 main、不创建 tag。无 H7 或 Windows 实测；WLC 仍
 配对 `d1632f2`。与本轮无关的未跟踪文件原样保留，不纳入提交。
+
+## Main 汇合与 WLC v0.5.0 发布准备
+
+2026-09-09，按用户新指令将两个 `dev/wirelink-p0-hardening` 快进合入本地 `main`，
+未改写开发提交历史。Wirelink 汇合到 `5f83685`，WLC 汇合到 `d1632f2`。
+
+- WLC 随后提交 `120b9af`：Cargo/lockfile 升到 0.5.0，生成 ABI 保持 30，更新五份
+  manifest 快照的版本元数据和发布说明；修复发布脚本仍检查 ABI 12 的问题。
+  本地 annotated tag `v0.5.0` 指向该提交。
+- 本节所在 Wirelink 提交要求 WLC 0.5.0 / ABI 30，CI 使用上述精确 WLC 提交，更新
+  中英文安装说明。WLC CI 引用的 `5f83685` 是生成代码的 C 核心测试基线；用户使用
+  CMake 生成辅助函数时，应使用本节所在的 Wirelink main 提交或之后的配套版本。
+- Wirelink 本地及远端均没有 Git tag；CMake/public header 声明的工程版本仍为 0.9.0。
+
+本轮新跑：WLC 142 项、fmt、全 targets/features Clippy；与冻结内部 ABI 30 编译器
+逐字节对照五组生成 C/H，只有 manifest 的编译器版本元数据改变。发布二进制的版本/
+ABI/实际生成 smoke 通过；全新 Release 主机 CTest 21/21，安装后 WLC 消费 6/6，
+显式/错误 ABI/离线/未配对源码解析测试通过。日志：`build/main-release.P2IQND/`。
+
+这只是本地合并和 tag 准备，未推送或触发远端 CI/Release；没有再次跑性能或实板测试。
+源码 bootstrap 仍保留已核实的旧归档及 ABI 不匹配保护，不杜撰未发布归档的 SHA-256。
+当前 CI/本地消费使用明确的配套编译器；获得推送授权后，先使 WLC 的 C 核心测试提交
+可远端访问，再发布 WLC 源码/tag，核实远端归档摘要并更新 Wirelink source pin、恢复
+自动 bootstrap 验收，最后确认两个 main 和发布工作流。不能把本地 tag 当作已发布包。

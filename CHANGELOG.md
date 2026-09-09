@@ -6,6 +6,15 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### WLC v0.5.0 release pairing
+
+- Merge the accumulated development branches into local main and require WLC
+  0.5.0 / codegen ABI 30, removing the ambiguous reuse of version 0.4.0 for
+  unpublished ABI changes. Published WLC v0.4.0 provides ABI 12.
+- Preparing a local compiler tag does not publish remote artifacts. Source
+  bootstrap remains guarded until the matching remote archive has been verified;
+  use an explicit matching compiler for local builds.
+
 ### Bounded host owner work
 
 - Dispatch at most two available LATEST updates per pass, without waiting to
