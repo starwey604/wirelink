@@ -1,0 +1,261 @@
+---
+title: 向设备请求计算结果
+description: 完成一次同步 RPC，并区分可靠链路投递与业务结果。
+sidebar:
+  order: 3
+---
+
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+
+上一课使用 `latest`，让显示端取得当前温度。现在控制端需要一个与具体操作对应的答案：
+请求设备计算 20 + 22，并返回结果。
+
+这种“发出请求、取得结果”的交互叫 **RPC（remote procedure call，远程过程调用）**。
+调用端发送请求，另一个 endpoint 处理它，本次调用最终得到一个业务结果。
+
+**完成本课后，你能够：**
+
+- 运行 Wirelink RPC 客户端和服务端；
+- 定义一次 RPC 的请求与响应数据；
+- 区分可靠链路投递与 RPC 业务完成；
+- 识别成功结果和业务拒绝。
+
+## 开始之前
+
+请先完成[让显示端读取最新温度](../getting-started/)。继续使用同一个 Wirelink 仓库和
+`build/tutorials` 构建目录。
+
+重新构建一次，确保计算器程序与当前源码一致：
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## 运行一次成功调用
+
+在终端 A 启动设备侧服务端：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_server
+```
+
+等待它输出：
+
+```text
+calculator server ready
+```
+
+在终端 B 运行控制端客户端：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client
+```
+
+客户端输出结果后退出：
+
+```text
+20 + 22 = 42
+```
+
+服务端则记录自己执行的操作：
+
+```text
+handling 20 + 22
+```
+
+暂时不要关闭服务端，后面的练习还会使用它。
+
+:::note[Windows 程序路径]
+Visual Studio 多配置构建会把这些程序放在
+`build/tutorials/examples/01_rpc/Release/` 下，并添加 `.exe` 后缀。
+:::
+
+## 定义请求与响应
+
+示例在
+[`calculator.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.wl)
+中保存业务数据：
+
+```text
+version 1;
+
+message AddRequest @id(20) {
+  required int32 left @id(1);
+  required int32 right @id(2);
+}
+
+message AddResponse @id(21) {
+  required int32 sum @id(1);
+}
+```
+
+`AddRequest` 包含两个输入，`AddResponse` 包含计算结果。这里的 message ID 用于区分
+数据类型，不是每次调用的编号。Wirelink 会在业务消息之外添加并匹配自己的调用信息。
+
+配套的
+[`calculator.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.bind.wl)
+把这两个消息连接成一次 RPC：
+
+```text
+profile version 1;
+
+rpc Add {
+  request = AddRequest;
+  response = AddResponse;
+}
+```
+
+`rpc Add` 是操作名称。WLC 根据这项声明生成类型明确的客户端调用和服务端 handler API。
+
+RPC 请求和响应默认使用 **reliable delivery（可靠链路投递）**。Wirelink 会在本教程的
+UDP 链路上确认并重试帧。这只能回答数据是否越过链路，不能说明设备是否接受了操作，
+也不能说明业务结果是否已经产生。
+
+## 在设备侧处理操作
+
+[`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c)
+中的关键代码使用更宽的临时值进行计算，以便检测溢出：
+
+```c
+static int32_t add(void *context, const add_request_value_t *request,
+                   add_response_value_t *response) {
+  const int64_t sum = (int64_t)request->left + request->right;
+  (void)context;
+  if (sum < INT32_MIN || sum > INT32_MAX)
+    return 1;
+  response->has_sum = true;
+  response->sum = (int32_t)sum;
+  return 0;
+}
+```
+
+返回 `0` 表示业务成功，因此 handler 必须填写响应中的 required 字段。返回非零值表示
+业务拒绝，这个状态码由应用自己约定。本例使用状态 `1` 表示计算结果无法放入 `int32`。
+
+服务端在初始化 endpoint 时注册这个函数：
+
+```c
+config.on_add = add;
+```
+
+## 在控制端等待结果
+
+客户端先构造一个自持的请求值，然后最多等待 1500 毫秒，让本次调用结束：
+
+```c
+add_request_value_clear(&request);
+request.has_left = request.has_right = true;
+request.left = 20;
+request.right = 22;
+
+const wl_rpc_completion_t result =
+    calculator_endpoint_add_sync(&client, &request, &response, 1500U);
+```
+
+生成的 `calculator_endpoint_add_sync()` 会在等待期间推进通信。当前先在允许调用线程阻塞
+时使用它；后续课程会把同一个操作改为异步调用。
+
+只有结果为 `WL_RPC_SUCCESS` 时才能读取 `response`。如果设备拒绝操作，结果为
+`WL_RPC_REJECTED`，业务状态保存在 `result.rejection`。超时、取消和通信失败是另外几种
+彼此独立的终态。
+
+一次完整调用有四个可以观察的阶段：
+
+1. 请求越过链路。
+2. 服务端 handler 接受或拒绝操作。
+3. 响应或拒绝信息返回客户端。
+4. 客户端得到 RPC 结果。
+
+可靠投递负责第 1、3 步的链路工作。只有业务处理和回复完成后，客户端才知道 RPC 结果。
+
+<MultipleChoice
+  id="rpc-delivery-versus-completion-zh-cn"
+  question="服务端已经确认收到请求，但 handler 还没有返回。客户端能否报告 RPC 成功？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: '能，因为可靠投递已经完成',
+      correct: false,
+      feedback: '确认信息只表示链路投递完成，客户端仍需等待业务响应。',
+    },
+    {
+      label: '不能，必须继续等待业务结果',
+      correct: true,
+      feedback: '正确。链路投递与 RPC 业务完成是两个独立阶段。',
+    },
+    {
+      label: '能，只要事先清空了响应结构体',
+      correct: false,
+      feedback: '清空存储不会产生响应，也不会完成远端操作。',
+    },
+  ]}
+/>
+
+## 观察一次业务拒绝
+
+保持服务端运行，请求它给 32 位有符号整数的最大值再加一：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client 49100 49101 2147483647 1
+```
+
+服务端收到了请求并执行 handler，但明确拒绝了这个值：
+
+```text
+addition rejected: status=1
+```
+
+这次 RPC 已经完成，结果是业务拒绝。它不同于丢包或超时：通信正常完成，应用也返回了
+明确决定。
+
+<MultipleChoice
+  id="rpc-overflow-outcome-zh-cn"
+  question="请求已可靠送达，但加法发生溢出，handler 返回 1。客户端应该检查哪个结果？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: 'WL_RPC_SUCCESS 和 response.sum',
+      correct: false,
+      feedback: '被拒绝的调用不会产生成功响应值。',
+    },
+    {
+      label: 'WL_RPC_REJECTED 和 result.rejection',
+      correct: true,
+      feedback: '正确。请求已经送达，随后被业务应用拒绝。',
+    },
+    {
+      label: 'WL_RPC_TIMED_OUT，因为没有返回 sum',
+      correct: false,
+      feedback: '服务端立即返回了拒绝结果，因此本次调用没有超时。',
+    },
+  ]}
+/>
+
+## 尝试另一组输入
+
+选择两个 32 位有符号整数，放在两个 UDP 端口参数之后。例如：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client 49100 49101 7 35
+```
+
+运行前先预测调用会成功还是被拒绝，再把客户端输出与服务端的 `handling ...` 行进行比较。
+
+<Checklist
+  id="request-a-result-zh-cn"
+  title="完成检查"
+  progressTemplate="已完成 {done}/{total} 项"
+  items={[
+    '我能运行计算器客户端和服务端。',
+    '我能定义 RPC 的请求与响应。',
+    '我只在 WL_RPC_SUCCESS 后读取响应数据。',
+    '我能区分可靠投递、业务成功和业务拒绝。',
+  ]}
+/>
+
+## 下一步
+
+下一课将请求包含文本的设备信息，并让结果在 endpoint 继续运行后仍能安全使用。

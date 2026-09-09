@@ -42,6 +42,7 @@ export default defineConfig({
           items: [
             { slug: 'learn/environment-setup' },
             { slug: 'learn/getting-started' },
+            { slug: 'learn/request-a-result' },
           ],
         },
       ],
