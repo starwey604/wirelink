@@ -7,6 +7,7 @@
 #include "wirelink/outbox.h"
 #include "wirelink/pump.h"
 #include "wirelink/host/clock.hpp"
+#include "wirelink/host/executor_activity.hpp"
 #include "wirelink/endpoint.h"
 #include "wirelink/rpc_sync.h"
 #include "wirelink/detail/coalescing_event.hpp"
@@ -40,8 +41,9 @@ struct ExecutorHooks {
         const wl_event_t& s_event, wl_time_ms_t s_now_ms) noexcept;
     void* m_user_data{};
     // Owner-pass order is adapter service, core event dispatch, application
-    // progress, and queued TX dispatch. Deadline hints are queried only after a
-    // pass reports no immediate work; the executor sleeps until the earliest of
+    // progress, and queued TX dispatch. Before sleeping, readiness/deadline
+    // hints distinguish consumed events from remaining work. The executor
+    // sleeps until the earliest of
     // core, application, and adapter deadlines. All-none means an unbounded
     // event-driven sleep.
     ServiceFn m_service{};
@@ -74,6 +76,8 @@ class Executor {
 public:
     static constexpr std::size_t s_kMaximumCommandPayload = 512;
     static constexpr std::size_t s_kLatestLaneCapacity = 8;
+    // Drain only work already available; revisit RX/RPC/deadlines between batches.
+    static constexpr std::size_t s_kLatestDispatchBudget = 2;
 
     enum class State : std::uint8_t {
         kUninitialized,
@@ -132,6 +136,8 @@ public:
 
     State state() const noexcept { return m_state.load(std::memory_order_acquire); }
     ExecutorStats stats() const noexcept;
+    // Relaxed diagnostic snapshot; read after stop() for exact accounting.
+    ExecutorActivitySnapshot activity() const noexcept { return m_activity.snapshot(); }
 
 private:
     struct AtomicStats {
@@ -158,7 +164,7 @@ private:
     static wl_rpc_completion_t s_invokeRpc(void* context,
         const wl_rpc_sync_call_t* call, std::uint32_t timeout_ms);
     static void s_finishRpc(void* context, const wl_rpc_completion_t* result);
-    void s_dispatchRpc() noexcept;
+    std::size_t s_dispatchRpc() noexcept;
     void s_cancelQueuedRpc() noexcept;
     static int s_serviceBridge(void* s_user_data) noexcept;
     static void s_quiesceBridge(void* s_user_data) noexcept;
@@ -187,6 +193,7 @@ private:
     std::atomic<bool> m_rpc_pending{false};
     wl_clock_t m_clock{};
     ExecutorHooks m_hooks{};
+    bool m_application_pending{}; // Owner-only, not historical event progress.
     std::atomic<State> m_state{State::kUninitialized};
     std::atomic<bool> m_accepting{false};
     std::atomic<bool> m_stop_requested{false};
@@ -206,6 +213,7 @@ private:
     diagnostics::PendingTimestamp m_wake_profile;
     std::atomic<std::uint32_t> m_producers_in_flight{};
     AtomicStats m_stats{};
+    [[no_unique_address]] detail::ExecutorActivityCounters m_activity;
 };
 
 } // namespace wirelink::host

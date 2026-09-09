@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+if(NOT TARGET Wirelink::host OR NOT WIRELINK_HOST_ACTIVITY)
+  message(FATAL_ERROR "Owner pass workloads require WIRELINK_BUILD_HOST_RUNTIME=ON and WIRELINK_HOST_ACTIVITY=ON")
+endif()
+add_executable(wirelink_owner_pass owner_pass.cpp)
+target_link_libraries(wirelink_owner_pass PRIVATE Wirelink::host)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(wirelink_owner_pass PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(BUILD_TESTING)
+  add_test(NAME wirelink_owner_pass COMMAND wirelink_owner_pass)
+  set_tests_properties(wirelink_owner_pass PROPERTIES TIMEOUT 30)
+endif()

@@ -48,6 +48,7 @@ static double cpu() {
 struct Pair {
   perf_endpoint_t client{}, server{};
   wl_loopback_t cable{};
+  uint64_t endpoint_steps{};
   static int32_t echo(void *, const echo_request_value_t *in, echo_response_value_t *out) {
     out->has_sequence = out->has_body = true;
     out->sequence = in->sequence;
@@ -71,6 +72,7 @@ struct Pair {
     auto &p = *static_cast<Pair *>(context);
     // Both peers belong to this one owner. No concurrent access to loopback.
     for (unsigned i = 0; i < 2; ++i) {
+      p.endpoint_steps += 2;
       check(perf_endpoint_step(&p.server) == WL_OK);
       check(perf_endpoint_step(&p.client) == WL_OK);
     }
@@ -90,6 +92,7 @@ struct Latest {
   std::array<std::atomic<uint32_t>, 8> last{};
   unsigned bytes = 32;
   bool shared = false;
+  std::vector<double> delivery;
   void init(Executor &executor) {
     wl_config_t config{};
     config.max_payload_len = 512;
@@ -112,7 +115,12 @@ struct Latest {
     std::memcpy(&sequence, frame.payload.data, 4);
     std::memcpy(&lane, frame.payload.data + 4, 4);
     check(lane < 8 && frame.message_id == 500 + (s.shared ? 0 : lane));
-    for (unsigned i = 8; i < s.bytes; ++i)
+    uint64_t submitted;
+    std::memcpy(&submitted, frame.payload.data + 8, sizeof(submitted));
+    const auto delivered = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+    check(uint64_t(delivered) >= submitted);
+    s.delivery.push_back(double(uint64_t(delivered) - submitted));
+    for (unsigned i = 16; i < s.bytes; ++i)
       check(frame.payload.data[i] == uint8_t(sequence + lane));
     // Shared-lane replacement can hide whole updates, but cannot tear/reorder
     // the surviving updates from any one producer.
@@ -145,10 +153,11 @@ int main(int argc, char **argv) {
   check(rpc || proxy || shared || mode == "latest");
   const unsigned producers = number(argv[2], 8), count = number(argv[3], 1000000);
   const unsigned bytes = number(argv[4], 512), period = number(argv[5], 1000000);
-  check(producers && count && bytes >= 8);
+  check(producers && count && bytes >= 16);
   auto pair = (rpc || proxy) ? std::make_unique<Pair>() : nullptr;
   Latest latest;
   latest.bytes = bytes; latest.shared = shared;
+  latest.delivery.reserve(size_t(producers) * count + unsigned(shared));
   Executor executor;
   if (pair) check(executor.initialize(pair->driver()) == WL_OK);
   else latest.init(executor);
@@ -178,6 +187,8 @@ int main(int argc, char **argv) {
       std::memcpy(payload.data() + 4, &lane, 4);
       std::memset(payload.data() + 8, int(uint8_t(sequence + lane)), bytes - 8);
       const auto start = Clock::now();
+      const auto submitted = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(start.time_since_epoch()).count());
+      std::memcpy(payload.data() + 8, &submitted, sizeof(submitted));
       if (rpc) {
         const auto result = perf_endpoint_echo_sync(&pair->client, &request, &response, 5000);
         if (result.status != WL_RPC_SUCCESS) {
@@ -214,6 +225,8 @@ int main(int argc, char **argv) {
       uint32_t sequence = count + 1, lane = 0;
       std::memcpy(final.data(), &sequence, 4); std::memcpy(final.data() + 4, &lane, 4);
       std::memset(final.data() + 8, int(uint8_t(sequence)), bytes - 8);
+      const auto submitted = uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
+      std::memcpy(final.data() + 8, &submitted, sizeof(submitted));
       check(executor.submitLatest(500, final.data(), bytes) == WL_OK);
     }
     const auto limit = Clock::now() + std::chrono::seconds(5);
@@ -242,9 +255,29 @@ int main(int argc, char **argv) {
   std::printf("{\"profile\":\"%s\",\"abi\":%u,\"mode\":\"%s\",\"producers\":%u,\"calls\":%llu,\"bytes\":%u,\"period_us\":%u,"
     "\"wall_ns\":%.0f,\"cpu_ns_per_call\":%.3f,\"calls_per_second\":%.3f,"
     "\"p50_ns\":%.3f,\"p95_ns\":%.3f,\"p99_ns\":%.3f,\"max_ns\":%.3f,"
-    "\"dispatched\":%llu,\"coalesced\":%llu,\"errors\":0}\n", profile, PERF_RUNTIME_CODEGEN_ABI_VERSION, mode.c_str(), producers,
+    "\"dispatched\":%llu,\"coalesced\":%llu,\"errors\":0", profile, PERF_RUNTIME_CODEGEN_ABI_VERSION, mode.c_str(), producers,
     static_cast<unsigned long long>(total), bytes, period, wall, used_cpu / total,
     total * 1e9 / wall, quantile(.5), quantile(.95), quantile(.99), all.back(),
     static_cast<unsigned long long>(stats.m_latest_dispatched), static_cast<unsigned long long>(stats.m_latest_coalesced));
+  std::sort(latest.delivery.begin(), latest.delivery.end());
+  auto delivery_quantile = [&](double q) {
+    return latest.delivery.empty() ? 0.0 : latest.delivery[std::min(latest.delivery.size() - 1, size_t(q * latest.delivery.size()))];
+  };
+  const auto activity = executor.activity();
+  if (activity.enabled) {
+    check(activity.get(wirelink::host::ExecutorActivity::rpc_empty_collections) == 0);
+    if (pair) {
+      check(activity.get(wirelink::host::ExecutorActivity::rpc_jobs) == total);
+      check(activity.get(wirelink::host::ExecutorActivity::rpc_completions) == total);
+    }
+  }
+  std::printf(",\"sink_samples\":%zu,\"sink_p50_ns\":%.3f,\"sink_p99_ns\":%.3f,\"endpoint_steps\":%llu,\"latest_budget\":%zu,\"activity_enabled\":%s,\"activity\":{",
+      latest.delivery.size(), delivery_quantile(.5), delivery_quantile(.99),
+      static_cast<unsigned long long>(pair ? pair->endpoint_steps : 0),
+      Executor::s_kLatestDispatchBudget, activity.enabled ? "true" : "false");
+  for (unsigned i = 0; i < activity.counts.size(); ++i)
+    std::printf("%s\"%s\":%llu", i ? "," : "", wirelink::host::executor_activity_names[i],
+        static_cast<unsigned long long>(activity.counts[i]));
+  std::puts("}}");
   diag::dump(stdout, 0); // All workers stopped; never print from hot paths.
 }

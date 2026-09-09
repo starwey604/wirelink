@@ -1,4 +1,5 @@
 find_package(Threads REQUIRED)
+option(WIRELINK_HOST_ACTIVITY "Count logical executor passes/work (no clocks)" OFF)
 
 add_library(wirelink_host
   src/executor.cpp
@@ -6,6 +7,9 @@ add_library(wirelink_host
 add_library(Wirelink::host ALIAS wirelink_host)
 
 target_compile_features(wirelink_host PUBLIC cxx_std_20)
+if(WIRELINK_HOST_ACTIVITY)
+  target_compile_definitions(wirelink_host PUBLIC WIRELINK_HOST_ACTIVITY=1)
+endif()
 target_include_directories(wirelink_host PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>

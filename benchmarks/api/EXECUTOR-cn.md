@@ -11,7 +11,7 @@
 
 分别配置两个 Release 构建目录：
 
-- OFF：`-DWIRELINK_HOST_PROFILING=OFF -DWIRELINK_HOST_LOCK_PROFILING=OFF`，用于真实 CPU/延迟。
+- OFF：`-DWIRELINK_HOST_PROFILING=OFF -DWIRELINK_HOST_LOCK_PROFILING=OFF -DWIRELINK_HOST_ACTIVITY=OFF`，用于真实 CPU/延迟。
 - LOCKS：`-DWIRELINK_HOST_PROFILING=OFF -DWIRELINK_HOST_LOCK_PROFILING=ON`，用于定位锁和唤醒。
 
 ```sh
@@ -52,12 +52,17 @@ build/executor-off/benchmarks/api/wirelink_executor_benchmark rpc 8 5000 32 0
 ```
 
 RPC 校验每次响应，LATEST 校验完整 payload、每生产者顺序与转入 idle 后的最终值。
-LATEST 的延迟是 **submit 返回时间**，不是送达时间；输入吞吐不能等同发送吞吐，
+LATEST 原有 `p50_ns` / `p99_ns` 是 **submit 返回时间**，不是送达时间；输入吞吐不能等同发送吞吐，
 应同时查看 `dispatched` 和 `coalesced`。共享通道允许最终值被另一生产者替换，
 因此用生产者退出后的一条独立 marker 检查最终排空。
 `coalesced` 是替换仍有效 outbox 项的次数，可能包括 owner 已复制、尚未 complete 的项；
 它不是精确丢帧数，不能与 `dispatched` 相加校验总提交量。shared 的 marker 计入这两个计数，
 但不计入业务调用数。
+
+新增 `sink_samples`、`sink_p50_ns`、`sink_p99_ns`：在 payload 中记录提交前时间，
+统计存活更新到 owner sink 校验/接受的年龄。它包括排队、编码及基准自己的 sink 解码，
+不含网络或远端接收，也不是持续 AoI / 更新间隔；被 LATEST 替换的更新没有交付样本。
+基准在测量前预留样本数组，两版必须使用相同插桩。payload 现在至少 16 B。
 
 进程 CPU 包含 owner 与业务线程；墙时包括屏障、调度、结果校验和最终排空。
 初始化在测量前；本基准不含 socket、USB、H7、CAN 或电机业务。`proxy` 不是 RPC 网络基准。
@@ -80,3 +85,27 @@ OFF 数据用于最终 CPU/延迟判断，LOCKS 只用于定位；不可把 ON/O
 完整 `WIRELINK_HOST_PROFILING=ON` 仍用于其他阶段归因，运行脚本时选 `--profile full`。
 
 本轮结果及无锁决策见 [争用与 H7 CPU 记录](../../docs/executor-h7-performance-cn.md)。
+
+## Owner pass 与配对回归
+
+单独构建 `-DWIRELINK_HOST_ACTIVITY=ON`，关闭两个 timing 选项，观察 JSON 的 `activity`。
+`passes`、`rpc_jobs`、`rpc_batches` 和 `latest_attempts/latest_deferred` 用来区分重复
+推进、队列收集和背压探测。`endpoint_steps` 单独记录基准的端点调用次数：当前 RPC
+驱动每个外层 pass 调用四次 endpoint step，不能把这四次都算成 executor 重复调度。
+计数口径及独立正确性用例见 [owner-pass harness](../owner_pass/README.md)。
+
+`executor_analyze.py` 保留旧报告读法；新报告额外汇总交付年龄、计数、每提交/每实际交付
+pass 数和每非空批次 RPC 数。拒绝混合开关、预算或不完整计数。OFF 的零不是零开销。
+
+冻结两个使用相同基准代码的 OFF 二进制，然后串行交替运行：
+
+```sh
+python benchmarks/api/executor_pair.py --before /path/to/baseline \
+  --after /path/to/candidate --out build/executor-paired
+```
+
+默认 1/8 生产者、32/512 B、饱和/每生产者 1 kHz、四种模式、三次重复；每项随机决定
+先运行哪一版，共 192 个进程。饱和每生产者 3000 次，定频 300 次，可用同名参数调整。
+输出目录必须不存在，保留失败日志、二进制摘要、两版原始报告和 min/median/max 汇总。
+不要与编译、CTest、Zephyr 或其他压力负载并行；饱和 LATEST 还需比较实际交付数量，
+不能把“丢掉更多更新”误判为 CPU 优化。结果见[本轮记录](../../docs/owner-pass-performance-cn.md)。

@@ -178,6 +178,7 @@ int Executor::feedBytes(const std::uint8_t* s_data,
 
     m_stats.m_feed_calls.fetch_add(1, std::memory_order_relaxed);
     const int s_result = wl_feed_bytes(m_link, s_data, s_size, &s_accepted);
+    if (s_accepted == 0) m_activity.add(ExecutorActivity::feed_without_bytes);
     m_stats.m_feed_bytes.fetch_add(s_accepted, std::memory_order_relaxed);
     if (s_result == WL_ERR_WOULD_BLOCK || s_result == WL_ERR_NO_SPACE) {
         m_stats.m_feed_backpressure.fetch_add(1, std::memory_order_relaxed);
@@ -186,11 +187,15 @@ int Executor::feedBytes(const std::uint8_t* s_data,
     if (m_producers_in_flight.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         m_producers_in_flight.notify_all();
     }
-    notify();
+    // An empty successful feed publishes nothing. A zero-acceptance overflow
+    // can still publish RX recovery state and must wake the owner.
+    if (s_accepted != 0 || s_result == WL_ERR_WOULD_BLOCK ||
+        s_result == WL_ERR_NO_SPACE) notify();
     return s_result;
 }
 
 void Executor::notify() noexcept {
+    m_activity.add(ExecutorActivity::notifications);
     Scope profile(Stage::wake);
     m_wake_profile.notify();
     m_wake_generation.fetch_add(1, std::memory_order_release);
@@ -255,10 +260,9 @@ std::uint8_t Executor::s_applicationProgressBridge(
     wl_time_ms_t s_now_ms) noexcept {
     Scope profile(Stage::application);
     auto& s_self = *static_cast<Executor*>(s_user_data);
-    return s_self.m_hooks.m_application_progress(
-               s_self.m_hooks.m_user_data, *s_context, s_now_ms)
-               ? 1U
-               : 0U;
+    s_self.m_application_pending = s_self.m_hooks.m_application_progress(
+        s_self.m_hooks.m_user_data, *s_context, s_now_ms);
+    return s_self.m_application_pending ? 1U : 0U;
 }
 
 std::uint32_t Executor::s_applicationDeadlineBridge(
@@ -312,14 +316,16 @@ void Executor::s_run() noexcept {
     current_executor = this;
     auto s_pump_hooks = s_pumpHooks();
     while (!m_stop_requested.load(std::memory_order_acquire)) {
+        m_activity.add(ExecutorActivity::passes);
         Scope profile_owner(Stage::owner);
         (void)m_wake.try_wait();
         m_wake_profile.consume(Stage::notify_to_owner);
         const std::uint64_t s_observed_wake =
             m_wake_generation.load(std::memory_order_acquire);
         wl_pump_result_t s_pump_result{};
-        s_dispatchRpc();
+        const auto rpc_jobs = s_dispatchRpc();
         Scope profile_pump(Stage::pump);
+        m_application_pending = false;
         int s_step_result;
         if (m_driver.endpoint != nullptr) {
             s_step_result = m_driver.step(m_driver.context);
@@ -343,12 +349,37 @@ void Executor::s_run() noexcept {
         m_stats.m_service_errors.fetch_add(s_pump_result.service_errors,
                                            std::memory_order_relaxed);
         bool s_progress = s_pump_result.progress != 0U;
+        m_activity.add(ExecutorActivity::core_events, s_pump_result.events);
+        m_activity.add(ExecutorActivity::rx_events, s_pump_result.rx_events);
         if (m_stop_requested.load(std::memory_order_acquire)) break;
 
-        if (s_dispatchOne()) {
+        bool latest_progress = false;
+        for (std::size_t i = 0; i < s_kLatestDispatchBudget; ++i) {
+            if (m_stop_requested.load(std::memory_order_acquire) || !s_dispatchOne()) break;
+            latest_progress = true;
+        }
+        if (latest_progress) {
             s_progress = true;
         }
-        if (s_progress) continue;
+        if (!s_progress && rpc_jobs == 0)
+            m_activity.add(ExecutorActivity::no_reported_work);
+        // Raw hooks explicitly report whether another application pass is
+        // needed. Consumed events alone are history, not a reason to spin.
+        // Custom endpoint drivers may aggregate several steps/peers; preserve
+        // their existing progress contract instead of inferring from the last
+        // endpoint result that their entire driver is idle.
+        const bool application_pending = m_driver.endpoint != nullptr
+            ? s_pump_result.progress != 0U : m_application_pending;
+        // Without a readiness hint, a legacy service hook may need a follow-up
+        // after RX/TX callbacks start adapter work. Do not infer that such an
+        // adapter is idle merely because the core has consumed its events.
+        const bool legacy_service_progress = m_driver.endpoint == nullptr &&
+            m_hooks.m_service != nullptr && m_hooks.m_adapter_deadline_hint == nullptr &&
+            s_pump_result.progress != 0U;
+        if (application_pending || legacy_service_progress) {
+            m_activity.add(ExecutorActivity::continue_progress);
+            continue;
+        }
 
         wl_poll_hint_t s_hint{};
         const int s_hint_result = m_driver.endpoint != nullptr
@@ -357,21 +388,36 @@ void Executor::s_run() noexcept {
         if (s_hint_result != WL_OK) {
             m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
         } else if (s_hint.work_pending != 0) {
+            m_activity.add(ExecutorActivity::continue_hint);
+            continue;
+        }
+
+        // A send accepted after this pass's service may have started async
+        // adapter work. Give service one opportunity before sleeping. If it
+        // is still blocked, dispatch makes no progress on the next pass and
+        // we wait for readiness instead of spinning on a nonempty outbox.
+        if (latest_progress) {
+            m_activity.add(ExecutorActivity::continue_progress);
             continue;
         }
 
         std::uint32_t s_next_deadline =
             s_hint_result == WL_OK ? s_hint.next_deadline_ms
                                    : WL_POLL_NO_DEADLINE_MS;
-        if (s_next_deadline == 0) continue;
+        if (s_next_deadline == 0) {
+            m_activity.add(ExecutorActivity::continue_deadline);
+            continue;
+        }
 
         if (m_stop_requested.load(std::memory_order_acquire) ||
             m_wake_generation.load(std::memory_order_acquire) !=
                 s_observed_wake) {
+            m_activity.add(ExecutorActivity::continue_notification);
             continue;
         }
         profile_owner.finish();
         Scope profile_wait(Stage::wait);
+        m_activity.add(ExecutorActivity::waits);
         if (m_platform_waiter.wait != nullptr) {
             const int waited = m_platform_waiter.wait(m_platform_waiter.user_data, s_next_deadline);
             if (waited != WL_OK && waited != WL_ERR_NO_DATA) {
@@ -411,6 +457,7 @@ bool Executor::s_dispatchOne() noexcept {
         }
     }
 
+    m_activity.add(ExecutorActivity::latest_attempts);
     const int s_result = wl_send_unreliable(
         m_link, s_item.message_id, s_payload.data(),
         s_item.payload_length);
@@ -430,10 +477,12 @@ bool Executor::s_dispatchOne() noexcept {
         m_commands_pending.store(s_outbox_stats.depth != 0, std::memory_order_release);
     }
     if (s_result == WL_OK) {
+        m_activity.add(ExecutorActivity::latest_sent);
         m_stats.m_latest_dispatched.fetch_add(1, std::memory_order_relaxed);
         return true;
     }
     if (s_deferred) {
+        m_activity.add(ExecutorActivity::latest_deferred);
         return false;
     }
 
@@ -517,15 +566,15 @@ void Executor::s_finishRpc(void* context, const wl_rpc_completion_t* result) {
     }
     job.completed = true;
     job.owner->m_stats.m_rpc_completed.fetch_add(1, std::memory_order_relaxed);
+    job.owner->m_activity.add(ExecutorActivity::rpc_completions);
     for (auto& slot : job.owner->m_rpc_jobs) if (slot == &job) { slot = nullptr; break; }
     // Notify under the shared mutex. The caller cannot destroy its stack CV
     // until this notification returns and the mutex is released.
     job.finished.notify_one();
 }
 
-void Executor::s_dispatchRpc() noexcept {
-    if (!m_rpc_pending.load(std::memory_order_acquire)) return;
-    if (!m_rpc_pending.exchange(false, std::memory_order_acquire)) return;
+std::size_t Executor::s_dispatchRpc() noexcept {
+    if (!m_rpc_pending.load(std::memory_order_acquire)) return 0;
     std::array<RpcJob*, 8> pending{};
     std::size_t count{};
     {
@@ -535,9 +584,17 @@ void Executor::s_dispatchRpc() noexcept {
             job->started = true;
             pending[count++] = job;
         }
+        // Admission publishes under this same mutex. Clear only after every
+        // currently queued job is marked started, so an admission collected in
+        // this batch cannot leave a stale hint for an empty next collection.
+        // Later admissions acquire the mutex and publish true after this reset.
+        m_rpc_pending.store(false, std::memory_order_release);
     }
     // The owner alone completes jobs. Callers keep their stack job alive until
     // completion; submit/callbacks run outside the admission mutex.
+    m_activity.add(ExecutorActivity::rpc_batches, count != 0);
+    m_activity.add(ExecutorActivity::rpc_empty_collections, count == 0);
+    m_activity.add(ExecutorActivity::rpc_jobs, count);
     for (std::size_t i = 0; i < count; ++i) {
         auto* job = pending[i];
         const int error = job->call.submit(job->call.context, job->deadline,
@@ -551,6 +608,7 @@ void Executor::s_dispatchRpc() noexcept {
             s_finishRpc(job, &result);
         }
     }
+    return count;
 }
 
 void Executor::s_cancelQueuedRpc() noexcept {

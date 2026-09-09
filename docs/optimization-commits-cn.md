@@ -1,6 +1,6 @@
 # 优化迭代的 Git 提交索引
 
-本文保留前一轮 A/B/C 的整理记录；最新的可靠 RPC／遥测共存批次见文末。
+本文保留前一轮 A/B/C 的整理记录；最新的端点布局及 owner 调度批次见文末。
 
 整理日期：2026-09-09。范围是多 RPC 维护体验、生成 API 内存收敛、帧与 RPC/codec
 性能优化，以及 A 的取舍、B/C 生成器重构和后续性能复核。
@@ -154,3 +154,22 @@ Zephyr 12 配置 / 39 用例及相关 Sanitizer 验证。整理提交前重新�
 完整回归说成此次提交时全部重跑。Cortex-M7 数字是编译布局，不是实板 CPU 测量。
 previous fixture、线上帧格式、业务 C 文件和产品依赖未改变。
 `AGENTS.md`、独立 `wlc/` 和 `build/` 仍按上文边界保留，不纳入 Wirelink 提交。
+
+## 追加批次：Owner 工作量与有界调度
+
+本节所在提交：`perf: bound owner work and eliminate stale RPC collection hints`。
+可用 `git log --oneline -- docs/owner-pass-performance-cn.md` 查询，不维护自引用哈希。
+
+- `Executor` 新增默认关闭的逻辑计数，保留结果通知/锁所有权及防丢唤醒检查。
+- 最终 LATEST 预算为 2，不等待凑批；减少可确定空闲的尾部 pass、成功空 feed 通知，
+  在现有收集锁内清理 RPC pending，消除已收集工作留下的空扫描。
+- 新增独立有界调度/公平性用例、跨线程计数、sink 年龄及串行配对 runner；安装包导出
+  同一诊断开关并安装新头文件。没有修改生成 ABI 30、C 核心或产品仓库。
+
+完整证据及预算 4→2 的取舍见 [owner 调度记录](owner-pass-performance-cn.md)。
+Release 20 项、ASan/UBSan 19+2 项、TSan 5+5 项、安装消费 OFF/ON 各 3 项；
+计数/并发/报告 6 项各重复 100 次。性能在编译及测试结束后单独运行，保留中间候选和
+尾延迟异常数据，不把 pass 减少直接等同于 CPU/尾延迟改善。
+
+仅本地 dev 提交，不推送、不合并 main、不创建 tag。无 H7 或 Windows 实测；WLC 仍
+配对 `d1632f2`。与本轮无关的未跟踪文件原样保留，不纳入提交。

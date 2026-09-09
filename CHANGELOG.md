@@ -6,6 +6,23 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## Unreleased
 
+### Bounded host owner work
+
+- Dispatch at most two available LATEST updates per pass, without waiting to
+  accumulate a batch. Revisit RPC, RX and protocol deadlines between batches;
+  stop on backpressure and check shutdown between individual sends.
+- Avoid raw-hook passes caused only by consumed events when readiness is known,
+  and avoid successful empty-feed notifications. Preserve overflow notifications,
+  wake-generation checks, application follow-ups, legacy service hooks without
+  readiness hints, custom-driver progress and async service opportunities.
+- Clear RPC pending hints inside the existing admission/collection mutex so jobs
+  collected in the current batch cannot trigger a redundant empty collection.
+- Add opt-in `WIRELINK_HOST_ACTIVITY` logical counters, deterministic scheduling/
+  fairness tests and submission-to-sink age in the executor benchmark, with a
+  serial paired runner. Keep RPC/CV and mutex ownership unchanged. Host C++
+  consumers must rebuild; C core layout, codegen ABI 30 and wire formats do not
+  change. See `docs/owner-pass-performance-cn.md` for evidence and limitations.
+
 ### Profile-selected endpoint memory (codegen ABI 30)
 
 - Add one local `endpoint { envelope = native_packet; rpc_role = server; }`

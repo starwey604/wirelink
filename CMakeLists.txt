@@ -114,6 +114,8 @@ option(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK
   "Build generated request validation/conversion CPU benchmarks" OFF)
 option(WIRELINK_BUILD_EXECUTOR_BENCHMARK
   "Build multithreaded executor contention benchmarks (enables API benchmarks)" OFF)
+option(WIRELINK_BUILD_OWNER_PASS_TESTS
+  "Build deterministic owner-pass accounting workloads (requires host activity counters)" OFF)
 option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
@@ -238,6 +240,9 @@ endif()
 if(WIRELINK_BUILD_API_BENCHMARKS)
   add_subdirectory(benchmarks/api)
 endif()
+if(WIRELINK_BUILD_OWNER_PASS_TESTS)
+  add_subdirectory(benchmarks/owner_pass)
+endif()
 
 if(WIRELINK_BUILD_FUZZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -299,6 +304,7 @@ if(WIRELINK_INSTALL)
       RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
       INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(FILES runtime/host/include/wirelink/host/executor.hpp
+      runtime/host/include/wirelink/host/executor_activity.hpp
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
     install(FILES include/wirelink/detail/coalescing_event.hpp
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/detail)

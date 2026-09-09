@@ -96,6 +96,9 @@ The optional [executor contention matrix](benchmarks/api/EXECUTOR-cn.md) measure
 real multi-producer RPC/LATEST handoff; a separate
 [H7 CPU harness](benchmarks/zephyr/willow_cpu/README-cn.md) measures the product HIL.
 See the [results and synchronization decision](docs/executor-h7-performance-cn.md).
+The [owner-pass harness](benchmarks/owner_pass/README.md) counts bounded dispatch,
+empty checks and handoffs without timing probes; its
+[results](docs/owner-pass-performance-cn.md) distinguish logical work savings from CPU noise.
 The [RPC validation benchmark](benchmarks/rpc_validation/README.md) isolates
 decode, canonical fingerprint and owned conversion costs on hosts and H7;
 [results](docs/rpc-validation-performance-cn.md) include ABI 29 tradeoffs.

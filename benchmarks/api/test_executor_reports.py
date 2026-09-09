@@ -50,6 +50,42 @@ class ExecutorReportTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 summarize(report)
 
+    def activity_fixture(self):
+        report = self.fixture()
+        for row in report["runs"]:
+            row.update(activity_enabled=True, latest_budget=4, endpoint_steps=400,
+                       sink_samples=row["dispatched"], sink_p50_ns=40, sink_p99_ns=80,
+                       activity={"passes": 100, "rpc_jobs": 100, "rpc_batches": 25})
+        return report
+
+    def test_activity_and_sink_age_are_separate_from_submit_latency(self):
+        item = summarize(self.activity_fixture())["groups"][0]
+        self.assertEqual(item["metrics"]["passes_per_call"]["median"], 1)
+        self.assertEqual(item["metrics"]["rpc_jobs_per_batch"]["median"], 4)
+        self.assertEqual(item["metrics"]["sink_p99_ns"]["median"], 80)
+        self.assertEqual(item["metrics"]["p99_ns"]["median"], 12)
+
+    def test_rejects_mixed_or_incomplete_activity(self):
+        for field, value in [("activity_enabled", False), ("latest_budget", 1),
+                             ("activity", {}), ("sink_samples", 0)]:
+            report = self.activity_fixture()
+            report["runs"][0][field] = value
+            with self.assertRaises(ValueError):
+                summarize(report)
+        report = self.activity_fixture()
+        del report["runs"][0]["sink_p50_ns"]
+        with self.assertRaises(ValueError):
+            summarize(report)
+
+    def test_disabled_activity_does_not_report_zero_cost(self):
+        report = self.activity_fixture()
+        for row in report["runs"]:
+            row["activity_enabled"] = False
+            row["activity"] = dict.fromkeys(row["activity"], 0)
+        item = summarize(report)["groups"][0]
+        self.assertNotIn("activity", item)
+        self.assertNotIn("passes_per_call", item["metrics"])
+
 
 if __name__ == "__main__":
     unittest.main()
