@@ -1,0 +1,92 @@
+# 本轮优化的 Git 提交索引
+
+整理日期：2026-09-09。范围是多 RPC 维护体验、生成 API 内存收敛、帧与 RPC/codec
+性能优化，以及 A 的取舍、B/C 生成器重构和后续性能复核。
+Wirelink 与 WLC 是两个独立仓库，均在 `dev/wirelink-p0-hardening`。
+本次只创建本地提交，**未推送、合并 main、创建 tag 或更新产品依赖 pin**。
+
+## 提交边界
+
+本轮累积改动此前尚未提交。本次按可审阅的最终功能边界整理，不伪造每次实验的历史。
+WLC 的 A 阶段有完整冻结源码，故保留“功能/优化 → 生成快照 → B/C 重构”三个
+可独立检出的边界；没有人为重建未经验证的 ABI 27/28 中间版本。
+全程通过暂存区组织快照，没有回退或覆盖当前工作区。
+
+### WLC：3 笔
+
+起点：`c6b6a8fa560a15c45d564aad0afd197b13682de8`。
+
+| 提交 | 内容与审阅重点 |
+| --- | --- |
+| `f8687c6` | `feat: adopt ABI 29 endpoint composition and optimized codecs`。组合 profile、send 路由、共享 handler 上下文/解码暂存、流式规范指纹、私有已验证 value 转换及编译期 codec 策略，保留 A 最终回退路径。 |
+| `7f33374` | `test: freeze ABI 29 generated artifacts before refactoring`。5 类输入、41 个生成 C/H 产物的快照与可选逐字节编译器对照。 |
+| `115f481` | `refactor: separate WLC planning and checked template emission`。B/C 职责拆分、共享编译计划与容量校验、非递归模板渲染；生成文件及 ABI 29 不变。 |
+
+最终配套 WLC：`115f48132a5a761bc47f5c7880de940ea6fb2275`。
+首次提交导出的 A 源码通过 129 项行为测试；快照提交也在该导出上通过冻结 CLI 对照。
+重构后的最终源码通过 139 项测试，避免只验证最终树、却留下不可用的中间源码边界。
+这些集成测试使用当前 Wirelink 核心，而不是任意历史版本。
+
+### Wirelink：6 笔
+
+起点：`337fede`。按提交顺序阅读：
+
+| 提交 | 内容与审阅重点 |
+| --- | --- |
+| `9e3b3ea` | `perf: encode frames once and retain DATA across retries`。单遍 COBS、容量/重叠回退、重传复用、帧测试和带核心覆盖率插桩的 fuzz oracle。 |
+| `867f09b` | `perf: scan RPC response-cache deadlines only once`。合并 deadline cache 扫描及对应状态测试。 |
+| `43e2003` | `feat: add opt-in executor mutex wait and hold diagnostics`。分开记录锁等待/持有时间；默认关闭，未替换为无锁结构。 |
+| `ca43283` | `feat: integrate ABI 29 profiles with a multi-service example`。CMake 配对、冻结 fixture 更新、12 服务示例、安装包与新增 RPC 验收、端点及安装文档。 |
+| `d6a3c51` | `test: add opt-in host and H7 performance regression harnesses`。主机/UDP/executor、帧、RPC 验证和 codec 矩阵，以及 Zephyr/H7 工作负载与报告检查。 |
+| 本文件首次新增的提交 | `docs: record optimization evidence and paired commit ledger`。汇总各阶段性能/正确性报告，更新 README、CHANGELOG 和本索引。 |
+
+文档提交自身的哈希可用 `git log --diff-filter=A --oneline -- docs/optimization-commits-cn.md`
+查询，避免在文件内维护自引用哈希。
+
+## 配对与发布边界
+
+- Wirelink 的 `ca43283` 及之后需要 ABI 29 WLC；最终验收使用上面的 `115f481` 源码。
+  配置时显式设置 `WIRELINK_WLC_EXECUTABLE`，不能假设已有发布工具满足要求。
+- 自动分发仍锁定旧 ABI 26 源码。缺少 ABI 29 配对时明确报错，不将旧工具当作兼容版本。
+  推送、更新 CI/compiler pin 与源码归档 SHA-256 是后续发布集成工作，本次未执行。
+- 本轮没有修改 libflorid、Ragtime_Firmwares 或 Touchstone。板端基准不等于产品迁移验收。
+- 代码生成 ABI 从原始基线的 26 演进至 29；B/C 自身不再升级 ABI。
+  本轮不改变冻结的链路帧、业务 codec 线上格式或托管 RPC v2 格式。
+
+## 整理提交时重新验证
+
+| 检查 | 结果 |
+| --- | --- |
+| A 源码暂存区导出的完整 WLC 行为测试 | 129/129 |
+| A 加入快照后，与冻结编译器逐字节比较 | 5 类输入、41 个 C/H 文件一致 |
+| 最终 WLC 全套（含同一逐字节 oracle） | 139/139 |
+| `cargo fmt --check`、Clippy 全 targets/features、`-D warnings` | 通过 |
+| 六组 benchmark 报告/分析器测试 | 29/29；不执行计时负载 |
+| `build/maintainer-api` Release 重建与串行 CTest | 20/20，含 UDP、C/C++、Python FFI 和新增服务验收 |
+| 两仓库暂存内容的 `git diff --cached --check` | 通过 |
+
+本次不重复性能采样或操作 H7。此前的 Sanitizer、Zephyr 矩阵及实板结果保留于阶段报告，
+不冒充本次重新执行。整理日志位于本机 `build/commit-closeout.KGB1zc/`。
+
+## 性能证据阅读顺序
+
+1. [多 RPC 维护体验](maintainer-api-progress-cn.md)及[静态内存/基准建立](api-performance-progress-cn.md)。
+2. [Executor 与 H7 测量](executor-h7-performance-cn.md)：为何保留当前锁模型。
+3. [帧编码](framing-performance-cn.md)及[回退路径](framing-fallback-performance-cn.md)。
+4. [RPC 验证一次、复用结果](rpc-validation-performance-cn.md)。
+5. [编译期 codec 计划](codec-plan-performance-cn.md)、[游标/key 收敛](codec-convergence-performance-cn.md)、[A 最终取舍](codec-fallback-performance-cn.md)。
+6. [B/C 实现与正确性](wlc-refactor-progress-cn.md)、[重构后的性能复核](wlc-refactor-performance-cn.md)。
+
+最后一项确认受测主机程序与 H7 BIN 逐字节不变，WLC runtime-only 生成 CPU 有稳定收益；
+主机跨进程计时仍有明显噪声，不能据此声称端点运行时加速或建立严格百分比门禁。
+各报告中的“未提交”“仅正确性”等描述属于当时阶段；当前 Git 状态以本索引为准。
+
+## 保留但不纳入 Git 的材料
+
+- 预先存在的 `AGENTS.md` 原样保留，不新增到索引。
+- `wlc/` 是独立仓库，不作为 Wirelink 的普通目录或 gitlink 提交。
+- `build/` 的冻结编译器、候选二进制、原始 JSON/RTT、一次性实验脚本和测试日志留在本机，
+  不删除也不加入 Git。仓库保留可复用的基准源码、严格报告检查器和实验结论。
+
+因此复用功能基准无需本机采样，但精确复核历史数字需要对应原始材料；
+本次没有把仅在本机存在的材料描述为已经随 Git 分发。

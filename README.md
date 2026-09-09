@@ -24,11 +24,11 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The current dev tutorials use unreleased codegen ABI 26: owned RPC business
+The current dev tutorials use unreleased codegen ABI 29: owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
 Managed RPC v2 binds replies to the originating client session; both peers must upgrade.
-Use the exact WLC revision in [installation](docs/installation.md); older release
+Use the matching development WLC described in [installation](docs/installation.md); older release
 assets do not contain this API. Implementation/H7 handoff evidence is recorded in
 [the milestone log](docs/rpc-usability-progress-cn.md).
 
@@ -40,6 +40,9 @@ assets do not contain this API. Implementation/H7 handoff evidence is recorded i
    your own project with [`tutorial-integration.md`](docs/tutorial-integration.md).
    Nonblocking callers and slow services have separate
    [async](docs/tutorial-rpc-async.md) and [deferred](docs/tutorial-rpc-deferred.md) tutorials.
+   Then review [12 modular device services](examples/03_device_service/README.md)
+   ([中文](examples/03_device_service/README-cn.md)): shared service definitions,
+   send-only telemetry and an executable four-file new-RPC acceptance test.
 2. Choose and lifecycle a transport with [`adapters.md`](docs/adapters.md),
    configure an endpoint clock once with [`endpoint-clock.md`](docs/endpoint-clock.md),
    select a default or bare-metal environment with [`session.md`](docs/session.md),
@@ -81,6 +84,36 @@ above the frozen v1 link header.
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
 cmake --build build/core
 ```
+
+For hardware-free performance regressions, see
+[`benchmarks/api`](benchmarks/api/README.md) ([中文](benchmarks/api/README-cn.md)):
+Google Benchmark CPU/loopback measurements, static endpoint sizes and separate
+two-process UDP latency/CPU reports. Dependencies and timing gates are opt-in.
+The optional [executor contention matrix](benchmarks/api/EXECUTOR-cn.md) measures
+real multi-producer RPC/LATEST handoff; a separate
+[H7 CPU harness](benchmarks/zephyr/willow_cpu/README-cn.md) measures the product HIL.
+See the [results and synchronization decision](docs/executor-h7-performance-cn.md).
+The [RPC validation benchmark](benchmarks/rpc_validation/README.md) isolates
+decode, canonical fingerprint and owned conversion costs on hosts and H7;
+[results](docs/rpc-validation-performance-cn.md) include ABI 29 tradeoffs.
+
+The standalone [codec planning benchmark](benchmarks/codec_plan/README.md) covers
+field-count/ID-density lookup, fixed arrays and H7 instruction-cache sensitivity
+with verified LTO settings. See the [measurement record](docs/codec-plan-performance-cn.md)
+and [cursor/key-precomputation follow-up](docs/codec-convergence-performance-cn.md).
+The [A-stage fallback decision](docs/codec-fallback-performance-cn.md),
+[B/C generator refactor](docs/wlc-refactor-progress-cn.md), and
+[post-refactor measurements](docs/wlc-refactor-performance-cn.md) distinguish
+compiler CPU gains from unchanged generated runtime code. The paired local
+Wirelink/WLC commits are indexed in the [closeout ledger](docs/optimization-commits-cn.md).
+
+The independent [framing benchmark](benchmarks/framing/README.md) compares
+single-pass COBS and encoded retry reuse without WLC, Asio or an executor.
+It shares a C workload with a [standalone H7 app](benchmarks/zephyr/framing/README-cn.md);
+[results and tradeoffs](docs/framing-performance-cn.md) distinguish core CPU work
+from end-to-end latency and product CPU utilization.
+The [fallback follow-up](docs/framing-fallback-performance-cn.md) records H7
+overlap/tight-buffer fixes and the pending idle-host performance check.
 
 The core targets are `wirelink` and its namespaced alias
 `Wirelink::wirelink`. Applications provide all persistent storage to
