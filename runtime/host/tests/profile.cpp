@@ -24,5 +24,17 @@ int main() {
   std::fclose(output);
   reset();
   if (value.count != 0 || slow_count != 0) std::abort();
+  std::mutex mutex;
+  unsigned protected_value = 0;
+  for (auto& writer : writers) writer = std::thread([&] {
+    for (unsigned i = 0; i < 1000; ++i) {
+      MutexScope lock(mutex, Stage::rpc_admit_wait, Stage::rpc_admit_hold);
+      ++protected_value;
+    }
+  });
+  for (auto& writer : writers) writer.join();
+  if (protected_value != 4000 || totals[static_cast<unsigned>(Stage::rpc_admit_wait)].count != 4000 ||
+      totals[static_cast<unsigned>(Stage::rpc_admit_hold)].count != 4000) std::abort();
+  reset();
   std::puts("PASS: bounded concurrent profiling, saturation, quiescent reset/export");
 }

@@ -10,6 +10,7 @@
 namespace wirelink::host {
 using diagnostics::Scope;
 using diagnostics::Stage;
+using diagnostics::MutexScope;
 
 namespace {
 constexpr std::size_t s_kPollBudget = 64;
@@ -209,9 +210,7 @@ int Executor::submitLatest(std::uint16_t s_message_id,
     }
 
     {
-        Scope profile_lock(Stage::command_lock);
-        std::lock_guard<std::mutex> s_lock(m_command_mutex);
-        profile_lock.finish();
+        MutexScope s_lock(m_command_mutex, Stage::latest_submit_wait, Stage::latest_submit_hold);
         if (!m_accepting.load(std::memory_order_relaxed)) {
             return WL_ERR_CANCELLED;
         }
@@ -401,9 +400,7 @@ bool Executor::s_dispatchOne() noexcept {
     std::array<std::uint8_t, s_kMaximumCommandPayload> s_payload;
     wl_outbox_item_t s_item{};
     {
-        Scope profile_lock(Stage::command_lock);
-        std::lock_guard<std::mutex> s_lock(m_command_mutex);
-        profile_lock.finish();
+        MutexScope s_lock(m_command_mutex, Stage::latest_take_wait, Stage::latest_take_hold);
         const int s_acquired = wl_outbox_acquire_copy(
             &m_outbox, s_payload.data(), s_payload.size(), &s_item);
         if (s_acquired == WL_ERR_NO_DATA) return false;
@@ -421,9 +418,7 @@ bool Executor::s_dispatchOne() noexcept {
                             s_result == WL_ERR_WOULD_BLOCK ||
                             s_result == WL_ERR_NO_SPACE;
     {
-        Scope profile_lock(Stage::command_lock);
-        std::lock_guard<std::mutex> s_lock(m_command_mutex);
-        profile_lock.finish();
+        MutexScope s_lock(m_command_mutex, Stage::latest_finish_wait, Stage::latest_finish_hold);
         (void)wl_outbox_complete(
             &m_outbox, &s_item,
             s_result == WL_OK
@@ -493,7 +488,7 @@ wl_rpc_completion_t Executor::s_invokeRpc(void* context,
     job.owner = &self;
     job.call = *call;
     {
-        std::lock_guard lock(self.m_rpc_mutex);
+        MutexScope lock(self.m_rpc_mutex, Stage::rpc_admit_wait, Stage::rpc_admit_hold);
         if (!self.m_accepting.load(std::memory_order_acquire)) return localFailure(WL_ERR_CANCELLED);
         RpcJob** free = nullptr;
         for (auto& slot : self.m_rpc_jobs) if (slot == nullptr) { free = &slot; break; }
@@ -514,7 +509,7 @@ wl_rpc_completion_t Executor::s_invokeRpc(void* context,
 
 void Executor::s_finishRpc(void* context, const wl_rpc_completion_t* result) {
     auto& job = *static_cast<RpcJob*>(context);
-    std::lock_guard lock(job.owner->m_rpc_mutex);
+    MutexScope lock(job.owner->m_rpc_mutex, Stage::rpc_finish_wait, Stage::rpc_finish_hold);
     job.result = *result;
     if (job.result.status == WL_RPC_CANCELLED && job.owner->m_stop_error != WL_OK) {
         job.result.status = WL_RPC_FAILED;
@@ -534,7 +529,7 @@ void Executor::s_dispatchRpc() noexcept {
     std::array<RpcJob*, 8> pending{};
     std::size_t count{};
     {
-        std::lock_guard lock(m_rpc_mutex);
+        MutexScope lock(m_rpc_mutex, Stage::rpc_collect_wait, Stage::rpc_collect_hold);
         for (auto* job : m_rpc_jobs) {
             if (job == nullptr || job->started) continue;
             job->started = true;

@@ -112,8 +112,13 @@ option(WIRELINK_BUILD_HOST_RUNTIME
   "Build the optional C++20 threaded session runtime" OFF)
 option(WIRELINK_HOST_PROFILING
   "Enable bounded desktop timing diagnostics (no hot-path logging)" OFF)
+option(WIRELINK_HOST_LOCK_PROFILING
+  "Measure mutex wall times and notification latency without broad CPU probes" OFF)
 if(WIRELINK_HOST_PROFILING)
   target_compile_definitions(wirelink INTERFACE WIRELINK_HOST_PROFILING=1)
+endif()
+if(WIRELINK_HOST_LOCK_PROFILING)
+  target_compile_definitions(wirelink INTERFACE WIRELINK_HOST_LOCK_PROFILING=1)
 endif()
 option(WIRELINK_BUILD_STORAGE
   "Build the optional fixed-block endpoint allocator" OFF)

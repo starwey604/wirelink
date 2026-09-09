@@ -4,15 +4,17 @@
 #define WIRELINK_DIAGNOSTICS_HOST_PROFILE_HPP
 
 // Optional desktop diagnostics, never used by the C core. Enable consistently
-// through CMake's WIRELINK_HOST_PROFILING option. OFF compiles out all sampling.
+// through CMake's WIRELINK_HOST_PROFILING / WIRELINK_HOST_LOCK_PROFILING options.
+// Both OFF compiles out all sampling. Lock-only mode avoids broad CPU probes.
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
+#include <mutex>
 #include <thread>
-#if defined(WIRELINK_HOST_PROFILING) && defined(__linux__)
+#if (defined(WIRELINK_HOST_PROFILING) || defined(WIRELINK_HOST_LOCK_PROFILING)) && defined(__linux__)
 #include <time.h>
 #endif
 
@@ -20,14 +22,20 @@ namespace wirelink::diagnostics {
 enum class Stage : unsigned {
   usb_rx, usb_rx_gap, usb_tx, owner, pump, application, command,
   command_lock, wake, wait, status_callback, status_wait, rx_to_owner,
-  notify_to_owner, count
+  notify_to_owner, latest_submit_wait, latest_submit_hold, latest_take_wait,
+  latest_take_hold, latest_finish_wait, latest_finish_hold, rpc_admit_wait,
+  rpc_admit_hold, rpc_collect_wait, rpc_collect_hold, rpc_finish_wait,
+  rpc_finish_hold, count
 };
 
-#if defined(WIRELINK_HOST_PROFILING)
+#if defined(WIRELINK_HOST_PROFILING) || defined(WIRELINK_HOST_LOCK_PROFILING)
 inline constexpr std::array names{
   "usb_rx", "usb_rx_gap", "usb_tx", "owner", "pump", "application",
   "command", "command_lock", "wake", "wait", "status_callback", "status_wait",
-  "rx_to_owner", "notify_to_owner"
+  "rx_to_owner", "notify_to_owner", "latest_submit_wait", "latest_submit_hold",
+  "latest_take_wait", "latest_take_hold", "latest_finish_wait", "latest_finish_hold",
+  "rpc_admit_wait", "rpc_admit_hold", "rpc_collect_wait", "rpc_collect_hold",
+  "rpc_finish_wait", "rpc_finish_hold"
 };
 static_assert(names.size() == static_cast<unsigned>(Stage::count));
 struct Totals {
@@ -120,7 +128,13 @@ inline void dump(std::FILE*, unsigned) noexcept {}
 class Scope {
 public:
   explicit Scope(Stage stage) noexcept
-      : stage_(stage), begin_(timestamp()), cpu_(thread_cpu()) {}
+      : stage_(stage)
+#if defined(WIRELINK_HOST_PROFILING)
+      , begin_(timestamp()), cpu_(thread_cpu())
+#else
+      , begin_(0), cpu_(0)
+#endif
+      {}
   ~Scope() { finish(); }
   Scope(const Scope&) = delete;
   Scope& operator=(const Scope&) = delete;
@@ -135,18 +149,42 @@ private:
   std::uint64_t begin_, cpu_;
 };
 
+// Acquisition/critical-section WALL time, not thread CPU. Export accounting
+// happens after unlock so shared diagnostic atomics do not extend the hold.
+// OFF reduces to an ordinary mutex lock/unlock with no clock reads.
+class MutexScope {
+public:
+  MutexScope(std::mutex& mutex, Stage wait, Stage hold)
+      : mutex_(mutex), wait_(wait), hold_(hold), begin_(timestamp()) {
+    mutex_.lock();
+    acquired_ = timestamp();
+  }
+  ~MutexScope() {
+    const auto end = timestamp();
+    mutex_.unlock();
+    record(wait_, begin_, acquired_);
+    record(hold_, acquired_, end);
+  }
+  MutexScope(const MutexScope&) = delete;
+  MutexScope& operator=(const MutexScope&) = delete;
+private:
+  std::mutex& mutex_;
+  Stage wait_, hold_;
+  std::uint64_t begin_, acquired_;
+};
+
 // Approximate first notification-to-next-consumer-pass latency. This tracks
 // wake batches, NOT individual frames or their decoding/callback lifetimes.
 class PendingTimestamp {
 public:
   void notify() noexcept {
-#if defined(WIRELINK_HOST_PROFILING)
+#if defined(WIRELINK_HOST_PROFILING) || defined(WIRELINK_HOST_LOCK_PROFILING)
     std::uint64_t empty{};
     (void)begin_.compare_exchange_strong(empty, timestamp(), std::memory_order_relaxed);
 #endif
   }
   void consume(Stage stage) noexcept {
-#if defined(WIRELINK_HOST_PROFILING)
+#if defined(WIRELINK_HOST_PROFILING) || defined(WIRELINK_HOST_LOCK_PROFILING)
     const auto begin = begin_.exchange(0, std::memory_order_relaxed);
     if (begin != 0) record(stage, begin, timestamp());
 #else
