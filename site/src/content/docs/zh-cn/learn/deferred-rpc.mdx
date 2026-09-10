@@ -1,0 +1,302 @@
+---
+title: 在 RPC handler 返回后再回复
+description: 在服务端 handler 中接下任务、保存回复 token，并由 endpoint owner 稍后完成 RPC。
+sidebar:
+  order: 6
+---
+
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+
+上一课让客户端在 RPC 进行期间保持响应。服务端也会遇到同样的问题：如果 handler 一直等待
+电机运动、Flash 写入或 worker 任务，所在 endpoint 就无法继续处理新数据。
+
+**延迟回复（deferred reply）**让 handler 现在接下请求，稍后再完成。两个时刻之间，服务端
+仍能持续推进链路；客户端继续使用原来的同步或异步 API。
+
+**完成本课后，你能够：**
+
+- 判断一项工作应该使用即时 handler 还是延迟回复；
+- 保存 handler 返回后仍然需要的业务数据和回复 token；
+- 从 endpoint owner 完成或拒绝延迟任务；
+- 给 pending 工作设置边界，并安全处理逾期或失效 token。
+
+## 开始之前
+
+请先完成[在等待 RPC 时保持主循环运行](../async-rpc/)。本课会复用计算器 schema、客户端和
+`build/tutorials` 构建目录。
+
+重新构建，让延迟服务端包含本课使用的生命周期日志：
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## 运行完整的延迟调用
+
+在终端 A 启动延迟服务端：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_server_deferred
+```
+
+看到 `calculator server ready (deferred)` 后，在终端 B 运行异步客户端：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client_async
+```
+
+客户端仍然依次观察提交、完成和业务结果：
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+20 + 22 = 42
+```
+
+服务端则展示两个分开的决定：
+
+```text
+handling 20 + 22; response deferred
+deferred response queued
+```
+
+第一行来自请求 handler。handler 返回以后，下一次 owner 循环才输出第二行。
+
+:::note[Windows 程序路径]
+Visual Studio 多配置构建会把程序放在
+`build/tutorials/examples/01_rpc/Release/` 下，并添加 `.exe` 后缀。
+:::
+
+## 判断是否需要延迟
+
+前面 RPC 课程中的即时服务端直接在 `config.on_add` 中完成计算并填写响应。对于耗时有明确
+上限的短任务，这仍然是最清楚的写法。
+
+| Handler 形式 | 适用情况 | RPC 如何完成 |
+| --- | --- | --- |
+| 即时 | handler 返回前就能取得结果 | 携带响应返回 `0`，或返回非零业务状态 |
+| 延迟 | handler 返回后仍需继续工作 | 保存 token，稍后调用 `complete()` 或 `reject()` |
+
+延迟只改变服务端的执行方式。schema 和线上消息都没有变化，因此 `calculator_client` 和
+`calculator_client_async` 都能调用任意一种服务端。
+
+## 选择高级服务端 handler
+
+延迟回复属于需要明确选择的高级 API。
+[`server_deferred.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server_deferred.c)
+包含生成的 `calculator_advanced.h`，然后注册请求 handler：
+
+```c
+config.advanced.add_request_handler = enqueue;
+config.advanced.add_user_data = &job;
+```
+
+同一个 `Add` 服务应选择普通的 `config.on_add` handler，或者高级 request handler。两者
+代表不同的完成契约。
+
+## 保存一项比回调活得更久的工作
+
+示例由应用持有一个工作位：
+
+```c
+typedef struct {
+  calculator_endpoint_t *server;
+  bool pending;
+  calculator_add_request_token_t token;
+  int64_t sum;
+} job_t;
+```
+
+token 是 Wirelink 为当前请求和 endpoint 生命周期创建的回复凭据。复制完整 token；不要
+读取它的私有字段，也不要自行构造调用编号。
+
+高级 handler 收到的 request 是 codec view，其中的字段只借用到本次回调结束。计算器只有
+整数，所以示例把它们计算并复制到 `sum`。如果 schema 包含 string 或 bytes，应把引用的数据
+复制到应用自己的存储，或使用生成的 value 转换。浅复制借用指针不能延长数据生命周期。
+
+## 接下工作，但暂不回复
+
+这个 handler 保存稍后所需的全部内容，然后返回：
+
+```c
+static int32_t enqueue(void *context, const add_request_t *request,
+                       const calculator_add_request_token_t *token,
+                       wl_delivery_t delivery) {
+  job_t *job = context;
+  (void)delivery;
+  if (job->pending)
+    return calculator_endpoint_add_reject(job->server, token, 2);
+  printf("handling %ld + %ld; response deferred\n",
+         (long)request->left, (long)request->right);
+  fflush(stdout);
+  job->sum = (int64_t)request->left + request->right;
+  job->token = *token;
+  job->pending = true;
+  return 0;
+}
+```
+
+这里返回 `0` 表示应用已经接下当前请求的处理责任。它**不会**生成成功响应。保存的 token
+得到完成或拒绝之前，这次 RPC 一直处于 pending 状态；token 失效也会结束这项回复权。
+
+高级 handler 直接返回非零值只会在本地放弃本次执行，不会自动把该数字发送为业务拒绝。
+因此工作位已占用时，示例会明确调用 `calculator_endpoint_add_reject()`。状态 `2` 是本示例
+约定的“业务工作位忙”。
+
+<MultipleChoice
+  id="deferred-handler-return-zh-cn"
+  question="高级 Add handler 保存 token 并返回 0。此时 RPC 处于什么状态？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: '已经携带空响应成功完成',
+      correct: false,
+      feedback: '高级 handler 不会自动创建成功响应。',
+    },
+    {
+      label: '应用已接下任务，RPC 仍在等待',
+      correct: true,
+      feedback: '正确。保存的 token 之后必须得到完成或明确拒绝。',
+    },
+    {
+      label: '已经用业务状态 0 拒绝',
+      correct: false,
+      feedback: '这里的 0 记录本地接手，不是拒绝数据包。',
+    },
+  ]}
+/>
+
+## 由 endpoint owner 完成回复
+
+演示任务会在下一次 owner 循环变为可完成。`finish()` 构造响应；发生溢出时，则发送与即时
+服务端相同的业务拒绝：
+
+```c
+static wl_rpc_err_t finish(job_t *job) {
+  add_response_t response;
+  job->pending = false;
+  if (job->sum < INT32_MIN || job->sum > INT32_MAX)
+    return calculator_endpoint_add_reject(job->server, &job->token, 1);
+  add_response_clear(&response);
+  response.has_sum = true;
+  response.sum = (int32_t)job->sum;
+  return calculator_endpoint_add_complete(job->server, &job->token, &response);
+}
+```
+
+`calculator_endpoint_add_complete()` 会在返回前把响应编码进框架自持的存储，因此局部变量
+`response` 随后可以结束生命周期。`WL_RPC_OK` 表示服务端 runtime 已接受并保存这份响应；
+后续 endpoint step 才会发送它，这个返回值不能证明客户端已经收到。
+
+owner 循环在同一个地方完成两项操作：
+
+```c
+while (example_running()) {
+  if (job.pending) {
+    CHECK(finish(&job) == WL_RPC_OK);
+    puts("deferred response queued");
+    fflush(stdout);
+  }
+  CHECK(calculator_endpoint_step(&server) == WL_OK);
+  if (!job.pending) CHECK(example_udp_wait(udp, 200U) == WL_OK);
+}
+```
+
+一次 `step()` 收到新请求时，`enqueue()` 会把任务标为 pending。下一轮循环调用 `finish()`，
+随后的 `step()` 就能发送已经排队的响应。
+
+真实 worker 应当计算并发布业务结果，然后唤醒 endpoint owner，再由 owner 调用 `complete()`
+或 `reject()`。不要从 worker 操作 endpoint，也不要从 handler 中递归推进 endpoint。
+
+<MultipleChoice
+  id="deferred-owner-completes-zh-cn"
+  question="Worker 已经完成耗时操作。谁应该调用 calculator_endpoint_add_complete()？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: 'Worker 线程立即调用',
+      correct: false,
+      feedback: 'Worker 应发布结果并唤醒 endpoint owner。',
+    },
+    {
+      label: 'Endpoint owner 在后续循环调用',
+      correct: true,
+      feedback: '正确。Endpoint 操作继续由唯一 owner 串行执行。',
+    },
+    {
+      label: '客户端完成回调调用',
+      correct: false,
+      feedback: '客户端回调只接收最终结果，不能完成服务端工作。',
+    },
+  ]}
+/>
+
+## 给未完成工作设置边界
+
+一个 `job_t` 工作位是应用容量。endpoint 还拥有有界的 RPC pending 表，以及配置好的 pending
+超时。接入真实慢任务时：
+
+- 让应用任务队列容量与 RPC 容量相互匹配；
+- 用 `config.advanced.rpc_server_pending_timeout_ms` 指定 runtime 应在何时报告逾期工作；
+- 明确完成、拒绝或放弃已报告逾期的请求；pending 超时报告本身不会释放工作位，也不会让
+  token 失效；
+- 对端 session 变化或 endpoint 关闭后，丢弃已经失效的 token；
+- 关闭 endpoint 之前停止或排空 worker。
+
+客户端超时或本地取消不保证远端工作已经停止。涉及物理动作时，服务端任务还需要自己的
+取消与 deadline 策略。
+
+## 观察一次延迟拒绝
+
+保持延迟服务端运行，提交会溢出的输入：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client_async \
+  49100 49101 2147483647 1
+```
+
+服务端先接下任务，随后从 `finish()` 排队一份拒绝结果：
+
+```text
+handling 2147483647 + 1; response deferred
+deferred response queued
+```
+
+客户端得到与即时服务端相同的业务结果：
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+addition rejected: status=1
+```
+
+## 尝试同步客户端
+
+保持延迟服务端运行，改用最初的客户端：
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client
+```
+
+它同样会输出 `20 + 22 = 42`。服务端延迟和客户端异步解决的是两个不同的调度问题，两端
+可以各自独立选择。
+
+<Checklist
+  id="deferred-rpc-zh-cn"
+  title="完成检查"
+  progressTemplate="已完成 {done}/{total} 项"
+  items={[
+    '我只在工作必须越过 request handler 生命周期时使用延迟回复。',
+    '我会复制回复 token，以及稍后需要的每个借用请求字段。',
+    '我会从 endpoint owner 明确完成或拒绝已经接下的任务。',
+    '我会为 pending 工作设置有限容量、逾期处理和关闭行为。',
+  ]}
+/>
+
+## 下一步
+
+下一课会把消息、即时 RPC、异步调用和一项延迟操作组合成一个小型设备服务，并把业务功能
+拆分到各自的模块中。

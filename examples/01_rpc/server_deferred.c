@@ -17,7 +17,8 @@ static int32_t enqueue(void *context, const add_request_t *request,
   (void)delivery;
   if (job->pending)
     return calculator_endpoint_add_reject(job->server, token, 2);
-  printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
+  printf("handling %ld + %ld; response deferred\n",
+         (long)request->left, (long)request->right);
   fflush(stdout);
   job->sum = (int64_t)request->left + request->right;
   job->token = *token;
@@ -55,7 +56,11 @@ int main(int argc, char **argv) {
   puts("calculator server ready (deferred)");
   fflush(stdout);
   while (example_running()) {
-    if (job.pending) CHECK(finish(&job) == WL_RPC_OK);
+    if (job.pending) {
+      CHECK(finish(&job) == WL_RPC_OK);
+      puts("deferred response queued");
+      fflush(stdout);
+    }
     CHECK(calculator_endpoint_step(&server) == WL_OK);
     if (!job.pending) CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }

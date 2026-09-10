@@ -1,0 +1,316 @@
+---
+title: Reply after an RPC handler returns
+description: Accept work in a server handler, retain its reply token, and complete the RPC from the endpoint owner later.
+sidebar:
+  order: 6
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The previous lesson kept the client responsive while an RPC was in flight. The
+server has the same constraint: a handler that waits for motion, Flash storage,
+or a worker task also prevents that endpoint from processing new traffic.
+
+A **deferred reply** lets the handler accept a request now and complete it later.
+The server keeps servicing the link between those two moments, while the client
+continues to use the same synchronous or asynchronous API.
+
+**After this lesson, you can:**
+
+- choose between an immediate handler and a deferred reply;
+- retain the business data and reply token needed after a handler returns;
+- complete or reject deferred work from the endpoint owner;
+- set bounds for pending work and handle overdue or stale tokens safely.
+
+## Before you begin
+
+Complete [keeping the main loop active during an RPC](../async-rpc/) first. This
+lesson reuses the calculator schema, client, and `build/tutorials` directory.
+
+Rebuild so the deferred server includes the observable lifecycle messages used
+below:
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## Run the deferred server
+
+Start the deferred server in terminal A:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_server_deferred
+```
+
+After it prints `calculator server ready (deferred)`, run the asynchronous client
+in terminal B:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client_async
+```
+
+The client still observes submission, completion, and the business result:
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+20 + 22 = 42
+```
+
+The server exposes its two separate decisions:
+
+```text
+handling 20 + 22; response deferred
+deferred response queued
+```
+
+The first line comes from the request handler. The second comes from the next
+owner-loop pass, after the handler has returned.
+
+:::note[Windows executable path]
+Visual Studio multi-configuration builds place these programs under
+`build/tutorials/examples/01_rpc/Release/` and add the `.exe` suffix.
+:::
+
+## Decide whether work needs deferral
+
+The immediate server from the earlier RPC lesson calculates and fills its
+response inside `config.on_add`. That remains the clearest choice for bounded,
+short work.
+
+| Handler style | Use it when | How the RPC finishes |
+| --- | --- | --- |
+| Immediate | The result is ready before the handler returns | Return `0` with a response, or a nonzero business status |
+| Deferred | Work must continue after the handler returns | Save a token, then call `complete()` or `reject()` later |
+
+Deferral changes server execution only. The schema and wire messages stay the
+same, so `calculator_client` and `calculator_client_async` can both call either
+server.
+
+## Select the advanced server handler
+
+Deferred replies are an explicit advanced API.
+[`server_deferred.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server_deferred.c)
+includes the generated `calculator_advanced.h` header and registers a request
+handler:
+
+```c
+config.advanced.add_request_handler = enqueue;
+config.advanced.add_user_data = &job;
+```
+
+Register either the ordinary `config.on_add` handler or the advanced request
+handler for `Add`. They represent two different completion contracts for the
+same service.
+
+## Save a job that outlives the callback
+
+The example owns one application work slot:
+
+```c
+typedef struct {
+  calculator_endpoint_t *server;
+  bool pending;
+  calculator_add_request_token_t token;
+  int64_t sum;
+} job_t;
+```
+
+The token is a reply credential created by Wirelink for this exact request and
+endpoint lifetime. Copy the complete token; do not inspect its private fields or
+construct an operation ID yourself.
+
+The advanced request value is a codec view. Its fields are borrowed for the
+duration of the handler. This calculator contains only integers, so the example
+copies them into `sum`. For schemas with strings or bytes, copy the referenced
+data into application-owned storage, or use a generated value conversion. A
+shallow copy of borrowed pointers cannot outlive the callback.
+
+## Accept the work without replying
+
+The handler stores everything needed later, then returns:
+
+```c
+static int32_t enqueue(void *context, const add_request_t *request,
+                       const calculator_add_request_token_t *token,
+                       wl_delivery_t delivery) {
+  job_t *job = context;
+  (void)delivery;
+  if (job->pending)
+    return calculator_endpoint_add_reject(job->server, token, 2);
+  printf("handling %ld + %ld; response deferred\n",
+         (long)request->left, (long)request->right);
+  fflush(stdout);
+  job->sum = (int64_t)request->left + request->right;
+  job->token = *token;
+  job->pending = true;
+  return 0;
+}
+```
+
+Here, returning `0` means that the application accepted responsibility for this
+request. It does **not** create a successful response. The RPC stays pending until
+the saved token is completed, rejected, or invalidated.
+
+A nonzero return from this advanced handler abandons the execution locally; it
+does not automatically send that number as a business rejection. The busy path
+therefore calls `calculator_endpoint_add_reject()` explicitly. Status `2` is this
+example application's “work slot busy” decision.
+
+<MultipleChoice
+  id="deferred-handler-return"
+  question="The advanced Add handler has saved its token and returned 0. What is the RPC state?"
+  choices={[
+    {
+      label: 'Successfully completed with an empty response',
+      correct: false,
+      feedback: 'The advanced handler does not create an automatic success response.',
+    },
+    {
+      label: 'Accepted by the application and still pending',
+      correct: true,
+      feedback: 'Correct. The saved token must later be completed or explicitly rejected.',
+    },
+    {
+      label: 'Rejected with business status 0',
+      correct: false,
+      feedback: 'Zero records local acceptance here; it is not a rejection packet.',
+    },
+  ]}
+/>
+
+## Finish from the endpoint owner
+
+The demo job becomes ready on the next owner-loop pass. `finish()` either builds
+the response or sends the same overflow rejection used by the immediate server:
+
+```c
+static wl_rpc_err_t finish(job_t *job) {
+  add_response_t response;
+  job->pending = false;
+  if (job->sum < INT32_MIN || job->sum > INT32_MAX)
+    return calculator_endpoint_add_reject(job->server, &job->token, 1);
+  add_response_clear(&response);
+  response.has_sum = true;
+  response.sum = (int32_t)job->sum;
+  return calculator_endpoint_add_complete(job->server, &job->token, &response);
+}
+```
+
+`calculator_endpoint_add_complete()` encodes the response into framework-owned
+storage before returning, so the stack-local `response` can then go out of scope.
+`WL_RPC_OK` means the response was accepted into the server runtime. A later
+endpoint step transports it; the return value does not prove that the client has
+already received it.
+
+The owner loop performs both operations in one place:
+
+```c
+while (example_running()) {
+  if (job.pending) {
+    CHECK(finish(&job) == WL_RPC_OK);
+    puts("deferred response queued");
+    fflush(stdout);
+  }
+  CHECK(calculator_endpoint_step(&server) == WL_OK);
+  if (!job.pending) CHECK(example_udp_wait(udp, 200U) == WL_OK);
+}
+```
+
+When `step()` receives a new request, `enqueue()` marks the job pending. The next
+loop pass calls `finish()`, then `step()` can send the queued response.
+
+A real worker should calculate and publish its result, then wake the endpoint
+owner. The owner calls `complete()` or `reject()`. Do not call endpoint functions
+from the worker, and do not recursively step the endpoint from its handler.
+
+<MultipleChoice
+  id="deferred-owner-completes"
+  question="A worker has finished the slow operation. Who should call calculator_endpoint_add_complete()?"
+  choices={[
+    {
+      label: 'The worker thread immediately',
+      correct: false,
+      feedback: 'The worker should publish its result and wake the endpoint owner.',
+    },
+    {
+      label: 'The endpoint owner on a later pass',
+      correct: true,
+      feedback: 'Correct. Endpoint operations remain serialized on their owner.',
+    },
+    {
+      label: 'The client completion callback',
+      correct: false,
+      feedback: 'The client callback receives the final outcome; it cannot complete server work.',
+    },
+  ]}
+/>
+
+## Bound unfinished work
+
+The single `job_t` slot is application capacity. The endpoint also has a bounded
+RPC pending table and a configured pending timeout. For real slow work:
+
+- size the application queue and RPC capacity together;
+- choose `config.advanced.rpc_server_pending_timeout_ms` as the point when the
+  runtime should report unfinished work as overdue;
+- explicitly complete, reject, or abandon an overdue request: reporting its
+  pending timeout does not free the slot or invalidate its token;
+- discard a token after its peer session changes or its endpoint closes;
+- stop or drain workers before closing the endpoint.
+
+A client timeout or local cancellation does not guarantee that remote work has
+stopped. The server task needs its own cancellation and deadline policy when the
+physical operation requires one.
+
+## Observe a deferred rejection
+
+Keep the deferred server running and submit the overflowing input:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client_async \
+  49100 49101 2147483647 1
+```
+
+The server accepts the task first, then queues a rejection from `finish()`:
+
+```text
+handling 2147483647 + 1; response deferred
+deferred response queued
+```
+
+The client receives the same business outcome as it did from the immediate server:
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+addition rejected: status=1
+```
+
+## Try the synchronous client
+
+With the deferred server still running, use the original client:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client
+```
+
+It also prints `20 + 22 = 42`. Server deferral and client asynchrony solve
+different scheduling problems; either side can adopt its form independently.
+
+<Checklist
+  id="deferred-rpc"
+  title="Lesson complete"
+  items={[
+    'I use deferred replies only when work must outlive the request handler.',
+    'I copy the reply token and every borrowed request field needed later.',
+    'I explicitly complete or reject accepted work from the endpoint owner.',
+    'I give pending jobs finite capacity, overdue handling, and shutdown behavior.',
+  ]}
+/>
+
+## Next step
+
+The next lesson will combine messages, immediate RPCs, asynchronous calls, and a
+deferred operation into one small device service with separate business modules.
