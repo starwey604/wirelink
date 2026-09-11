@@ -24,6 +24,10 @@
 | Zephyr USB bulk | native packet 或 COBS stream | 启用所属 USBD context | `wl_zephyr_usb_bulk_service()` | 复用 link 前禁用 USBD |
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()`，可用时配合 `wait_for_activity()` | `quiesce()` |
 | Asio UDP | native packet；显式旧 COBS | `open()` 绑定 socket；端点重载自动 attach | `service()`；按截止时间 `wait_for_activity()` | `quiesce()` 或关闭端点 |
+| Zephyr UDP（实验） | native packet | `wl_zephyr_udp_open()` 自动接入端点 | 生成的 step 自动 service；`wl_zephyr_udp_wait()` | 先关闭生成端点、join 通知生产者，再 `wl_zephyr_udp_close()` |
+
+Zephyr UDP 的静态声明、背压时钟和已知原生栈等待限制见
+[接入与验证](zephyr-udp-cn.md)。普通生成端点用户不应额外手动调用 adapter service。
 
 UDP 对端可以晚启动或先关闭。Windows 下关闭 `SIO_UDP_CONNRESET` 通知，避免之前
 数据报触发的 ICMP Port Unreachable 终止后续接收。对端不可用仍由可靠事务/RPC

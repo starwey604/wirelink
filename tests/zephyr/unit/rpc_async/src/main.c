@@ -21,6 +21,7 @@ static int busy, send_error, encode_error, chain_result, callback_close, callbac
 static uint64_t incarnation;
 static wl_time_ms_t now;
 static uint16_t configured_count;
+static int cancelled, io_pending;
 
 /* Link mocks deliberately keep TX ownership after RPC completion/cancel.
  * Real transport/DMA ownership is covered by generated endpoint integration. */
@@ -37,16 +38,24 @@ wl_err_t wl_send_reliable(wl_ctx_t *ctx, uint16_t id, const uint8_t *bytes,
     size_t size, wl_time_ms_t time, wl_tx_handle_t *handle) {
   (void)time;
   wl_err_t error = wl_send_unreliable(ctx, id, bytes, size);
-  if (error == WL_OK) { busy = 1; *handle = ++next_tx; }
+  if (error == WL_OK) { busy = 1; cancelled = 0; *handle = ++next_tx; }
   return error;
 }
 wl_err_t wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle) {
-  (void)ctx; (void)handle; ++cancels; return WL_OK;
+  (void)ctx; (void)handle; ++cancels; cancelled = 1; return WL_OK;
 }
 wl_err_t wl_tx_status(const wl_ctx_t *ctx, wl_tx_handle_t handle, wl_tx_state_t *out) {
   (void)ctx;
   if (!busy || handle == 0U || handle != next_tx) return WL_ERR_NOT_FOUND;
-  *out = WL_TX_STATE_WAITING_ACK;
+  *out = cancelled ? WL_TX_STATE_CANCELLED : WL_TX_STATE_WAITING_ACK;
+  return WL_OK;
+}
+wl_err_t wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle, wl_tx_result_t *out) {
+  (void)ctx;
+  if (!busy || handle != next_tx) return WL_ERR_NOT_FOUND;
+  if (!cancelled || io_pending) return WL_ERR_INVALID_STATE;
+  *out = (wl_tx_result_t){.state = WL_TX_STATE_CANCELLED, .result = WL_ERR_CANCELLED};
+  busy = cancelled = 0;
   return WL_OK;
 }
 
@@ -105,6 +114,8 @@ static int init(uint16_t count) {
   CHECK(wl_rpc_async_init(&async, &link, &client, slots, count,
       requests[0], sizeof(requests), 8U, ++incarnation) == WL_OK);
   busy = send_error = encode_error = chain_result = 0;
+  cancelled = 0;
+  io_pending = 1;
   callbacks = sends = cancels = next_tx = saved_value = followup = 0U;
   saved_state = WL_RPC_CLIENT_FREE;
   now = 100U;
@@ -262,7 +273,29 @@ static int close_and_stale_handles(void) {
   return 0;
 }
 
+static int cancelled_tx_is_collected_after_io(void) {
+  for (unsigned delayed = 0; delayed < 2; ++delayed) {
+    wl_rpc_call_t call;
+    CHECK(init(1U) == 0);
+    io_pending = (int)delayed;
+    CHECK(submit(11U, 10U, WL_DELIVERY_RELIABLE, &call) == WL_OK);
+    now += 10U;
+    CHECK(service() == 0);
+    CHECK(callbacks == 1 && saved_state == WL_RPC_CLIENT_TIMED_OUT);
+    CHECK(busy == (int)delayed);
+    CHECK(submit(12U, 100U, WL_DELIVERY_RELIABLE, NULL) == WL_OK);
+    CHECK(sends == (delayed ? 1U : 2U));
+    /* No cancellation event exists. A DMA completion wakes the owner instead. */
+    io_pending = 0;
+    CHECK(service() == 0);
+    CHECK(sends == 2 && callbacks == 1);
+    CHECK(wl_rpc_async_cancel(&async, &call) == WL_ERR_NOT_FOUND);
+  }
+  return 0;
+}
+
 #ifdef WL_ASYNC_ZTEST
+ZTEST(wirelink_rpc_async, test_cancelled_tx_is_collected_after_io) { zassert_equal(cancelled_tx_is_collected_after_io(), 0); }
 ZTEST(wirelink_rpc_async, test_snapshot_queue_and_deadline) { zassert_equal(snapshot_queue_and_deadline(), 0); }
 ZTEST(wirelink_rpc_async, test_callback_chain_and_detached_tx) { zassert_equal(callback_chain_and_detached_tx(), 0); }
 ZTEST(wirelink_rpc_async, test_failed_admission_and_communication) { zassert_equal(failed_admission_and_communication(), 0); }
@@ -271,6 +304,7 @@ ZTEST(wirelink_rpc_async, test_cancel_completion_is_local) { zassert_equal(cance
 ZTEST_SUITE(wirelink_rpc_async, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  CHECK(cancelled_tx_is_collected_after_io() == 0);
   CHECK(snapshot_queue_and_deadline() == 0);
   CHECK(callback_chain_and_detached_tx() == 0);
   CHECK(failed_admission_and_communication() == 0);

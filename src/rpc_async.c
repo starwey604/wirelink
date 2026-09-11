@@ -203,6 +203,20 @@ wl_err_t wl_rpc_async_cancel(wl_rpc_async_t *async, const wl_rpc_call_t *call) {
       &call->private_state.handle));
 }
 
+static void collect_cancelled_tx(wl_rpc_async_t *async) {
+  const wl_tx_handle_t handle = async->private_state.retiring_tx;
+  wl_tx_state_t state;
+  wl_tx_result_t result;
+  if (handle == 0U || async->private_state.closing) return;
+  /* Explicit link cancellation has no terminal event. Take it ourselves once
+   * its physical I/O lease is gone; success/failure still use event dispatch.
+   * A pending DMA lease makes take fail, and its completion wakes the owner. */
+  if (wl_tx_status(async->private_state.link, handle, &state) == WL_OK &&
+      state == WL_TX_STATE_CANCELLED &&
+      wl_tx_take(async->private_state.link, handle, &result) == WL_OK)
+    async->private_state.retiring_tx = 0U;
+}
+
 static wl_err_t notify_terminal(wl_rpc_async_t *async, wl_rpc_async_slot_t *slot,
     const wl_rpc_client_result_t *result) {
   wl_rpc_async_observer_t observer;
@@ -215,6 +229,7 @@ static wl_err_t notify_terminal(wl_rpc_async_t *async, wl_rpc_async_slot_t *slot
     if (wl_tx_status(async->private_state.link, result->tx_handle, &state) == WL_OK)
       async->private_state.retiring_tx = result->tx_handle;
   }
+  collect_cancelled_tx(async);
   observer = slot->private_state.observer;
   observer.prepare(observer.context, result);
   rpc = wl_rpc_client_release_handle(async->private_state.client, &slot->private_state.handle);
@@ -264,6 +279,7 @@ wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
   if (async->private_state.servicing || async->private_state.submitting)
     return WL_ERR_REENTRANT;
   async->private_state.servicing = 1U;
+  collect_cancelled_tx(async);
   for (uint16_t i = 0U; i < async->private_state.count; ++i) {
     wl_rpc_async_slot_t *slot = &async->private_state.slots[i];
     wl_rpc_client_result_t result;

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+mainmenu "Wirelink UDP peer"
+source "Kconfig.zephyr"
+
+choice SAMPLE_WIRELINK_UDP_ROLE
+	prompt "Endpoint role"
+	default SAMPLE_WIRELINK_UDP_SERVER
+config SAMPLE_WIRELINK_UDP_SERVER
+	bool "Server: Add RPC and 50 Hz telemetry"
+config SAMPLE_WIRELINK_UDP_CLIENT
+	bool "Client: Add RPC and telemetry receive"
+endchoice
+
+config SAMPLE_WIRELINK_UDP_PEER_ADDRESS
+	string "Fixed numeric IPv4 peer address"
+	default "192.0.2.1"
+
+config SAMPLE_WIRELINK_UDP_LOCAL_PORT
+	int "Local UDP port"
+	range 1 65535
+	default 49100 if SAMPLE_WIRELINK_UDP_CLIENT
+	default 49101
+
+config SAMPLE_WIRELINK_UDP_PEER_PORT
+	int "Peer UDP port"
+	range 1 65535
+	default 49101 if SAMPLE_WIRELINK_UDP_CLIENT
+	default 49100

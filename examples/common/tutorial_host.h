@@ -19,6 +19,9 @@ int example_running(void);
 int example_ports(int argc, char **argv, uint16_t *local, uint16_t *peer);
 int example_int32(const char *text, int32_t *value);
 example_udp_t *example_udp_open(wl_endpoint_t *endpoint, uint16_t local, uint16_t peer);
+/* Explicit numeric addresses for two-device examples; no discovery. */
+example_udp_t *example_udp_open_at(wl_endpoint_t *endpoint, const char *local_address,
+    uint16_t local, const char *peer_address, uint16_t peer);
 int example_udp_wait(example_udp_t *udp, uint32_t maximum_ms);
 /* Closes the attached endpoint, then frees desktop resources. */
 void example_udp_close(example_udp_t *udp);

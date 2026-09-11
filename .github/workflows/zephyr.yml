@@ -67,6 +67,8 @@ jobs:
           -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_usability
           -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_platform
           -T ${{ github.workspace }}/wirelink/samples/zephyr/session
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/udp_validation
+          -T ${{ github.workspace }}/wirelink/samples/zephyr/udp_peer
           -p native_sim
           -p qemu_cortex_m3
           -p qemu_riscv32

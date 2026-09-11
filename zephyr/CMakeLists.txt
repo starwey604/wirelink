@@ -69,11 +69,17 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_IRQ
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_irq/src/uart_irq.c
 )
 
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UDP
+  ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/udp/src/socket_contract.c
+  ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/udp/src/udp.c
+)
+
 zephyr_include_directories(
   ${ZEPHYR_CURRENT_MODULE_DIR}/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_dma/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/usb_bulk/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/uart_irq/include
+  ${ZEPHYR_CURRENT_MODULE_DIR}/adapters/zephyr/udp/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/zephyr/include
   ${ZEPHYR_CURRENT_MODULE_DIR}/runtime/storage/include
 )

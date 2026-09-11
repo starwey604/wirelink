@@ -18,6 +18,7 @@ if(WIRELINK_BUILD_GETTING_STARTED)
   add_subdirectory(01_rpc)
   add_subdirectory(02_device_info)
   add_subdirectory(03_device_service)
+  add_subdirectory(05_zephyr_udp)
   if(BUILD_TESTING)
     add_subdirectory(../tests/session ${CMAKE_CURRENT_BINARY_DIR}/session)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
@@ -43,6 +44,10 @@ if(WIRELINK_BUILD_GETTING_STARTED)
         --server $<TARGET_FILE:calculator_server>
         --deferred-server $<TARGET_FILE:calculator_server_deferred>)
     set_tests_properties(wirelink_udp_async_deferred PROPERTIES TIMEOUT 45)
+    add_test(NAME wirelink_udp_peer
+      COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../tests/tutorials/udp_peer.py
+        --client $<TARGET_FILE:udp_peer_client> --server $<TARGET_FILE:udp_peer_server>)
+    set_tests_properties(wirelink_udp_peer PROPERTIES TIMEOUT 30)
   endif()
 endif()
 

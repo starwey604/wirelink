@@ -6,6 +6,25 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Add separate Zephyr/desktop UDP peer examples sharing one RPC/telemetry
+  schema, CI build checks for both Zephyr roles, and a same-storage reconnect
+  regression rejecting stale RPC responses. Physical Ethernet validation is
+  still pending; the adapter remains experimental.
+- Reclaim cancelled managed-RPC link transactions once physical I/O drains,
+  including requests that time out without receiving any ACK. Test recovery
+  on the same UDP endpoint and loss/duplication with continuous telemetry.
+- Add opt-in Zephyr UDP elapsed-cycle diagnostics and idle receive-pass counts.
+  Timing is disabled by default and is not exclusive CPU accounting.
+- Add the opt-in Zephyr native IPv4 UDP endpoint adapter with static RX storage,
+  automatic lifecycle/waiter binding, bounded receive service, no-fragment sends
+  and endpoint-clock backpressure retry deadlines. Validate C++ headers and
+  generated managed RPC/telemetry on native simulation and QEMU. Record the
+  upstream fixed packet-allocation wait exposed by pool exhaustion; functional
+  acceptance does not establish real-time bounds. No core/codegen ABI changes.
+- Add a private Zephyr UDP socket M0 prototype and loopback contract tests for
+  socket/eventfd waits, datagram boundaries, direct core RX claims, send-result
+  classification and lifecycle rollback. This is not yet a public adapter;
+  no core, generated ABI, wire-format or product-dependency changes.
 - Fix USB Bulk COBS RX deadlock when a fragmented frame straddles a short
   physical ring tail, on Zephyr and Astrial. Use a single packet staging
   buffer only at the tail, retain blocked bytes, and keep ordinary RX direct.
