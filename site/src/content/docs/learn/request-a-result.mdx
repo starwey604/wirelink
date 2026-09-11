@@ -1,0 +1,270 @@
+---
+title: Request a result from a device
+description: Make one synchronous RPC call and distinguish link delivery from its business outcome.
+sidebar:
+  order: 3
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The previous lesson used `latest` when a display needed the current temperature.
+A controller now needs an answer associated with one operation: ask a device to
+calculate 20 + 22 and return the result.
+
+This request-and-result interaction is an **RPC (remote procedure call)**. The
+caller sends a request, the other endpoint handles it, and the call finishes with
+one business outcome.
+
+**After this lesson, you can:**
+
+- run a Wirelink RPC client and server;
+- define the request and response data for an RPC;
+- tell reliable link delivery from RPC business completion;
+- recognize a successful result and a business rejection.
+
+## Before you begin
+
+Complete [displaying the latest temperature](../getting-started/) first. Keep using
+the same Wirelink repository and `build/tutorials` build directory.
+
+Rebuild to make sure the calculator programs match the current source:
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## Run one successful call
+
+Start the device-side server in terminal A:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_server
+```
+
+Wait for this line:
+
+```text
+calculator server ready
+```
+
+In terminal B, run the controller-side client:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client
+```
+
+The client prints the result and exits:
+
+```text
+20 + 22 = 42
+```
+
+The server records the work it performed:
+
+```text
+handling 20 + 22
+```
+
+Keep the server running for the exercises later in this lesson.
+
+:::note[Windows executable path]
+Visual Studio multi-configuration builds place these programs under
+`build/tutorials/examples/01_rpc/Release/` and add the `.exe` suffix.
+:::
+
+## Define the request and response
+
+The example keeps business data in
+[`calculator.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.wl):
+
+```text
+version 1;
+
+message AddRequest @id(20) {
+  required int32 left @id(1);
+  required int32 right @id(2);
+}
+
+message AddResponse @id(21) {
+  required int32 sum @id(1);
+}
+```
+
+`AddRequest` contains the two inputs. `AddResponse` contains the result. The
+message IDs distinguish data types; they are not identifiers for individual calls.
+Wirelink adds and matches its own call metadata outside these business messages.
+
+The accompanying
+[`calculator.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.bind.wl)
+connects those two messages:
+
+```text
+profile version 1;
+
+rpc Add {
+  request = AddRequest;
+  response = AddResponse;
+}
+```
+
+`rpc Add` names the operation. WLC uses this declaration to generate the typed
+client call and server handler API.
+
+RPC requests and responses use **reliable delivery** by default. Wirelink
+acknowledges and retries frames over the UDP link used by this tutorial. That
+only answers whether data crossed the link; it does not say whether the device
+accepted the operation or produced a result.
+
+## Handle the operation on the device
+
+The relevant part of
+[`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c)
+calculates with a wider temporary value so it can detect overflow:
+
+```c
+static int32_t add(void *context, const add_request_value_t *request,
+                   add_response_value_t *response) {
+  const int64_t sum = (int64_t)request->left + request->right;
+  (void)context;
+  if (sum < INT32_MIN || sum > INT32_MAX)
+    return 1;
+  response->has_sum = true;
+  response->sum = (int32_t)sum;
+  return 0;
+}
+```
+
+A return value of `0` completes the call successfully, so the handler must fill
+the required response fields. A nonzero value rejects the request with a business
+status chosen by this application. Here, status `1` means that the sum does not
+fit in an `int32`.
+
+The server registers this function once during endpoint setup:
+
+```c
+config.on_add = add;
+```
+
+## Wait for the outcome on the controller
+
+The client builds an owned request value, then waits up to 1500 milliseconds for
+this call to finish:
+
+```c
+add_request_value_clear(&request);
+request.has_left = request.has_right = true;
+request.left = 20;
+request.right = 22;
+
+const wl_rpc_completion_t result =
+    calculator_endpoint_add_sync(&client, &request, &response, 1500U);
+```
+
+The generated `calculator_endpoint_add_sync()` call advances communication while
+it waits. For now, use it when the calling thread is allowed to block. A later
+lesson will move the same operation to an asynchronous call.
+
+Read `response` only after `WL_RPC_SUCCESS`. When the device rejects the operation,
+the result is `WL_RPC_REJECTED` and `result.rejection` contains its business status.
+Timeout, cancellation, and communication failure are separate terminal outcomes.
+
+The complete call therefore has four observable stages:
+
+1. The request crosses the link.
+2. The server handler accepts or rejects the operation.
+3. A response or rejection crosses back to the client.
+4. The client reports the RPC outcome.
+
+Reliable delivery covers the link work in stages 1 and 3. The RPC outcome is only
+known after the business work and reply have completed.
+
+<MultipleChoice
+  id="rpc-delivery-versus-completion"
+  question="The server has acknowledged receipt of a request, but the handler has not returned yet. Can the client report a successful RPC result?"
+  choices={[
+    {
+      label: 'Yes, because reliable delivery is already complete',
+      correct: false,
+      feedback: 'The acknowledgement covers link delivery. The client still needs the business response.',
+    },
+    {
+      label: 'No, it must wait for the business outcome',
+      correct: true,
+      feedback: 'Correct. Link delivery and RPC business completion are separate stages.',
+    },
+    {
+      label: 'Yes, if the response structure was cleared first',
+      correct: false,
+      feedback: 'Clearing storage does not produce a response or complete a remote operation.',
+    },
+  ]}
+/>
+
+## Observe a business rejection
+
+With the server still running, ask it to add one beyond the largest signed
+32-bit integer:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client 49100 49101 2147483647 1
+```
+
+The server receives and handles the request, but deliberately refuses its value:
+
+```text
+addition rejected: status=1
+```
+
+This is a completed RPC with a rejection outcome. It is different from a dropped
+packet or timeout: communication succeeded, and the application returned a decision.
+
+<MultipleChoice
+  id="rpc-overflow-outcome"
+  question="The request arrived reliably, but the sum overflowed and the handler returned 1. Which outcome should the client inspect?"
+  choices={[
+    {
+      label: 'WL_RPC_SUCCESS and response.sum',
+      correct: false,
+      feedback: 'A rejected call does not produce a successful response value.',
+    },
+    {
+      label: 'WL_RPC_REJECTED and result.rejection',
+      correct: true,
+      feedback: 'Correct. The request was delivered, then rejected by the application.',
+    },
+    {
+      label: 'WL_RPC_TIMED_OUT because no sum was returned',
+      correct: false,
+      feedback: 'The server returned a rejection promptly, so the call did not time out.',
+    },
+  ]}
+/>
+
+## Try another input
+
+Choose two signed 32-bit integers and pass them after the two UDP ports. For
+example:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client 49100 49101 7 35
+```
+
+Predict whether the call will succeed or be rejected before running it. Then
+compare the client output with the server's `handling ...` line.
+
+<Checklist
+  id="request-a-result"
+  title="Lesson complete"
+  items={[
+    'I can run the calculator client and server.',
+    'I can define the request and response sides of an RPC.',
+    'I read response data only after WL_RPC_SUCCESS.',
+    'I can distinguish reliable delivery from success or business rejection.',
+  ]}
+/>
+
+## Next step
+
+Continue with [keeping device information after a call](../save-device-info/)
+to use a response after another call has completed and the endpoint has closed.

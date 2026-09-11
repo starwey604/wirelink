@@ -34,7 +34,8 @@ static int32_t enqueue(void *context, const add_request_t *request,
   (void)delivery;
   if (job->pending)
     return calculator_endpoint_add_reject(job->server, token, 2);
-  printf("handling %ld + %ld\n", (long)request->left, (long)request->right);
+  printf("handling %ld + %ld; response deferred\n",
+         (long)request->left, (long)request->right);
   fflush(stdout);
   job->sum = (int64_t)request->left + request->right;
   job->token = *token;
@@ -72,7 +73,11 @@ int main(int argc, char **argv) {
   puts("calculator server ready (deferred)");
   fflush(stdout);
   while (example_running()) {
-    if (job.pending) CHECK(finish(&job) == WL_RPC_OK);
+    if (job.pending) {
+      CHECK(finish(&job) == WL_RPC_OK);
+      puts("deferred response queued");
+      fflush(stdout);
+    }
     CHECK(calculator_endpoint_step(&server) == WL_OK);
     if (!job.pending) CHECK(example_udp_wait(udp, 200U) == WL_OK);
   }
@@ -104,11 +109,11 @@ int main(int argc, char **argv) {
 worker 只计算并发布业务结果，然后唤醒原 owner；由 owner 调用 complete/reject。
 不要从 worker 直接操作 endpoint。一次示例工作位只是应用容量，不能替代框架的 RPC 容量。
 
-本例任务在下一轮即完成。真实慢任务要给 pending deadline 和应用任务设置合理边界；
-客户端可能已经超时，token 也可能因过期、换会话或关闭失效。
-无效 token 不能拿新编号“补发”；业务应丢弃过期回复并按自身策略结束任务。
+本例任务在下一轮即完成。真实慢任务要给 pending deadline 和应用任务设置合理边界。
+Pending 超时会报告一项逾期身份，但不会释放工作位或让 token 失效；应用仍须完成、拒绝
+或放弃它。对端换会话或 endpoint 关闭则可能让 token 失效。无效 token 不能拿新编号
+“补发”；业务应丢弃过期回复并按自身策略结束任务。
 关闭前停止/排空 worker，关闭后丢弃 token，不能引用已销毁端点。
 超时或本地取消并不保证远端动作停止。
 
 详细错误与生命周期约定见[高级 RPC runtime](rpc-runtime-cn.md)。
-

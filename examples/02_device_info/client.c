@@ -22,13 +22,17 @@ int main(int argc, char **argv) {
   }
   const info_response_value_t saved = response; /* Copies the strings too. */
   result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
+  CHECK(result.status == WL_RPC_SUCCESS);
+  printf("current name=%.*s firmware=%.*s query=%lu\n",
+         (int)response.name.length, response.name.data,
+         (int)response.firmware.length, response.firmware.data,
+         (unsigned long)response.query_count);
   info_response_value_clear(&response); /* Does not change saved. */
   CHECK(device_info_endpoint_close(&client) == WL_OK);
   example_udp_close(udp);
-  CHECK(result.status == WL_RPC_SUCCESS);
 
   /* These fields remain usable after another call and endpoint close. */
-  printf("saved name=%.*s firmware=%.*s query=%lu\n",
+  printf("saved after close name=%.*s firmware=%.*s query=%lu\n",
          (int)saved.name.length, saved.name.data,
          (int)saved.firmware.length, saved.firmware.data,
          (unsigned long)saved.query_count);

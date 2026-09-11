@@ -9,7 +9,13 @@ schema and server; asynchronous calling does not change the wire protocol.
 
 Start `calculator_server`, then run `calculator_client_async` in the same example
 directory. Build instructions and port arguments match the synchronous client.
-The normal output is still `20 + 22 = 42`.
+The normal output makes submission and completion visible:
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+20 + 22 = 42
+```
 
 ## 2. Complete client
 
@@ -32,6 +38,8 @@ static void completed(void *context, const wl_rpc_completion_t *result,
   addition->result = *result;
   if (response != NULL) addition->response = *response;
   addition->done = true;
+  puts("RPC completion received");
+  fflush(stdout);
 }
 
 int main(int argc, char **argv) {
@@ -55,6 +63,8 @@ int main(int argc, char **argv) {
   CHECK(udp != NULL);
   CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
       completed, &addition, NULL) == WL_OK);
+  puts("RPC submitted; main loop continues");
+  fflush(stdout);
 
   while (!addition.done && example_running()) {
     const int step = calculator_endpoint_step(&client);
@@ -78,6 +88,7 @@ int main(int argc, char **argv) {
 `_async()` returning `WL_OK` means the request was snapshotted and accepted, not
 that remote execution succeeded. Admission errors, such as a full queue, never
 notify. Accepted calls notify once under continued driving or orderly close.
+The two marker lines show that the submit call returned before that notification.
 The framework recycles the call; application code sees a final outcome and
 does not inspect or release slots.
 
@@ -101,4 +112,3 @@ For cancellation, replace the final NULL submission argument with a
 Timeout and cancellation do not undo remote side effects.
 
 For long-running server work, continue with [deferred replies](tutorial-rpc-deferred.md).
-

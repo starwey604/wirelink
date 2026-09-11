@@ -16,9 +16,15 @@
 ```
 
 这里的两行分别在服务端、客户端终端执行，不是在同一个终端依次执行。
-Windows 多配置构建使用 `02_device_info/Release/*.exe`。
-首次客户端输出 `saved name=demo-sensor firmware=dev query=1`。
-它实际查询两次；再次运行会显示 query=3，因为保存的是这次进程的第一份结果。
+Windows 多配置构建使用 `02_device_info/Release/*.exe`。首次客户端输出：
+
+```text
+current name=demo-sensor firmware=dev query=2
+saved after close name=demo-sensor firmware=dev query=1
+```
+
+它实际查询两次；第一行是第二次响应，第二行是在 endpoint 关闭后打印的第一次响应。
+再次运行时，两行的 query 分别是 4 和 3。
 服务端按 Ctrl+C 退出，默认端口为 49201/49200。
 
 ## 2. 约定字符串上限
@@ -139,13 +145,17 @@ int main(int argc, char **argv) {
   }
   const info_response_value_t saved = response; /* Copies the strings too. */
   result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
+  CHECK(result.status == WL_RPC_SUCCESS);
+  printf("current name=%.*s firmware=%.*s query=%lu\n",
+         (int)response.name.length, response.name.data,
+         (int)response.firmware.length, response.firmware.data,
+         (unsigned long)response.query_count);
   info_response_value_clear(&response); /* Does not change saved. */
   CHECK(device_info_endpoint_close(&client) == WL_OK);
   example_udp_close(udp);
-  CHECK(result.status == WL_RPC_SUCCESS);
 
   /* These fields remain usable after another call and endpoint close. */
-  printf("saved name=%.*s firmware=%.*s query=%lu\n",
+  printf("saved after close name=%.*s firmware=%.*s query=%lu\n",
          (int)saved.name.length, saved.name.data,
          (int)saved.firmware.length, saved.firmware.data,
          (unsigned long)saved.query_count);
@@ -153,8 +163,9 @@ int main(int argc, char **argv) {
 }
 ```
 
-关键是 `saved = response`。之后再次调用、清理原 response、关闭端点和 UDP，
-都不会修改 saved 中的字符串。保存结果的生命周期是这个普通 C 变量的生命周期，
+关键是 `saved = response`。第一行输出证明第二次调用已经把 `response` 更新为 query 2；
+之后清理原 response、关闭端点和 UDP，仍能从 `saved` 打印 query 1。这些操作都不会修改
+saved 中的字符串。保存结果的生命周期是这个普通 C 变量的生命周期，
 不是“任何指针永远有效”。回调收到的响应指针仍只在回调内有效，需要保存时复制值。
 
 打印使用长度限制而不是假定所有字符串适合 `strlen`。协议允许嵌入 NUL；
@@ -168,4 +179,3 @@ int main(int argc, char **argv) {
 
 接着可以阅读[异步客户端](tutorial-rpc-async-cn.md)、
 [延迟服务](tutorial-rpc-deferred-cn.md)，或直接[接入自己的项目](tutorial-integration-cn.md)。
-

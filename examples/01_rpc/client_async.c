@@ -14,6 +14,8 @@ static void completed(void *context, const wl_rpc_completion_t *result,
   addition->result = *result;
   if (response != NULL) addition->response = *response;
   addition->done = true;
+  puts("RPC completion received");
+  fflush(stdout);
 }
 
 int main(int argc, char **argv) {
@@ -37,6 +39,8 @@ int main(int argc, char **argv) {
   CHECK(udp != NULL);
   CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
       completed, &addition, NULL) == WL_OK);
+  puts("RPC submitted; main loop continues");
+  fflush(stdout);
 
   while (!addition.done && example_running()) {
     const int step = calculator_endpoint_step(&client);

@@ -17,9 +17,16 @@ Run each command in a different terminal:
 ```
 
 Windows multi-config binaries live under `02_device_info/Release/` and end in
-`.exe`. The first client prints
-`saved name=demo-sensor firmware=dev query=1`. It actually makes two queries;
-the next client process prints query=3, preserving its first response.
+`.exe`. The first client prints:
+
+```text
+current name=demo-sensor firmware=dev query=2
+saved after close name=demo-sensor firmware=dev query=1
+```
+
+It makes two queries. The first line is the second response; the second line
+prints the first response after endpoint close. The next client process reports
+queries 4 and 3.
 Stop the server with Ctrl+C. Default server/client ports are 49201/49200.
 
 ## 2. Bound the strings
@@ -141,13 +148,17 @@ int main(int argc, char **argv) {
   }
   const info_response_value_t saved = response; /* Copies the strings too. */
   result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
+  CHECK(result.status == WL_RPC_SUCCESS);
+  printf("current name=%.*s firmware=%.*s query=%lu\n",
+         (int)response.name.length, response.name.data,
+         (int)response.firmware.length, response.firmware.data,
+         (unsigned long)response.query_count);
   info_response_value_clear(&response); /* Does not change saved. */
   CHECK(device_info_endpoint_close(&client) == WL_OK);
   example_udp_close(udp);
-  CHECK(result.status == WL_RPC_SUCCESS);
 
   /* These fields remain usable after another call and endpoint close. */
-  printf("saved name=%.*s firmware=%.*s query=%lu\n",
+  printf("saved after close name=%.*s firmware=%.*s query=%lu\n",
          (int)saved.name.length, saved.name.data,
          (int)saved.firmware.length, saved.firmware.data,
          (unsigned long)saved.query_count);
@@ -155,8 +166,9 @@ int main(int argc, char **argv) {
 }
 ```
 
-The important line is `saved = response`. Another call, clearing response, and
-closing both endpoint and UDP leave saved's strings intact. Its lifetime is that
+The important line is `saved = response`. The first output line proves that the
+second call updated `response` to query 2. Clearing that response and closing both
+endpoint and UDP still leaves query 1 printable from `saved`. Its lifetime is that
 of the ordinary C variable; this does not make arbitrary pointers immortal.
 Callback response pointers still expire when the callback returns: copy the value to retain it.
 
@@ -174,4 +186,3 @@ storage comes from, not response ownership.
 
 Continue with [asynchronous clients](tutorial-rpc-async.md),
 [deferred servers](tutorial-rpc-deferred.md), or [project integration](tutorial-integration.md).
-

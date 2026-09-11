@@ -7,7 +7,13 @@
 ## 1. 运行
 
 先启动 `calculator_server`，再运行同目录的 `calculator_client_async`。
-构建及端口参数与同步客户端相同，正常输出仍是 `20 + 22 = 42`。
+构建及端口参数与同步客户端相同。正常输出会直接显示提交和完成是两个时刻：
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+20 + 22 = 42
+```
 
 ## 2. 完整客户端
 
@@ -30,6 +36,8 @@ static void completed(void *context, const wl_rpc_completion_t *result,
   addition->result = *result;
   if (response != NULL) addition->response = *response;
   addition->done = true;
+  puts("RPC completion received");
+  fflush(stdout);
 }
 
 int main(int argc, char **argv) {
@@ -53,6 +61,8 @@ int main(int argc, char **argv) {
   CHECK(udp != NULL);
   CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
       completed, &addition, NULL) == WL_OK);
+  puts("RPC submitted; main loop continues");
+  fflush(stdout);
 
   while (!addition.done && example_running()) {
     const int step = calculator_endpoint_step(&client);
@@ -75,6 +85,7 @@ int main(int argc, char **argv) {
 
 `_async()` 返回 `WL_OK` 表示已复制请求并接受，不表示远端成功。
 队列满等提交错误不会触发回调；已接受的调用在持续驱动或有序关闭中恰好通知一次。
+两行运行标记表明提交函数先返回，完成通知随后才发生。
 完成时框架自动回收调用，业务只接收一个最终结果，不需要 inspect/release。
 
 `addition_t` 是本程序选择保存的业务结果，不是用户拼装的端点或协议缓冲区。
@@ -93,4 +104,3 @@ int main(int argc, char **argv) {
 `calculator_endpoint_cancel()`。超时和取消都不撤销远端已发生的副作用。
 
 服务端本身也有慢任务？继续阅读[延迟回复](tutorial-rpc-deferred-cn.md)。
-

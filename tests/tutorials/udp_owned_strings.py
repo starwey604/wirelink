@@ -20,8 +20,10 @@ def main():
             client = Process([args.client, str(client_port), str(server_port)])
             try:
                 code, output = client.output()
-                expected = f"saved name=demo-sensor firmware=dev query={query}"
-                if code != 0 or expected not in output:
+                current = f"current name=demo-sensor firmware=dev query={query + 1}"
+                saved = f"saved after close name=demo-sensor firmware=dev query={query}"
+                if (code != 0 or current not in output or saved not in output or
+                        output.index(current) > output.index(saved)):
                     raise RuntimeError(output)
             finally:
                 client.close()

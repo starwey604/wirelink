@@ -33,7 +33,7 @@ const {
             name={id}
             value={String(index)}
             data-correct={String(choice.correct)}
-            data-feedback={choice.feedback}
+            data-choice-feedback={choice.feedback}
           />
           <span>{choice.label}</span>
         </label>
@@ -41,7 +41,7 @@ const {
     </div>
   </fieldset>
   <button type="submit">{checkLabel}</button>
-  <p class="feedback" data-feedback aria-live="polite" hidden></p>
+  <p class="feedback" data-quiz-feedback aria-live="polite" hidden></p>
 </form>
 
 <script>
@@ -50,7 +50,7 @@ const {
       if (form.dataset.initialized) return;
       form.dataset.initialized = 'true';
 
-      const feedback = form.querySelector<HTMLElement>('[data-feedback]');
+      const feedback = form.querySelector<HTMLElement>('[data-quiz-feedback]');
       form.addEventListener('change', () => {
         if (feedback) feedback.hidden = true;
       });
@@ -63,7 +63,7 @@ const {
           feedback.textContent = form.dataset.emptyFeedback || 'Choose an answer first.';
           feedback.dataset.result = 'pending';
         } else {
-          feedback.textContent = selected.dataset.feedback || '';
+          feedback.textContent = selected.dataset.choiceFeedback || '';
           feedback.dataset.result = selected.dataset.correct === 'true' ? 'correct' : 'incorrect';
         }
         feedback.hidden = false;

@@ -1,0 +1,274 @@
+---
+title: Keep the main loop active during an RPC
+description: Submit an asynchronous RPC, drive the endpoint, and receive its result in a completion callback.
+sidebar:
+  order: 5
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The synchronous calculator call waits until it has a result. That is convenient
+for a command-line program, but a user interface or device loop may need to keep
+handling input, rendering, or control work during the wait.
+
+An asynchronous RPC separates two moments: the application **submits** a call
+now and receives its **completion** later. The server and wire messages stay the
+same.
+
+**After this lesson, you can:**
+
+- submit an RPC without blocking until its result arrives;
+- keep an endpoint moving from an application loop;
+- copy a completion and response out of a callback;
+- distinguish submission status from the RPC's final outcome.
+
+## Before you begin
+
+Complete [keeping device information after a call](../save-device-info/) first.
+This lesson reuses the calculator schema, server, and `build/tutorials` directory
+from the earlier RPC lesson.
+
+Rebuild after updating the source:
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## Run the asynchronous client
+
+Start the same calculator server in terminal A:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_server
+```
+
+After `calculator server ready`, run the asynchronous client in terminal B:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client_async
+```
+
+The client makes the two moments visible:
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+20 + 22 = 42
+```
+
+The first line appears after the submission function returns. The second comes
+from the completion callback. Only then does the client print the business result.
+
+No background thread was created. The application loop between those two lines
+drives the endpoint until the callback runs.
+
+:::note[Windows executable path]
+Visual Studio multi-configuration builds place the programs under
+`build/tutorials/examples/01_rpc/Release/` and add the `.exe` suffix.
+:::
+
+## Compare the two calling styles
+
+Both clients invoke the same `Add` service and receive the same result. They
+differ in how control returns to the application:
+
+| Calling style | When the function returns | Where the final result appears |
+| --- | --- | --- |
+| `calculator_endpoint_add_sync()` | After the call finishes | Its return value and response argument |
+| `calculator_endpoint_add_async()` | After local submission | A completion callback invoked later |
+
+Asynchronous submission is not fire-and-forget. An accepted call still needs a
+live endpoint, continued progress, and application state that remains valid until
+completion or orderly shutdown.
+
+## Prepare state for the later result
+
+The example keeps everything needed after submission in one application-owned
+structure:
+
+```c
+typedef struct {
+  bool done;
+  wl_rpc_completion_t result;
+  add_response_value_t response;
+} addition_t;
+```
+
+`done` tells the main loop when to stop waiting. `result` records success,
+rejection, timeout, cancellation, or failure. The owned `response` stores the sum
+when the call succeeds.
+
+This `addition_t` variable lives in `main()` until after the endpoint closes, so
+the callback context can safely point to it.
+
+## Copy the completion in the callback
+
+The generated asynchronous API calls `completed()` with the context supplied at
+submission:
+
+```c
+static void completed(void *context, const wl_rpc_completion_t *result,
+                       const add_response_value_t *response) {
+  addition_t *addition = context;
+  addition->result = *result;
+  if (response != NULL) addition->response = *response;
+  addition->done = true;
+  puts("RPC completion received");
+  fflush(stdout);
+}
+```
+
+The `result` and `response` pointers are valid only during this callback. The
+callback copies both values before returning, using the owned-value behavior from
+the previous lesson. A non-successful completion supplies no response, so the
+null check comes before the response copy.
+
+Keep this callback short. It records the outcome and lets the owner loop decide
+what to do next.
+
+## Submit the call
+
+The asynchronous client uses the same request value and 1500 millisecond budget:
+
+```c
+CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
+    completed, &addition, NULL) == WL_OK);
+puts("RPC submitted; main loop continues");
+fflush(stdout);
+```
+
+`calculator_endpoint_add_async()` snapshots the request before returning. A
+return value of `WL_OK` means the local endpoint accepted that snapshot and will
+produce one completion notification while it continues to be driven or closes
+cleanly. It does not mean that the device has handled the request successfully.
+
+If submission returns an error, such as a full local queue, no call was accepted
+and no completion callback will follow. The final `NULL` means this example does
+not request a cancellation handle.
+
+| Observation point | What it tells you |
+| --- | --- |
+| Return from `add_async()` | Whether the local endpoint accepted the call |
+| `result.status` in `completed()` | How the accepted RPC finally ended |
+
+<MultipleChoice
+  id="async-submission-versus-completion"
+  question="calculator_endpoint_add_async() returns WL_OK. What is known at that moment?"
+  choices={[
+    {
+      label: 'The remote handler has completed successfully',
+      correct: false,
+      feedback: 'Remote execution is reported later through the completion callback.',
+    },
+    {
+      label: 'The local endpoint accepted a snapshot of the request',
+      correct: true,
+      feedback: 'Correct. WL_OK reports local submission; the callback reports the final RPC outcome.',
+    },
+    {
+      label: 'The response fields are ready to read',
+      correct: false,
+      feedback: 'The response is available only with a successful completion.',
+    },
+  ]}
+/>
+
+## Keep the endpoint moving
+
+Wirelink does not create a hidden worker. The example advances communication from
+its application loop:
+
+```c
+while (!addition.done && example_running()) {
+  const int step = calculator_endpoint_step(&client);
+  if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
+  if (!addition.done) CHECK(example_udp_wait(udp, 200U) == WL_OK);
+}
+```
+
+`calculator_endpoint_step()` performs one bounded progress pass. It services the
+transport, processes incoming data, advances deadlines, and may invoke the
+completion callback. `example_udp_wait()` then sleeps until UDP work is ready or
+the short wait ends; waiting by itself does not advance Wirelink.
+
+The loop or thread that calls `step()` is the endpoint's **owner**. Keep all
+endpoint progress on that one owner. Do not call `step()`, a synchronous RPC, or
+`close()` recursively from a completion callback.
+
+If Ctrl+C stops the loop while a call is pending, the generated close operation
+delivers its final notification before the UDP adapter is released.
+
+<MultipleChoice
+  id="async-needs-progress"
+  question="A call was accepted, but the application never calls step() or closes the endpoint. What happens to its callback?"
+  choices={[
+    {
+      label: 'A hidden Wirelink thread completes it',
+      correct: false,
+      feedback: 'Wirelink does not create a background worker for this endpoint.',
+    },
+    {
+      label: 'It waits because no owner is advancing communication',
+      correct: true,
+      feedback: 'Correct. The application must keep driving the endpoint or close it cleanly.',
+    },
+    {
+      label: 'The callback runs immediately inside add_async()',
+      correct: false,
+      feedback: 'Successful submission records the call; later owner progress delivers completion.',
+    },
+  ]}
+/>
+
+## Observe an asynchronous rejection
+
+Keep the server running and submit the overflow input used in the synchronous
+lesson:
+
+```sh
+./build/tutorials/examples/01_rpc/calculator_client_async \
+  49100 49101 2147483647 1
+```
+
+The same lifecycle markers appear before the business result:
+
+```text
+RPC submitted; main loop continues
+RPC completion received
+addition rejected: status=1
+```
+
+Changing the client from synchronous to asynchronous did not change the server or
+the meaning of `WL_RPC_REJECTED`. It changed when control returned and where the
+client received that outcome.
+
+## Try one loop task
+
+Add an `unsigned passes = 0;` variable before the loop and increment it once per
+loop iteration. Print it after completion:
+
+```c
+printf("owner passes=%u\n", passes);
+```
+
+The exact number depends on scheduling and network timing, so do not assert a
+fixed value. Seeing a positive count confirms that application-controlled owner
+passes occurred between submission and the final result.
+
+<Checklist
+  id="async-rpc"
+  title="Lesson complete"
+  items={[
+    'I can submit an asynchronous RPC and provide callback context.',
+    'I can distinguish local submission status from the final RPC outcome.',
+    'I copy callback-scoped result data before the callback returns.',
+    'I keep endpoint progress on one owner loop.',
+  ]}
+/>
+
+## Next step
+
+Continue with [replying after an RPC handler returns](../deferred-rpc/) to let the
+server accept a request now and complete it later without blocking its endpoint
+owner.
