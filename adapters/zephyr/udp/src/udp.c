@@ -5,6 +5,21 @@
 #include <limits.h>
 #include <string.h>
 
+#ifdef CONFIG_WIRELINK_ZEPHYR_UDP_TIMING
+static void timing_finish(wl_zephyr_udp_timing_t *timing, uint32_t started) {
+  const uint32_t elapsed = k_cycle_get_32() - started;
+  ++timing->calls;
+  timing->cycles += elapsed;
+  if (elapsed > timing->max_cycles) timing->max_cycles = elapsed;
+}
+#define TIMING_START() const uint32_t timing_started = k_cycle_get_32()
+#define TIMING_FINISH(adapter, member) \
+  timing_finish(&(adapter)->private_state.stats.member, timing_started)
+#else
+#define TIMING_START() ((void)0)
+#define TIMING_FINISH(adapter, member) ((void)0)
+#endif
+
 static wl_err_t active(const wl_zephyr_udp_t *adapter) {
   if (adapter == NULL) return WL_ERR_INVALID_ARG;
   if (k_is_in_isr()) return WL_ERR_REENTRANT;
@@ -52,7 +67,9 @@ static wl_sink_result_t sink(void *context, wl_io_token_t token,
       return WL_SINK_BUSY;
     }
   }
+  TIMING_START();
   const wl_sink_result_t result = wl_udp_socket_send(&adapter->private_state.io, data, length);
+  TIMING_FINISH(adapter, send_timing);
   if (result == WL_SINK_BUSY) {
     /* Reuses the pass snapshot inside step; outside step only pressure needs
      * a clock read. There is never a second protocol clock such as uptime. */
@@ -73,10 +90,9 @@ static wl_sink_result_t sink(void *context, wl_io_token_t token,
   return result;
 }
 
-static int service(void *context) {
+static int receive_service(void *context) {
   wl_zephyr_udp_t *adapter = context;
-  wl_err_t result = active(adapter);
-  if (result != WL_OK) return result;
+  wl_err_t result;
   ++adapter->private_state.stats.common.service_calls;
   adapter->private_state.more_rx = false;
   adapter->private_state.rx_paused = false;
@@ -97,8 +113,10 @@ static int service(void *context) {
       return result;
     }
     if (result != WL_OK) return failed(adapter, result);
+    TIMING_START();
     result = wl_udp_socket_receive(&adapter->private_state.io, claim.span.data,
         claim.span.length, adapter->private_state.maximum_frame, &length);
+    TIMING_FINISH(adapter, receive_timing);
     if (result == WL_OK) {
       result = wl_rx_unit_commit(link, &claim, length);
       if (result != WL_OK) {
@@ -109,7 +127,10 @@ static int service(void *context) {
       adapter->private_state.stats.common.rx_bytes += length;
     } else {
       (void)wl_rx_unit_abort(link, &claim);
-      if (result == WL_ERR_NO_DATA) return i == 0 ? WL_ERR_NO_DATA : WL_OK;
+      if (result == WL_ERR_NO_DATA) {
+        if (i == 0) ++adapter->private_state.stats.rx_idle_passes;
+        return i == 0 ? WL_ERR_NO_DATA : WL_OK;
+      }
       if (result == WL_ERR_BAD_FRAME || result == WL_ERR_FRAME_TOO_LONG)
         ++adapter->private_state.stats.rx_rejected;
       else if (result == WL_ERR_CANCELLED) return result;
@@ -119,6 +140,16 @@ static int service(void *context) {
   ++adapter->private_state.stats.service_budget_hits;
   adapter->private_state.more_rx = true;
   return WL_OK;
+}
+
+static int service(void *context) {
+  wl_zephyr_udp_t *adapter = context;
+  const wl_err_t error = active(adapter);
+  if (error != WL_OK) return error;
+  TIMING_START();
+  const int result = receive_service(adapter);
+  TIMING_FINISH(adapter, service_timing);
+  return result;
 }
 
 static void quiesce(void *context) {

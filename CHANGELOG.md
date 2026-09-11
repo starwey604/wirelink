@@ -6,6 +6,11 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Reclaim cancelled managed-RPC link transactions once physical I/O drains,
+  including requests that time out without receiving any ACK. Test recovery
+  on the same UDP endpoint and loss/duplication with continuous telemetry.
+- Add opt-in Zephyr UDP elapsed-cycle diagnostics and idle receive-pass counts.
+  Timing is disabled by default and is not exclusive CPU accounting.
 - Add the opt-in Zephyr native IPv4 UDP endpoint adapter with static RX storage,
   automatic lifecycle/waiter binding, bounded receive service, no-fragment sends
   and endpoint-clock backpressure retry deadlines. Validate C++ headers and

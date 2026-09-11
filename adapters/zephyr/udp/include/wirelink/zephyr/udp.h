@@ -25,15 +25,31 @@ typedef struct {
                                       Limit for the whole Wirelink frame. */
 } wl_zephyr_udp_config_t;
 
+#ifdef CONFIG_WIRELINK_ZEPHYR_UDP_TIMING
+/* Elapsed system-timer cycles, not necessarily CPU cycles. Includes preemption
+ * and blocking. Each interval must fit within one 32-bit counter period. */
+typedef struct {
+  uint64_t calls;
+  uint64_t cycles;
+  uint32_t max_cycles;
+} wl_zephyr_udp_timing_t;
+#endif
+
 typedef struct {
   wl_adapter_stats_t common;
   uint64_t rx_rejected;
   uint64_t tx_backpressure;          /* Actual socket BUSY results. */
   uint64_t tx_deferred;              /* Sink attempts gated before retry due. */
   uint64_t service_budget_hits;
+  uint64_t rx_idle_passes;           /* First receive found no datagram. */
   uint64_t wait_calls;
   uint64_t wait_timeouts;
   wl_err_t last_error;               /* Latched fatal I/O error; reopen clears. */
+#ifdef CONFIG_WIRELINK_ZEPHYR_UDP_TIMING
+  wl_zephyr_udp_timing_t send_timing;    /* Actual send attempts, not gated BUSY. */
+  wl_zephyr_udp_timing_t receive_timing; /* Includes empty/rejected receives. */
+  wl_zephyr_udp_timing_t service_timing; /* RX service only, not whole step. */
+#endif
 } wl_zephyr_udp_stats_t;
 
 /* Declare with WL_ZEPHYR_UDP_DEFINE. All fields are private; keep at a stable

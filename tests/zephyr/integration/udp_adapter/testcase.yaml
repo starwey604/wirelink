@@ -5,3 +5,10 @@ tests:
     platform_allow: [native_sim, native_sim/native/64, qemu_cortex_m3]
     integration_platforms: [native_sim/native/64, qemu_cortex_m3]
     timeout: 90
+  wirelink.udp_adapter.timing:
+    tags: [wirelink, udp, socket, integration]
+    harness: ztest
+    platform_allow: [native_sim, native_sim/native/64, qemu_cortex_m3]
+    integration_platforms: [native_sim/native/64, qemu_cortex_m3]
+    extra_configs: [CONFIG_WIRELINK_ZEPHYR_UDP_TIMING=y]
+    timeout: 90

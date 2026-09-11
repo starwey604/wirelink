@@ -283,6 +283,13 @@ ZTEST(udp_adapter, test_backpressure_deadline_gates_actual_syscalls) {
   zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
   zassert_equal(stats(&udp).common.errors, 0);
+#ifdef CONFIG_WIRELINK_ZEPHYR_UDP_TIMING
+  const wl_zephyr_udp_stats_t measured = stats(&udp);
+  zassert_equal(measured.send_timing.calls, 3); /* Two BUSY, one accepted. */
+  zassert_equal(measured.service_timing.calls, measured.common.service_calls);
+  zassert_equal(measured.receive_timing.calls, measured.rx_idle_passes);
+  zassert_true(measured.send_timing.cycles >= measured.send_timing.max_cycles);
+#endif
 }
 
 ZTEST(udp_adapter, test_retry_counter_wrap_and_endpoint_isolation) {

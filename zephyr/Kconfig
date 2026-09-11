@@ -73,6 +73,16 @@ config WIRELINK_ZEPHYR_UDP
 	  are thread-only. Configure the network interface and resource pools in the
 	  application; offloaded sockets and COBS are not supported by this adapter.
 
+config WIRELINK_ZEPHYR_UDP_TIMING
+	bool "Collect UDP adapter elapsed-cycle diagnostics"
+	depends on WIRELINK_ZEPHYR_UDP
+	help
+	  Opt-in call counts, total and maximum elapsed cycles for actual socket
+	  sends, receives and owner receive service. Uses k_cycle_get_32, not the
+	  endpoint clock. Includes preemption and stack waiting; it is not CPU
+	  accounting. Each measured interval must be shorter than one counter wrap.
+	  Disabled builds have no timing reads or timing storage.
+
 endif
 
 endmenu
