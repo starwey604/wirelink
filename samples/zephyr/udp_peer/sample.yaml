@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+sample:
+  name: Wirelink two-device UDP peer
+  description: Separate client/server applications sharing the desktop peer schema
+common:
+  tags: [wirelink, wlc, udp]
+  build_only: true
+  platform_allow: [native_sim, native_sim/native/64]
+  integration_platforms: [native_sim/native/64]
+  extra_args: EXTRA_CONF_FILE=sim.conf
+tests:
+  sample.wirelink.udp_peer.server: {}
+  sample.wirelink.udp_peer.client:
+    extra_configs: [CONFIG_SAMPLE_WIRELINK_UDP_CLIENT=y]

@@ -1,13 +1,18 @@
-# Zephyr native UDP adapter (M1)
+# Zephyr native UDP adapter
 
 [中文](zephyr-udp-cn.md). This experimental C adapter attaches to a generated
 endpoint through `<wirelink/zephyr/udp.h>`. It uses Zephyr native IPv4 sockets,
 one owner, static RX storage, and no adapter-created thread or heap allocation.
-The core, generated ABI and wire format are unchanged.
+The generated ABI and wire format are unchanged. The subsequent M2 regression
+also fixed generic managed-RPC cancellation cleanup; see the
+[implementation record](zephyr-udp-progress-cn.md).
 
 **Functional validation is not real-time acceptance.** On the tested Zephyr
 revision, UDP packet-pool exhaustion blocks a `MSG_DONTWAIT` send for about one
 second. See the platform gate below before using this in a control task.
+
+For complete separate client/server programs, start with the
+[two-device example](../samples/zephyr/udp_peer/README.md). The API contract follows.
 
 ## Setup and ordinary use
 
@@ -117,6 +122,15 @@ wrap at 32 bits; other counters are owner-local 64-bit. Fatal I/O errors latch
 are not hardware transmission/latency measurements. Network socket, eventfd,
 packet and buffer pools still need to be sized for all users of the stack.
 
+`rx_idle_passes` counts passes whose first receive found no datagram. Optional
+`CONFIG_WIRELINK_ZEPHYR_UDP_TIMING=y` adds `send_timing`, `receive_timing` and
+`service_timing` to the stats, each with calls, total cycles and maximum cycles.
+These are elapsed `k_cycle_get_32()` intervals including preemption/stack waits,
+not exclusive CPU time; RX service excludes protocol/business dispatch.
+Do not add nested service and receive measurements. Single intervals must fit
+within one 32-bit wrap. Use the actual platform timer frequency for conversion;
+the endpoint clock is untouched. Disabled builds have no timing storage/reads.
+
 ## Validation and the remaining platform gate
 
 The [adapter suite](../tests/zephyr/integration/udp_adapter/) uses the real Zephyr
@@ -127,6 +141,11 @@ async/sync RPC, continuous telemetry, rejection, absent-peer timeout and generat
 close. It is an integration test, not a two-device getting-started tutorial.
 The [M0 suite](zephyr-udp-m0-cn.md) continues to cover socket boundary/notification
 contracts. Exact commands and results are in the [Chinese record](zephyr-udp-cn.md).
+
+Later tests add a real-socket fault relay (lost request/response/ACK, duplicates,
+blackhole recovery), same-storage reopen and stale response rejection. Desktop
+peers and both Zephyr roles share a schema. Their build/functional gates do not
+constitute Ethernet hardware acceptance; see the [M2/M3 record](zephyr-udp-progress-cn.md).
 
 In Zephyr `e4e6910cc19b7f11eada127e54c0b5248f413799`,
 `subsys/net/ip/net_context.c` passes fixed `PKT_WAIT_TIME` (1 second) to
@@ -139,10 +158,11 @@ platforms. It is logged, not asserted as a required minimum that would freeze
 the upstream behavior. This also limits how promptly RPC timeout/stop can be
 observed when the owner is inside that send.
 
-Before real-time acceptance, make the native allocation path honor nonblocking
+This allocation issue is explicitly deferred, not a blocker for the experimental
+M3 merge. Before real-time acceptance, make the native allocation path honor nonblocking
 operation/time bounds in an isolated Zephyr change and retest packet **and**
 buffer exhaustion. Then measure driver locks, descriptor pressure, priority and
 control-task interference on H5 Ethernet. Checking free global pool counts
 before send is not a race-free workaround, and using net_context directly would
-still encounter this shared path. M1 does not modify the external Zephyr tree,
+still encounter this shared path. This iteration does not modify the external Zephyr tree,
 product pins, firmware or release tags, and does not claim H5 latency/CPU results.

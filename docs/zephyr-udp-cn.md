@@ -1,12 +1,16 @@
-# Zephyr UDP：M1 默认端点接入与验证
+# Zephyr UDP：默认端点接入与验证
 
 [English](zephyr-udp.md)。M1 已实现公开的 `<wirelink/zephyr/udp.h>` 接口：
 原生 IPv4 socket、单一 owner、静态 RX 存储，不创建适配器线程或使用堆。
-不修改 C11 核心、WLC、生成 ABI 或线上帧格式。
+生成 ABI 与线上帧格式不变。M2 同时修复了通用 managed RPC 的取消发送回收问题，
+详见[后续实施记录](zephyr-udp-progress-cn.md)。
 
 **目前通过的是功能验收，不是实时性验收。** 当前 Zephyr 在发送 packet 池耗尽时，
 即使设置 `MSG_DONTWAIT` 仍可能等待约 1 秒。详情及下一步见文末；不能把它直接放进
 硬实时控制任务后，仅凭 Wirelink 的重试间隔推断最坏延迟。
+
+想先看完整业务代码，请从[独立 client/server 示例](../samples/zephyr/udp_peer/README-cn.md)
+开始；本页说明适配器合同。M2/M3 当前结果见[实施记录](zephyr-udp-progress-cn.md)。
 
 ## 最小接入方式
 
@@ -102,6 +106,12 @@ owner 可以查询 `get_stats()`：通用收发计数、拒绝包数、真正 so
 这些不是网卡实际发送或 CPU 测量。socket/eventfd/net_pkt/net_buf 仍消耗 Zephyr 的资源池，
 需连同同栈其他用户一起配置容量。
 
+`rx_idle_passes` 记录首次收包就没有数据的轮次。开启默认关闭的
+`CONFIG_WIRELINK_ZEPHYR_UDP_TIMING` 后，stats 增加实际 send、receive、RX service
+的次数、累计/最大 elapsed cycles；关闭时没有计时字段或计数器读取。
+插桩包括抢占/阻塞，不是纯 CPU 时间，也不包含后续协议/业务 dispatch；计数器周期、
+频率与嵌套统计限制见[插桩说明](zephyr-udp-progress-cn.md#可选插桩)。
+
 ## 验收记录与复现
 
 2026-09-11：Zephyr `e4e6910cc19b7f11eada127e54c0b5248f413799`（4.4.99）、
@@ -140,6 +150,9 @@ CI 已将生成端点验收接入“先构建匹配 WLC，再运行生成示例�
 存在开发用 `wlc/` worktree。本轮未修改产品依赖、未发布、未烧录，也未跑性能 benchmark。
 
 ## 必须保留的下一步：Zephyr 原生发送等待
+
+此项按用户决定暂缓，保留为后续优化，不阻止实验状态的 M3 合入。
+容量规划可以减少耗尽，但不能替代耗尽时的非阻塞兜底。
 
 耗尽 TX packet 池后，三种测试平台均打印了 `UDP_TX_POOL_WAIT elapsed_ms=1010`。
 这是模拟系统时间下的阻塞复现，不是 1010 ms CPU 消耗，也不是板端延迟测量。

@@ -49,11 +49,18 @@ int example_ports(int argc, char **argv, uint16_t *local, uint16_t *peer) {
 }
 
 example_udp_t *example_udp_open(wl_endpoint_t *endpoint, uint16_t local, uint16_t peer) {
+  return example_udp_open_at(endpoint, "127.0.0.1", local, "127.0.0.1", peer);
+}
+
+example_udp_t *example_udp_open_at(wl_endpoint_t *endpoint, const char *local_address,
+    uint16_t local, const char *peer_address, uint16_t peer) {
+  if (endpoint == nullptr || local_address == nullptr || peer_address == nullptr || peer == 0)
+    return nullptr;
   try {
     auto udp = std::make_unique<example_udp_t>();
     udp->endpoint = endpoint;
     wirelink::asio::UdpAdapterConfig config;
-    config.bind_address = "127.0.0.1";
+    config.bind_address = local_address;
     config.bind_port = local;
     std::error_code error;
     udp->adapter = wirelink::asio::UdpAdapter::open(*endpoint, config, error);
@@ -61,7 +68,7 @@ example_udp_t *example_udp_open(wl_endpoint_t *endpoint, uint16_t local, uint16_
       std::fprintf(stderr, "UDP open: %s\n", error.message().c_str());
       return nullptr;
     }
-    if (udp->adapter->set_peer("127.0.0.1", peer) != WL_OK) return nullptr;
+    if (udp->adapter->set_peer(peer_address, peer) != WL_OK) return nullptr;
     std::signal(SIGINT, stop);
     std::signal(SIGTERM, stop);
     return udp.release();

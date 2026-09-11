@@ -349,4 +349,54 @@ ZTEST(udp_validation, test_blackhole_timeout_then_reuse_call_pool) {
   zassert_equal(handlers, 1);
 }
 
+ZTEST(udp_validation, test_rebuild_same_endpoint_rejects_old_response) {
+  start_relay();
+  relay_faults_t outbound = {0}, inbound = {0};
+  add_request_value_t value = request(20, 22);
+  zassert_ok(udp_demo_endpoint_add_async(&client, &value, 500, done, NULL, NULL));
+  for (unsigned i = 0; i < 40; ++i) {
+    relay(0, &outbound);
+    relay(1, &inbound);
+    step_pair();
+  }
+  zassert_equal(completions, 1);
+  zassert_equal(completion.status, WL_RPC_SUCCESS);
+  zassert_true(inbound.saved_length > 0);
+  uint8_t old_response[128];
+  size_t old_length = inbound.saved_length;
+  memcpy(old_response, inbound.saved, old_length);
+  wl_rpc_call_t old_call;
+  zassert_ok(udp_demo_endpoint_add_async(&client, &value, 500, done, NULL, &old_call));
+  zassert_ok(wl_zephyr_udp_request_stop(&client_udp));
+  zassert_ok(udp_demo_endpoint_close(&client));
+  zassert_equal(completions, 2);
+  zassert_equal(completion.status, WL_RPC_CANCELLED);
+  zassert_ok(wl_zephyr_udp_close(&client_udp));
+  /* Model coordinated cutover: discard old queued outbound requests at relay.
+   * A new session is not general anti-replay protection for stale requests. */
+  outbound.drop_data = UINT_MAX;
+  relay(0, &outbound);
+  outbound.drop_data = 0;
+  const wl_clock_t clock = {.now_ms = clock_read};
+  zassert_ok(udp_demo_endpoint_init(&client, test_environment_id(3, clock)));
+  const wl_zephyr_udp_config_t network = {.peer_address = "127.0.0.1",
+    .peer_port = 49102, .local_address = "127.0.0.1", .local_port = 49100};
+  zassert_ok(wl_zephyr_udp_open(&client_udp, udp_demo_endpoint_handle(&client), &network));
+  zassert_equal(udp_demo_endpoint_cancel(&client, &old_call), WL_ERR_NOT_FOUND);
+  value = request(100, 2);
+  zassert_ok(udp_demo_endpoint_add_async(&client, &value, 500, done, NULL, NULL));
+  forward(1, old_response, old_length);
+  zassert_ok(udp_demo_endpoint_step(&client));
+  zassert_equal(completions, 2); /* Old response cannot satisfy the new call. */
+  for (unsigned i = 0; i < 80; ++i) {
+    relay(0, &outbound);
+    relay(1, &inbound);
+    step_pair();
+  }
+  zassert_equal(completions, 3);
+  zassert_equal(completion.status, WL_RPC_SUCCESS);
+  zassert_equal(saved_response.sum, 102);
+  zassert_equal(handlers, 2);
+}
+
 ZTEST_SUITE(udp_validation, NULL, NULL, before, after, NULL);

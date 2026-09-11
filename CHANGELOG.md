@@ -6,6 +6,10 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Add separate Zephyr/desktop UDP peer examples sharing one RPC/telemetry
+  schema, CI build checks for both Zephyr roles, and a same-storage reconnect
+  regression rejecting stale RPC responses. Physical Ethernet validation is
+  still pending; the adapter remains experimental.
 - Reclaim cancelled managed-RPC link transactions once physical I/O drains,
   including requests that time out without receiving any ACK. Test recovery
   on the same UDP endpoint and loss/duplication with continuous telemetry.
