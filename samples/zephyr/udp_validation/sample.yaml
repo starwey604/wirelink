@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+sample:
+  name: Wirelink generated endpoints over Zephyr UDP
+  description: Managed RPC, telemetry and synchronous waits on native UDP loopback
+tests:
+  sample.wirelink.udp_validation:
+    tags: [wirelink, wlc, rpc, udp]
+    harness: ztest
+    platform_allow: [native_sim, native_sim/native/64, qemu_cortex_m3]
+    integration_platforms: [native_sim/native/64, qemu_cortex_m3]
+    timeout: 90

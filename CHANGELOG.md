@@ -6,6 +6,12 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Add the opt-in Zephyr native IPv4 UDP endpoint adapter with static RX storage,
+  automatic lifecycle/waiter binding, bounded receive service, no-fragment sends
+  and endpoint-clock backpressure retry deadlines. Validate C++ headers and
+  generated managed RPC/telemetry on native simulation and QEMU. Record the
+  upstream fixed packet-allocation wait exposed by pool exhaustion; functional
+  acceptance does not establish real-time bounds. No core/codegen ABI changes.
 - Add a private Zephyr UDP socket M0 prototype and loopback contract tests for
   socket/eventfd waits, datagram boundaries, direct core RX claims, send-result
   classification and lifecycle rollback. This is not yet a public adapter;

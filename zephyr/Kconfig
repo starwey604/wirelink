@@ -61,6 +61,18 @@ config WIRELINK_ZEPHYR_UART_IRQ
 	  DMA implementation. RX FIFO bytes are written directly into the SPSC
 	  ring and all protocol processing remains in the consumer loop.
 
+config WIRELINK_ZEPHYR_UDP
+	bool "Enable the Zephyr native IPv4 UDP socket adapter"
+	depends on MULTITHREADING && NET_SOCKETS && NET_NATIVE_IPV4 && NET_NATIVE_UDP
+	depends on !NET_SOCKETS_OFFLOAD
+	select ZVFS_EVENTFD
+	help
+	  Single-owner native-packet UDP with static RX slots and combined socket/
+	  eventfd waiting. Attaches to default endpoints; no background thread or
+	  adapter heap. Each instance needs one socket and one eventfd. Notifications
+	  are thread-only. Configure the network interface and resource pools in the
+	  application; offloaded sockets and COBS are not supported by this adapter.
+
 endif
 
 endmenu

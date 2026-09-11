@@ -6,18 +6,10 @@
  * One owner performs open/receive/send/wait/close. Producer THREADS may notify
  * or request_stop while open, but must join before close or storage reuse.
  * No function parses Wirelink frames or dispatches application callbacks. */
-#include <stdbool.h>
-#include <zephyr/net/socket.h>
-#include <zephyr/sys/atomic.h>
+#include "wirelink/zephyr/detail/udp_socket.h"
 #include "wirelink/port.h"
 
-typedef struct {
-  int socket_fd;
-  int wake_fd;
-  struct net_sockaddr_in peer;
-  atomic_t stopped;
-  bool opened;
-} wl_udp_socket_t;
+typedef wl_zephyr_udp_socket_state_t wl_udp_socket_t;
 
 #define WL_UDP_SOCKET_INITIALIZER { .socket_fd = -1, .wake_fd = -1 }
 

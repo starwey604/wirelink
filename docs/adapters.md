@@ -23,8 +23,13 @@ the next transport notification and give the owner one more service pass.
 | Zephyr USB bulk | native packet or COBS stream | enable the owning USBD context | `wl_zephyr_usb_bulk_service()` | disable USBD before link reuse |
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()` and `wait_for_activity()` where available | `quiesce()` |
 | Asio UDP | native packet; explicit legacy COBS | `open()` and socket bind; endpoint overload attaches hooks | `service()`; deadline-aware `wait_for_activity()` | `quiesce()` or endpoint close |
+| Zephyr UDP (experimental) | native packet | `wl_zephyr_udp_open()` attaches to endpoint | generated step services RX; `wl_zephyr_udp_wait()` | generated endpoint close, join notification producers, then `wl_zephyr_udp_close()` |
 
-The UDP adapter permits the peer to bind later or close first. On Windows it
+See the [Zephyr UDP contract](zephyr-udp.md) for static storage, backpressure
+timing and the known native-stack allocation wait. Ordinary generated endpoint
+users do not manually invoke adapter service in addition to step.
+
+The Asio UDP adapter permits the peer to bind later or close first. On Windows it
 disables `SIO_UDP_CONNRESET` reporting: an ICMP Port Unreachable from a previous
 datagram does not terminate reception. Reliable/RPC deadlines still detect an
 absent peer; successful UDP send does not promise delivery. See

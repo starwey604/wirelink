@@ -335,10 +335,12 @@ mandatory millisecond polling. See [UDP lifecycle](docs/udp-adapter.md) and the
 numbered [telemetry](examples/00_telemetry/) / [calculator](examples/01_rpc/)
 process pairs.
 
-The Zephyr socket-based UDP work is currently an M0 private contract prototype,
-not a public endpoint adapter. Its loopback tests cover combined socket/eventfd
-waits, datagram rejection, backpressure classification and shutdown; see the
-[M0 contract and validation notes (Chinese)](docs/zephyr-udp-m0-cn.md).
+The experimental Zephyr native IPv4 UDP adapter is enabled with
+`CONFIG_WIRELINK_ZEPHYR_UDP`. It attaches static RX storage, bounded service,
+socket/eventfd waiting and backpressure deadlines to generated endpoints.
+Functionality is tested; current Zephyr packet-pool exhaustion can still block
+a nonblocking send for about one second. See the [UDP contract](docs/zephyr-udp.md)
+and [validation/platform gate (Chinese)](docs/zephyr-udp-cn.md) before control-task use.
 
 From an initialized Zephyr workspace:
 

@@ -1,5 +1,8 @@
 # Zephyr UDP：M0 socket 合同与验证
 
+> 本页记录 M0 提交 `74d9503` 的范围和结果。当前公开适配器及后续发现见
+> [M1 接入与验证](zephyr-udp-cn.md)，包括已复现的上游发送分配等待。
+
 M0 用来回答：Zephyr 原生 socket 能否提供下一批适配器需要的等待、收发和退出语义？
 本批实现位于 [`adapters/zephyr/udp/src/`](../adapters/zephyr/udp/src/)，
 是**仅供测试编译的私有基础层**，不是已经可以接入生成端点的公开 UDP adapter。
