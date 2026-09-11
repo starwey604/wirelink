@@ -6,6 +6,10 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Add a private Zephyr UDP socket M0 prototype and loopback contract tests for
+  socket/eventfd waits, datagram boundaries, direct core RX claims, send-result
+  classification and lifecycle rollback. This is not yet a public adapter;
+  no core, generated ABI, wire-format or product-dependency changes.
 - Fix USB Bulk COBS RX deadlock when a fragmented frame straddles a short
   physical ring tail, on Zephyr and Astrial. Use a single packet staging
   buffer only at the tail, retain blocked bytes, and keep ordinary RX direct.

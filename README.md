@@ -335,6 +335,11 @@ mandatory millisecond polling. See [UDP lifecycle](docs/udp-adapter.md) and the
 numbered [telemetry](examples/00_telemetry/) / [calculator](examples/01_rpc/)
 process pairs.
 
+The Zephyr socket-based UDP work is currently an M0 private contract prototype,
+not a public endpoint adapter. Its loopback tests cover combined socket/eventfd
+waits, datagram rejection, backpressure classification and shutdown; see the
+[M0 contract and validation notes (Chinese)](docs/zephyr-udp-m0-cn.md).
+
 From an initialized Zephyr workspace:
 
 ```sh
