@@ -98,7 +98,8 @@ wl_err_t wl_rpc_async_cancel_complete(wl_rpc_async_t *async, const wl_rpc_call_t
 /* Call after dispatching events and wl_rpc_client_poll with this owner's time
  * sample. At most count notifications and one extra queue submission per pass.
  * Callbacks may submit/cancel, but cannot recursively service/close. The owner
- * MUST continue draining independent link terminal events after RPC release. */
+ * MUST continue draining independent link terminal events after RPC release.
+ * Cancelled TX has no event; service collects it after its I/O lease drains. */
 wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
     uint16_t *out_notified);
 
