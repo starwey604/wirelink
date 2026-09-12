@@ -48,6 +48,7 @@ export default defineConfig({
             { slug: 'learn/deferred-rpc' },
             { slug: 'learn/device-service' },
             { slug: 'learn/external-cmake-project' },
+            { slug: 'learn/udp-transport' },
           ],
         },
       ],

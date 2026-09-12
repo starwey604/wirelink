@@ -1,0 +1,471 @@
+---
+title: Connect two processes over UDP
+description: Replace the loopback cable with real UDP sockets while keeping one bounded endpoint owner.
+sidebar:
+  order: 9
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The previous lesson proved that an application can consume an installed
+Wirelink package. Its two endpoints still shared one process and an in-memory
+cable. This lesson keeps the same message and profile, but runs one endpoint in
+each of two processes connected through localhost UDP.
+
+The transport changes. The generated message API does not.
+
+An **adapter** is the bridge between an endpoint and a concrete transport. The
+application remains the endpoint's **owner**: the one loop that advances it,
+waits for work, and closes it.
+
+**After this lesson, you can:**
+
+- install and link Wirelink's optional desktop UDP adapter;
+- attach a socket transport to an initialized generated endpoint;
+- drive transport work, protocol deadlines, and application reads from one
+  owner loop;
+- close the endpoint and adapter in a safe order.
+
+## Before you begin
+
+Complete [use Wirelink from your own CMake project](../external-cmake-project/)
+first. Continue in the `wirelink-temperature-app` directory created there. Keep
+`temperature.wl` and `temperature.bind.wl`; they already describe the data and
+the behavior we need.
+
+The desktop adapter uses standalone Asio and C++20. Both were installed in the
+[development environment lesson](../environment-setup/).
+
+## Run the current baseline
+
+Before changing the project, run the loopback executable from the previous
+lesson:
+
+```sh
+./build/temperature_loopback
+```
+
+It prints one received value and exits:
+
+```text
+latest sample=7 temperature=23.50 C
+```
+
+This confirms that package discovery, code generation, and the message API are
+still working. The next changes affect only the adapter and owner loop.
+
+## Install the UDP adapter
+
+An optional adapter appears in an installed package only when it was enabled
+while building Wirelink. From the Wirelink repository, reconfigure the existing
+tutorial build explicitly, then install it to the same local prefix:
+
+```sh
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DBUILD_TESTING=OFF \
+  -DWIRELINK_BUILD_GETTING_STARTED=ON \
+  -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON
+cmake --build build/tutorials --config Release --parallel
+cmake --install build/tutorials --config Release \
+  --prefix "$PWD/build/tutorial-install"
+```
+
+This adds the `Wirelink::asio_udp` imported target, its C++ header, and the
+adapter library to the prefix. The Wirelink core and generated runtime remain
+C11. Only the small application file that constructs the C++ adapter needs to
+be compiled as C++20.
+
+## Keep one complete frame in each datagram
+
+The profile from the previous lesson already contains:
+
+```text
+endpoint { envelope = native_packet; }
+```
+
+An **envelope** tells Wirelink how a complete frame is separated from the next
+one on a transport. UDP preserves datagram boundaries, so `native_packet` maps
+one complete Wirelink frame to one datagram. The adapter rejects empty,
+oversized, and foreign-source datagrams instead of feeding a partial prefix to
+the protocol.
+
+Loopback also accepts complete native packets, which is why the schema and
+profile do not change in this lesson. Both network peers must still be built
+from a compatible schema and the same link profile; Wirelink does not negotiate
+an envelope when they connect.
+
+| Transport shape | Envelope shown here | Boundary supplied by |
+| --- | --- | --- |
+| UDP datagrams | `native_packet` in this lesson | One received datagram |
+| UART or another byte stream | `cobs_stream` | A delimiter that permits resynchronization |
+| Transaction-oriented device bus | `native_packet` or `bus_length16` | The bus transaction or length prefix |
+
+This mapping is a design choice for the complete path. Changing a socket to a
+serial port requires reconsidering the envelope and the integrity policy, which
+defines how accidental byte corruption is detected. Changing the application
+message does not. An existing UDP deployment may also carry one complete
+`cobs_stream` unit per datagram for compatibility; keep that profile when
+interoperating with it.
+
+## Change the application target to C++20
+
+Rename `main.c` to `main.cpp`, then replace `CMakeLists.txt` with:
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(temperature_udp LANGUAGES C CXX)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+find_package(Wirelink 0.7 CONFIG REQUIRED)
+if(NOT TARGET Wirelink::asio_udp)
+  message(FATAL_ERROR "Wirelink was installed without its Asio UDP adapter")
+endif()
+
+wirelink_wlc_generate_codec(
+  TARGET temperature_codec
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/temperature.wl")
+wirelink_wlc_generate_runtime(
+  TARGET temperature_protocol
+  CODEC_TARGET temperature_codec
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/temperature.bind.wl")
+
+add_executable(temperature_udp main.cpp)
+target_link_libraries(temperature_udp PRIVATE
+  temperature_protocol
+  Wirelink::asio_udp
+  Wirelink::platform)
+```
+
+The codec and generated endpoint targets are unchanged. `Wirelink::asio_udp`
+adds the socket adapter, while `Wirelink::platform` continues to provide the
+endpoint clock and fresh session identity.
+
+The explicit target check turns a missing optional component into a useful
+configuration error. It avoids a much less helpful missing-header or linker
+error later.
+
+## Write the UDP peer
+
+Replace `main.cpp` with the following program. The same executable can act as
+the publisher or subscriber, but each invocation creates exactly one endpoint
+and one socket:
+
+Read its control flow from the outside inward:
+
+1. `main()` initializes an endpoint, opens an adapter, and fixes the peer.
+2. The selected role calls `temperature_endpoint_step()` to perform one bounded
+   owner pass, then reads or submits application data.
+3. `wait_for_next_pass()` obtains a **poll hint**, a snapshot of pending work and
+   the nearest protocol deadline, before waiting for the shorter allowed time.
+4. `main()` closes the generated endpoint, then destroys the adapter.
+
+```cpp
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <string_view>
+#include <system_error>
+
+#include "temperature_endpoint.h"
+#include "wirelink/asio/udp_adapter.hpp"
+#include "wirelink/platform.h"
+
+using namespace std::chrono_literals;
+using wirelink::asio::UdpAdapter;
+using wirelink::asio::UdpAdapterConfig;
+
+#define CHECK(expression) do {                                      \
+  if (!(expression)) {                                              \
+    std::fprintf(stderr, "line %d: %s\n", __LINE__, #expression); \
+    return 1;                                                       \
+  }                                                                \
+} while (0)
+
+static wl_err_t wait_for_next_pass(
+    temperature_endpoint_t& endpoint,
+    UdpAdapter& adapter,
+    std::chrono::milliseconds maximum_wait) {
+  wl_poll_hint_t hint{};
+  const auto hint_result = wl_endpoint_get_hint(
+      temperature_endpoint_handle(&endpoint), &hint);
+  if (hint_result != WL_OK || hint.work_pending) return hint_result;
+
+  const auto protocol_wait = std::chrono::milliseconds(
+      static_cast<std::chrono::milliseconds::rep>(hint.next_deadline_ms));
+  const auto wait_result = adapter.wait_for_activity(
+      std::min(maximum_wait, protocol_wait));
+  return wait_result == WL_ERR_NO_DATA ? WL_OK
+                                       : static_cast<wl_err_t>(wait_result);
+}
+
+static int run_publisher(
+    temperature_endpoint_t& endpoint,
+    UdpAdapter& adapter) {
+  temperature_t value{};
+  temperature_clear(&value);
+  value.has_sample = true;
+  value.has_temperature_centi_c = true;
+  value.temperature_centi_c = 2350;
+
+  for (value.sample = 1; value.sample <= 5; ++value.sample) {
+    CHECK(temperature_endpoint_send_temperature(&endpoint, &value).domain ==
+          TEMPERATURE_SEND_OK);
+    std::printf("published sample=%u temperature=23.50 C\n",
+                static_cast<unsigned>(value.sample));
+
+    const auto due = std::chrono::steady_clock::now() + 200ms;
+    while (std::chrono::steady_clock::now() < due) {
+      CHECK(temperature_endpoint_step(&endpoint) == WL_OK);
+      const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+          due - std::chrono::steady_clock::now());
+      if (remaining > 0ms) {
+        CHECK(wait_for_next_pass(endpoint, adapter, remaining) == WL_OK);
+      }
+    }
+  }
+  return 0;
+}
+
+static int run_subscriber(
+    temperature_endpoint_t& endpoint,
+    UdpAdapter& adapter) {
+  std::puts("subscriber ready");
+  std::fflush(stdout);
+  const auto deadline = std::chrono::steady_clock::now() + 10s;
+
+  while (std::chrono::steady_clock::now() < deadline) {
+    CHECK(temperature_endpoint_step(&endpoint) == WL_OK);
+    temperature_t value{};
+    const auto read_result = temperature_endpoint_read_temperature(
+        &endpoint, &value);
+    if (read_result == WL_OK) {
+      std::printf("latest sample=%u temperature=%.2f C\n",
+                  static_cast<unsigned>(value.sample),
+                  value.temperature_centi_c / 100.0);
+      if (value.sample >= 5) return 0;
+    } else {
+      CHECK(read_result == WL_ERR_NO_DATA);
+    }
+    CHECK(wait_for_next_pass(endpoint, adapter, 200ms) == WL_OK);
+  }
+
+  std::fputs("timed out before sample 5\n", stderr);
+  return 1;
+}
+
+int main(int argc, char** argv) {
+  if (argc != 2 ||
+      (std::string_view(argv[1]) != "publisher" &&
+       std::string_view(argv[1]) != "subscriber")) {
+    std::fprintf(stderr, "usage: %s publisher|subscriber\n", argv[0]);
+    return 1;
+  }
+
+  const bool publish = std::string_view(argv[1]) == "publisher";
+  const std::uint16_t local_port = publish ? 49000 : 49001;
+  const std::uint16_t peer_port = publish ? 49001 : 49000;
+  static temperature_endpoint_t endpoint;
+  CHECK(temperature_endpoint_init(
+          &endpoint, wl_platform_environment()) == WL_OK);
+
+  UdpAdapterConfig config;
+  config.bind_address = "127.0.0.1";
+  config.bind_port = local_port;
+  std::error_code error;
+  auto adapter = UdpAdapter::open(
+      *temperature_endpoint_handle(&endpoint), config, error);
+  if (!adapter) {
+    std::fprintf(stderr, "UDP open: %s\n", error.message().c_str());
+    return 1;
+  }
+  CHECK(adapter->set_peer("127.0.0.1", peer_port) == WL_OK);
+
+  int status = publish ? run_publisher(endpoint, *adapter)
+                       : run_subscriber(endpoint, *adapter);
+  if (temperature_endpoint_close(&endpoint) != WL_OK) status = 1;
+  adapter.reset();
+  return status;
+}
+```
+
+## Attach one fixed peer
+
+The two roles reverse the same pair of ports:
+
+| Role | Local socket | Accepted peer |
+| --- | --- | --- |
+| Publisher | `127.0.0.1:49000` | `127.0.0.1:49001` |
+| Subscriber | `127.0.0.1:49001` | `127.0.0.1:49000` |
+
+`temperature_endpoint_init()` comes first because the adapter derives its
+frame-size bound and envelope from the initialized endpoint. `UdpAdapter::open()`
+then owns the socket and receive queue, and attaches transport service,
+deadline, wait, and quiesce hooks to that endpoint. `set_peer()` fixes the only
+source and destination accepted by this link.
+
+The numeric address and port are deliberate. This adapter does not add DNS,
+discovery, or a multi-client server. `set_peer()` does not retarget an active
+link; connecting to a different peer starts with a fresh endpoint.
+
+## Drive one owner loop
+
+Both roles repeat the same four-part cycle:
+
+```text
+endpoint_step() → inspect or submit application data → get the next hint → wait
+```
+
+`temperature_endpoint_step()` services the adapter, parses received frames,
+advances protocol deadlines, and dispatches generated behavior. It performs a
+bounded amount of work and returns control to the application.
+
+`wl_endpoint_get_hint()` reports whether another pass is already needed and how
+long remains before the nearest protocol deadline. `wait_for_activity()` waits
+for socket readiness for no longer than that deadline or the application's own
+limit. A readiness wake does not parse data or invoke a callback; the next
+`endpoint_step()` does that on the same owner.
+
+<MultipleChoice
+  id="udp-wait-and-owner"
+  question="The UDP socket becomes readable while wait_for_activity() is waiting. When is the new Temperature frame parsed?"
+  choices={[
+    {
+      label: 'During the next endpoint_step() on the owner',
+      correct: true,
+      feedback: 'Correct. Waiting reports readiness; the next bounded owner pass performs transport and protocol work.',
+    },
+    {
+      label: 'Inside a background adapter thread',
+      correct: false,
+      feedback: 'The Asio UDP adapter creates no background thread. The application remains the endpoint owner.',
+    },
+    {
+      label: 'Inside wait_for_activity() before it returns',
+      correct: false,
+      feedback: 'The wait does not receive, parse, or dispatch callbacks. It only waits for activity or a timeout.',
+    },
+  ]}
+/>
+
+The publisher uses its 200 ms sample period as an application deadline. The
+subscriber uses a 200 ms maximum wait and a finite ten-second completion bound.
+Neither loop busy-spins, and neither gives endpoint ownership to the adapter.
+
+## Build and run both processes
+
+Configure against the prefix updated earlier, then build:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=/absolute/path/to/wirelink/build/tutorial-install \
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+cmake --build build --config Release --parallel
+```
+
+Start the subscriber in terminal A so its socket is ready before the
+unreliable publisher begins:
+
+```sh
+./build/temperature_udp subscriber
+```
+
+After it prints `subscriber ready`, run the publisher in terminal B:
+
+```sh
+./build/temperature_udp publisher
+```
+
+The publisher prints five submissions. The subscriber should finish with:
+
+```text
+subscriber ready
+latest sample=1 temperature=23.50 C
+latest sample=2 temperature=23.50 C
+latest sample=3 temperature=23.50 C
+latest sample=4 temperature=23.50 C
+latest sample=5 temperature=23.50 C
+```
+
+This profile uses unreliable delivery, so an intermediate sample can be absent.
+Reaching sample 5 is the completion condition; seeing every preceding line is
+not. Starting the subscriber first avoids deliberately discarding the first
+datagrams before its port is bound.
+
+:::note[Windows executable path]
+With a Visual Studio generator, run
+`build/Release/temperature_udp.exe subscriber` and
+`build/Release/temperature_udp.exe publisher`.
+:::
+
+## Try another port pair
+
+Change the two port constants from `49000` and `49001` to an unused pair such
+as `49100` and `49101`. Rebuild, start the subscriber, and start the publisher.
+The subscriber should reach sample 5 again without any change to the `.wl`
+files.
+
+This small change checks the boundary introduced in this lesson: addresses and
+ports belong to the adapter configuration, while message fields and behavior
+belong to the schema and profile.
+
+## Close in ownership order
+
+The final three statements encode the normal shutdown order:
+
+```cpp
+int status = publish ? run_publisher(endpoint, *adapter)
+                     : run_subscriber(endpoint, *adapter);
+if (temperature_endpoint_close(&endpoint) != WL_OK) status = 1;
+adapter.reset();
+```
+
+The generated close operation cancels or finishes generated protocol state and
+quiesces the attached adapter. Destroying the adapter afterward releases its
+socket and receive storage. The endpoint itself is declared before the adapter
+and remains alive throughout both operations.
+
+In an application with other threads, first stop and join every producer that
+can notify the adapter. Keep `step()`, hint queries, waiting, and close on the
+single endpoint owner.
+
+## Diagnose common integration failures
+
+| Message or symptom | Check |
+| --- | --- |
+| `Wirelink was installed without its Asio UDP adapter` | Reconfigure the Wirelink build with `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON`, then install to the prefix again |
+| `UDP open: Address already in use` | Stop the previous process or choose an unused pair of local ports |
+| Subscriber times out without any value | Start it before the publisher and confirm that each role's peer port equals the other role's local port |
+| Repeated CPU use while idle | Query the endpoint hint and call the adapter wait between bounded owner passes |
+
+Localhost makes the transport mechanics visible without adding network setup.
+Before moving beyond a controlled network, also bound each datagram to a size
+the complete network path can carry without fragmentation, and choose an
+authentication or encryption layer appropriate for the product. A numeric peer
+address and checksum do not authenticate the sender.
+
+<Checklist
+  id="udp-transport"
+  title="Lesson complete"
+  items={[
+    'My installed package exports Wirelink::asio_udp.',
+    'Each process owns one generated endpoint and one UDP socket.',
+    'Both peers use the same schema, profile, and reversed port pair.',
+    'My owner loop steps, checks application state, obtains a hint, and waits.',
+    'The subscriber reaches sample 5 and both processes close cleanly.',
+  ]}
+/>
+
+## Next step
+
+The next lesson will move one of these peers onto Zephyr while preserving the
+same schema and link profile. It will replace host-owned socket storage with
+fixed device storage and separate network-interface setup from Wirelink's
+endpoint lifecycle.
