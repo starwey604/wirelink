@@ -8,7 +8,7 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-前面的课程都作为 Wirelink 仓库的一部分参与构建，这很适合逐个理解功能。到了自己的应用中，则不应复制私有源码，也不应依赖 Wirelink checkout 里的内部路径。
+前面的课程都作为 Wirelink 仓库的一部分参与构建，这很适合逐个理解功能。到了自己的应用，构建要与源码树解耦：先把 Wirelink 安装到本地前缀，再用 `find_package()` 找到它。
 
 本课会先把 Wirelink 安装到一个本地暂存目录，再创建仅有四个源文件的独立 CMake 工程。工程中的两个生成 endpoint 会通过内存 loopback adapter 交换一次温度值。先确认 package 边界正确，下一课再加入真实硬件，可以把构建问题和 transport 问题分开排查。
 
@@ -44,7 +44,7 @@ cmake --install build/tutorials --config Release \
 
 **Prefix（安装前缀）**是安装后目录结构的根。这个命令会把公开头文件放入 `build/tutorial-install/include`，把库放入 `build/tutorial-install/lib`，并把 CMake package 文件放入 `build/tutorial-install/lib/cmake/Wirelink`。
 
-这是一个本地暂存安装，不会写入 `/usr/local`，不需要 `sudo`，也不会修改 Wirelink 源码树。以后切换 Wirelink 版本时，可以删除并重新生成这个前缀。
+这是一个本地暂存安装：所有文件都写在你指定的前缀里，不需要管理员权限，也不修改 Wirelink 源码树。以后切换 Wirelink 版本时，删除并重新生成这个前缀即可。
 
 ## 创建独立工程
 
@@ -66,7 +66,7 @@ wirelink-temperature-app/
 └── temperature.wl
 ```
 
-这个目录中没有复制过来的 Wirelink 头文件、库、生成 C 文件，也没有指向 Wirelink 仓库内部的相对路径。
+这个目录只包含你自己的四个文件；Wirelink 的头文件、库和生成 C 文件都来自安装前缀和构建目录。
 
 ## 定义已经熟悉的温度消息
 
@@ -163,7 +163,9 @@ int main(void) {
 | --- | --- |
 | `temperature_endpoint.h` | 由当前工程中的两个 `.wl` 文件生成 |
 | `wirelink/loopback.h` | 安装包中的可选 loopback target |
-| `wirelink/platform.h` | 安装包中的主机时钟和 session identity provider |
+| `wirelink/platform.h` | 安装包中的主机时钟，以及为新 endpoint 提供 **session identity（会话身份）** 的来源 |
+
+session identity 标识一次通信实例，endpoint 初始化时由平台环境自动取得。它的作用、边界和重连行为见 [session identity 与会话隔离](../../concepts/session-identity/)。
 
 ## 使用 target 描述构建关系
 
@@ -204,7 +206,7 @@ target_link_libraries(temperature_loopback PRIVATE
 | `Wirelink::platform` | 提供主机时钟和新的 session identity |
 | `temperature_loopback` | 编译应用自己的 `main.c` |
 
-链接 `temperature_protocol` 后，`main.c` 会自动取得生成 include 路径，并传递链接 codec 与 Wirelink core。不要手动把 `build/wirelink-generated` 加入全局 include 路径。
+链接 `temperature_protocol` 后，`main.c` 会自动取得生成 include 路径，并传递链接 codec 与 Wirelink core。include 路径由 target 传递，全局 include 路径里不需要出现 `build/wirelink-generated`。
 
 <MultipleChoice
   id="external-cmake-generated-header-zh-cn"
@@ -241,7 +243,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
 cmake --build build --config Release --parallel
 ```
 
-`CMAKE_PREFIX_PATH` 只告诉 `find_package()` 去哪里查找，不会被编译进应用。WLC 是从 `PATH` 查找的主机构建工具。本课关闭自动下载，使缺失或不兼容的编译器立即报错，避免在背后获取另一棵源码树。
+`CMAKE_PREFIX_PATH` 只影响 `find_package()` 的查找过程，不进入编译产物。WLC 是从 `PATH` 查找的主机构建工具。本课关闭自动下载，使缺失或不兼容的编译器立即报错，避免在背后获取另一棵源码树。
 
 运行程序：
 
@@ -268,7 +270,7 @@ build/wirelink-generated/temperature_codec/
 build/wirelink-generated/temperature_protocol/
 ```
 
-其中包含生成的头文件、C 源码和 manifest。CMake 会跟踪 schema、profile、WLC 可执行文件和兼容性输入。修改四个源文件后重新构建即可；不要编辑或提交这些生成文件。
+其中包含生成的头文件、C 源码和 manifest。CMake 会跟踪 schema、profile、WLC 可执行文件和兼容性输入。修改四个源文件后重新构建即可；生成的目录保持只读，编辑或提交它们都会脱离自动重新生成关系。
 
 现在，工程中有三条清楚的所有权边界：
 
@@ -284,7 +286,7 @@ build/wirelink-generated/temperature_protocol/
 | CMake 找不到兼容 WLC | 运行 `wlc --version` 和 `wlc codegen-abi`；必要时把 Cargo 二进制目录重新加入 `PATH` |
 | 编译 `main.c` 时找不到 `temperature_endpoint.h` | 把可执行程序链接到 `temperature_protocol`，由 target 提供生成 include 目录 |
 
-这些错误分别来自 package 查找、主机 generator 和 target 依赖边界。按照报错指出的边界修复，不要通过复制头文件或加入仓库内部路径绕过问题。
+这些错误分别来自 package 查找、主机 generator 和 target 依赖边界。按照报错指出的边界修复：复制头文件或加入仓库内部路径会掩盖真正的问题。
 
 <Checklist
   id="external-cmake-project-zh-cn"

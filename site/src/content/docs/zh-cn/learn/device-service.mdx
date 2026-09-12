@@ -10,13 +10,13 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 前几课使用计算器，是为了让一个 RPC 的完整路径清晰可见。真实设备很快还会加入身份信息、设置、寄存器、计算、耗时操作和遥测。如果把它们全部写进一个源文件，通信机制和产品行为的边界就会越来越难辨认。
 
-本课会构建完整的 [`03_device_service`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service) 示例。它包含 12 个 RPC 和一条遥测消息，但 endpoint 循环里没有手写的操作分发 switch。
+本课会构建完整的 [`03_device_service`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service) 示例。它包含 12 个 RPC 和一条遥测消息，endpoint 循环里只负责推进，分发由生成的 dispatcher 完成。
 
 **完成本课后，你能够：**
 
 - 判断一项定义应放在 schema、共享服务 profile，还是端侧 profile；
 - 从各自的业务模块注册普通 handler；
-- 有意识地共享应用状态，同时不把它变成协议内部状态；
+- 有意识地共享应用状态，并让它与协议内部状态保持分离；
 - 在同一个 endpoint 中组合同步、异步、延迟和 latest 数据流。
 
 ## 开始之前
@@ -54,7 +54,7 @@ outbound-only telemetry: OK (100 channels)
 12 services: OK
 ```
 
-服务端是一个通过本机 UDP 访问的内存工作台，不会访问开发板或其他硬件。客户端会改变模拟设备的名称、寄存器和计算范围；要再次运行整套客户端验收，请先重启服务端。
+服务端是一个通过本机 UDP 访问的内存模拟设备，全部状态都在进程内，方便反复运行。客户端会改变模拟设备的名称、寄存器和计算范围；要再次运行整套客户端验收，请先重启服务端。
 
 :::note[Windows 程序路径]
 Visual Studio 多配置构建会把两个程序放在 `build/tutorials/examples/03_device_service/Release/` 下，并添加 `.exe` 后缀。
@@ -91,7 +91,7 @@ message DeviceTelemetry @id(200) {
 }
 ```
 
-Schema 里没有操作编号、关联 ID 或通用状态字段。等到 profile 把两条消息组成服务后，Wirelink 会提供 RPC 关联和拒绝行为。
+Schema 只描述业务数据。等到 profile 把两条消息组成服务后，Wirelink 再补上 RPC 关联、调用编号和拒绝行为。
 
 100 通道遥测特意设计得比任何 RPC 都大。它用来验证：即使一条消息只从本端发送，也会参与生成 endpoint 的有界数据包容量计算。
 
@@ -140,7 +140,7 @@ wirelink_wlc_generate_runtime(
   PROFILES services.bind.wl ${role}.bind.wl)
 ```
 
-这些 profile 共同组成一份定义。文件顺序不会让后一份覆盖前一份；互相冲突或重复的声明会在生成阶段报错。
+这些 profile 共同组成一份定义，文件顺序不影响结果；互相冲突或重复的声明会在生成阶段报错。
 
 <MultipleChoice
   id="device-service-shared-contract-zh-cn"
@@ -177,7 +177,7 @@ self_test_job_t job = {0};
 device_server_endpoint_config_t config;
 ```
 
-`device_service_t` 属于应用。它保存设备名、四个模拟寄存器、写入计数和计算范围，不包含 endpoint 缓冲区、RPC 槽位或分发记录。
+`device_service_t` 属于应用，保存设备名、四个模拟寄存器、写入计数和计算范围。endpoint 缓冲区、RPC 槽位和分发记录由生成的 runtime 持有。
 
 `server.c` 载入生成的默认配置后，把应用状态设为公共上下文，再让每个模块注册自己的 handler：
 
@@ -261,7 +261,7 @@ while (batch.completed != 3) {
 
 异步调用被接受时，Wirelink 已经为每个请求制作快照，所以上述局部变量随后发生变化也不会改写排队中的调用。每个完成回调取得自己的类型化响应，再递增 `batch.completed`。
 
-SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token，并把 `passes_remaining` 设为 `3`。Endpoint owner 在后续循环中调用 `self_test_poll()`，第三次推进时完成保存的请求。这是[延迟回复模式](../deferred-rpc/)在大型服务中的一次应用，并没有创建第二个 endpoint，也没有启动 worker 线程。
+SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token，并把 `passes_remaining` 设为 `3`。Endpoint owner 在后续循环中调用 `self_test_poll()`，第三次推进时完成保存的请求。这是[延迟回复模式](../deferred-rpc/)在大型服务中的一次应用：整个服务仍然只有一个 endpoint，所有推进都在同一个 owner 循环里。
 
 <MultipleChoice
   id="device-service-module-registration-zh-cn"
@@ -296,7 +296,7 @@ SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token�
 3. 在 `device_service.c` 中实现 `get_build_label()`，再由 `device_service_bind()` 注册为 `config->on_get_build_label`。
 4. 从 `client.c` 调用 `device_client_endpoint_get_build_label_sync()`，并检查返回的标签。
 
-随后重新构建，WLC 会再次生成 codec 和两个 endpoint runtime。CMake、transport、`server.c`、其他业务模块和 owner 循环都不需要为新服务增加分支。
+随后重新构建，WLC 会再次生成 codec 和两个 endpoint runtime。CMake、transport、`server.c`、其他业务模块和 owner 循环都保持不变。
 
 仓库中的 [`device_service_extension.py`](https://github.com/starwey604/wirelink/blob/main/tests/tutorials/device_service_extension.py) 会在临时副本中完成这项修改，检查只有上述四个文件发生变化，然后重新构建两个程序并运行全部原有用例与新增用例。
 
@@ -315,4 +315,4 @@ SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token�
 
 ## 下一步
 
-[把 Wirelink 接入自己的 CMake 工程](../external-cmake-project/)，通过安装后的 package 完成构建，不再依赖 Wirelink 源码树中的内部路径。
+[把 Wirelink 接入自己的 CMake 工程](../external-cmake-project/)，通过安装后的 package 完成构建，与 Wirelink 源码树解耦。

@@ -57,21 +57,33 @@ latest sample=4 temperature=23.50 C
 latest sample=5 temperature=23.50 C
 ```
 
-UDP 不保证送达，因此中间采样不一定全部出现。订阅端收到第 5 个采样后退出；十秒内没有收到则报告超时。
+UDP 不保证送达，所以中间的采样不一定全部出现。订阅端收到第 5 个采样后退出；十秒内没有收到则报告超时。
 
-链路和接收端会分别作出决定。UDP 链路上可能丢失采样；采样到达以后，`latest` 存储位会用新值替换旧值：
+## 看清两次决定
+
+发布端连续发出采样 1 到 5。采样 4 可能在 UDP 链路上丢失，也可能到达订阅端；决定它去留的是链路。采样到达订阅端以后，`latest` 只保留一个值，采样 5 会盖掉尚未读取的采样 3；决定保留哪个值的是订阅端。
+
+这两次决定互不相干，下面把两个最坏情况画在一起：
 
 ```mermaid
-flowchart LR
-  accTitle: latest 值的数据路径
-  accDescr: 采样先经过可能丢包的 UDP 链路，订阅端再为显示端保留最近收到的一个值。
-  Publisher["发布端<br/>采样 1 到 5"]
-  Link["UDP 链路<br/>可能丢失采样"]
-  Endpoint["订阅端 endpoint"]
-  Latest["latest 存储位<br/>只保留一个值"]
-  Display["显示端读取<br/>当前值"]
+sequenceDiagram
+  accTitle: 采样 4 在链路上丢失，latest 被采样 5 覆盖
+  accDescr: 发布端发出采样 3、4、5，采样 4 在 UDP 链路上丢失；订阅端只保留最新值，显示端读到采样 5。
+  participant P as 发布端
+  participant L as UDP 链路
+  participant E as 订阅端 endpoint
+  participant A as 显示端应用
 
-  Publisher --> Link --> Endpoint --> Latest --> Display
+  P->>L: 采样 3
+  L->>E: 采样 3 到达
+  Note over E: latest = 3
+  P->>L: 采样 4
+  Note over L: 采样 4 丢失，无人追回
+  P->>L: 采样 5
+  L->>E: 采样 5 到达
+  Note over E: latest = 5（盖掉 3）
+  A->>E: 读取 latest
+  E-->>A: 采样 5
 ```
 
 :::note[Windows 程序路径]
@@ -91,7 +103,7 @@ message Telemetry @id(10) {
 }
 ```
 
-这份 **schema（消息定义）** 给两个 endpoint 提供相同的字段名、类型和稳定编号。endpoint 编码这些字段，而不是直接发送 C 结构体的内存布局。
+这份 **schema（消息定义）** 给两个 endpoint 提供相同的字段名、类型和稳定编号。endpoint 编码这些字段，再按 Wirelink 的帧格式发送；对端解码得到的，是同样的类型化消息。
 
 ## 选择如何保留收到的值
 
@@ -105,10 +117,10 @@ latest Telemetry {
 }
 ```
 
-- `latest Telemetry` 保留最后收到的值，新值会替换尚未读取的旧值。
-- `delivery = unreliable` 不等待链路确认，也不因丢失而重传。
+- `latest Telemetry` 保留最后收到的值；新值到达时，它盖掉尚未读取的旧值。
+- `delivery = unreliable` 把每个采样直接发到链路上，一次发送，等待确认和重传都不做。
 
-latest 值保留描述数据**收到以后**如何保存。unreliable 投递描述数据在**链路上**如何发送。温度会持续刷新，通常可以容忍某个中间读数丢失，所以本例把两者组合使用。
+`latest` 描述数据**收到以后**怎么保存，`unreliable` 描述数据在**链路上**怎么发送。温度持续刷新，丢掉某个中间读数无所谓，所以本例把两者组合使用。
 
 <MultipleChoice
   id="latest-versus-delivery-zh-cn"

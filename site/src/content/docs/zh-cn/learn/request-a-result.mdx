@@ -84,7 +84,7 @@ message AddResponse @id(21) {
 }
 ```
 
-`AddRequest` 包含两个输入，`AddResponse` 包含计算结果。这里的 message ID 用于区分数据类型，不是每次调用的编号。Wirelink 会在业务消息之外添加并匹配自己的调用信息。
+`AddRequest` 包含两个输入，`AddResponse` 包含计算结果。message ID 用于区分数据类型；每次调用的编号是另一回事，由 Wirelink 在业务消息之外单独添加并匹配。
 
 配套的 [`calculator.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.bind.wl) 把这两个消息连接成一次 RPC：
 
@@ -99,7 +99,7 @@ rpc Add {
 
 `rpc Add` 是操作名称。WLC 根据这项声明生成类型明确的客户端调用和服务端 handler API。
 
-RPC 请求和响应默认使用 **reliable delivery（可靠链路投递）**。Wirelink 会在本教程的 UDP 链路上确认并重试帧。这只能回答数据是否越过链路，不能说明设备是否接受了操作，也不能说明业务结果是否已经产生。
+RPC 请求和响应默认使用 **reliable delivery（可靠链路投递）**。Wirelink 会在本教程的 UDP 链路上确认并重试帧。可靠投递回答的是「请求和响应有没有越过链路」；「设备有没有执行、业务结果是什么」由 RPC 业务完成回答。
 
 ## 在设备侧处理操作
 
@@ -142,7 +142,7 @@ const wl_rpc_completion_t result =
 
 生成的 `calculator_endpoint_add_sync()` 会在等待期间推进通信。当前先在允许调用线程阻塞时使用它；后续课程会把同一个操作改为异步调用。
 
-只有结果为 `WL_RPC_SUCCESS` 时才能读取 `response`。如果设备拒绝操作，结果为 `WL_RPC_REJECTED`，业务状态保存在 `result.rejection`。超时、取消和通信失败是另外几种彼此独立的终态。
+读取 `response` 之前，先确认结果为 `WL_RPC_SUCCESS`。设备拒绝操作时，结果为 `WL_RPC_REJECTED`，业务状态保存在 `result.rejection`。超时、取消和通信失败是另外几种彼此独立的终态。
 
 一次完整调用有四个可以观察的阶段：
 
@@ -153,12 +153,12 @@ const wl_rpc_completion_t result =
 
 可靠投递负责第 1、3 步的链路工作。只有业务处理和回复完成后，客户端才知道 RPC 结果。
 
-链路确认早于 handler 的业务结果。同步调用只有等结果越过链路返回以后，才会把控制权交还给调用方：
+链路确认早于 handler 的业务结果。同步调用会等到业务结果越过链路返回以后，才把控制权交还给调用方：
 
 ```mermaid
 sequenceDiagram
-  accTitle: 同步 RPC 的各个阶段
-  accDescr: 链路确认先表示请求已经送达，handler 随后产生响应或拒绝，最终 RPC 结果再返回调用方。
+  accTitle: 一次同步 RPC 的链路确认与业务结果
+  accDescr: 请求和响应各自经链路确认；handler 返回后才产生业务结果，最终由客户端把结果交还调用方。
   actor Controller as 控制端应用
   participant Client as 客户端 endpoint
   participant Server as 设备 endpoint
@@ -166,12 +166,14 @@ sequenceDiagram
 
   Controller->>Client: add_sync(request)
   Client->>Server: Add 请求
-  Server-->>Client: 链路确认
-Server->>Handler: 处理 AddRequest
-Handler-->>Server: 响应或拒绝
-Server->>Client: RPC 结果
-Client-->>Server: 链路确认
-Client-->>Controller: 最终 RPC 结果
+  Server-->>Client: 链路确认（请求已送达）
+  Note over Client: 链路确认只说明请求送达
+  Server->>Handler: 调用 Add handler
+  Handler-->>Server: 业务状态和响应
+  Note over Server: handler 返回后才产生业务结果
+  Server-->>Client: Add 响应或拒绝
+  Client-->>Server: 链路确认（响应已送达）
+  Client-->>Controller: wl_rpc_completion_t
 ```
 
 <MultipleChoice

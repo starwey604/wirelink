@@ -10,9 +10,9 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 上一课已经证明，应用可以使用安装后的 Wirelink package。不过，两个 endpoint 仍在同一个进程中，通过内存 cable 相连。本课保留相同的消息与 profile，把两个 endpoint 分别放入两个进程，再通过 localhost UDP 连接。
 
-Transport 会改变，生成的消息 API 不需要改变。
+这一课只换 transport，消息 API 保持不变。
 
-**Adapter（传输适配器）**是 endpoint 与具体 transport 之间的桥梁。应用仍是 endpoint 的唯一 **owner**：由同一个循环推进它、等待工作并执行关闭。
+**Adapter（传输适配器）**是 endpoint 与具体 transport 之间的桥梁。应用仍然是 endpoint 的唯一 **owner**：推进、等待和关闭都发生在同一个循环里。这两个概念的边界见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/) 和 [owner、推进线程与回调线程](../../concepts/owner-and-threads/)。
 
 **完成本课后，你能够：**
 
@@ -67,9 +67,9 @@ cmake --install build/tutorials --config Release \
 endpoint { envelope = native_packet; }
 ```
 
-**Envelope**（封装形式）告诉 Wirelink，如何在 transport 上分隔前后两个完整 frame。UDP 会保留 datagram 边界，因此 `native_packet` 可以把一个完整 Wirelink frame 映射为一个 datagram。Adapter 会拒绝空、超长和来源不符的 datagram，不会把截断的前缀交给协议解析。
+**Envelope**（封装形式）告诉 Wirelink，如何在 transport 上分隔前后两个完整 frame。UDP 会保留 datagram 边界，因此 `native_packet` 可以把一个完整 Wirelink frame 映射为一个 datagram。Adapter 会拒绝空、超长和来源不符的 datagram，只把完整的 datagram 交给协议解析。完整的职责划分见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)。
 
-Loopback 同样接收完整的 native packet，所以本课不需要修改 schema 或 profile。两个网络 peer 仍然必须使用兼容 schema 和相同 link profile 构建；连接时 Wirelink 不会协商 envelope。
+Loopback 同样接收完整的 native packet，所以本课不需要修改 schema 或 profile。两个网络 peer 仍然必须使用兼容 schema 和相同 link profile 构建；envelope 在两端带外约定，连接时不做协商。
 
 | Transport 形态 | 本课展示的 envelope | 边界来源 |
 | --- | --- | --- |
@@ -77,7 +77,7 @@ Loopback 同样接收完整的 native packet，所以本课不需要修改 schem
 | UART 或其他字节流 | `cobs_stream` | 可以重新同步的 delimiter |
 | 事务型设备总线 | `native_packet` 或 `bus_length16` | 总线事务或长度前缀 |
 
-这个映射需要按完整通信路径选择。把 socket 换成串口时，需要重新评估 envelope 和 integrity 策略，也就是如何检测意外的字节损坏；修改应用消息则不需要改变这层选择。已有 UDP 部署也可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit；与它互通时应保留原有 profile。
+这个映射需要按完整通信路径选择。把 socket 换成串口时，需要重新评估 envelope 和 **integrity（完整性校验）** 策略，也就是如何检测意外的字节损坏；修改应用消息时，这层选择保持不变。已有 UDP 部署也可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit；与它互通时应保留原有 profile。
 
 ## 把应用 target 改为 C++20
 
@@ -114,7 +114,7 @@ target_link_libraries(temperature_udp PRIVATE
   Wirelink::platform)
 ```
 
-Codec 与生成 endpoint target 保持不变。`Wirelink::asio_udp` 增加 socket adapter，`Wirelink::platform` 继续为 endpoint 提供时钟和新的 session identity。
+Codec 与生成 endpoint target 保持不变。`Wirelink::asio_udp` 增加 socket adapter，`Wirelink::platform` 继续为 endpoint 提供时钟和新的 **session identity（会话身份）**；它的作用见 [session identity 与会话隔离](../../concepts/session-identity/)。
 
 这里主动检查 target，可以把缺失的可选组件变成容易理解的配置错误，避免稍后才看到含义不明的头文件缺失或链接错误。
 
@@ -268,9 +268,9 @@ int main(int argc, char** argv) {
 | Publisher | `127.0.0.1:49000` | `127.0.0.1:49001` |
 | Subscriber | `127.0.0.1:49001` | `127.0.0.1:49000` |
 
-必须先调用 `temperature_endpoint_init()`，因为 adapter 要从初始化后的 endpoint 取得 frame 大小上限和 envelope。随后，`UdpAdapter::open()` 持有 socket 与接收队列，并把 transport service、deadline、wait 和 quiesce hook 挂到 endpoint 上。`set_peer()` 固定这条 link 唯一接受的来源和发送目标。
+必须先调用 `temperature_endpoint_init()`，因为 adapter 要从初始化后的 endpoint 取得 frame 大小上限和 envelope。随后，`UdpAdapter::open()` 持有 socket 与接收队列，并把 transport service、deadline、wait 和 **quiesce**（关闭前停止活动并排空）钩子挂到 endpoint 上。`set_peer()` 设定这条 link 唯一接受的来源和发送目标。
 
-这里有意使用数值地址和端口。该 adapter 不负责 DNS、发现或多客户端 server。连接另一个 peer 时，`set_peer()` 不会改写活动 link 的目标；应创建一个新的 endpoint。
+这里有意使用数值地址和端口：该 adapter 只把一个固定 peer 接到 socket 上，不处理 DNS、发现或多客户端 server。要连接另一个 peer，应创建一个新的 endpoint。
 
 ## 由一个 owner 循环推进
 
@@ -282,7 +282,7 @@ endpoint_step() → 检查或提交应用数据 → 取得下一次 hint → 等
 
 `temperature_endpoint_step()` 会服务 adapter、解析收到的 frame、推进协议 deadline，并分派生成行为。每次调用只完成有界的工作，然后把控制权交还应用。
 
-`wl_endpoint_get_hint()` 会说明是否已经需要再次推进，以及距离最近协议 deadline 还有多久。`wait_for_activity()` 等待 socket 就绪，但不会超过协议 deadline 或应用自己的时间上限。就绪通知不会解析数据或调用 callback；接下来的 `endpoint_step()` 才会在同一个 owner 上完成这些工作。
+`wl_endpoint_get_hint()` 会说明是否已经需要再次推进，以及距离最近协议 deadline 还有多久。`wait_for_activity()` 等待 socket 就绪，但不会超过协议 deadline 或应用自己的时间上限。就绪通知只报告有活动；数据的解析和回调的调用都发生在接下来的 `endpoint_step()` 里，仍在同一个 owner 上。
 
 <MultipleChoice
   id="udp-wait-and-owner-zh-cn"
@@ -308,7 +308,7 @@ endpoint_step() → 检查或提交应用数据 → 取得下一次 hint → 等
   ]}
 />
 
-Publisher 把 200 ms 采样周期作为应用 deadline。Subscriber 最多等待 200 ms，并用有限的十秒作为完成边界。两个循环都不会 busy-spin，也不会把 endpoint 所有权交给 adapter。
+Publisher 把 200 ms 采样周期作为应用 deadline。Subscriber 最多等待 200 ms，并用有限的十秒作为完成边界。两个循环都靠等待而不是空转，endpoint 所有权始终留在应用手里。
 
 ## 构建并运行两个进程
 
@@ -344,7 +344,7 @@ latest sample=4 temperature=23.50 C
 latest sample=5 temperature=23.50 C
 ```
 
-当前 profile 使用 unreliable delivery，因此可能缺少某个中间采样。到达 sample 5 才是完成条件，并不要求前面的每一行都出现。先启动 subscriber，可以避免在其端口绑定前主动丢掉最初几个 datagram。
+当前 profile 使用 unreliable delivery，因此可能缺少某个中间采样。到达 sample 5 才是完成条件；前面的每一行都可能缺失。先启动 subscriber，可以避免在其端口绑定前主动丢掉最初几个 datagram。
 
 :::note[Windows 程序路径]
 使用 Visual Studio generator 时，请运行 `build/Release/temperature_udp.exe subscriber` 和 `build/Release/temperature_udp.exe publisher`。
@@ -380,7 +380,7 @@ adapter.reset();
 | Subscriber 超时，没有收到任何值 | 先启动 subscriber，并确认每个角色的 peer 端口等于另一角色的本地端口 |
 | 空闲时持续占用 CPU | 在有界 owner pass 之间查询 endpoint hint，并调用 adapter wait |
 
-Localhost 可以展示 transport 机制，而不引入网络配置。移到受控范围以外之前，还要根据产品限制每个 datagram 的大小，使完整网络路径无需分片即可承载，并选择合适的认证或加密层。数值 peer 地址和 checksum 都不能认证发送方。
+Localhost 可以展示 transport 机制，而不引入网络配置。移到受控范围以外之前，还要根据产品限制每个 datagram 的大小，使完整网络路径无需分片即可承载，并选择合适的认证或加密层。认证发送方需要单独的一层；数值 peer 地址和 checksum 都不提供它。
 
 <Checklist
   id="udp-transport-zh-cn"
