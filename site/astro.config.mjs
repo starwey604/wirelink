@@ -47,18 +47,7 @@ export default defineConfig({
         {
           label: 'Tutorials',
           translations: { 'zh-CN': '教程' },
-          items: [
-            { slug: 'learn/environment-setup' },
-            { slug: 'learn/getting-started' },
-            { slug: 'learn/request-a-result' },
-            { slug: 'learn/save-device-info' },
-            { slug: 'learn/async-rpc' },
-            { slug: 'learn/deferred-rpc' },
-            { slug: 'learn/device-service' },
-            { slug: 'learn/external-cmake-project' },
-            { slug: 'learn/udp-transport' },
-            { slug: 'learn/zephyr-udp-subscriber' },
-          ],
+          items: [{ autogenerate: { directory: 'learn' } }],
         },
         {
           label: 'How-to',

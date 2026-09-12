@@ -1,0 +1,45 @@
+---
+title: 排查 Wirelink UDP 集成问题
+description: 从现象出发，定位 UDP adapter 的配置、来源和性能问题。
+sidebar:
+  order: 1
+---
+
+这页面向已经按[通过 UDP 连接两个独立进程](../../learn/udp-transport/)跑通示例、但连接或性能不符合预期的读者。它假定你已经理解 adapter 和 envelope 的分工，背景见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)。
+
+## 选择 envelope 和 integrity
+
+envelope 决定 transport 上如何分隔前后两个完整 frame，integrity 决定如何检测意外的字节损坏。两者都按完整通信路径选择，并在两端带外约定。
+
+| Transport 形态 | 常用 envelope | 边界来源 |
+| --- | --- | --- |
+| UDP datagram | `native_packet` | 每个收到的 datagram |
+| UART 或其他字节流 | `cobs_stream` | 可以重新同步的 delimiter |
+| 事务型设备总线 | `native_packet` 或 `bus_length16` | 总线事务或长度前缀 |
+
+把 socket 换成串口时，transport 形态从保边界包变成字节流，envelope 和 integrity 都要重新评估。修改应用消息时，这层选择保持不变。
+
+已有 UDP 部署可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit。与它互通时，保留原有 profile。
+
+## 按现象定位
+
+| 报错或现象 | 检查位置 |
+| --- | --- |
+| `Wirelink was installed without its Asio UDP adapter` | 使用 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON` 重新配置 Wirelink，再次安装到该 prefix |
+| `UDP open: Address already in use` | 停止上次运行的进程，或者改用一对空闲本地端口 |
+| Subscriber 超时，没有收到任何值 | 先启动 subscriber，并确认每个角色的 peer 端口等于另一角色的本地端口 |
+| 空闲时持续占用 CPU | 在有界 owner pass 之间查询 endpoint hint，并调用 adapter wait |
+
+## 从 localhost 移到真实网络前
+
+Localhost 可以展示 transport 机制，而不引入网络配置。进入非受控网络之前：
+
+- 根据产品限制每个 datagram 的大小，使完整网络路径无需分片即可承载。
+- 选择合适的认证或加密层。认证发送方需要单独的一层，数值 peer 地址和 checksum 都不提供它。
+- 确认对端地址和端口，而不是依赖来源学习或发现机制。
+
+## 继续阅读
+
+- [adapter 与 envelope](../../concepts/adapter-vs-envelope/)：职责边界和选择依据。
+- [通过 UDP 连接两个独立进程](../../learn/udp-transport/)：可运行的 UDP 示例。
+- [session identity 与会话隔离](../../concepts/session-identity/)：对端重建后如何隔离旧数据。

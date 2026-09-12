@@ -61,27 +61,13 @@ cmake --install build/tutorials --config Release \
 
 ## 让一个 datagram 保存一个完整 frame
 
-上一课的 profile 已经包含：
+上一课的 profile 已经包含 `endpoint { envelope = native_packet; }`。UDP 会保留 datagram 边界，因此 `native_packet` 把一个完整 Wirelink frame 映射为一个 datagram。
 
-```text
-endpoint { envelope = native_packet; }
-```
+Adapter 会拒绝空、超长和来源不符的 datagram，只把完整的 datagram 交给协议解析。Loopback 同样接收完整的 native packet，所以本课不需要修改 schema 或 profile。
 
-**Envelope**（封装形式）告诉 Wirelink，如何在 transport 上分隔前后两个完整 frame。UDP 会保留 datagram 边界，因此 `native_packet` 可以把一个完整 Wirelink frame 映射为一个 datagram。
+两个 peer 仍然必须使用兼容 schema 和相同 link profile 构建；envelope 在两端带外约定，连接时不做协商。
 
-Adapter 会拒绝空、超长和来源不符的 datagram，只把完整的 datagram 交给协议解析。完整的职责划分见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)。
-
-Loopback 同样接收完整的 native packet，所以本课不需要修改 schema 或 profile。两个网络 peer 仍然必须使用兼容 schema 和相同 link profile 构建；envelope 在两端带外约定，连接时不做协商。
-
-| Transport 形态 | 本课展示的 envelope | 边界来源 |
-| --- | --- | --- |
-| UDP datagram | 本课使用 `native_packet` | 每个收到的 datagram |
-| UART 或其他字节流 | `cobs_stream` | 可以重新同步的 delimiter |
-| 事务型设备总线 | `native_packet` 或 `bus_length16` | 总线事务或长度前缀 |
-
-这个映射需要按完整通信路径选择。把 socket 换成串口时，需要重新评估 envelope 和 **integrity（完整性校验）** 策略，也就是如何检测意外的字节损坏。修改应用消息时，这层选择保持不变。
-
-已有 UDP 部署也可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit。与它互通时，保留原有 profile。
+换其他 transport 时，envelope 和 integrity 需要重新选择。选择依据见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)；按现象排查见[排查 Wirelink UDP 集成问题](../../how-to/troubleshoot-udp-integration/)。
 
 ## 把应用 target 改为 C++20
 
@@ -379,16 +365,9 @@ adapter.reset();
 
 如果应用还有其他线程，应先停止并 join 所有可能通知 adapter 的 producer。`step()`、hint 查询、等待和 close 始终留在唯一的 endpoint owner 上。
 
-## 定位常见集成错误
+## 遇到问题时
 
-| 报错或现象 | 检查位置 |
-| --- | --- |
-| `Wirelink was installed without its Asio UDP adapter` | 使用 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON` 重新配置 Wirelink，再次安装到该 prefix |
-| `UDP open: Address already in use` | 停止上次运行的进程，或者改用一对空闲本地端口 |
-| Subscriber 超时，没有收到任何值 | 先启动 subscriber，并确认每个角色的 peer 端口等于另一角色的本地端口 |
-| 空闲时持续占用 CPU | 在有界 owner pass 之间查询 endpoint hint，并调用 adapter wait |
-
-Localhost 可以展示 transport 机制，而不引入网络配置。移到受控范围以外之前，还要根据产品限制每个 datagram 的大小，使完整网络路径无需分片即可承载，并选择合适的认证或加密层。认证发送方需要单独的一层；数值 peer 地址和 checksum 都不提供它。
+连接失败、端口占用或空闲时占用 CPU，按[排查 Wirelink UDP 集成问题](../../how-to/troubleshoot-udp-integration/)逐项定位。
 
 <Checklist
   id="udp-transport-zh-cn"

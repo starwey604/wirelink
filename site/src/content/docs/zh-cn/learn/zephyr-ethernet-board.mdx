@@ -1,0 +1,119 @@
+---
+title: 把 Zephyr subscriber 接到 Ethernet 开发板
+description: 把 native_sim 上跑通的 Zephyr subscriber 构建、烧录到开发板，并接入真实网络。
+sidebar:
+  order: 11
+---
+
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+
+上一课在 `native_sim` 上跑通了 Zephyr subscriber。本课把同一个应用构建到 Ethernet 开发板，并让桌面 publisher 通过真实网络把采样发过去。schema、profile 和消息 API 都不再改变，变化的只有开发板配置和网络地址。
+
+**完成本课后，你能够：**
+
+- 让桌面程序从命令行接收本地和 peer 地址；
+- 为 Ethernet 开发板准备 devicetree、驱动和真实熵源；
+- 烧录固件，并让开发板从桌面 publisher 收到采样；
+- 按现象定位构建、网络和连接问题。
+
+## 开始之前
+
+请先完成[在 native_sim 上跑通 Zephyr subscriber](../zephyr-udp-subscriber/)。保留 `wirelink-temperature-app` 工程、`wirelink-workspace` 和已经跑通的 native_sim 构建。
+
+准备一块支持 Zephyr native IPv4 socket 的开发板，以及它的 Ethernet PHY、引脚和驱动资料。这个 adapter 不支持 socket offload。
+
+## 让桌面程序接收网络地址
+
+修改上一课桌面程序的 `main.cpp`，让本地与 peer 地址来自命令行。应用下面的变化：
+
+```diff
+ int main(int argc, char** argv) {
+-  if (argc != 2 ||
++  if (argc != 4 ||
+       (std::string_view(argv[1]) != "publisher" &&
+        std::string_view(argv[1]) != "subscriber")) {
+-    std::fprintf(stderr, "usage: %s publisher|subscriber\n", argv[0]);
++    std::fprintf(stderr,
++                 "usage: %s publisher|subscriber LOCAL_IPV4 PEER_IPV4\n",
++                 argv[0]);
+     return 1;
+   }
+@@
+   UdpAdapterConfig config;
+-  config.bind_address = "127.0.0.1";
++  config.bind_address = argv[2];
+   config.bind_port = local_port;
+@@
+-  CHECK(adapter->set_peer("127.0.0.1", peer_port) == WL_OK);
++  CHECK(adapter->set_peer(argv[3], peer_port) == WL_OK);
+```
+
+重新构建桌面工程。传入两次 `127.0.0.1`，仍然可以重复 localhost 测试。现在，这个程序改地址就能连开发板，消息和 adapter 生命周期都不用动。
+
+## 配置开发板并烧录
+
+在开发板的 devicetree 与 Kconfig 中配置 Ethernet PHY、引脚、驱动和真实熵源。硬件构建使用真实熵源，传入 `sim.conf` 只属于模拟环境。
+
+把开发板名称替换为实际值后构建并烧录：
+
+```sh
+west build -p always -b YOUR_ETHERNET_BOARD \
+  /absolute/path/to/wirelink-temperature-app/zephyr \
+  -d build/temperature-board -- \
+  -DWIRELINK_ROOT="$PWD/wirelink" \
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+west flash -d build/temperature-board
+```
+
+## 与开发板通信
+
+使用隔离直连时，把电脑 Ethernet 接口配置为 `192.0.2.1/24`，并允许 UDP 端口 `49000` 和 `49001` 通过防火墙。固件使用 `192.0.2.2/24`。如果开发板不在隔离链路上，请使用所在网络分配的地址。
+
+打开开发板串口。看到 `subscriber ready on 192.0.2.2:49001` 后，运行桌面 publisher：
+
+```sh
+./build/temperature_udp publisher 192.0.2.1 192.0.2.2
+```
+
+开发板最终应显示 sample 5：
+
+```text
+subscriber ready on 192.0.2.2:49001
+latest sample=1 temperature=23.50 C
+latest sample=2 temperature=23.50 C
+latest sample=3 temperature=23.50 C
+latest sample=4 temperature=23.50 C
+latest sample=5 temperature=23.50 C
+```
+
+unreliable 投递可能省略中间某一行；sample 5 才是完成条件。
+
+## 定位开发板上的失败边界
+
+| 报错或现象 | 检查位置 |
+| --- | --- |
+| 硬件上 `endpoint init` 失败 | 配置真实 CSPRNG，或注入产品自己的 session identity 来源 |
+| `network unavailable` | 先修复开发板 Ethernet devicetree、驱动、link 与 IP provisioning |
+| 开发板已 ready，却收不到值 | 检查主机/开发板地址、对调端口、route 和防火墙 |
+
+:::caution[功能通信不等于实时验收]
+Adapter 使用 nonblocking socket call。但在测试过的 Zephyr native stack 上，packet pool 耗尽时仍可能等待约一秒。
+
+把这个 owner 循环用于实时控制路径前，应在产品开发板上测量 pool 容量、驱动行为、CPU 时间和延迟。当前限制与验证范围见 [Zephyr UDP adapter 合同](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp-cn.md)。
+:::
+
+<Checklist
+  id="zephyr-ethernet-board-zh-cn"
+  title="完成检查"
+  progressTemplate="已完成 {done}/{total} 项"
+  items={[
+    '桌面程序可以从命令行接收本地和 peer 地址。',
+    '开发板 devicetree 与 Kconfig 配置了 Ethernet 和真实熵源。',
+    '固件已烧录，开发板启动后进入 subscriber ready。',
+    '桌面 publisher 能把采样发到开发板，开发板收到 sample 5。',
+  ]}
+/>
+
+## 继续深入
+
+设备端重连时如何隔离旧数据，见 [session identity 与会话隔离](../../concepts/session-identity/)；推进、等待和关闭的职责划分，见 [owner、推进线程与回调线程](../../concepts/owner-and-threads/)。全站术语汇总在[术语表](../../reference/glossary/)。

@@ -1,6 +1,6 @@
 ---
-title: 把 subscriber 移到 Zephyr
-description: 把温度 subscriber 构建为使用固定 UDP adapter 存储的 Zephyr 应用。
+title: 在 native_sim 上跑通 Zephyr subscriber
+description: 把温度 subscriber 构建为使用固定 UDP adapter 存储的 Zephyr 应用，先在 native_sim 上启动。
 sidebar:
   order: 10
 ---
@@ -12,12 +12,14 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 本课保留桌面 publisher，只把 subscriber 移到 Zephyr。两端仍然从同一份 `temperature.wl` 和 `temperature.bind.wl` 生成代码。平台 adapter 会改变，消息 API 和线上 profile 保持不变。
 
+本课先在 `native_sim` 上跑通；把同一份应用烧到真实开发板见下一课。
+
 **完成本课后，你能够：**
 
 - 把 Wirelink 作为 module 加入外部 Zephyr 应用；
 - 分开处理网络接口 provisioning 和 endpoint 初始化；
 - 在构建时预留有界的 UDP 接收存储；
-- 先用 `native_sim` 构建，再把桌面 publisher 连接到 Ethernet 开发板。
+- 在 `native_sim` 上构建并启动 subscriber。
 
 ## 开始之前
 
@@ -335,88 +337,13 @@ nm -S --size-sort build/temperature-subscriber/zephyr/zephyr.elf \
 
 观察后将其恢复为 `2`。这个变化说明接收容量是构建时的固定决策。
 
-## 让桌面程序接收网络地址
-
-修改上一课桌面程序的 `main.cpp`，让本地与 peer 地址来自命令行。应用下面的变化：
-
-```diff
- int main(int argc, char** argv) {
--  if (argc != 2 ||
-+  if (argc != 4 ||
-       (std::string_view(argv[1]) != "publisher" &&
-        std::string_view(argv[1]) != "subscriber")) {
--    std::fprintf(stderr, "usage: %s publisher|subscriber\n", argv[0]);
-+    std::fprintf(stderr,
-+                 "usage: %s publisher|subscriber LOCAL_IPV4 PEER_IPV4\n",
-+                 argv[0]);
-     return 1;
-   }
-@@
-   UdpAdapterConfig config;
--  config.bind_address = "127.0.0.1";
-+  config.bind_address = argv[2];
-   config.bind_port = local_port;
-@@
--  CHECK(adapter->set_peer("127.0.0.1", peer_port) == WL_OK);
-+  CHECK(adapter->set_peer(argv[3], peer_port) == WL_OK);
-```
-
-重新构建桌面工程。传入两次 `127.0.0.1`，仍然可以重复 localhost 测试。现在，这个程序改地址就能连开发板，消息和 adapter 生命周期都不用动。
-
-## 与 Ethernet 开发板通信
-
-选择支持 Zephyr native IPv4 socket 的开发板。
-
-在它的 devicetree 与 Kconfig 中配置 Ethernet PHY、引脚、驱动和真实熵源。这个 adapter 不支持 socket offload。
-
-硬件构建不传入 `sim.conf`。把开发板名称替换为实际值后构建：
-
-```sh
-west build -p always -b YOUR_ETHERNET_BOARD \
-  /absolute/path/to/wirelink-temperature-app/zephyr \
-  -d build/temperature-board -- \
-  -DWIRELINK_ROOT="$PWD/wirelink" \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-west flash -d build/temperature-board
-```
-
-使用隔离直连时，把电脑 Ethernet 接口配置为 `192.0.2.1/24`，并允许 UDP 端口 `49000` 和 `49001` 通过防火墙。固件使用 `192.0.2.2/24`。如果开发板不在隔离链路上，请使用所在网络分配的地址。
-
-打开开发板串口。看到 `subscriber ready on 192.0.2.2:49001` 后，运行桌面 publisher：
-
-```sh
-./build/temperature_udp publisher 192.0.2.1 192.0.2.2
-```
-
-开发板最终应显示 sample 5：
-
-```text
-subscriber ready on 192.0.2.2:49001
-latest sample=1 temperature=23.50 C
-latest sample=2 temperature=23.50 C
-latest sample=3 temperature=23.50 C
-latest sample=4 temperature=23.50 C
-latest sample=5 temperature=23.50 C
-```
-
-unreliable 投递可能省略中间某一行；sample 5 才是完成条件。
-
-## 定位失败边界
+## 定位构建问题
 
 | 报错或现象 | 检查位置 |
 | --- | --- |
 | `Set WIRELINK_ROOT to the Wirelink source tree` | 传入 workspace 中包含 `zephyr/module.yml` 的 `wirelink` 目录 |
 | CMake 拒绝 WLC version 或 ABI | 激活能从 `PATH` 找到匹配 `wlc` 的环境 |
 | `CONFIG_WIRELINK_ZEPHYR_UDP` 依赖不满足 | 启用 Zephyr native IPv4 UDP socket，并关闭 socket offload |
-| 硬件上 `endpoint init` 失败 | 配置真实 CSPRNG，或注入产品自己的 session identity 来源 |
-| `network unavailable` | 先修复开发板 Ethernet devicetree、驱动、link 与 IP provisioning |
-| 开发板已 ready，却收不到值 | 检查主机/开发板地址、对调端口、route 和防火墙 |
-
-:::caution[功能通信不等于实时验收]
-Adapter 使用 nonblocking socket call。但在测试过的 Zephyr native stack 上，packet pool 耗尽时仍可能等待约一秒。
-
-把这个 owner 循环用于实时控制路径前，应在产品开发板上测量 pool 容量、驱动行为、CPU 时间和延迟。当前限制与验证范围见 [Zephyr UDP adapter 合同](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp-cn.md)。
-:::
 
 <Checklist
   id="zephyr-udp-subscriber-zh-cn"
@@ -427,10 +354,10 @@ Adapter 使用 nonblocking socket call。但在测试过的 Zephyr native stack 
     '桌面与设备构建从相同 schema 和 profile 生成代码。',
     '网络接口在 endpoint 和 UDP adapter 打开前已经就绪。',
     'Adapter RX slot 与 endpoint 都位于固定存储。',
-    'Zephyr subscriber 从桌面 publisher 收到 sample 5。',
+    'native_sim 上的 subscriber 启动到 ready。',
   ]}
 />
 
-## 继续深入
+## 下一步
 
-设备端重连时如何隔离旧数据，见 [session identity 与会话隔离](../../concepts/session-identity/)；推进、等待和关闭的职责划分，见 [owner、推进线程与回调线程](../../concepts/owner-and-threads/)。全站术语汇总在[术语表](../../reference/glossary/)。
+继续学习[把 Zephyr subscriber 接到 Ethernet 开发板](../zephyr-ethernet-board/)，把同一个应用烧到真实开发板。
