@@ -22,17 +22,46 @@ elseif(MODE STREQUAL "unpaired-source")
   # Reject an obsolete pin before attempting downloads or host tool discovery.
   set(WIRELINK_WLC_SOURCE_ABI 999)
   _wirelink_wlc_bootstrap(_compiler)
+elseif(MODE STREQUAL "release-assets")
+  foreach(_case
+      "Windows,AMD64,wlc-windows-x86_64.zip"
+      "Linux,x86_64,wlc-linux-x86_64-musl.tar.gz"
+      "Linux,aarch64,wlc-linux-aarch64-musl.tar.gz"
+      "Darwin,x86_64,wlc-macos-x86_64.tar.gz"
+      "Darwin,arm64,wlc-macos-aarch64.tar.gz")
+    string(REPLACE "," ";" _values "${_case}")
+    list(GET _values 0 _system)
+    list(GET _values 1 _processor)
+    list(GET _values 2 _expected)
+    _wirelink_wlc_release_asset("${_system}" "${_processor}" _asset _digest)
+    string(LENGTH "${_digest}" _digest_length)
+    if(NOT _asset STREQUAL _expected OR NOT _digest_length EQUAL 64 OR
+        NOT _digest MATCHES "^[0-9a-f]+$")
+      message(FATAL_ERROR "Invalid release asset/digest for ${_case}")
+    endif()
+  endforeach()
+  _wirelink_wlc_release_asset("Linux" "riscv64" _asset _digest)
+  if(_asset OR _digest)
+    message(FATAL_ERROR "Unsupported host must retain source bootstrap")
+  endif()
+elseif(MODE STREQUAL "corrupt-archive")
+  set(WIRELINK_WLC_CACHE_DIR "${CMAKE_CURRENT_BINARY_DIR}/wlc-test-corrupt-archive")
+  set(_asset "test-package.tar.gz")
+  set(_archive "${WIRELINK_WLC_CACHE_DIR}/v${WIRELINK_WLC_VERSION}/${_asset}/${_asset}")
+  file(WRITE "${_archive}" "intentionally corrupted archive")
+  _wirelink_wlc_download_binary("${_asset}"
+    "0000000000000000000000000000000000000000000000000000000000000000" _compiler)
 elseif(MODE STREQUAL "check")
-  foreach(_mode explicit wrong-abi offline unpaired-source)
+  foreach(_mode explicit wrong-abi offline unpaired-source release-assets corrupt-archive)
     execute_process(COMMAND "${CMAKE_COMMAND}"
       "-DWIRELINK_SOURCE_DIR=${WIRELINK_SOURCE_DIR}"
       "-DMATCHING_WLC=${MATCHING_WLC}" "-DMODE=${_mode}"
       -P "${CMAKE_CURRENT_LIST_FILE}"
       RESULT_VARIABLE _result OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr)
     string(REGEX REPLACE "[ \r\n]+" " " _stderr "${_stderr}")
-    if(_mode STREQUAL "explicit")
+    if(_mode STREQUAL "explicit" OR _mode STREQUAL "release-assets")
       if(NOT _result STREQUAL "0")
-        message(FATAL_ERROR "Explicit resolution failed: ${_stdout}${_stderr}")
+        message(FATAL_ERROR "${_mode} resolution failed: ${_stdout}${_stderr}")
       endif()
     else()
       if(_result STREQUAL "0")
@@ -44,10 +73,12 @@ elseif(MODE STREQUAL "check")
         message(FATAL_ERROR "Wrong failure: ${_stderr}")
       elseif(_mode STREQUAL "unpaired-source" AND NOT _stderr MATCHES "no published source pair")
         message(FATAL_ERROR "Wrong failure: ${_stderr}")
+      elseif(_mode STREQUAL "corrupt-archive" AND NOT _stderr MATCHES "cache digest mismatch")
+        message(FATAL_ERROR "Wrong failure: ${_stderr}")
       endif()
     endif()
   endforeach()
-  message(STATUS "WLC explicit, wrong-ABI, offline and unpaired-source resolution checks passed")
+  message(STATUS "WLC explicit, wrong-ABI, offline, source pairing, host asset and checksum checks passed")
 else()
   message(FATAL_ERROR "Unknown resolution test mode")
 endif()

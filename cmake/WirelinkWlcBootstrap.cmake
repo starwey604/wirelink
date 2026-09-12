@@ -1,14 +1,93 @@
 # SPDX-License-Identifier: ISC
 include_guard(GLOBAL)
 
-# Published v0.6.0 source pair; digest verified against the remote archive.
-set(WIRELINK_WLC_SOURCE_ABI "31" CACHE INTERNAL
+# Published v0.7.0-rc.1 source pair; digest verified against the remote archive.
+set(WIRELINK_WLC_SOURCE_ABI "32" CACHE INTERNAL
   "Codegen ABI of the last distributed WLC source pair" FORCE)
-set(WIRELINK_WLC_SOURCE_REVISION "9d41a4e8b2109f2fdc3e582b5acff5de0dab9207"
+set(WIRELINK_WLC_SOURCE_REVISION "1ec38f103948a0ef7a33d8655a261eed63101350"
   CACHE INTERNAL "Paired WLC source commit" FORCE)
 set(WIRELINK_WLC_SOURCE_SHA256
-  "8b4b2939d4873c649d48d4614dd1b9173ce386870f637ff1caa2fe9c670b268b"
+  "3a5007f70d227e38326610d510fee9a99c43c8b8a96b0565634a42ebb18a548b"
   CACHE INTERNAL "Paired WLC source archive digest" FORCE)
+
+# Select the host, never CMAKE_SYSTEM_PROCESSOR (which names the firmware target).
+function(_wirelink_wlc_release_asset system processor out_asset out_digest)
+  string(TOLOWER "${processor}" _processor)
+  set(_asset "")
+  set(_digest "")
+  if(system STREQUAL "Windows" AND _processor MATCHES "^(amd64|x86_64)$")
+    set(_asset "wlc-windows-x86_64.zip")
+    set(_digest "50711147c474efb38c62a55b42beb1d5345a1c344e87511e48ce0832452f60c6")
+  elseif(system STREQUAL "Linux" AND _processor MATCHES "^(amd64|x86_64)$")
+    set(_asset "wlc-linux-x86_64-musl.tar.gz")
+    set(_digest "15a1c057c0270a6c43fda4f3b61e0eeb24bf154fc9c5f14ec685a6a8605eefba")
+  elseif(system STREQUAL "Linux" AND _processor MATCHES "^(arm64|aarch64)$")
+    set(_asset "wlc-linux-aarch64-musl.tar.gz")
+    set(_digest "49cd9a045518c3d9a7e51972a0ce4c9366339a87103cbe231279093da31f1ccd")
+  elseif(system STREQUAL "Darwin" AND _processor MATCHES "^(amd64|x86_64)$")
+    set(_asset "wlc-macos-x86_64.tar.gz")
+    set(_digest "265c6a59055a4198198aa58b7b770effc1846351521c96137fa20842cd0fd7dd")
+  elseif(system STREQUAL "Darwin" AND _processor MATCHES "^(arm64|aarch64)$")
+    set(_asset "wlc-macos-aarch64.tar.gz")
+    set(_digest "13752af1f8682cec42b75107f9dc33bc43fc64bce72ea842725650a217a338fc")
+  endif()
+  set(${out_asset} "${_asset}" PARENT_SCOPE)
+  set(${out_digest} "${_digest}" PARENT_SCOPE)
+endfunction()
+
+function(_wirelink_wlc_download_binary asset digest out_executable)
+  get_filename_component(_cache "${WIRELINK_WLC_CACHE_DIR}" ABSOLUTE
+    BASE_DIR "${CMAKE_BINARY_DIR}")
+  set(_root "${_cache}/v${WIRELINK_WLC_VERSION}/${asset}")
+  set(_binary "${_root}/bin/wlc")
+  if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Windows")
+    string(APPEND _binary ".exe")
+  endif()
+  _wirelink_wlc_validate_executable("${_binary}" _valid _reason)
+  if(_valid)
+    set(${out_executable} "${_binary}" PARENT_SCOPE)
+    return()
+  endif()
+  file(MAKE_DIRECTORY "${_root}")
+  file(LOCK "${_root}/bootstrap.lock" GUARD FUNCTION TIMEOUT 600
+    RESULT_VARIABLE _lock)
+  if(NOT _lock STREQUAL "0")
+    message(FATAL_ERROR "Cannot lock WLC download cache '${_root}': ${_lock}")
+  endif()
+  _wirelink_wlc_validate_executable("${_binary}" _valid _reason)
+  if(_valid)
+    set(${out_executable} "${_binary}" PARENT_SCOPE)
+    return()
+  endif()
+  set(_archive "${_root}/${asset}")
+  if(EXISTS "${_archive}")
+    file(SHA256 "${_archive}" _actual_digest)
+    if(NOT _actual_digest STREQUAL digest)
+      message(FATAL_ERROR "WLC host archive cache digest mismatch: ${_archive}")
+    endif()
+  else()
+    message(STATUS "Wirelink: fetching WLC ${WIRELINK_WLC_VERSION} host tool ${asset}")
+    file(DOWNLOAD
+      "https://github.com/starwey604/wlc/releases/download/v${WIRELINK_WLC_VERSION}/${asset}"
+      "${_archive}.part" TLS_VERIFY ON TIMEOUT 120 INACTIVITY_TIMEOUT 30
+      STATUS _download)
+    list(GET _download 0 _code)
+    if(NOT _code EQUAL 0)
+      message(FATAL_ERROR "Cannot fetch paired WLC host tool: ${_download}")
+    endif()
+    file(SHA256 "${_archive}.part" _actual_digest)
+    if(NOT _actual_digest STREQUAL digest)
+      message(FATAL_ERROR "Downloaded WLC host archive digest mismatch: ${_archive}.part")
+    endif()
+    file(RENAME "${_archive}.part" "${_archive}")
+  endif()
+  file(ARCHIVE_EXTRACT INPUT "${_archive}" DESTINATION "${_root}/bin")
+  _wirelink_wlc_validate_executable("${_binary}" _valid _reason)
+  if(NOT _valid)
+    message(FATAL_ERROR "Downloaded WLC ${_reason}: ${_binary}")
+  endif()
+  set(${out_executable} "${_binary}" PARENT_SCOPE)
+endfunction()
 
 function(_wirelink_wlc_bootstrap out_executable)
   if(NOT WIRELINK_WLC_SOURCE_ABI STREQUAL WIRELINK_WLC_CODEGEN_ABI)
@@ -17,6 +96,14 @@ function(_wirelink_wlc_bootstrap out_executable)
       "Build the matching development compiler and set WIRELINK_WLC_EXECUTABLE. "
       "The pinned ABI ${WIRELINK_WLC_SOURCE_ABI} compiler cannot generate this API.")
   endif()
+  cmake_host_system_information(RESULT _processor QUERY OS_PLATFORM)
+  _wirelink_wlc_release_asset("${CMAKE_HOST_SYSTEM_NAME}" "${_processor}"
+    _asset _digest)
+  if(_asset)
+    _wirelink_wlc_download_binary("${_asset}" "${_digest}" _binary)
+    set(${out_executable} "${_binary}" PARENT_SCOPE)
+    return()
+  endif()
   find_program(_cargo NAMES cargo NO_CMAKE_FIND_ROOT_PATH)
   find_program(_rustc NAMES rustc NO_CMAKE_FIND_ROOT_PATH)
   if(NOT _cargo OR NOT _rustc)
@@ -24,7 +111,7 @@ function(_wirelink_wlc_bootstrap out_executable)
       "WLC ABI ${WIRELINK_WLC_CODEGEN_ABI} needs a matching host binary or "
       "Rust/Cargo (Rust 2024 edition) to build the pinned source. "
       "Set WIRELINK_WLC_EXECUTABLE or install Rust/Cargo on the host PATH. "
-      "No compatible public release binary is assumed.")
+      "There is no prebuilt WLC package for ${CMAKE_HOST_SYSTEM_NAME}/${_processor}.")
   endif()
   execute_process(COMMAND "${_rustc}" -vV RESULT_VARIABLE _result
     OUTPUT_VARIABLE _version ERROR_VARIABLE _error TIMEOUT 30)

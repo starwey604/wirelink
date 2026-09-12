@@ -3,12 +3,12 @@ include_guard(GLOBAL)
 # These values are consumed by functions that may be called from a parent
 # directory after Wirelink itself was added with add_subdirectory(). Keep them
 # in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.7.0-dev" CACHE INTERNAL
+set(WIRELINK_WLC_VERSION "0.7.0-rc.1" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
 set(WIRELINK_WLC_CODEGEN_ABI "32" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
-  "Fetch and build pinned WLC source when no matching host compiler is installed" ON)
+  "Fetch verified WLC host tools, or build pinned source on other hosts" ON)
 set(WIRELINK_WLC_CACHE_DIR
   "${CMAKE_BINARY_DIR}/_deps/wirelink-wlc" CACHE PATH
   "Directory for verified WLC host compiler downloads")

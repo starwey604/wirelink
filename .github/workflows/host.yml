@@ -57,20 +57,20 @@ jobs:
           cmake --build profile-build --config Release --parallel
           ctest --test-dir profile-build --build-config Release --output-on-failure
 
-      # Paired development WLC 0.7.0-dev / ABI 32 (publish both repos).
+      # Published WLC 0.7.0-rc.1 / ABI 32 source pair.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29
+          ref: 1ec38f103948a0ef7a33d8655a261eed63101350
           path: .tools/wlc
 
       - name: Build matching WLC
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
       - name: Configure WLC package consumer
-        # ABI 32 has no published archive yet; never fall back to ABI 31.
-        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
+        # Exercise the installed package's verified host archive download.
+        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
 
       - name: Verify explicit and offline compiler resolution
         run: cmake -DWIRELINK_SOURCE_DIR=${{ github.workspace }} -DMATCHING_WLC=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }} -DMODE=check -P tests/package/wlc_resolution.cmake

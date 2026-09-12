@@ -2,7 +2,7 @@
 
 > 英文版 [`compatibility.md`](compatibility.md) 是规范来源。
 
-Wirelink `0.9.x` 是 protocol v1 和目标 1.x C API 的候选发布线。兼容性分为多个独立
+Wirelink `0.7.0-rc.1` 是使用 protocol v1 的 1.0 前预发布版本。兼容性分为多个独立
 演进的域。
 
 ## 线上协议
