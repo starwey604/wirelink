@@ -16,7 +16,7 @@ The [Chinese tutorial](docs/getting-started-cn.md) follows the same sequence.
 Install WLC independently using [environment setup](docs/installation.md)
 ([中文](docs/installation-cn.md)); no nested WLC checkout is required.
 
-This prerelease is `0.7.0-rc.1`, a pre-1.0 library using wire protocol v1.
+This prerelease is `0.7.0-rc.2`, a pre-1.0 library using wire protocol v1.
 Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in

@@ -4,7 +4,7 @@ All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for the release-candidate
 line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
-## Unreleased
+## 0.7.0-rc.2 — 2026-09-12
 
 - Normalize WLC's Windows verbatim drive/UNC dependency paths for CMake and
   MSBuild so imported-schema edits and newly introduced import edges trigger
