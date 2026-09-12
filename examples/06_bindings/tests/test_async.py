@@ -77,7 +77,7 @@ def test_timeout_external_timeout_and_capacity():
         async with AsyncClient.connect(Udp(peer=address)) as client:
             with pytest.raises(RpcTimeoutError):
                 await client.add(left=1, right=2, timeout=0.02)
-            with pytest.raises(TimeoutError):
+            with pytest.raises(asyncio.TimeoutError):
                 await asyncio.wait_for(client.add(left=1, right=2, timeout=60), 0.02)
             assert client.is_open
             calls = [asyncio.create_task(client.add(left=i, right=0, timeout=60))

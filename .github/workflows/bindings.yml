@@ -2,8 +2,10 @@ name: Generated binding SDKs
 
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -27,7 +29,7 @@ jobs:
       - name: Build, repair and test portable wheels
         run: >-
           docker run --rm -v "${{ github.workspace }}:/io"
-          quay.io/pypa/manylinux_2_28_x86_64
+          quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
           bash /io/tests/package/build_manylinux_sdks.sh
       - uses: actions/upload-artifact@v4
         with:
@@ -125,11 +127,11 @@ jobs:
       - name: Build sdist and wheel from extracted sdist
         run: >-
           python -m build examples/06_bindings --outdir dist
-          -Ccmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          --config-setting "cmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install"
       - name: Build device sdist and wheel from extracted sdist
         run: >-
           python -m build examples/07_device_sdk --outdir dist
-          -Ccmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          --config-setting "cmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install"
       - name: Install wheel and run Python tests
         shell: bash
         run: |

@@ -2,8 +2,10 @@ name: Host CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -67,6 +69,9 @@ jobs:
 
       - name: Build matching WLC
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
+
+      - name: Verify generated SDK artifacts
+        run: python tests/package/check_generated_sdks.py --wlc ${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
 
       - name: Configure WLC package consumer
         # Exercise the installed package's verified host archive download.

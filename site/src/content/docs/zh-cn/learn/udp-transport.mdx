@@ -110,7 +110,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Wirelink 0.7 CONFIG REQUIRED)
+find_package(Wirelink 0.8 CONFIG REQUIRED)
 if(NOT TARGET Wirelink::asio_udp)
   message(FATAL_ERROR "Wirelink was installed without its Asio UDP adapter")
 endif()

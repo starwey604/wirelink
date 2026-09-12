@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  host:
+    uses: ./.github/workflows/host.yml
+  bindings:
+    uses: ./.github/workflows/bindings.yml
+  zephyr:
+    uses: ./.github/workflows/zephyr.yml
+  publish:
+    name: Verify artifacts and publish
+    needs: [host, bindings, zephyr]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: generated-sdks-*
+          path: artifacts
+      - name: Check versions and collect tested packages
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+          import tomllib
+          version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
+          header = Path('include/wirelink/version.h').read_text()
+          assert f'#define WIRELINK_VERSION_STRING "{version}"' in header
+          assert f'project(wirelink VERSION {version} LANGUAGES C)' in Path('CMakeLists.txt').read_text()
+          for example in ('06_bindings', '07_device_sdk'):
+              project = tomllib.loads((Path('examples') / example / 'pyproject.toml').read_text())
+              assert project['project']['version'] == version
+          dist = Path('dist')
+          dist.mkdir()
+          wheels = list(Path('artifacts').rglob('*.whl'))
+          assert len(wheels) == 40, f'Expected 40 tested wheels, got {len(wheels)}'
+          assert len({p.name for p in wheels}) == 40, 'Duplicate wheel platform tags'
+          for wheel in wheels:
+              assert f'-{version}-' in wheel.name
+              assert re.search(r'-(cp31[0-4])-\1-', wheel.name), wheel
+              assert not wheel.name.endswith('-linux_x86_64.whl'), wheel
+              shutil.copy2(wheel, dist / wheel.name)
+          sources = list(Path('artifacts/generated-sdks-manylinux_2_28-x86_64').glob('*.tar.gz'))
+          assert len(sources) == 2
+          for source in sources:
+              assert source.name.endswith(f'-{version}.tar.gz')
+              shutil.copy2(source, dist / source.name)
+          PY
+          (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS)
+      - name: Publish stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --latest
+          --title "Wirelink ${GITHUB_REF_NAME}"
+          --notes-file "docs/release-${GITHUB_REF_NAME}-cn.md"

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(wirelink_package_consumer LANGUAGES C CXX)
 
 include(CTest)
-find_package(Wirelink 0.7 CONFIG REQUIRED)
+find_package(Wirelink 0.8 CONFIG REQUIRED)
 
 add_executable(wirelink_package_consumer main.c)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink)

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(wirelink_wlc_package_consumer LANGUAGES C)
 
 include(CTest)
-find_package(Wirelink 0.7 CONFIG REQUIRED)
+find_package(Wirelink 0.8 CONFIG REQUIRED)
 
 wirelink_wlc_generate_codec(
   TARGET generated_control_codec
