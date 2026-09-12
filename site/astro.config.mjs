@@ -46,6 +46,7 @@ export default defineConfig({
             { slug: 'learn/save-device-info' },
             { slug: 'learn/async-rpc' },
             { slug: 'learn/deferred-rpc' },
+            { slug: 'learn/device-service' },
           ],
         },
       ],
