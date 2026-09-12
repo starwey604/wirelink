@@ -396,7 +396,11 @@ ZTEST(udp_socket_contract, test_open_failure_leaves_original_and_candidate_intac
 }
 
 ZTEST(udp_socket_contract, test_eventfd_exhaustion_rolls_back_socket_allocation) {
+#ifdef ZVFS_EVENTFD_SIZE
   int held[ZVFS_EVENTFD_SIZE];
+#else
+  int held[CONFIG_ZVFS_EVENTFD_MAX];
+#endif
   size_t count = 0;
   wl_udp_socket_t other = WL_UDP_SOCKET_INITIALIZER;
   struct net_sockaddr_in local = loopback(0);
@@ -406,7 +410,7 @@ ZTEST(udp_socket_contract, test_eventfd_exhaustion_rolls_back_socket_allocation)
     if (fd < 0) break;
     held[count++] = fd;
   }
-  zassert_equal(count + 1, ZVFS_EVENTFD_SIZE);
+  zassert_equal(count + 1, ARRAY_SIZE(held));
   for (unsigned i = 0; i < 20; ++i)
     zassert_equal(wl_udp_socket_open(&other, &local, &peer), WL_ERR_NO_MEM);
   zassert_false(other.opened);

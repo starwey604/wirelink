@@ -65,8 +65,7 @@ RX 存储。槽数为 2–8，payload bound 直接使用生成常量；无需自
 
 `maximum_datagram_size` 是**整个 Wirelink 帧的上限**，默认 1472，对应普通 1500 字节
 IPv4 MTU 减去 IP/UDP 头。模式/schema 的最大帧超过上限时 open 失败；调大它不等于
-增加 schema 容量或探测了路径 MTU。适配器还设置 `IP_DONTFRAG`，路径更小时发送失败，
-不会静默进行 IPv4 分片。大消息应按实际路径设置 schema/bulk 分块上限。
+增加 schema 容量或探测了路径 MTU。支持 `IP_DONTFRAG` 的 Zephyr 版本通过该 socket 选项禁止 IPv4 分片。仓库固定的 Zephyr 4.4.0 尚无此选项，须保持 `CONFIG_NET_IPV4_FRAGMENT=n`；若启用分片，适配器 open 返回 `WL_ERR_NOT_SUPPORTED`。大消息应按实际路径设置 schema/bulk 分块上限。
 
 ## 处理预算、背压与时钟
 

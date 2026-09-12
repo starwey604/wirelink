@@ -136,11 +136,15 @@ ZTEST(udp_adapter, test_automatic_attach_and_callback_free_wait) {
   zassert_true(wl_endpoint_has_adapter(&endpoints[0]));
   zassert_not_null(wl_endpoint_waiter(&endpoints[0]));
   zassert_not_equal(wl_zephyr_udp_local_port(&udp), 0);
+#ifdef ZSOCK_IP_DONTFRAG
   int dont_fragment = 0;
   net_socklen_t option_size = sizeof(dont_fragment);
   zassert_ok(zsock_getsockopt(udp.private_state.io.socket_fd, NET_IPPROTO_IP,
       ZSOCK_IP_DONTFRAG, &dont_fragment, &option_size));
   zassert_equal(dont_fragment, 1);
+#else
+  zassert_false(IS_ENABLED(CONFIG_NET_IPV4_FRAGMENT));
+#endif
   wl_poll_hint_t hint;
   zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);

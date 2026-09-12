@@ -221,16 +221,23 @@ wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *adapter, wl_endpoint_t *endpoint,
     return WL_ERR_INVALID_ARG;
   local.sin_port = net_htons(config->local_port);
   peer.sin_port = net_htons(config->peer_port);
+#if !defined(ZSOCK_IP_DONTFRAG) && defined(CONFIG_NET_IPV4_FRAGMENT)
+  /* Zephyr 4.4 has no per-socket IPv4 fragmentation control. */
+  return WL_ERR_NOT_SUPPORTED;
+#endif
   result = wl_udp_socket_open(&adapter->private_state.io, &local, &peer);
   if (result != WL_OK) return result;
   /* A configured ceiling is not path-MTU discovery. Also forbid IPv4
-   * fragmentation in the native stack; an undersized route must fail a send. */
+   * fragmentation in the native stack. On Zephyr 4.4 the stack must be
+   * configured without fragmentation; newer stacks can disable it per socket. */
+#ifdef ZSOCK_IP_DONTFRAG
   const int dont_fragment = 1;
   if (zsock_setsockopt(adapter->private_state.io.socket_fd, NET_IPPROTO_IP,
       ZSOCK_IP_DONTFRAG, &dont_fragment, sizeof(dont_fragment)) < 0) {
     (void)wl_udp_socket_close(&adapter->private_state.io);
     return WL_ERR_NOT_SUPPORTED;
   }
+#endif
   net_socklen_t address_size = sizeof(local);
   if (zsock_getsockname(adapter->private_state.io.socket_fd,
       (struct net_sockaddr *)&local, &address_size) < 0) {

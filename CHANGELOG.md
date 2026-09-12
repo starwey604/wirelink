@@ -5,6 +5,11 @@ versioning after 1.0; compatibility expectations for pre-1.0 releases are descri
 
 ## 0.8.0 — 2026-09-13
 
+- Support the pinned Zephyr 4.4.0 UDP socket API with fragmentation disabled;
+  reject fragmentation-enabled configurations when per-socket control is absent.
+  Keep the eventfd exhaustion test compatible with the configured 4.4 pool.
+- Preserve LF for generated SDKs and compiler templates across Windows checkouts.
+
 - Release the supported C++20 and CPython managed RPC bindings, paired with WLC
   0.8.0. Binding source API is revision 2; generated C ABI remains 32 and protocol
   v1 is unchanged. Rebuild native libraries and regenerate SDKs together.
