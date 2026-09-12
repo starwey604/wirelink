@@ -30,9 +30,13 @@ wlc codegen-abi
 
 预期值仍然是 `wlc 0.8.0` 和 ABI `32`。
 
-此外还需要 Zephyr 4.4.0 workspace 和 Zephyr SDK。**West workspace** 是包含 Zephyr、作为 manifest repository 的 Wirelink，以及 `west.yml` 所选 modules 的目录。如果你已经能在这样的 workspace 中运行 `west build`，请继续下一节。
+此外还需要 Zephyr 4.4.0 workspace 和 Zephyr SDK。
 
-否则，先按照 Zephyr 官方的[主机依赖与 Python 环境配置](https://docs.zephyrproject.org/4.4.0/develop/getting_started/index.html)完成准备并激活该 Python 环境，再从 Wirelink manifest 初始化 workspace：
+**West workspace** 是这样一个目录。它包含 Zephyr、作为 manifest repository 的 Wirelink，以及 `west.yml` 所选 modules。
+
+如果你已经能在这样的 workspace 中运行 `west build`，请继续下一节。
+
+否则，先按 Zephyr 官方的[主机依赖与 Python 环境配置](https://docs.zephyrproject.org/4.4.0/develop/getting_started/index.html)准备好，并激活它的 Python 环境。然后从 Wirelink manifest 初始化 workspace：
 
 ```sh
 python -m pip install west
@@ -147,7 +151,9 @@ CONFIG_MAIN_STACK_SIZE=4096
 | `CONFIG_NET_PKT_*` 和 `CONFIG_NET_BUF_*` | 供所有网络使用者共享的 Zephyr pool |
 | `CONFIG_WIRELINK_PLATFORM` 和 `CONFIG_WIRELINK_ZEPHYR_UDP` | Wirelink 的 Zephyr 时钟/session provider 与 UDP adapter |
 
-`CONFIG_NET_CONFIG_AUTO_INIT=n` 会把启动过程留在应用代码中。应用将在创建 endpoint 或 socket 之前启动 IPv4。PHY、地址、route 和 DHCP 都由应用和 Zephyr 负责。这里的 **network provisioning（网络准备）**是指启动接口，并设置应用预期的地址与 route。
+`CONFIG_NET_CONFIG_AUTO_INIT=n` 会把启动过程留在应用代码中。应用将在创建 endpoint 或 socket 之前启动 IPv4。
+
+PHY、地址、route 和 DHCP 都由应用和 Zephyr 负责。这里的 **network provisioning（网络准备）**是指启动接口，并设置应用预期的地址与 route。
 
 这里使用的 `192.0.2.0/24` 是文档网络，只适合隔离的直连测试。开发板进入实际网络时，请使用该网络分配的有效地址。
 
@@ -251,7 +257,9 @@ int main(void) {
 }
 ```
 
-`WL_ZEPHYR_UDP_DEFINE()` 会在静态存储中预留 adapter 对象和两个完整 frame 的 RX slot。生成的 `TEMPERATURE_ENDPOINT_MAX_PAYLOAD` 常量把存储上限与实际 schema 绑定。Adapter 不创建线程，也不从 heap 分配。Zephyr socket 与 packet pool 是另一组共享资源，仍由 `prj.conf` 配置。
+`WL_ZEPHYR_UDP_DEFINE()` 会在静态存储中预留 adapter 对象和两个完整 frame 的 RX slot。生成的 `TEMPERATURE_ENDPOINT_MAX_PAYLOAD` 常量把存储上限与实际 schema 绑定。
+
+Adapter 不创建线程，也不从 heap 分配。Zephyr socket 与 packet pool 是另一组共享资源，仍由 `prj.conf` 配置。
 
 设备 owner 循环比桌面 helper 更短，因为 `wl_zephyr_udp_wait()` 会在内部取得并合并 endpoint hint。它仍然只负责等待；之后的 `temperature_endpoint_step()` 才会接收、解析和分派工作。
 
@@ -323,7 +331,9 @@ nm -S --size-sort build/temperature-subscriber/zephyr/zephyr.elf \
 
 对于当前 schema 和两个 slot，size 列是 `0000000000000042`：十六进制 `0x42`，即 66 字节。这是 adapter 的 frame-slot 存储，不包含生成 endpoint 和 Zephyr 网络 pool。
 
-把 `WL_ZEPHYR_UDP_DEFINE()` 的最后一个参数从 `2` 改为 `3`，重新构建并运行同一条命令。Symbol 会在构建时变大。观察后将其恢复为 `2`。这个变化说明接收容量是构建时的固定决策。
+把 `WL_ZEPHYR_UDP_DEFINE()` 的最后一个参数从 `2` 改为 `3`，重新构建并运行同一条命令。Symbol 会在构建时变大。
+
+观察后将其恢复为 `2`。这个变化说明接收容量是构建时的固定决策。
 
 ## 让桌面程序接收网络地址
 
@@ -355,7 +365,9 @@ nm -S --size-sort build/temperature-subscriber/zephyr/zephyr.elf \
 
 ## 与 Ethernet 开发板通信
 
-选择支持 Zephyr native IPv4 socket 的开发板，在 devicetree 与 Kconfig 中配置 Ethernet PHY、引脚、驱动和真实熵源。这个 adapter 不支持 socket offload。
+选择支持 Zephyr native IPv4 socket 的开发板。
+
+在它的 devicetree 与 Kconfig 中配置 Ethernet PHY、引脚、驱动和真实熵源。这个 adapter 不支持 socket offload。
 
 硬件构建不传入 `sim.conf`。把开发板名称替换为实际值后构建：
 
@@ -401,7 +413,9 @@ unreliable 投递可能省略中间某一行；sample 5 才是完成条件。
 | 开发板已 ready，却收不到值 | 检查主机/开发板地址、对调端口、route 和防火墙 |
 
 :::caution[功能通信不等于实时验收]
-Adapter 使用 nonblocking socket call，但测试过的 Zephyr native stack 在 packet pool 耗尽时仍可能等待约一秒。把这个 owner 循环用于实时控制路径前，应在产品开发板上测量 pool 容量、驱动行为、CPU 时间和延迟。当前限制与验证范围见 [Zephyr UDP adapter 合同](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp-cn.md)。
+Adapter 使用 nonblocking socket call。但在测试过的 Zephyr native stack 上，packet pool 耗尽时仍可能等待约一秒。
+
+把这个 owner 循环用于实时控制路径前，应在产品开发板上测量 pool 容量、驱动行为、CPU 时间和延迟。当前限制与验证范围见 [Zephyr UDP adapter 合同](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp-cn.md)。
 :::
 
 <Checklist

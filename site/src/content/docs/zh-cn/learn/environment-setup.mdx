@@ -9,7 +9,9 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-用 Wirelink 写的应用是普通 C11 程序，但消息的编解码代码不用手写。你在 `.wl` 文件里定义消息，WLC 把它生成对应的 C 源码，C 编译器再把生成代码、应用源码和 Wirelink 核心一起编译成程序。开始之前需要两类工具：一个 C 工具链，一个匹配版本的 WLC。本课把它们一次装好、验证一遍，后续课程直接进入写代码。
+用 Wirelink 写的应用是普通 C11 程序，但消息的编解码代码不用手写。你在 `.wl` 文件里定义消息，WLC 把它生成对应的 C 源码，C 编译器再把生成代码、应用源码和 Wirelink 核心一起编译成程序。
+
+开始之前需要两类工具：一个 C 工具链，一个匹配版本的 WLC。本课把它们一次装好、验证一遍，后续课程直接进入写代码。
 
 **完成本课后，你能够：**
 

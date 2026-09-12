@@ -261,7 +261,9 @@ while (batch.completed != 3) {
 
 异步调用被接受时，Wirelink 已经为每个请求制作快照，所以上述局部变量随后发生变化也不会改写排队中的调用。每个完成回调取得自己的类型化响应，再递增 `batch.completed`。
 
-SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token，并把 `passes_remaining` 设为 `3`。Endpoint owner 在后续循环中调用 `self_test_poll()`，第三次推进时完成保存的请求。这是[延迟回复模式](../deferred-rpc/)在大型服务中的一次应用：整个服务仍然只有一个 endpoint，所有推进都在同一个 owner 循环里。
+SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token，并把 `passes_remaining` 设为 `3`。
+
+Endpoint owner 在后续循环中调用 `self_test_poll()`，第三次推进时完成保存的请求。这是[延迟回复模式](../deferred-rpc/)在大型服务中的一次应用：整个服务仍然只有一个 endpoint，所有推进都在同一个 owner 循环里。
 
 <MultipleChoice
   id="device-service-module-registration-zh-cn"

@@ -101,7 +101,9 @@ typedef struct {
 
 token 是 Wirelink 为当前请求和 endpoint 生命周期创建的回复凭据。复制完整 token；不要读取它的私有字段，也不要自行构造调用编号。
 
-高级 handler 收到的 request 是 **codec view（解码视图）**，其中的字段只借用到本次回调结束。计算器只有整数，所以示例把它们计算并复制到 `sum`。如果 schema 包含 string 或 bytes，应把引用的数据复制到应用自己的存储，或使用生成的 value 转换。只有复制字节本身，才能把数据用到回调之后。
+高级 handler 收到的 request 是 **codec view（解码视图）**，其中的字段只借用到本次回调结束。计算器只有整数，所以示例把它们计算并复制到 `sum`。
+
+如果 schema 包含 string 或 bytes，应把引用的数据复制到应用自己的存储，或使用生成的 value 转换。只有复制字节本身，才能把数据用到回调之后。
 
 ## 接下工作，但暂不回复
 

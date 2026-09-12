@@ -5,7 +5,9 @@ sidebar:
   order: 3
 ---
 
-响应里的字符串存在哪里？RPC 结束、endpoint 关闭以后还能不能读？答案取决于拿到的是 owned value 还是 borrowed view。这两种形式在源码里长得相似，生命周期却完全不同。
+响应里的字符串存在哪里？RPC 结束、endpoint 关闭以后还能不能读？答案取决于拿到的是 owned value 还是 borrowed view。
+
+这两种形式在源码里长得相似，生命周期却完全不同。
 
 ## owned value：数据在值内部
 

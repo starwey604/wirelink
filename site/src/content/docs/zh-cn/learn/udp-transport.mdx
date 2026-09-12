@@ -67,7 +67,9 @@ cmake --install build/tutorials --config Release \
 endpoint { envelope = native_packet; }
 ```
 
-**Envelope**（封装形式）告诉 Wirelink，如何在 transport 上分隔前后两个完整 frame。UDP 会保留 datagram 边界，因此 `native_packet` 可以把一个完整 Wirelink frame 映射为一个 datagram。Adapter 会拒绝空、超长和来源不符的 datagram，只把完整的 datagram 交给协议解析。完整的职责划分见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)。
+**Envelope**（封装形式）告诉 Wirelink，如何在 transport 上分隔前后两个完整 frame。UDP 会保留 datagram 边界，因此 `native_packet` 可以把一个完整 Wirelink frame 映射为一个 datagram。
+
+Adapter 会拒绝空、超长和来源不符的 datagram，只把完整的 datagram 交给协议解析。完整的职责划分见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)。
 
 Loopback 同样接收完整的 native packet，所以本课不需要修改 schema 或 profile。两个网络 peer 仍然必须使用兼容 schema 和相同 link profile 构建；envelope 在两端带外约定，连接时不做协商。
 
@@ -77,7 +79,9 @@ Loopback 同样接收完整的 native packet，所以本课不需要修改 schem
 | UART 或其他字节流 | `cobs_stream` | 可以重新同步的 delimiter |
 | 事务型设备总线 | `native_packet` 或 `bus_length16` | 总线事务或长度前缀 |
 
-这个映射需要按完整通信路径选择。把 socket 换成串口时，需要重新评估 envelope 和 **integrity（完整性校验）** 策略，也就是如何检测意外的字节损坏；修改应用消息时，这层选择保持不变。已有 UDP 部署也可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit；与它互通时应保留原有 profile。
+这个映射需要按完整通信路径选择。把 socket 换成串口时，需要重新评估 envelope 和 **integrity（完整性校验）** 策略，也就是如何检测意外的字节损坏。修改应用消息时，这层选择保持不变。
+
+已有 UDP 部署也可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit。与它互通时，保留原有 profile。
 
 ## 把应用 target 改为 C++20
 
@@ -114,7 +118,7 @@ target_link_libraries(temperature_udp PRIVATE
   Wirelink::platform)
 ```
 
-Codec 与生成 endpoint target 保持不变。`Wirelink::asio_udp` 增加 socket adapter，`Wirelink::platform` 继续为 endpoint 提供时钟和新的 **session identity（会话身份）**；它的作用见 [session identity 与会话隔离](../../concepts/session-identity/)。
+Codec 与生成 endpoint target 保持不变。`Wirelink::asio_udp` 增加 socket adapter，`Wirelink::platform` 继续为 endpoint 提供时钟和新的 **session identity（会话身份）**。它的作用见 [session identity 与会话隔离](../../concepts/session-identity/)。
 
 这里主动检查 target，可以把缺失的可选组件变成容易理解的配置错误，避免稍后才看到含义不明的头文件缺失或链接错误。
 
@@ -268,7 +272,11 @@ int main(int argc, char** argv) {
 | Publisher | `127.0.0.1:49000` | `127.0.0.1:49001` |
 | Subscriber | `127.0.0.1:49001` | `127.0.0.1:49000` |
 
-必须先调用 `temperature_endpoint_init()`，因为 adapter 要从初始化后的 endpoint 取得 frame 大小上限和 envelope。随后，`UdpAdapter::open()` 持有 socket 与接收队列，并把 transport service、deadline、wait 和 **quiesce**（关闭前停止活动并排空）钩子挂到 endpoint 上。`set_peer()` 设定这条 link 唯一接受的来源和发送目标。
+必须先调用 `temperature_endpoint_init()`，因为 adapter 要从初始化后的 endpoint 取得 frame 大小上限和 envelope。
+
+随后，`UdpAdapter::open()` 持有 socket 与接收队列。它把 **quiesce** 钩子（关闭前停止活动并排空）挂到 endpoint 上。transport service、deadline 和 wait 也一起挂上。
+
+`set_peer()` 设定这条 link 唯一接受的来源和发送目标。
 
 这里有意使用数值地址和端口：该 adapter 只把一个固定 peer 接到 socket 上，不处理 DNS、发现或多客户端 server。要连接另一个 peer，应创建一个新的 endpoint。
 

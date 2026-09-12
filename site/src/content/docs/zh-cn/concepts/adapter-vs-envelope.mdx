@@ -26,7 +26,7 @@ envelope 和 integrity、payload 上限、transmission unit 上限一起组成 l
 ## 为什么要分开
 
 - 更换 socket 库或平台，但 transport 形态不变：只换 adapter，envelope 和消息都不用动。
-- 从 UDP 换成 UART：transport 形态从保边界包变成字节流，必须重新评估 envelope（UDP 常用 `native_packet`，UART 通常用 `cobs_stream`），integrity 策略也要重选。
+- 从 UDP 换成 UART 时，transport 形态从保边界包变成字节流。envelope 要重新评估：UDP 常用 `native_packet`，UART 通常用 `cobs_stream`。integrity 策略也要重选。
 - 修改应用消息：不改 adapter，也不改 envelope。
 
 已有 UDP 部署可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit；与它互通时要保留原有 profile。

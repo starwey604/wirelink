@@ -30,6 +30,49 @@ const DISCOURAGED = [
   },
 ];
 
+const SENTENCE_WARN = 70;
+const SENTENCE_STRONG_WARN = 100;
+const PARAGRAPH_WARN = 150;
+const PARAGRAPH_SENTENCES_WARN = 3;
+
+function visibleText(line) {
+  return line
+    .replace(/`[^`]*`/g, (span) => ' '.repeat(span.length))
+    .replace(/\]\([^)]*\)/g, ']')
+    .replace(/<https?:\/\/[^>]+>/g, ' ')
+    .replace(/\s/g, '');
+}
+
+function proseLengthWarnings(masked, warnings) {
+  masked.forEach((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    if (/^[#|`<:]/.test(trimmed)) return;
+    if (/^(?:import|export)\s/.test(trimmed)) return;
+
+    const visible = visibleText(line);
+    if (visible.length > PARAGRAPH_WARN) {
+      warnings.push(`${index + 1}: 段落约 ${visible.length} 字，考虑拆分`);
+    }
+
+    const sentences = trimmed
+      .split(/[。！？]+/)
+      .map((sentence) => visibleText(sentence))
+      .filter(Boolean);
+    if (sentences.length > PARAGRAPH_SENTENCES_WARN) {
+      warnings.push(`${index + 1}: 段落包含 ${sentences.length} 句，考虑拆分`);
+    }
+    for (const sentence of sentences) {
+      if (sentence.length > SENTENCE_STRONG_WARN) {
+        warnings.push(`${index + 1}: 句子约 ${sentence.length} 字，过长`);
+      } else if (sentence.length > SENTENCE_WARN) {
+        warnings.push(`${index + 1}: 句子约 ${sentence.length} 字，考虑拆分`);
+      }
+    }
+  });
+}
+
+
 function maskCode(lines) {
   const masked = [...lines];
   let inFrontmatter = lines.length > 0 && lines[0].trim() === '---';
@@ -94,6 +137,8 @@ function lintFile(file) {
       }
     }
   });
+
+  proseLengthWarnings(masked, warnings);
 
   return { errors, warnings };
 }

@@ -26,7 +26,9 @@ latest Telemetry {
 
 latest 保存最近收到的值。新值发布时，尚未读取的旧值会被替换，而不是排队等待。
 
-Wirelink 的实现使用三个固定 slot：producer 独占的 `back`、原子的 `middle` 和 consumer 独占的 `front`。producer 通过 release exchange 把新值从 `back` 放进 `middle`，consumer 通过 acquire exchange 把最新值移到 `front`。payload 因此可以是任意非原子 C 结构，全程不需要 heap，也不需要锁。普通生成端点的 `endpoint_read_<message>()` 会复制最新值并归还借用。
+Wirelink 的实现使用三个固定 slot：producer 独占的 `back`、原子的 `middle` 和 consumer 独占的 `front`。producer 通过 release exchange 把新值从 `back` 放进 `middle`，consumer 通过 acquire exchange 把最新值移到 `front`。
+
+payload 因此可以是任意非原子 C 结构，全程不需要 heap，也不需要锁。普通生成端点的 `endpoint_read_<message>()` 会复制最新值并归还借用。
 
 覆盖是 latest 的正常行为，不是错误。`coalesced` 计数记录了多少个未读值被新值合并。
 
