@@ -20,6 +20,9 @@ export default defineConfig({
       favicon: '/favicon.svg',
       disable404Route: true,
       customCss: ['./src/styles/custom.css'],
+      components: {
+        Sidebar: './src/components/Sidebar.astro',
+      },
       editLink: {
         baseUrl: 'https://github.com/starwey604/wirelink/edit/main/site/',
       },
@@ -42,8 +45,8 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: 'Learn',
-          translations: { 'zh-CN': '学习' },
+          label: 'Tutorials',
+          translations: { 'zh-CN': '教程' },
           items: [
             { slug: 'learn/environment-setup' },
             { slug: 'learn/getting-started' },
@@ -56,6 +59,21 @@ export default defineConfig({
             { slug: 'learn/udp-transport' },
             { slug: 'learn/zephyr-udp-subscriber' },
           ],
+        },
+        {
+          label: 'How-to',
+          translations: { 'zh-CN': '操作指南' },
+          items: [{ autogenerate: { directory: 'how-to' } }],
+        },
+        {
+          label: 'Concepts',
+          translations: { 'zh-CN': '概念' },
+          items: [{ autogenerate: { directory: 'concepts' } }],
+        },
+        {
+          label: 'Reference',
+          translations: { 'zh-CN': '参考' },
+          items: [{ autogenerate: { directory: 'reference' } }],
         },
       ],
     }),

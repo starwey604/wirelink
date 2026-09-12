@@ -1,0 +1,62 @@
+---
+title: 术语表
+description: Wirelink 常用术语的中英文对照、一句话定义和对应课程。
+sidebar:
+  order: 1
+---
+
+Wirelink 的术语大致分为三组：一组描述链路上的数据，一组描述应用如何保存数据，一组描述谁来推进 endpoint。本页集中列出它们的正式名称、一句话定义和对应课程。
+
+术语第一次出现在教程中时，正文会给出中文说明和英文正式名称；本页是后续查阅入口。API 标识符、结构体名和协议字段不翻译，直接使用源码中的写法。
+
+## 通信与投递
+
+| 术语 | 一句话定义 | 相关课程 |
+| --- | --- | --- |
+| **endpoint（通信端点）** | 生成的应用入口对象，持有消息 runtime、静态存储和 RPC 状态；应用通过它发送、读取和推进通信。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **schema（消息定义）** | `.wl` 文件中的消息名称、字段类型和稳定编号；两端从同一份 schema 生成相同的编解码代码。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **binding profile（消息使用配置）** | `.bind.wl` 文件中的使用声明，决定消息如何保留（`latest`、`fifo`、`send`）、请求与响应如何配成 RPC，以及端侧的 `envelope` 和 `rpc_role`。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **frame（帧）** | 链路上一次成帧传输的字节序列；一次 sink submit 对应一个完整 envelope。 | [通过 UDP 连接两个独立进程](../../learn/udp-transport/) |
+| **packet（数据包）** | core 处理的结构，由 base header、可选 extension、payload 和 integrity trailer 组成。 | [向设备请求计算结果](../../learn/request-a-result/) |
+| **envelope（链路封装方式）** | transport 上如何分隔前后两个完整 frame；UDP 使用 `native_packet`，字节流使用 `cobs_stream`。 | [通过 UDP 连接两个独立进程](../../learn/udp-transport/) |
+| **integrity（完整性校验）** | profile 选择的校验策略（`NONE`、`CRC16_CCITT_FALSE`、`CRC32C`），用于发现意外的字节损坏，不用于认证发送方。 | [通过 UDP 连接两个独立进程](../../learn/udp-transport/) |
+| **reliable delivery（可靠链路投递）** | 链路确认并重试的投递方式；它说明数据是否越过链路，不说明业务是否完成。 | [向设备请求计算结果](../../learn/request-a-result/) |
+| **unreliable delivery（不可靠投递）** | 不等待链路确认，也不因丢失重传。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **latest（最新值保留）** | 只保留最近收到的值；新值替换尚未读取的旧值。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **FIFO（先进先出保留）** | 有界、保序的队列；满时拒绝新数据，不丢弃最旧值。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **RPC（remote procedure call，远程过程调用）** | 一端发出请求，另一端处理并返回业务结果的交互。 | [向设备请求计算结果](../../learn/request-a-result/) |
+| **RPC 业务完成** | endpoint 交付最终结果的状态，可能是成功响应，也可能是业务拒绝、超时或取消；链路投递成功不等于业务完成。 | [向设备请求计算结果](../../learn/request-a-result/) |
+| **RPC 业务拒绝** | handler 明确返回非零业务状态，表示请求已经送达，但应用拒绝执行。 | [向设备请求计算结果](../../learn/request-a-result/) |
+| **session identity（会话身份）** | endpoint 每次初始化时取得的新身份，用来区分当前连接和旧连接遗留的延迟 frame；它不是设备地址、密钥或认证手段。 | [把 subscriber 移到 Zephyr](../../learn/zephyr-udp-subscriber/) |
+
+## 数据与生命周期
+
+| 术语 | 一句话定义 | 相关课程 |
+| --- | --- | --- |
+| **owned value（自持值）** | 生成的值把有界字符串和字节保存在结构体内部；普通赋值复制全部数据，副本的生命周期由应用变量决定。 | [在调用结束后保存设备信息](../../learn/save-device-info/) |
+| **borrowed view（借用视图）** | 字段指向其他对象拥有的存储；复制结构体只复制指针，数据只在接口规定的借用期间有效。 | [在调用结束后保存设备信息](../../learn/save-device-info/) |
+| **codec view（解码视图）** | 高级 handler 收到的解码结果，字段只借用到本次回调结束。 | [在 RPC handler 返回后再回复](../../learn/deferred-rpc/) |
+| **slot（存储位）** | `latest` 或 `fifo` 中保存一个值的固定存储位置；`latest` 用固定数量的 slot 完成无锁 SPSC 传递。 | [让显示端读取最新温度](../../learn/getting-started/) |
+| **WLC** | Wirelink 的 schema 编译器，读取 `.wl` 和 `.bind.wl` 文件并生成 C 源码。 | [配置开发环境](../../learn/environment-setup/) |
+| **codec（编解码）** | 生成的消息值类型，以及对应的编码和解码函数。 | [把 Wirelink 接入自己的 CMake 工程](../../learn/external-cmake-project/) |
+
+## 执行与所有权
+
+| 术语 | 一句话定义 | 相关课程 |
+| --- | --- | --- |
+| **owner** | 调用 `step()` 的循环或线程是 endpoint 的唯一 owner；所有推进、等待和关闭都应留在它上面。 | [在等待 RPC 时保持主循环运行](../../learn/async-rpc/) |
+| **step / owner pass（有界推进）** | `endpoint_step()` 执行一次有界工作：服务 adapter、解析收到的 frame、推进 deadline，并可能触发回调。 | [在等待 RPC 时保持主循环运行](../../learn/async-rpc/) |
+| **adapter（传输适配器）** | endpoint 与具体 transport 之间的桥梁，负责收发字节和等待唤醒，不创建线程。 | [通过 UDP 连接两个独立进程](../../learn/udp-transport/) |
+| **poll hint（推进提示）** | endpoint 给出的快照，说明是否已有工作以及距离最近协议 deadline 还有多久，用于决定有界等待时长。 | [通过 UDP 连接两个独立进程](../../learn/udp-transport/) |
+| **deferred reply（延迟回复）** | handler 先接下请求并保存 token，稍后由 owner 完成或拒绝。 | [在 RPC handler 返回后再回复](../../learn/deferred-rpc/) |
+| **token（回复凭据）** | Wirelink 为一次延迟请求创建的回复凭据；应用保存 token，用它完成或拒绝这次 RPC。 | [在 RPC handler 返回后再回复](../../learn/deferred-rpc/) |
+| **network provisioning（网络准备）** | 启动网络接口并设置地址与 route；Wirelink 不配置 PHY、不分配地址、不启动 DHCP。 | [把 subscriber 移到 Zephyr](../../learn/zephyr-udp-subscriber/) |
+
+## 容易混淆的概念
+
+- `latest` 说明保留哪个值；`reliable delivery` 说明链路是否确认投递。见 [latest 保留与可靠投递](../../concepts/latest-vs-reliable/)。
+- 链路投递成功不等于 RPC 业务完成。见 [链路投递与 RPC 业务完成](../../concepts/delivery-vs-completion/)。
+- `borrowed view` 描述数据能用多久；`owned value` 描述数据已经复制到调用方可控的存储。见 [borrowed view 与 owned value](../../concepts/borrowed-vs-owned/)。
+- endpoint 的推进线程不一定等于业务处理线程。见 [owner、推进线程与回调线程](../../concepts/owner-and-threads/)。
+- `adapter` 连接传输接口；`envelope` 定义字节如何封装。见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/)。
+- `session identity` 标识一次通信实例，不是设备地址、密钥或版本号。见 [session identity 与会话隔离](../../concepts/session-identity/)。

@@ -8,11 +8,9 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-上一课的计算器响应只有一个整数。设备信息更能体现数据生命周期：用户界面可能需要保存
-设备名称和固件版本，同时让通信继续运行，或者在通信结束后继续显示它们。
+上一课的计算器响应只有一个整数。设备信息更能体现数据生命周期：用户界面可能需要保存设备名称和固件版本，同时让通信继续运行，或者在通信结束后继续显示它们。
 
-Wirelink 的普通生成 endpoint API 返回 **owned value（自持值）**。有界字符串保存在生成的
-C 结构体内部，因此应用可以复制整个值，并决定这份副本能使用多久。
+Wirelink 的普通生成 endpoint API 返回 **owned value（自持值）**。有界字符串保存在生成的 C 结构体内部，因此应用可以复制整个值，并决定这份副本能使用多久。
 
 **完成本课后，你能够：**
 
@@ -23,8 +21,7 @@ C 结构体内部，因此应用可以复制整个值，并决定这份副本能
 
 ## 开始之前
 
-请先完成[向设备请求计算结果](../request-a-result/)。继续使用同一个仓库和
-`build/tutorials` 构建目录。
+请先完成[向设备请求计算结果](../request-a-result/)。继续使用同一个仓库和 `build/tutorials` 构建目录。
 
 更新源码后，重新构建教程程序：
 
@@ -53,21 +50,17 @@ current name=demo-sensor firmware=dev query=2
 saved after close name=demo-sensor firmware=dev query=1
 ```
 
-第一行是第二次响应。客户端随后清空这个响应并关闭 endpoint，才在第二行打印第一次响应。
-保存值仍然包含 query 1 和两个字符串。
+第一行是第二次响应。客户端随后清空这个响应并关闭 endpoint，才在第二行打印第一次响应。保存值仍然包含 query 1 和两个字符串。
 
 完成本课末尾的练习之前，请保持服务端运行。
 
 :::note[Windows 程序路径]
-Visual Studio 多配置构建会把这些程序放在
-`build/tutorials/examples/02_device_info/Release/` 下，并添加 `.exe` 后缀。
+Visual Studio 多配置构建会把这些程序放在 `build/tutorials/examples/02_device_info/Release/` 下，并添加 `.exe` 后缀。
 :::
 
 ## 为字符串规定上限
 
-示例在
-[`device_info.wl`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/device_info.wl)
-中定义业务数据：
+示例在 [`device_info.wl`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/device_info.wl) 中定义业务数据：
 
 ```text
 version 1;
@@ -81,11 +74,9 @@ message InfoResponse @id(31) {
 }
 ```
 
-空的 `InfoRequest` 表示“描述当前设备”，不需要添加占位字段。`InfoResponse` 提供设备名称、
-固件版本和一个演示用计数器。
+空的 `InfoRequest` 表示「描述当前设备」，不需要添加占位字段。`InfoResponse` 提供设备名称、固件版本和一个演示用计数器。
 
-`string<31>` 为 `name` 保留最多 31 个 UTF-8 字节。它不是 31 个字符，也不会在运行时
-动态分配内存。生成值包含 `name.length` 和固定容量的 `name.data` 数组。
+`string<31>` 为 `name` 保留最多 31 个 UTF-8 字节。它不是 31 个字符，也不会在运行时动态分配内存。生成值包含 `name.length` 和固定容量的 `name.data` 数组。
 
 binding 仍然是上一课已经学过的可靠 RPC：
 
@@ -98,8 +89,7 @@ rpc GetInfo {
 
 ## 填写自持响应
 
-[`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/server.c)
-中的 handler 把文本复制到生成响应中：
+[`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/server.c) 中的 handler 把文本复制到生成响应中：
 
 ```c
 const char name[] = "demo-sensor";
@@ -115,23 +105,19 @@ response->query_count = ++*queries;
 return 0;
 ```
 
-每个 required 字段都获得了值，并设置对应的 presence 标志。`sizeof` 减一会排除 C 字符串
-末尾的终止符；length 只记录 schema 字段实际发送的字节。
+每个 required 字段都获得了值，并设置对应的 presence 标志。`sizeof` 减一会排除 C 字符串末尾的终止符；length 只记录 schema 字段实际发送的字节。
 
-这两个固定文本都没有超过声明上限。如果文本来自外部输入，复制到生成数组前必须先检查
-它的字节长度。
+这两个固定文本都没有超过声明上限。如果文本来自外部输入，复制到生成数组前必须先检查它的字节长度。
 
 ## 保存第一次结果
 
-[`client.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/client.c)
-中的关键行使用普通 C 结构体赋值：
+[`client.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/client.c) 中的关键行使用普通 C 结构体赋值：
 
 ```c
 const info_response_value_t saved = response;
 ```
 
-这个生成值直接包含字符串数组。赋值会连同 length、presence 标志和数组中保存的字节一起
-复制。`saved` 不会反向指向 `response` 或 endpoint。
+这个生成值直接包含字符串数组。赋值会连同 length、presence 标志和数组中保存的字节一起复制。`saved` 不会反向指向 `response` 或 endpoint。
 
 随后，客户端会主动改变所有看起来可能仍然持有第一次结果的对象：
 
@@ -145,24 +131,20 @@ CHECK(device_info_endpoint_close(&client) == WL_OK);
 example_udp_close(udp);
 ```
 
-第二次调用把 query 2 写入 `response`。清理这个变量会重置其字段，关闭 endpoint 会释放
-通信状态。这些操作都不会修改 `saved`，所以最后仍能从中打印 query 1。
+第二次调用把 query 2 写入 `response`。清理这个变量会重置其字段，关闭 endpoint 会释放通信状态。这些操作都不会修改 `saved`，所以最后仍能从中打印 query 1。
 
-保存结果的有效期与 `saved` 这个 C 变量相同。如果它是局部变量，函数返回后，它的生命周期
-仍然会结束。
+保存结果的有效期与 `saved` 这个 C 变量相同。如果它是局部变量，函数返回后，它的生命周期仍然会结束。
 
 ## 区分自持值与借用视图
 
-Wirelink 的高级接口还可能暴露 **borrowed view（借用视图）**，其中的字段指向已有的接收
-或 runtime 存储。复制 view 结构体只会复制指针，不会复制指针指向的字节。
+Wirelink 的高级接口还可能暴露 **borrowed view（借用视图）**，其中的字段指向已有的接收或 runtime 存储。复制 view 结构体只会复制指针，不会复制指针指向的字节。
 
 | 形式 | 字段数据保存在哪里 | 可以使用多久 |
 | --- | --- | --- |
 | 自持 `*_value_t` | 生成值内部 | 与这个 C 变量的生命周期相同 |
 | borrowed view | 由其他对象拥有的存储 | 仅限接口规定的借用期间 |
 
-有界复制适合应用时，使用普通生成 endpoint API。高级 callback 如果提供 borrowed view，
-而应用需要在 callback 返回后继续使用数据，应在返回前把所需字节复制到自有存储。
+有界复制适合应用时，使用普通生成 endpoint API。高级 callback 如果提供 borrowed view，而应用需要在 callback 返回后继续使用数据，应在返回前把所需字节复制到自有存储。
 
 <MultipleChoice
   id="owned-response-lifetime-zh-cn"
@@ -220,8 +202,7 @@ Wirelink 的高级接口还可能暴露 **borrowed view（借用视图）**，�
 const char name[] = "lab-temperature-sensor";
 ```
 
-重新构建并运行客户端。新名称应同时出现在两行输出中，而 saved 和 current 的 query 编号
-仍然不同。`sizeof(name) - 1U` 会让保存的字节长度自动跟随这个固定文本变化。
+重新构建并运行客户端。新名称应同时出现在两行输出中，而 saved 和 current 的 query 编号仍然不同。`sizeof(name) - 1U` 会让保存的字节长度自动跟随这个固定文本变化。
 
 <Checklist
   id="save-device-info-zh-cn"

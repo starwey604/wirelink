@@ -8,11 +8,9 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-同步计算器调用会一直等待结果。命令行程序这样写很方便，但用户界面或设备主循环可能还要
-处理输入、刷新画面或执行控制任务，不能在等待期间停下来。
+同步计算器调用会一直等待结果。命令行程序这样写很方便，但用户界面或设备主循环可能还要处理输入、刷新画面或执行控制任务，不能在等待期间停下来。
 
-异步 RPC 把两个时刻分开：应用现在**提交调用**，稍后再收到**完成通知**。服务端和线上
-消息保持不变。
+异步 RPC 把两个时刻分开：应用现在**提交调用**，稍后再收到**完成通知**。服务端和线上消息保持不变。
 
 **完成本课后，你能够：**
 
@@ -23,8 +21,7 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 ## 开始之前
 
-请先完成[在调用结束后保存设备信息](../save-device-info/)。本课会复用此前 RPC 课程中的
-计算器 schema、服务端和 `build/tutorials` 构建目录。
+请先完成[在调用结束后保存设备信息](../save-device-info/)。本课会复用此前 RPC 课程中的计算器 schema、服务端和 `build/tutorials` 构建目录。
 
 更新源码后重新构建：
 
@@ -58,8 +55,7 @@ RPC completion received
 
 这里没有创建后台线程。两行输出之间的应用主循环会持续推进 endpoint，直到回调执行。
 
-本地提交与最终完成之间依赖应用主动推进。真实运行中可能需要调用多次 `step()`；下图只
-画出发送请求和接收结果的两次关键调用：
+本地提交与最终完成之间依赖应用主动推进。真实运行中可能需要调用多次 `step()`；下图只画出发送请求和接收结果的两次关键调用：
 
 ```mermaid
 sequenceDiagram
@@ -71,17 +67,11 @@ sequenceDiagram
 
   App->>Client: add_async(request, completed)
   Client-->>App: WL_OK（本地已接受）
-  App->>App: 继续执行其他主循环工作
-  App->>Client: step()
-  Client->>Server: Add 请求
-  Server-->>Client: 响应或拒绝
-  App->>Client: step()
-  Client-->>App: completed(result, response)
+App->>App: 继续执行其他主循环工作 App->>Client: step() Client->>Server: Add 请求 Server-->>Client: 响应或拒绝 App->>Client: step() Client-->>App: completed(result, response)
 ```
 
 :::note[Windows 程序路径]
-Visual Studio 多配置构建会把程序放在
-`build/tutorials/examples/01_rpc/Release/` 下，并添加 `.exe` 后缀。
+Visual Studio 多配置构建会把程序放在 `build/tutorials/examples/01_rpc/Release/` 下，并添加 `.exe` 后缀。
 :::
 
 ## 对比两种调用方式
@@ -93,8 +83,7 @@ Visual Studio 多配置构建会把程序放在
 | `calculator_endpoint_add_sync()` | 调用结束以后 | 函数返回结果与响应参数 |
 | `calculator_endpoint_add_async()` | 本地提交以后 | 稍后执行的完成回调 |
 
-异步提交不是发出后不管。一次已接受调用仍然需要存活的 endpoint、持续推进，以及在完成或
-有序关闭前始终有效的应用状态。
+异步提交不是发出后不管。一次已接受调用仍然需要存活的 endpoint、持续推进，以及在完成或有序关闭前始终有效的应用状态。
 
 ## 为稍后的结果准备状态
 
@@ -108,11 +97,9 @@ typedef struct {
 } addition_t;
 ```
 
-`done` 告诉主循环何时停止等待；`result` 记录成功、拒绝、超时、取消或失败；调用成功时，
-自持 `response` 保存计算结果。
+`done` 告诉主循环何时停止等待；`result` 记录成功、拒绝、超时、取消或失败；调用成功时，自持 `response` 保存计算结果。
 
-这个 `addition_t` 变量一直存在于 `main()` 中，直到 endpoint 关闭以后，因此 callback
-context 可以安全地指向它。
+这个 `addition_t` 变量一直存在于 `main()` 中，直到 endpoint 关闭以后，因此 callback context 可以安全地指向它。
 
 ## 在回调中复制完成结果
 
@@ -130,8 +117,7 @@ static void completed(void *context, const wl_rpc_completion_t *result,
 }
 ```
 
-`result` 和 `response` 指针只在本次回调期间有效。回调返回前会复制两个值，沿用上一课学习的
-自持值语义。非成功结果没有响应，因此必须先检查空指针，再复制 response。
+`result` 和 `response` 指针只在本次回调期间有效。回调返回前会复制两个值，沿用上一课学习的自持值语义。非成功结果没有响应，因此必须先检查空指针，再复制 response。
 
 让完成回调保持简短：记录结果，然后由 owner 主循环决定下一步操作。
 
@@ -146,12 +132,9 @@ puts("RPC submitted; main loop continues");
 fflush(stdout);
 ```
 
-`calculator_endpoint_add_async()` 会在返回前保存请求快照。返回 `WL_OK` 表示本地 endpoint
-已经接受这份快照；只要继续推进 endpoint 或有序关闭，应用之后会收到一次完成通知。
-它不表示设备已经成功处理请求。
+`calculator_endpoint_add_async()` 会在返回前保存请求快照。返回 `WL_OK` 表示本地 endpoint 已经接受这份快照；只要继续推进 endpoint 或有序关闭，应用之后会收到一次完成通知。它不表示设备已经成功处理请求。
 
-如果提交返回错误，例如本地队列已满，就没有调用被接受，之后也不会执行完成回调。最后的
-`NULL` 表示本例不需要用于主动取消的调用句柄。
+如果提交返回错误，例如本地队列已满，就没有调用被接受，之后也不会执行完成回调。最后的 `NULL` 表示本例不需要用于主动取消的调用句柄。
 
 | 观察位置 | 它能说明什么 |
 | --- | --- |
@@ -194,15 +177,11 @@ while (!addition.done && example_running()) {
 }
 ```
 
-`calculator_endpoint_step()` 执行一次有界推进：服务传输、处理收到的数据、推进 deadline，
-并可能调用完成回调。随后 `example_udp_wait()` 会等待 UDP 就绪或短暂超时；仅仅等待不会
-推进 Wirelink。
+`calculator_endpoint_step()` 执行一次有界推进：服务传输、处理收到的数据、推进 deadline，并可能调用完成回调。随后 `example_udp_wait()` 会等待 UDP 就绪或短暂超时；仅仅等待不会推进 Wirelink。
 
-调用 `step()` 的循环或线程是 endpoint 的唯一 **owner**。所有 endpoint 推进都应留在这个
-owner 上。不要从完成回调中递归调用 `step()`、同步 RPC 或 `close()`。
+调用 `step()` 的循环或线程是 endpoint 的唯一 **owner**。所有 endpoint 推进都应留在这个 owner 上。不要从完成回调中递归调用 `step()`、同步 RPC 或 `close()`。
 
-如果 Ctrl+C 在调用未完成时停止循环，生成的 close 操作会先投递最终通知，再释放 UDP
-adapter。
+如果 Ctrl+C 在调用未完成时停止循环，生成的 close 操作会先投递最终通知，再释放 UDP adapter。
 
 <MultipleChoice
   id="async-needs-progress-zh-cn"
@@ -245,8 +224,7 @@ RPC completion received
 addition rejected: status=1
 ```
 
-客户端从同步改成异步以后，服务端和 `WL_RPC_REJECTED` 的含义没有变化。改变的是控制权何时
-返回，以及客户端从哪里取得最终结果。
+客户端从同步改成异步以后，服务端和 `WL_RPC_REJECTED` 的含义没有变化。改变的是控制权何时返回，以及客户端从哪里取得最终结果。
 
 ## 添加一项主循环工作
 
@@ -256,8 +234,7 @@ addition rejected: status=1
 printf("owner passes=%u\n", passes);
 ```
 
-具体次数取决于调度和网络时序，不要断言一个固定值。只要结果大于零，就能确认应用控制的
-owner pass 确实发生在提交和最终结果之间。
+具体次数取决于调度和网络时序，不要断言一个固定值。只要结果大于零，就能确认应用控制的 owner pass 确实发生在提交和最终结果之间。
 
 <Checklist
   id="async-rpc-zh-cn"
@@ -273,5 +250,4 @@ owner pass 确实发生在提交和最终结果之间。
 
 ## 下一步
 
-继续学习[在 RPC handler 返回后再回复](../deferred-rpc/)，让服务端现在接下请求、稍后再
-完成，同时避免耗时业务阻塞 endpoint owner。
+继续学习[在 RPC handler 返回后再回复](../deferred-rpc/)，让服务端现在接下请求、稍后再完成，同时避免耗时业务阻塞 endpoint owner。

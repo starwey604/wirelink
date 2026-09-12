@@ -1,0 +1,48 @@
+---
+title: owner、推进线程与回调线程
+description: 解释谁推进 endpoint、回调在哪里运行，以及等待和推进行为的区别。
+sidebar:
+  order: 4
+---
+
+Wirelink 不创建线程。谁调用 `step()`，谁就是 endpoint 的 owner。这一点决定了哪些代码可以放在哪里，也解释了为什么等待 socket 就绪不会触发业务逻辑。
+
+## 谁是 owner
+
+调用 `endpoint_step()` 的循环或线程是 endpoint 的唯一 owner。推进、hint 查询、等待和关闭都应留在它上面。core 没有隐藏线程：Wirelink 不为 endpoint 创建后台工作线程，也不启动 worker。
+
+## 一次 owner pass 做什么
+
+`endpoint_step()` 执行一次有界推进：服务 adapter、解析收到的 frame、推进协议 deadline、分发 handler、回收完成，并可能调用完成回调。每次调用只完成有限工作量，然后把控制权交还应用。
+
+## 等待不是推进
+
+adapter 的 `wait_for_activity()` 只等待 socket 就绪或超时。它不接收、不解析数据，也不调用回调。就绪通知只表示下一轮可以推进。
+
+`wl_endpoint_get_hint()` 给出一个快照：是否已经有待处理工作，以及距离最近协议 deadline 还有多久。owner 用它和自身时间上限共同决定最多等待多久。等待因此是有界的，owner 可以休眠，而不是 busy-spin。
+
+## 回调在哪个线程运行
+
+完成回调和业务 handler 都在 owner 调用 `step()` 的同一个线程上运行。因此回调应保持简短，并遵守几条规则：
+
+- 不要从回调递归调用 `step()`、同步 RPC 或 `close()`。
+- 需要执行耗时任务时使用延迟回复，由 worker 发布结果，再由 owner 完成调用。
+- 唤醒只负责通知 owner，真正的解析和分派仍发生在下一次 `step()`。
+
+## 有后台线程时
+
+如果应用已经有后台执行器，同步入口可以通过代理把调用提交给 owner：业务线程照常调用 `*_sync()`，由 executor 的 owner 线程负责推进和完成。规则不变，只有 owner 提交、推进、完成或关闭 RPC。在 owner 回调中再发起同步调用会返回 `REENTRANT`。
+
+executor、endpoint 和 adapter 必须保持存活，直到停止完成且所有业务调用线程退出。
+
+## 常见误解
+
+- 「adapter 有后台线程，所以我不需要推进。」——Asio UDP adapter 不创建后台线程，解析和分派仍由 owner 的 `step()` 完成。
+- 「回调里可以直接关闭 endpoint。」——close 要留在 owner 安全点，不能在回调中递归执行。
+- 「两个线程都调用 `step()` 会更快。」——不行，同一个 endpoint 的所有调用属于同一个 owner。
+
+## 继续阅读
+
+- 异步调用：[在等待 RPC 时保持主循环运行](../../learn/async-rpc/)
+- UDP 与等待：[通过 UDP 连接两个独立进程](../../learn/udp-transport/)
+- 集中查阅：[术语表](../../reference/glossary/)

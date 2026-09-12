@@ -8,8 +8,7 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-测温设备不断产生读数，显示端只关心当前温度。本课使用两个独立程序，通过本机 UDP
-交换这个值。不需要开发板，也不需要虚拟串口。
+测温设备不断产生读数，显示端只关心当前温度。本课使用两个独立程序，通过本机 UDP 交换这个值。不需要开发板，也不需要虚拟串口。
 
 **完成本课后，你能够：**
 
@@ -19,8 +18,7 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 ## 开始之前
 
-请先完成[开发环境配置](../environment-setup/)。上一课会一次安装并验证下文需要的
-编译器、CMake、Cargo、WLC 和 standalone Asio。后续命令都在 Wirelink 仓库根目录执行。
+请先完成[开发环境配置](../environment-setup/)。上一课会一次安装并验证下文需要的编译器、CMake、Cargo、WLC 和 standalone Asio。后续命令都在 Wirelink 仓库根目录执行。
 
 ## 构建示例
 
@@ -33,8 +31,7 @@ cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
 cmake --build build/tutorials --config Release --parallel
 ```
 
-CMake 会从上一课准备好的环境中找到 `wlc` 和 Asio，并在生成任何 C 源码前检查 WLC
-版本和生成代码 ABI。
+CMake 会从上一课准备好的环境中找到 `wlc` 和 Asio，并在生成任何 C 源码前检查 WLC 版本和生成代码 ABI。
 
 ## 运行两个 endpoint
 
@@ -60,11 +57,9 @@ latest sample=4 temperature=23.50 C
 latest sample=5 temperature=23.50 C
 ```
 
-UDP 不保证送达，因此中间采样不一定全部出现。订阅端收到第 5 个采样后退出；十秒内没有
-收到则报告超时。
+UDP 不保证送达，因此中间采样不一定全部出现。订阅端收到第 5 个采样后退出；十秒内没有收到则报告超时。
 
-链路和接收端会分别作出决定。UDP 链路上可能丢失采样；采样到达以后，`latest` 存储位会
-用新值替换旧值：
+链路和接收端会分别作出决定。UDP 链路上可能丢失采样；采样到达以后，`latest` 存储位会用新值替换旧值：
 
 ```mermaid
 flowchart LR
@@ -80,15 +75,12 @@ flowchart LR
 ```
 
 :::note[Windows 程序路径]
-Visual Studio 多配置构建会把程序放在 `Release` 目录，例如
-`build/tutorials/examples/00_telemetry/Release/telemetry_subscriber.exe`。
+Visual Studio 多配置构建会把程序放在 `Release` 目录，例如 `build/tutorials/examples/00_telemetry/Release/telemetry_subscriber.exe`。
 :::
 
 ## 描述消息
 
-示例在
-[`telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl)
-中定义数据：
+示例在 [`telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl) 中定义数据：
 
 ```text
 version 1;
@@ -99,14 +91,11 @@ message Telemetry @id(10) {
 }
 ```
 
-这份 **schema（消息定义）** 给两个 endpoint 提供相同的字段名、类型和稳定编号。
-endpoint 编码这些字段，而不是直接发送 C 结构体的内存布局。
+这份 **schema（消息定义）** 给两个 endpoint 提供相同的字段名、类型和稳定编号。endpoint 编码这些字段，而不是直接发送 C 结构体的内存布局。
 
 ## 选择如何保留收到的值
 
-配套的
-[`telemetry.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.bind.wl)
-包含两个独立选择：
+配套的 [`telemetry.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.bind.wl) 包含两个独立选择：
 
 ```text
 profile version 1;
@@ -119,8 +108,7 @@ latest Telemetry {
 - `latest Telemetry` 保留最后收到的值，新值会替换尚未读取的旧值。
 - `delivery = unreliable` 不等待链路确认，也不因丢失而重传。
 
-latest 值保留描述数据**收到以后**如何保存。unreliable 投递描述数据在**链路上**如何发送。
-温度会持续刷新，通常可以容忍某个中间读数丢失，所以本例把两者组合使用。
+latest 值保留描述数据**收到以后**如何保存。unreliable 投递描述数据在**链路上**如何发送。温度会持续刷新，通常可以容忍某个中间读数丢失，所以本例把两者组合使用。
 
 <MultipleChoice
   id="latest-versus-delivery-zh-cn"
@@ -148,10 +136,7 @@ latest 值保留描述数据**收到以后**如何保存。unreliable 投递描�
 
 ## 做一次修改
 
-打开
-[`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)，
-把 `value.temperature_centi_c` 从 `2350` 改为 `2410`。重新构建并运行两个程序，显示端应输出
-`24.10 C`。
+打开 [`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)，把 `value.temperature_centi_c` 从 `2350` 改为 `2410`。重新构建并运行两个程序，显示端应输出 `24.10 C`。
 
 这个变化说明生成的消息携带了应用数据；它没有改变值保留或投递策略。
 
@@ -168,5 +153,4 @@ latest 值保留描述数据**收到以后**如何保存。unreliable 投递描�
 
 ## 下一步
 
-当控制端需要取得某次操作对应的结果，而不是读取当前保留值时，继续学习
-[向设备请求计算结果](../request-a-result/)。
+当控制端需要取得某次操作对应的结果，而不是读取当前保留值时，继续学习[向设备请求计算结果](../request-a-result/)。

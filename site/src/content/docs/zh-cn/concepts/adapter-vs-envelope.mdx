@@ -1,0 +1,50 @@
+---
+title: adapter 与 envelope
+description: 区分「连接平台 transport」和「在 transport 上分隔 frame」两件不同的事。
+sidebar:
+  order: 5
+---
+
+把 UDP 换成串口时，要改的是哪一层？为什么更换 transport 必须重新评估 envelope，而修改消息字段不用？原因在于 adapter 和 envelope 负责不同的事。
+
+## adapter：连接平台 transport
+
+adapter 是 endpoint 与具体 transport 之间的桥梁。它负责收发字节、发布接收到的数据、报告发送完成、唤醒 owner，并在关闭时 quiesce。例子包括 Asio UDP adapter、Zephyr socket adapter 和 loopback adapter。
+
+adapter 拥有自己的 socket 和接收存储，不创建线程，也不决定字节如何分帧。普通生成端点的 `step()` 会自动 service 已挂接的 adapter，不需要额外手动调用。
+
+## envelope：定义字节如何封装
+
+envelope 是 transport 上的封装形式，决定如何分隔前后两个完整 frame：
+
+- `native_packet`：一次 sink submit 恰好对应一个保边界的 datagram 或事务。UDP 用它把一个 Wirelink frame 映射为一个 datagram。
+- `cobs_stream`：用 delimiter 分隔 frame，可以重新同步，适合 UART 这类字节流。
+- `bus_length16`：使用长度前缀，适合事务型总线。
+
+envelope 和 integrity、payload 上限、transmission unit 上限一起组成 link profile。两端必须带外约定兼容 profile，v1 不在线协商。
+
+## 为什么要分开
+
+- 更换 socket 库或平台，但 transport 形态不变：只换 adapter，envelope 和消息都不用动。
+- 从 UDP 换成 UART：transport 形态从保边界包变成字节流，必须重新评估 envelope（UDP 常用 `native_packet`，UART 通常用 `cobs_stream`），integrity 策略也要重选。
+- 修改应用消息：不改 adapter，也不改 envelope。
+
+已有 UDP 部署可能为了兼容，每个 datagram 携带一个完整 `cobs_stream` unit；与它互通时要保留原有 profile。
+
+## 边界与失败模式
+
+- adapter 会拒绝空、超长和来源不符的 datagram，不把截断的前缀交给协议解析。
+- envelope 不匹配时无法解析，也不会自动探测或回退。
+- 来源端口过滤和 CRC 都不认证发送方，认证是单独一层。
+- `set_peer()` 固定一条 link 唯一接受的来源，它不负责 DNS、发现或多客户端 server。
+
+## 常见误解
+
+- 「envelope 由 adapter 决定。」——adapter 映射 transport，envelope 来自 profile；两者由不同的配置选择。
+- 「换传输只要换 socket 就行。」——transport 形态变化时，envelope 和 integrity 也要一起评估。
+
+## 继续阅读
+
+- UDP 与 native packet：[通过 UDP 连接两个独立进程](../../learn/udp-transport/)
+- Zephyr 接入：[把 subscriber 移到 Zephyr](../../learn/zephyr-udp-subscriber/)
+- 集中查阅：[术语表](../../reference/glossary/)

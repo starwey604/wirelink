@@ -17,6 +17,19 @@ Build and check the static site with:
 npm run build
 ```
 
+## Chinese documentation checks
+
+The rules in [`../docs/documentation-style-guide-cn.md`](../docs/documentation-style-guide-cn.md)
+are enforced by scripts in `scripts/`:
+
+```sh
+npm run check:docs   # CI: hard-wrapped paragraphs, curly quotes, term/phrasing hints
+npm run fix:docs     # expand hard-wrapped paragraphs to one line per paragraph
+```
+
+`check:docs` errors block CI. Warnings (negation stacking, half-translated terms)
+need human review and do not block the build.
+
 The repository root also exposes the same build through CMake:
 
 ```sh

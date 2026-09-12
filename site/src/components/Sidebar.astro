@@ -1,0 +1,21 @@
+---
+import DefaultSidebar from '@astrojs/starlight/components/Sidebar.astro';
+
+const { starlightRoute } = Astro.locals;
+
+function pruneEmptyGroups(
+  entries: typeof starlightRoute.sidebar,
+): typeof starlightRoute.sidebar {
+  return entries
+    .map((entry) =>
+      entry.type === 'group'
+        ? { ...entry, entries: pruneEmptyGroups(entry.entries) }
+        : entry,
+    )
+    .filter((entry) => entry.type !== 'group' || entry.entries.length > 0);
+}
+
+starlightRoute.sidebar = pruneEmptyGroups(starlightRoute.sidebar);
+---
+
+<DefaultSidebar />

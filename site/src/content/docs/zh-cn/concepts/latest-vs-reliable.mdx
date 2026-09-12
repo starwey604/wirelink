@@ -1,0 +1,60 @@
+---
+title: latest 保留与可靠投递
+description: 区分「收到以后怎么保存」和「链路上是否确认送达」两件独立的事。
+sidebar:
+  order: 1
+---
+
+温度持续刷新时，订阅端可能来不及处理每一个采样。与此同时，UDP 链路可能直接丢掉某个数据报。两件事看起来都在说数据没了，但原因和应对方式完全不同：一个发生在链路，一个发生在接收以后的存储。
+
+## 两个独立的选择
+
+`getting-started` 里的 profile 同时做了两个决定：
+
+```text
+latest Telemetry {
+  delivery = unreliable;
+}
+```
+
+- `latest` 是**保留策略**，描述数据到达以后，接收端如何保存它。
+- `delivery = unreliable` 是**投递策略**，描述数据在链路上如何发送。
+
+两者作用在不同的层，可以自由组合。`latest` 加 `reliable` 表示链路上不丢帧，但应用只保留最新值；`fifo` 加 `unreliable` 表示链路可能丢帧，但到达的值按顺序排队。
+
+## latest 在接收端做什么
+
+latest 保存最近收到的值。新值发布时，尚未读取的旧值会被替换，而不是排队等待。
+
+Wirelink 的实现使用三个固定 slot：producer 独占的 `back`、原子的 `middle` 和 consumer 独占的 `front`。producer 通过 release exchange 把新值从 `back` 放进 `middle`，consumer 通过 acquire exchange 把最新值移到 `front`。payload 因此可以是任意非原子 C 结构，全程不需要 heap，也不需要锁。普通生成端点的 `endpoint_read_<message>()` 会复制最新值并归还借用。
+
+覆盖是 latest 的正常行为，不是错误。`coalesced` 计数记录了多少个未读值被新值合并。
+
+## reliable 在链路上做什么
+
+reliable delivery 让链路对每个 DATA 帧发送 ACK，超时后重传，并抑制重复帧。它的责任范围在链路两端之间。
+
+链路 ACK 证明可靠消息进入了对端的稳定 event storage，不表示应用 handler 已经执行，也不表示业务成功。这两者的区别见[链路投递与 RPC 业务完成](../delivery-vs-completion/)。
+
+## 边界与组合
+
+| 想要的保证 | 保留策略 | 投递策略 |
+| --- | --- | --- |
+| 只要当前值，允许中间值丢失 | `latest` | `unreliable` |
+| 每个值都要按顺序交给应用 | `fifo` | `reliable` |
+| 链路不能丢，但应用只关心最新 | `latest` | `reliable` |
+
+- latest 不保证应用按顺序看到每个值，它只保证读到的总是最近一次 publish。
+- reliable 不保证应用看到每一个值：如果接收端在应用读取前更新了 latest slot，未读值仍会被覆盖。
+- unreliable 也不保证 latest 一定收到值：链路仍可能丢帧。
+
+## 常见误解
+
+- 「用了 reliable，latest 就不会覆盖。」——可靠投递在链路结束；接收端的 latest 仍会在应用读取前合并新值。
+- 「latest 是 reliable 的轻量替代。」——两者解决的问题不同，不存在替代关系。
+
+## 继续阅读
+
+- 运行示例：[让显示端读取最新温度](../../learn/getting-started/)
+- 请求与响应：[向设备请求计算结果](../../learn/request-a-result/)
+- 集中查阅：[术语表](../../reference/glossary/)

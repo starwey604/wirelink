@@ -45,6 +45,10 @@ jobs:
         run: npm ci
         working-directory: site
 
+      - name: Check documentation style
+        run: npm run check:docs
+        working-directory: site
+
       - name: Check and build documentation
         run: npm run build
         working-directory: site

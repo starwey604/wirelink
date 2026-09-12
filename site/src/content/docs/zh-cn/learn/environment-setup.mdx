@@ -9,9 +9,7 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-Wirelink 应用是 C11 程序。WLC 是一个独立的主机工具，它先把 `.wl` 消息定义生成 C
-源码，再由 C 编译器构建应用。把这两部分一次配置好，后续课程就可以直接开始编写和运行
-Wirelink 程序。
+Wirelink 应用是 C11 程序。WLC 是一个独立的主机工具，它先把 `.wl` 消息定义生成 C 源码，再由 C 编译器构建应用。把这两部分一次配置好，后续课程就可以直接开始编写和运行 Wirelink 程序。
 
 **完成本课后，你能够：**
 
@@ -28,15 +26,12 @@ flowchart TB
   accTitle: Wirelink 构建路径
   accDescr: CMake 先运行 WLC，把 schema 转换成生成的 C 代码，再与应用和 Wirelink 核心一起编译。
   CMake["CMake 构建"] --> WLC["使用 WLC 处理 .wl schema"]
-  WLC --> Generated["生成的 C 源码与头文件"]
-  Generated --> Compiler["编译生成代码、应用源码与 Wirelink 核心"]
-  Compiler --> Program["Wirelink 应用"]
+WLC --> Generated["生成的 C 源码与头文件"] Generated --> Compiler["编译生成代码、应用源码与 Wirelink 核心"] Compiler --> Program["Wirelink 应用"]
 ```
 
 ## 安装本机构建工具
 
-最初几课需要 Git、CMake 3.21 或更新版本、C11 编译器、C++20 编译器，以及
-standalone Asio。选择与你的系统对应的命令。
+最初几课需要 Git、CMake 3.21 或更新版本、C11 编译器、C++20 编译器，以及 standalone Asio。选择与你的系统对应的命令。
 
 <Tabs syncKey="host-system">
   <TabItem label="Ubuntu / WSL">
@@ -68,9 +63,7 @@ standalone Asio。选择与你的系统对应的命令。
 </Tabs>
 
 :::note[原生 Windows]
-Wirelink 也支持 Visual Studio 2022。请安装 **Desktop development with C++** 工作负载，
-以及 Git、CMake 和 standalone Asio。学习路径使用 shell 命令；如果你还没有维护原生
-CMake 环境，使用 WSL 2 中的 Ubuntu 会更直接。
+Wirelink 也支持 Visual Studio 2022。请安装 **Desktop development with C++** 工作负载，以及 Git、CMake 和 standalone Asio。学习路径使用 shell 命令；如果你还没有维护原生 CMake 环境，使用 WSL 2 中的 Ubuntu 会更直接。
 :::
 
 现在检查编译器别名和 CMake。最后一个命令应显示 CMake 3.21 或更新版本：
@@ -83,8 +76,7 @@ cmake --version
 
 ## 安装 Rust 和 Cargo
 
-[Rustup](https://rust-lang.org/tools/install/) 会一起安装当前稳定版 Rust 工具链和 Cargo。
-在 Linux、WSL 或 macOS 中运行官方安装命令：
+[Rustup](https://rust-lang.org/tools/install/) 会一起安装当前稳定版 Rust 工具链和 Cargo。在 Linux、WSL 或 macOS 中运行官方安装命令：
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
@@ -97,8 +89,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 cargo --version
 ```
 
-原生 Windows 用户可以从同一个 Rust 页面运行 `rustup-init.exe`，然后重新打开
-PowerShell。Rustup 默认把命令安装到 `%USERPROFILE%\.cargo\bin`。
+原生 Windows 用户可以从同一个 Rust 页面运行 `rustup-init.exe`，然后重新打开 PowerShell。Rustup 默认把命令安装到 `%USERPROFILE%\.cargo\bin`。
 
 ## 安装匹配的 WLC 编译器
 
@@ -109,12 +100,10 @@ git -c core.autocrlf=false clone --branch v0.8.0 --depth 1 https://github.com/st
 cargo install --path paired-wlc --locked
 ```
 
-命令会把 `wlc` 可执行文件放入 Cargo 的二进制目录，通常是 `$HOME/.cargo/bin`。
-CMake 会从主机 `PATH` 中查找它，检查两个兼容性值，然后自动使用它。
+命令会把 `wlc` 可执行文件放入 Cargo 的二进制目录，通常是 `$HOME/.cargo/bin`。CMake 会从主机 `PATH` 中查找它，检查两个兼容性值，然后自动使用它。
 
 :::caution[请使用上面的本地源码安装命令]
-crates.io 上的 `wlc` 包名属于另一个 Wayland 项目。裸执行 `cargo install wlc` 不会安装
-Wirelink schema 编译器。
+crates.io 上的 `wlc` 包名属于另一个 Wayland 项目。裸执行 `cargo install wlc` 不会安装 Wirelink schema 编译器。
 :::
 
 验证安装结果：

@@ -1,0 +1,53 @@
+---
+title: borrowed view 与 owned value
+description: 说明数据由谁持有、副本如何复制，以及数据能用多久。
+sidebar:
+  order: 3
+---
+
+响应里的字符串存在哪里？RPC 结束、endpoint 关闭以后还能不能读？答案取决于拿到的是 owned value 还是 borrowed view。这两种形式在源码里长得相似，生命周期却完全不同。
+
+## owned value：数据在值内部
+
+普通生成 endpoint API 返回 `*_value_t`。有界字符串和字节保存在生成结构体内部，`length`、presence 标志和 `data` 数组一起构成一个自包含的值。
+
+普通 C 赋值会复制全部数据：
+
+```c
+const info_response_value_t saved = response;
+```
+
+赋值以后，`saved` 有自己的数组，不指向 `response`，也不指向 endpoint。`saved` 的生命周期等于这个 C 变量；如果它是局部变量，函数返回后生命周期就结束。如果 `saved` 是全局变量或静态存储，它可以一直用到程序结束，即使 endpoint 已经关闭。
+
+## borrowed view：字段指向别处
+
+高级接口可能暴露 borrowed view 或 codec view，其中的字段指向接收缓冲或 runtime 存储。复制结构体只复制指针，不复制指针指向的字节。
+
+借用有明确的窗口：
+
+- 完成回调收到的 `result` 和 `response` 指针只在本次回调期间有效；在回调内复制值或结构体赋值才会产生独立副本。
+- 高级 handler 收到的请求字段只借用到本次回调结束。
+- 服务端响应中的借用字段（schema 允许时）有效到调用释放。
+
+## 两种形式的对比
+
+| 形式 | 数据保存在哪里 | 能用多久 | 复制结构体意味着什么 |
+| --- | --- | --- | --- |
+| owned `*_value_t` | 生成值内部 | 该 C 变量的生命周期 | 复制 length、presence 和全部字节 |
+| borrowed view | 其他对象拥有的存储 | 接口规定的借用期间 | 只复制指针 |
+
+## 失败模式
+
+- 把 borrowed view 的指针保存到回调之外。回调返回后，存储可能已经被覆盖或释放。
+- 以为关闭 endpoint 会让 owned 副本失效。副本独立于 endpoint，关闭后仍然可用。
+- 对 view 做浅复制并当作长期存储。指针本身不会延长数据的生命周期。
+
+## 如何选择
+
+需要在回调或调用返回后继续使用数据时，用普通生成 endpoint API，或者在借用结束前把所需字节复制到应用自己的存储。只在回调内立即处理、且不想复制时，借用视图更合适。
+
+## 继续阅读
+
+- 运行示例：[在调用结束后保存设备信息](../../learn/save-device-info/)
+- 延迟回复：[在 RPC handler 返回后再回复](../../learn/deferred-rpc/)
+- 集中查阅：[术语表](../../reference/glossary/)

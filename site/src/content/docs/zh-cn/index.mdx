@@ -20,13 +20,11 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <span></span><i></i><span></span><i></i><span></span>
 </div>
 
-Wirelink 是一个不依赖动态分配的 C11 点对点协议引擎。它可以运行在串口、保留包边界的传输，
-或者应用自己提供的传输之上。你可以先在本机运行示例，再把相同的消息模型带到固件中。
+Wirelink 是一个不依赖动态分配的 C11 点对点协议引擎。它可以运行在串口、保留包边界的传输，或者应用自己提供的传输之上。你可以先在本机运行示例，再把相同的消息模型带到固件中。
 
 <CardGrid>
   <Card title="一次准备好工具" icon="add-document">
-    一次安装编译器、CMake、Cargo 和 WLC。后续课程从已经验证的工具链开始，不再重复
-    环境安装步骤。
+    一次安装编译器、CMake、Cargo 和 WLC。后续课程从已经验证的工具链开始，不再重复环境安装步骤。
   </Card>
   <Card title="保持资源有界" icon="setting">
     生成的 endpoint 使用显式存储和有界工作量。核心不占有线程、堆、硬件或时钟。

@@ -8,12 +8,9 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-上一课通过 UDP 连接了两个桌面进程。实际产品通常会把至少一个 peer 放到设备上；应用必须明确
-核算内存、网络初始化和平台资源。
+上一课通过 UDP 连接了两个桌面进程。实际产品通常会把至少一个 peer 放到设备上；应用必须明确核算内存、网络初始化和平台资源。
 
-本课保留桌面 publisher，只把 subscriber 移到 Zephyr。两端仍然从同一份
-`temperature.wl` 和 `temperature.bind.wl` 生成代码。平台 adapter 会改变，消息 API 和
-线上 profile 保持不变。
+本课保留桌面 publisher，只把 subscriber 移到 Zephyr。两端仍然从同一份 `temperature.wl` 和 `temperature.bind.wl` 生成代码。平台 adapter 会改变，消息 API 和线上 profile 保持不变。
 
 **完成本课后，你能够：**
 
@@ -24,8 +21,7 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 ## 开始之前
 
-请先完成[通过 UDP 连接两个独立进程](../udp-transport/)。保留
-`wirelink-temperature-app` 工程及其桌面构建。确认匹配的 `wlc` 仍可从 `PATH` 运行：
+请先完成[通过 UDP 连接两个独立进程](../udp-transport/)。保留 `wirelink-temperature-app` 工程及其桌面构建。确认匹配的 `wlc` 仍可从 `PATH` 运行：
 
 ```sh
 wlc --version
@@ -34,13 +30,9 @@ wlc codegen-abi
 
 预期值仍然是 `wlc 0.8.0` 和 ABI `32`。
 
-此外还需要 Zephyr 4.4.0 workspace 和 Zephyr SDK。**West workspace** 是包含 Zephyr、
-作为 manifest repository 的 Wirelink，以及 `west.yml` 所选 modules 的目录。如果你已经能
-在这样的 workspace 中运行 `west build`，请继续下一节。
+此外还需要 Zephyr 4.4.0 workspace 和 Zephyr SDK。**West workspace** 是包含 Zephyr、作为 manifest repository 的 Wirelink，以及 `west.yml` 所选 modules 的目录。如果你已经能在这样的 workspace 中运行 `west build`，请继续下一节。
 
-否则，先按照 Zephyr 官方的
-[主机依赖与 Python 环境配置](https://docs.zephyrproject.org/4.4.0/develop/getting_started/index.html)
-完成准备并激活该 Python 环境，再从 Wirelink manifest 初始化 workspace：
+否则，先按照 Zephyr 官方的[主机依赖与 Python 环境配置](https://docs.zephyrproject.org/4.4.0/develop/getting_started/index.html)完成准备并激活该 Python 环境，再从 Wirelink manifest 初始化 workspace：
 
 ```sh
 python -m pip install west
@@ -52,8 +44,7 @@ west packages pip --install
 west sdk install
 ```
 
-Wirelink manifest 固定使用 Zephyr `v4.4.0`。命令执行完毕后，本课使用的仓库位于
-`wirelink-workspace/wirelink`。
+Wirelink manifest 固定使用 Zephyr `v4.4.0`。命令执行完毕后，本课使用的仓库位于 `wirelink-workspace/wirelink`。
 
 ## 在桌面工程旁添加 Zephyr 应用
 
@@ -79,8 +70,7 @@ wirelink-temperature-app/
         └── main.c
 ```
 
-桌面与 Zephyr 构建会在各自的 build 目录中生成 C 文件。任何一端都不需要复制另一端的生成
-输出。
+桌面与 Zephyr 构建会在各自的 build 目录中生成 C 文件。任何一端都不需要复制另一端的生成输出。
 
 ## 把 Wirelink 载入为 Zephyr module
 
@@ -114,16 +104,11 @@ target_sources(app PRIVATE src/main.c)
 target_compile_options(app PRIVATE -Wall -Wextra -Werror)
 ```
 
-必须在 `find_package(Zephyr)` 之前设置 `ZEPHYR_EXTRA_MODULES`。随后，Zephyr 会通过
-`zephyr/module.yml` 载入 Wirelink 的 Kconfig 选项、core 源码、平台实现和 adapter include
-路径。
+必须在 `find_package(Zephyr)` 之前设置 `ZEPHYR_EXTRA_MODULES`。随后，Zephyr 会通过 `zephyr/module.yml` 载入 Wirelink 的 Kconfig 选项、core 源码、平台实现和 adapter include 路径。
 
-这样，Wirelink 就成为 **Zephyr module（外部功能模块）**：它通过元数据向应用加入构建文件、
-Kconfig 选项和公开头文件。
+这样，Wirelink 就成为 **Zephyr module（外部功能模块）**：它通过元数据向应用加入构建文件、Kconfig 选项和公开头文件。
 
-这里使用的两个 WLC 函数与桌面构建相同。把 codec 链接到 `zephyr_interface`，会让生成 C
-代码取得开发板编译选项和 Zephyr 头文件。把 `temperature_protocol` 链接到 `app`，则会把
-生成 endpoint、codec 和 Wirelink core 一同加入固件。
+这里使用的两个 WLC 函数与桌面构建相同。把 codec 链接到 `zephyr_interface`，会让生成 C 代码取得开发板编译选项和 Zephyr 头文件。把 `temperature_protocol` 链接到 `app`，则会把生成 endpoint、codec 和 Wirelink core 一同加入固件。
 
 ## 配置网络与 Wirelink 功能
 
@@ -162,12 +147,9 @@ CONFIG_MAIN_STACK_SIZE=4096
 | `CONFIG_NET_PKT_*` 和 `CONFIG_NET_BUF_*` | 供所有网络使用者共享的 Zephyr pool |
 | `CONFIG_WIRELINK_PLATFORM` 和 `CONFIG_WIRELINK_ZEPHYR_UDP` | Wirelink 的 Zephyr 时钟/session provider 与 UDP adapter |
 
-`CONFIG_NET_CONFIG_AUTO_INIT=n` 会把启动过程留在应用代码中。应用将在创建 endpoint 或 socket
-之前启动 IPv4。Wirelink 不配置 PHY、不分配地址、不选择 route，也不启动 DHCP。
-这里的 **network provisioning（网络准备）**是指启动接口，并设置应用预期的地址与 route。
+`CONFIG_NET_CONFIG_AUTO_INIT=n` 会把启动过程留在应用代码中。应用将在创建 endpoint 或 socket 之前启动 IPv4。Wirelink 不配置 PHY、不分配地址、不选择 route，也不启动 DHCP。这里的 **network provisioning（网络准备）**是指启动接口，并设置应用预期的地址与 route。
 
-这里使用的 `192.0.2.0/24` 是文档网络，只适合隔离的直连测试。开发板进入实际网络时，请使用
-该网络分配的有效地址。
+这里使用的 `192.0.2.0/24` 是文档网络，只适合隔离的直连测试。开发板进入实际网络时，请使用该网络分配的有效地址。
 
 ## 添加仅供模拟使用的熵源
 
@@ -178,11 +160,9 @@ CONFIG_MAIN_STACK_SIZE=4096
 CONFIG_TEST_RANDOM_GENERATOR=y
 ```
 
-Endpoint 每次初始化时都需要新的 **session identity（会话身份）**，以便区分当前连接与旧连接
-残留的延迟 frame。产品开发板必须为 `CONFIG_WIRELINK_PLATFORM` 提供真正的密码学安全随机源。
+Endpoint 每次初始化时都需要新的 **session identity（会话身份）**，以便区分当前连接与旧连接残留的延迟 frame。产品开发板必须为 `CONFIG_WIRELINK_PLATFORM` 提供真正的密码学安全随机源。
 
-`native_sim` 没有产品熵源，因此这个额外配置让构建与启动可以重复。硬件构建绝不能传入
-`sim.conf`。Session identity 也不能认证 peer；产品认证仍然属于单独的一层。
+`native_sim` 没有产品熵源，因此这个额外配置让构建与启动可以重复。硬件构建绝不能传入 `sim.conf`。Session identity 也不能认证 peer；产品认证仍然属于单独的一层。
 
 ## 编写设备 subscriber
 
@@ -271,17 +251,13 @@ int main(void) {
 }
 ```
 
-`WL_ZEPHYR_UDP_DEFINE()` 会在静态存储中预留 adapter 对象和两个完整 frame 的 RX slot。
-生成的 `TEMPERATURE_ENDPOINT_MAX_PAYLOAD` 常量把存储上限与实际 schema 绑定。Adapter 不创建
-线程，也不从 heap 分配。Zephyr socket 与 packet pool 是另一组共享资源，仍由 `prj.conf`
-配置。
+`WL_ZEPHYR_UDP_DEFINE()` 会在静态存储中预留 adapter 对象和两个完整 frame 的 RX slot。生成的 `TEMPERATURE_ENDPOINT_MAX_PAYLOAD` 常量把存储上限与实际 schema 绑定。Adapter 不创建线程，也不从 heap 分配。Zephyr socket 与 packet pool 是另一组共享资源，仍由 `prj.conf` 配置。
 
-设备 owner 循环比桌面 helper 更短，因为 `wl_zephyr_udp_wait()` 会在内部取得并合并 endpoint
-hint。它仍然只负责等待；之后的 `temperature_endpoint_step()` 才会接收、解析和分派工作。
+设备 owner 循环比桌面 helper 更短，因为 `wl_zephyr_udp_wait()` 会在内部取得并合并 endpoint hint。它仍然只负责等待；之后的 `temperature_endpoint_step()` 才会接收、解析和分派工作。
 
 <MultipleChoice
   id="zephyr-network-owner-zh-cn"
-  question="应用在 endpoint 初始化前输出“network unavailable”。此时首先应该检查哪一层？"
+  question="应用在 endpoint 初始化前输出「network unavailable」。此时首先应该检查哪一层？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个答案。"
   choices={[
@@ -308,8 +284,7 @@ hint。它仍然只负责等待；之后的 `temperature_endpoint_step()` 才会
 从前面创建的 `wirelink-workspace` 目录开始。使用主机原生 Zephyr board 构建这个外部应用：
 
 :::note[Linux 主机]
-`native_sim` 会生成 Linux executable。本节需要 Linux 主机或虚拟机；在 Zephyr 支持的其他
-主机上，仍可继续使用下方的硬件构建。
+`native_sim` 会生成 Linux executable。本节需要 Linux 主机或虚拟机；在 Zephyr 支持的其他主机上，仍可继续使用下方的硬件构建。
 :::
 
 ```sh
@@ -321,8 +296,7 @@ west build -p always -b native_sim/native/64 \
   -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
 ```
 
-CMake 会从 `PATH` 找到 `wlc`，生成共用的 Temperature codec/runtime，并与 Zephyr 应用一同
-编译。运行模拟器：
+CMake 会从 `PATH` 找到 `wlc`，生成共用的 Temperature codec/runtime，并与 Zephyr 应用一同编译。运行模拟器：
 
 ```sh
 ./build/temperature-subscriber/zephyr/zephyr.exe
@@ -336,10 +310,7 @@ WARNING: Using a test - not safe - entropy source
 subscriber ready on 192.0.2.2:49001
 ```
 
-使用 Ctrl+C 停止。这证明应用已经完成构建与启动，配置 IPv4，创建 session 并打开 adapter。
-要在没有硬件的情况下与主机交换 packet，还需要 TAP 接口；请按 Zephyr 官方的
-[native_sim 网络配置](https://docs.zephyrproject.org/latest/services/connectivity/networking/native_sim_setup.html)
-完成该环境。
+使用 Ctrl+C 停止。这证明应用已经完成构建与启动，配置 IPv4，创建 session 并打开 adapter。要在没有硬件的情况下与主机交换 packet，还需要 TAP 接口；请按 Zephyr 官方的 [native_sim 网络配置](https://docs.zephyrproject.org/latest/services/connectivity/networking/native_sim_setup.html)完成该环境。
 
 ## 观察固定 RX 分配
 
@@ -350,12 +321,9 @@ nm -S --size-sort build/temperature-subscriber/zephyr/zephyr.elf \
   | grep udp_rx_storage
 ```
 
-对于当前 schema 和两个 slot，size 列是 `0000000000000042`：十六进制 `0x42`，即 66 字节。
-这是 adapter 的 frame-slot 存储，不包含生成 endpoint 和 Zephyr 网络 pool。
+对于当前 schema 和两个 slot，size 列是 `0000000000000042`：十六进制 `0x42`，即 66 字节。这是 adapter 的 frame-slot 存储，不包含生成 endpoint 和 Zephyr 网络 pool。
 
-把 `WL_ZEPHYR_UDP_DEFINE()` 的最后一个参数从 `2` 改为 `3`，重新构建并运行同一条命令。
-Symbol 会在构建时变大。观察后将其恢复为 `2`。这个变化说明接收容量是明确的固件决策，不会
-因为运行时出现流量才进行分配。
+把 `WL_ZEPHYR_UDP_DEFINE()` 的最后一个参数从 `2` 改为 `3`，重新构建并运行同一条命令。Symbol 会在构建时变大。观察后将其恢复为 `2`。这个变化说明接收容量是明确的固件决策，不会因为运行时出现流量才进行分配。
 
 ## 让桌面程序接收网络地址
 
@@ -383,13 +351,11 @@ Symbol 会在构建时变大。观察后将其恢复为 `2`。这个变化说明
 +  CHECK(adapter->set_peer(argv[3], peer_port) == WL_OK);
 ```
 
-重新构建桌面工程。传入两次 `127.0.0.1`，仍然可以重复 localhost 测试。现在，这个程序无需
-修改消息或 adapter 生命周期，就能使用开发板地址。
+重新构建桌面工程。传入两次 `127.0.0.1`，仍然可以重复 localhost 测试。现在，这个程序无需修改消息或 adapter 生命周期，就能使用开发板地址。
 
 ## 与 Ethernet 开发板通信
 
-选择支持 Zephyr native IPv4 socket 的开发板，在 devicetree 与 Kconfig 中配置 Ethernet PHY、
-引脚、驱动和真实熵源。这个 adapter 不支持 socket offload。
+选择支持 Zephyr native IPv4 socket 的开发板，在 devicetree 与 Kconfig 中配置 Ethernet PHY、引脚、驱动和真实熵源。这个 adapter 不支持 socket offload。
 
 不要传入 `sim.conf`，把开发板名称替换为实际值后构建：
 
@@ -402,9 +368,7 @@ west build -p always -b YOUR_ETHERNET_BOARD \
 west flash -d build/temperature-board
 ```
 
-使用隔离直连时，把电脑 Ethernet 接口配置为 `192.0.2.1/24`，并允许 UDP 端口 `49000` 和
-`49001` 通过防火墙。固件使用 `192.0.2.2/24`。如果开发板不在隔离链路上，请使用所在网络
-分配的地址。
+使用隔离直连时，把电脑 Ethernet 接口配置为 `192.0.2.1/24`，并允许 UDP 端口 `49000` 和 `49001` 通过防火墙。固件使用 `192.0.2.2/24`。如果开发板不在隔离链路上，请使用所在网络分配的地址。
 
 打开开发板串口。看到 `subscriber ready on 192.0.2.2:49001` 后，运行桌面 publisher：
 
@@ -437,10 +401,7 @@ Unreliable latest-value delivery 可能省略中间某一行；sample 5 才是�
 | 开发板已 ready，却收不到值 | 检查主机/开发板地址、对调端口、route 和防火墙 |
 
 :::caution[功能通信不等于实时验收]
-Adapter 使用 nonblocking socket call，但测试过的 Zephyr native stack 在 packet pool 耗尽时
-仍可能等待约一秒。把这个 owner 循环用于实时控制路径前，应在产品开发板上测量 pool 容量、
-驱动行为、CPU 时间和延迟。当前限制与验证范围见
-[Zephyr UDP adapter 合同](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp-cn.md)。
+Adapter 使用 nonblocking socket call，但测试过的 Zephyr native stack 在 packet pool 耗尽时仍可能等待约一秒。把这个 owner 循环用于实时控制路径前，应在产品开发板上测量 pool 容量、驱动行为、CPU 时间和延迟。当前限制与验证范围见 [Zephyr UDP adapter 合同](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp-cn.md)。
 :::
 
 <Checklist
@@ -458,5 +419,4 @@ Adapter 使用 nonblocking socket call，但测试过的 Zephyr native stack 在
 
 ## 下一步
 
-下一课会主动中断并重启这条 link。你将观察 timeout 与 adapter counter，创建新的 endpoint
-session，并判断连接结果不明确时，哪些应用操作可以安全重试。
+下一课会主动中断并重启这条 link。你将观察 timeout 与 adapter counter，创建新的 endpoint session，并判断连接结果不明确时，哪些应用操作可以安全重试。

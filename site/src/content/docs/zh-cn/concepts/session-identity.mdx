@@ -1,0 +1,47 @@
+---
+title: session identity 与会话隔离
+description: 说明 endpoint 重建后如何区分新会话和旧连接遗留的数据。
+sidebar:
+  order: 6
+---
+
+endpoint 重建以后，一条旧连接遗留的延迟响应，可能和新连接的一次调用编号相同。如果没有办法区分两个通信实例，旧响应就会被当成新调用的结果。
+
+## session identity 是什么
+
+session identity（会话身份）标识一次通信实例。endpoint 每次初始化时从平台环境取得一个新的 64 位非零值。`wl_platform_environment()` 是默认来源；产品开发板必须提供真正的密码学安全随机源。
+
+session identity 不是设备地址、密钥或可比较大小的版本号。它在同一个初始化生命周期中保持不变，普通断连不会自动重建端点。
+
+## 它如何隔离旧数据
+
+托管 RPC 在元数据中携带原客户端 session，并与调用编号一起匹配响应：
+
+- 旧客户端实例的同号响应不能完成新实例的调用。
+- 可靠请求的元数据身份还必须与链路头一致。
+- 不匹配本地身份的响应只留下 `WL_RPC_ERR_SESSION_MISMATCH` 诊断，不终止其他调用。
+- 服务端按 peer session 划分 operation ID；session 变化时清理旧 session 的 pending 和 cache，并设置 `detail.rpc.peer_changed`。
+
+## 边界
+
+session identity 不是认证，不保证任意旧请求不会再次执行，也不提供持久 exactly-once。链路去重有界且通常易失；关键命令应设计成幂等，或携带持久 operation ID。
+
+关闭或停止 producer 后可以重新初始化，Wirelink 会自动取得新身份，但活跃 endpoint 不能复制。
+
+## 重连时应用要做什么
+
+- 在 owner 安全点调用 close 或重新初始化，让库取得新身份，不要自己生成随机 ID。
+- 看到 `peer_changed` 后，撤销与旧 peer 绑定的产品 lease 或非 RPC 工作。
+- 自定义平台要提供非零、重启后不重复的身份来源；来源失败、返回零值或重复上一身份都会让初始化失败。
+
+## 常见误解
+
+- 「session identity 是认证。」——它只划分通信实例，认证仍然是单独的一层。
+- 「重连后要自己计算新 ID。」——普通端点在初始化时自动取得，无需自己计算。
+- 「有 session 就不会重复执行。」——重复抑制只在配置的会话、缓存和过期范围内有效。
+
+## 继续阅读
+
+- Zephyr 重连场景：[把 subscriber 移到 Zephyr](../../learn/zephyr-udp-subscriber/)
+- RPC 基础：[向设备请求计算结果](../../learn/request-a-result/)
+- 集中查阅：[术语表](../../reference/glossary/)
