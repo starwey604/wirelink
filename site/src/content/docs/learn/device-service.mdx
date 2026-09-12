@@ -1,0 +1,369 @@
+---
+title: Grow one RPC into a device service
+description: Organize a shared RPC contract, endpoint profiles, and module-local handlers into one maintainable device service.
+sidebar:
+  order: 7
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The calculator from the previous lessons made one RPC easy to see. A real
+device soon needs identity, settings, registers, calculations, long-running
+operations, and telemetry. Putting all of that into one source file would hide
+the boundary between communication code and product behavior.
+
+This lesson builds the complete
+[`03_device_service`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service)
+example. It has 12 RPCs and one telemetry message, but its endpoint loop does
+not contain a hand-written operation switch.
+
+**After this lesson, you can:**
+
+- find each decision in the schema, shared service profile, or endpoint profile;
+- register ordinary handlers from separate business modules;
+- share application state without turning it into protocol state;
+- combine synchronous, asynchronous, deferred, and latest-value flows in one endpoint.
+
+## Before you begin
+
+Complete [replying after a handler returns](../deferred-rpc/) first. This lesson
+reuses the development environment and `build/tutorials` directory from the
+earlier lessons.
+
+Rebuild to include the device-service programs:
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## Run the complete service
+
+Start the simulated device in terminal A:
+
+```sh
+./build/tutorials/examples/03_device_service/device_service_server
+```
+
+After it prints `device service server ready`, run the controller in terminal B:
+
+```sh
+./build/tutorials/examples/03_device_service/device_service_client
+```
+
+The controller exercises every part of the service and prints:
+
+```text
+device RPCs: OK (owned string, state change, rejection)
+calculator RPCs: OK
+deferred self-test: OK
+mixed async batch: OK (3 unique completions)
+outbound-only telemetry: OK (100 channels)
+12 services: OK
+```
+
+The server is an in-memory workbench reached over localhost UDP. It does not
+access a development board or other hardware. Restart it before repeating the
+full client run because the client changes the simulated name, registers, and
+limits.
+
+:::note[Windows executable path]
+Visual Studio multi-configuration builds place both programs under
+`build/tutorials/examples/03_device_service/Release/` and add the `.exe` suffix.
+:::
+
+## Map the files before reading the code
+
+Each file answers one kind of question. Use this map when a generated name or a
+new declaration appears later in the lesson.
+
+| Source | Question it answers |
+| --- | --- |
+| [`device.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/device.wl) | What business data crosses the link? |
+| [`services.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/services.bind.wl) | Which request and response form each named RPC? |
+| [`client.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/client.bind.wl) | What does the controller endpoint receive and which RPC role does it have? |
+| [`server.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/server.bind.wl) | What does the device endpoint send and which RPC role does it have? |
+| [`device_service.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/device_service.c), [`calculator_service.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/calculator_service.c), [`self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c) | How does each business area handle its requests? |
+| [`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/server.c) | How are the modules assembled and the endpoint advanced? |
+
+The first four files describe the protocol surface. The three service modules
+implement product behavior. `server.c` owns the endpoint and connects those
+pieces to a transport.
+
+## Start with business data
+
+The schema contains ordinary messages. For example, `GetInfo` needs an empty
+request and a bounded name in its response:
+
+```text
+message GetInfoRequest @id(102) {}
+message GetInfoResponse @id(103) {
+  required string<31> name @id(1);
+}
+
+message DeviceTelemetry @id(200) {
+  required uint32 sequence @id(1);
+  required packed fixed32 channels[100] @id(2);
+}
+```
+
+The schema does not contain an operation number, correlation ID, or generic
+status field. Wirelink supplies RPC correlation and rejection behavior after a
+profile turns two messages into a service.
+
+The 100-channel telemetry message is deliberately larger than every RPC. This
+checks that a send-only message still contributes to the generated endpoint's
+bounded packet capacity.
+
+## Define the RPC contract once
+
+The shared service profile pairs the two messages and gives the operation a
+name:
+
+```text
+rpc GetInfo {
+  request = GetInfoRequest;
+  response = GetInfoResponse;
+}
+```
+
+All 12 declarations live in `services.bind.wl`. Both programs compile that same
+file, so the request/response pairing has one source of truth.
+
+The endpoint-specific profiles then describe the two local roles:
+
+```text
+// client.bind.wl
+endpoint {
+  envelope = native_packet;
+  rpc_role = client;
+}
+latest DeviceTelemetry { delivery = unreliable; }
+```
+
+```text
+// server.bind.wl
+endpoint {
+  envelope = native_packet;
+  rpc_role = server;
+}
+send DeviceTelemetry { delivery = unreliable; }
+```
+
+`rpc_role` selects the local RPC side for the whole generated endpoint. It is
+not repeated for every operation. `latest` gives the controller one retained
+telemetry value; `send` gives the device a send API without allocating a receive
+mailbox.
+
+The example's
+[`CMakeLists.txt`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/CMakeLists.txt)
+first generates one codec from the schema. It then combines the shared service
+profile with each endpoint profile:
+
+```cmake
+wirelink_wlc_generate_runtime(
+  TARGET device_${role}_protocol
+  CODEC_TARGET device_codec
+  RUNTIME_NAME device_${role}
+  PROFILES services.bind.wl ${role}.bind.wl)
+```
+
+The profiles are composed as parts of one definition. File order does not make
+one profile override another; conflicting or duplicate declarations are errors.
+
+<MultipleChoice
+  id="device-service-shared-contract"
+  question="A new GetBuildLabel RPC is available to both endpoints. Where should its request/response pairing be declared?"
+  choices={[
+    {
+      label: 'Once in services.bind.wl',
+      correct: true,
+      feedback: 'Correct. Both endpoint runtimes compose the same shared RPC contract.',
+    },
+    {
+      label: 'Separately in both endpoint profiles',
+      correct: false,
+      feedback: 'That duplicates the contract and can let the two endpoint definitions drift apart.',
+    },
+    {
+      label: 'In the server owner loop',
+      correct: false,
+      feedback: 'The owner loop advances an already generated endpoint; it does not define RPC message pairs.',
+    },
+  ]}
+/>
+
+## Let the server assemble business modules
+
+The server owns one endpoint, one application state value, and one deferred job:
+
+```c
+static device_server_endpoint_t endpoint;
+device_service_t device;
+self_test_job_t job = {0};
+device_server_endpoint_config_t config;
+```
+
+`device_service_t` belongs to the application. It holds a name, four simulated
+registers, a write counter, and calculator limits. It does not contain endpoint
+buffers, RPC slots, or dispatch bookkeeping.
+
+After loading generated defaults, `server.c` supplies that application state as
+the common context and asks each module to register its handlers:
+
+```c
+device_service_init(&device);
+job.endpoint = &endpoint;
+CHECK(device_server_endpoint_config_defaults(
+        &config, wl_platform_environment()) == WL_OK);
+config.user_data = &device;
+device_service_bind(&config);
+calculator_service_bind(&config);
+self_test_bind(&config, &job);
+CHECK(device_server_endpoint_init_config(&endpoint, &config) == WL_OK);
+```
+
+`config.user_data` becomes the context for ordinary handlers. A service can use
+`config.<service>_user_data` when it needs a different context; leaving that
+field null inherits the common value. Advanced deferred handlers keep an
+explicit context, which is why `self_test_bind()` receives `&job`.
+
+## Keep handler registration beside the behavior
+
+An ordinary handler receives typed values, fills a typed response, and returns
+a business status. `get_info()` reads the shared application state:
+
+```c
+static int32_t get_info(void *context,
+                        const get_info_request_value_t *request,
+                        get_info_response_value_t *response) {
+  const device_service_t *device = context;
+  (void)request;
+  response->has_name = true;
+  response->name.length = device->name_length;
+  memcpy(response->name.data, device->name, device->name_length);
+  return 0;
+}
+```
+
+The same module registers all device-related handlers:
+
+```c
+void device_service_bind(device_server_endpoint_config_t *config) {
+  config->on_ping = ping;
+  config->on_get_info = get_info;
+  config->on_set_name = set_name;
+  config->on_read_register = read_register;
+  config->on_write_register = write_register;
+  config->on_get_counters = get_counters;
+  config->on_reset_counters = reset_counters;
+}
+```
+
+`calculator_service_bind()` follows the same pattern in its own source file.
+Wirelink's generated dispatcher connects incoming service IDs to these typed
+callbacks. The application does not maintain a parallel enum or central switch.
+
+## Mix execution styles by need
+
+One endpoint can use several execution styles. Choose each one for its
+scheduling and storage behavior:
+
+| Example flow | Style | Reason |
+| --- | --- | --- |
+| GetInfo, registers, and limits | Synchronous client + immediate handler | The controller needs one result and the server work is short |
+| Ping, Add, and Scale batch | Asynchronous client + immediate handlers | Three calls can remain in flight while one loop advances the endpoint |
+| SelfTest | Synchronous client + deferred handler | The caller may wait, while server work outlives the request callback |
+| DeviceTelemetry | Unreliable send + latest retention | Only the newest periodic snapshot matters after receipt |
+
+The asynchronous batch submits three independent calls, then uses one owner loop
+until all three callbacks have run:
+
+```c
+CHECK(device_client_endpoint_ping_async(
+        &endpoint, &ping, 1500, ping_done, &batch, NULL) == WL_OK);
+CHECK(device_client_endpoint_add_async(
+        &endpoint, &add, 1500, add_done, &batch, NULL) == WL_OK);
+CHECK(device_client_endpoint_scale_async(
+        &endpoint, &scale, 1500, scale_done, &batch, NULL) == WL_OK);
+
+ping.nonce = 0;
+add.left = 0;
+scale.value = 0;
+
+while (batch.completed != 3) {
+  CHECK(device_client_endpoint_step(&endpoint) == WL_OK);
+  CHECK(example_udp_wait(udp, 20) == WL_OK);
+}
+```
+
+Wirelink snapshots each request when the async call is accepted, so changing the
+local request values afterward does not change the queued calls. Every
+completion callback receives its typed response and increments `batch.completed`.
+
+SelfTest makes a different choice on the server. Its advanced handler saves a
+reply token and sets `passes_remaining = 3`. The endpoint owner calls
+`self_test_poll()` on later loop passes; the third pass completes the saved
+request. This is the [deferred-reply pattern](../deferred-rpc/) applied inside a
+larger service, not a second endpoint or a worker thread.
+
+<MultipleChoice
+  id="device-service-module-registration"
+  question="You add one ordinary device RPC and its handler. What dispatch code must be added to server.c?"
+  choices={[
+    {
+      label: 'No dispatch code',
+      correct: true,
+      feedback: 'Correct. Register the generated config callback in the owning business module; the generated runtime dispatches it.',
+    },
+    {
+      label: 'A new switch case for its message ID',
+      correct: false,
+      feedback: 'Wirelink generates message matching and typed dispatch from the schema and profiles.',
+    },
+    {
+      label: 'A second endpoint loop',
+      correct: false,
+      feedback: 'All of these services share the existing endpoint and owner loop.',
+    },
+  ]}
+/>
+
+## Add a thirteenth RPC
+
+Use `GetBuildLabel` to check that the structure scales. The complete change
+touches four application files:
+
+1. Add `GetBuildLabelRequest` and `GetBuildLabelResponse` with unique IDs to
+   `device.wl`.
+2. Pair them as `rpc GetBuildLabel` in `services.bind.wl`.
+3. Implement `get_build_label()` in `device_service.c` and register it as
+   `config->on_get_build_label` in `device_service_bind()`.
+4. Call `device_client_endpoint_get_build_label_sync()` from `client.c` and
+   check the returned label.
+
+Rebuild afterward; WLC regenerates the codec and both endpoint runtimes. CMake,
+the transport, `server.c`, the other business modules, and the owner loop do not
+need a new branch for this service.
+
+The repository's
+[`device_service_extension.py`](https://github.com/starwey604/wirelink/blob/main/tests/tutorials/device_service_extension.py)
+test performs exactly this edit in a temporary copy, verifies that only those
+four files changed, rebuilds both programs, and runs the old and new cases.
+
+<Checklist
+  id="device-service"
+  title="Lesson complete"
+  items={[
+    'I can locate business data, shared RPC contracts, and endpoint-specific choices.',
+    'I keep application state separate from endpoint and RPC bookkeeping.',
+    'I register ordinary handlers inside the business module that implements them.',
+    'I choose synchronous, asynchronous, deferred, and latest-value flows by their scheduling needs.',
+    'I can add an RPC without editing a central dispatcher or owner loop.',
+  ]}
+/>
+
+## Next step
+
+The next lesson will split a product protocol into imported schemas, then
+compose RPC, telemetry, and bulk-transfer services into one endpoint.

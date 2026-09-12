@@ -1,0 +1,349 @@
+---
+title: 把多个 RPC 组织成设备服务
+description: 将共享 RPC 契约、端点 profile 和按模块注册的 handler 组织成可维护的设备服务。
+sidebar:
+  order: 7
+---
+
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+
+前几课使用计算器，是为了让一个 RPC 的完整路径清晰可见。真实设备很快还会加入身份信息、
+设置、寄存器、计算、耗时操作和遥测。如果把它们全部写进一个源文件，通信机制和产品行为的
+边界就会越来越难辨认。
+
+本课会构建完整的
+[`03_device_service`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service)
+示例。它包含 12 个 RPC 和一条遥测消息，但 endpoint 循环里没有手写的操作分发 switch。
+
+**完成本课后，你能够：**
+
+- 判断一项定义应放在 schema、共享服务 profile，还是端侧 profile；
+- 从各自的业务模块注册普通 handler；
+- 有意识地共享应用状态，同时不把它变成协议内部状态；
+- 在同一个 endpoint 中组合同步、异步、延迟和 latest 数据流。
+
+## 开始之前
+
+请先完成[在 handler 返回后再回复](../deferred-rpc/)。本课复用前面配置好的开发环境和
+`build/tutorials` 构建目录。
+
+重新构建，让设备服务程序进入构建结果：
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+```
+
+## 先运行完整服务
+
+在终端 A 启动模拟设备：
+
+```sh
+./build/tutorials/examples/03_device_service/device_service_server
+```
+
+看到 `device service server ready` 后，在终端 B 运行控制端：
+
+```sh
+./build/tutorials/examples/03_device_service/device_service_client
+```
+
+控制端会依次验收服务中的各种行为，并输出：
+
+```text
+device RPCs: OK (owned string, state change, rejection)
+calculator RPCs: OK
+deferred self-test: OK
+mixed async batch: OK (3 unique completions)
+outbound-only telemetry: OK (100 channels)
+12 services: OK
+```
+
+服务端是一个通过本机 UDP 访问的内存工作台，不会访问开发板或其他硬件。客户端会改变模拟
+设备的名称、寄存器和计算范围；要再次运行整套客户端验收，请先重启服务端。
+
+:::note[Windows 程序路径]
+Visual Studio 多配置构建会把两个程序放在
+`build/tutorials/examples/03_device_service/Release/` 下，并添加 `.exe` 后缀。
+:::
+
+## 读代码前先建立文件地图
+
+每个文件只回答一类问题。后文第一次遇到生成名称或新声明时，可以回到这张表定位它的来源。
+
+| 源文件 | 它回答的问题 |
+| --- | --- |
+| [`device.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/device.wl) | 哪些业务数据会经过链路？ |
+| [`services.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/services.bind.wl) | 哪一对请求和响应组成一个具名 RPC？ |
+| [`client.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/client.bind.wl) | 控制端接收什么数据，它承担哪一侧 RPC 角色？ |
+| [`server.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/server.bind.wl) | 设备端发送什么数据，它承担哪一侧 RPC 角色？ |
+| [`device_service.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/device_service.c)、[`calculator_service.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/calculator_service.c)、[`self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c) | 每个业务领域怎样处理自己的请求？ |
+| [`server.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/server.c) | 这些模块如何装配，endpoint 如何持续推进？ |
+
+前四个文件描述协议表面，三个服务模块实现产品行为，`server.c` 则持有 endpoint，并把这些
+部分接到 transport 上。
+
+## 从业务数据开始
+
+Schema 只包含普通消息。例如，`GetInfo` 使用一个空请求，响应中带有长度受限的设备名称：
+
+```text
+message GetInfoRequest @id(102) {}
+message GetInfoResponse @id(103) {
+  required string<31> name @id(1);
+}
+
+message DeviceTelemetry @id(200) {
+  required uint32 sequence @id(1);
+  required packed fixed32 channels[100] @id(2);
+}
+```
+
+Schema 里没有操作编号、关联 ID 或通用状态字段。等到 profile 把两条消息组成服务后，
+Wirelink 会提供 RPC 关联和拒绝行为。
+
+100 通道遥测特意设计得比任何 RPC 都大。它用来验证：即使一条消息只从本端发送，也会参与
+生成 endpoint 的有界数据包容量计算。
+
+## 只定义一次 RPC 契约
+
+共享服务 profile 把两条消息配对，并为这项操作命名：
+
+```text
+rpc GetInfo {
+  request = GetInfoRequest;
+  response = GetInfoResponse;
+}
+```
+
+全部 12 项声明都位于 `services.bind.wl`。两个程序编译同一份文件，因此请求与响应的配对只有
+一个事实来源。
+
+两个端侧 profile 再分别描述本端角色：
+
+```text
+// client.bind.wl
+endpoint {
+  envelope = native_packet;
+  rpc_role = client;
+}
+latest DeviceTelemetry { delivery = unreliable; }
+```
+
+```text
+// server.bind.wl
+endpoint {
+  envelope = native_packet;
+  rpc_role = server;
+}
+send DeviceTelemetry { delivery = unreliable; }
+```
+
+`rpc_role` 一次选择整个生成 endpoint 的本地 RPC 角色，不需要为每项操作重复填写。
+`latest` 让控制端保留一份最新遥测；`send` 给设备端生成发送 API，却不分配接收邮箱。
+
+示例的
+[`CMakeLists.txt`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/CMakeLists.txt)
+先从 schema 生成一份 codec，再把共享服务 profile 与各自的端侧 profile 组合起来：
+
+```cmake
+wirelink_wlc_generate_runtime(
+  TARGET device_${role}_protocol
+  CODEC_TARGET device_codec
+  RUNTIME_NAME device_${role}
+  PROFILES services.bind.wl ${role}.bind.wl)
+```
+
+这些 profile 共同组成一份定义。文件顺序不会让后一份覆盖前一份；互相冲突或重复的声明会在
+生成阶段报错。
+
+<MultipleChoice
+  id="device-service-shared-contract-zh-cn"
+  question="控制端和设备端都要使用新的 GetBuildLabel RPC。它的请求与响应配对应声明在哪里？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: '只在 services.bind.wl 声明一次',
+      correct: true,
+      feedback: '正确。两个 endpoint runtime 都会组合这份共享 RPC 契约。',
+    },
+    {
+      label: '在两个端侧 profile 中各写一份',
+      correct: false,
+      feedback: '这样会重复契约，并可能让两端定义逐渐不一致。',
+    },
+    {
+      label: '写在服务端 owner 循环里',
+      correct: false,
+      feedback: 'Owner 循环负责推进已经生成的 endpoint，不负责定义 RPC 消息配对。',
+    },
+  ]}
+/>
+
+## 让服务端装配业务模块
+
+服务端持有一个 endpoint、一份应用状态和一项延迟任务：
+
+```c
+static device_server_endpoint_t endpoint;
+device_service_t device;
+self_test_job_t job = {0};
+device_server_endpoint_config_t config;
+```
+
+`device_service_t` 属于应用。它保存设备名、四个模拟寄存器、写入计数和计算范围，不包含
+endpoint 缓冲区、RPC 槽位或分发记录。
+
+`server.c` 载入生成的默认配置后，把应用状态设为公共上下文，再让每个模块注册自己的
+handler：
+
+```c
+device_service_init(&device);
+job.endpoint = &endpoint;
+CHECK(device_server_endpoint_config_defaults(
+        &config, wl_platform_environment()) == WL_OK);
+config.user_data = &device;
+device_service_bind(&config);
+calculator_service_bind(&config);
+self_test_bind(&config, &job);
+CHECK(device_server_endpoint_init_config(&endpoint, &config) == WL_OK);
+```
+
+`config.user_data` 会成为普通 handler 的上下文。某个服务需要其他上下文时，可以设置
+`config.<service>_user_data`；该字段保持为空则继承公共值。高级延迟 handler 的上下文始终
+显式指定，所以 `self_test_bind()` 单独接收 `&job`。
+
+## 把 handler 注册放在业务实现旁边
+
+普通 handler 接收类型化的值、填写类型化响应，然后返回业务状态。`get_info()` 从共享应用
+状态中读取名称：
+
+```c
+static int32_t get_info(void *context,
+                        const get_info_request_value_t *request,
+                        get_info_response_value_t *response) {
+  const device_service_t *device = context;
+  (void)request;
+  response->has_name = true;
+  response->name.length = device->name_length;
+  memcpy(response->name.data, device->name, device->name_length);
+  return 0;
+}
+```
+
+同一个模块注册全部设备管理 handler：
+
+```c
+void device_service_bind(device_server_endpoint_config_t *config) {
+  config->on_ping = ping;
+  config->on_get_info = get_info;
+  config->on_set_name = set_name;
+  config->on_read_register = read_register;
+  config->on_write_register = write_register;
+  config->on_get_counters = get_counters;
+  config->on_reset_counters = reset_counters;
+}
+```
+
+`calculator_service_bind()` 在自己的源文件中采用同样方式。Wirelink 生成的 dispatcher 会把
+收到的服务 ID 连接到这些类型化回调；应用无需再维护一份操作 enum 或中央 switch。
+
+## 按实际需要组合执行方式
+
+一个 endpoint 可以同时使用多种执行方式。选择依据是每条业务流需要怎样调度和保留数据：
+
+| 示例数据流 | 执行方式 | 选择原因 |
+| --- | --- | --- |
+| GetInfo、寄存器和计算范围 | 同步客户端 + 即时 handler | 控制端需要一个结果，服务端工作也很短 |
+| Ping、Add 和 Scale 批次 | 异步客户端 + 即时 handler | 三次调用可以同时在途，由一个循环持续推进 endpoint |
+| SelfTest | 同步客户端 + 延迟 handler | 调用方可以等待，但服务端工作会越过请求回调的生命周期 |
+| DeviceTelemetry | Unreliable 发送 + latest 保留 | 收到以后只关心最新的周期快照 |
+
+异步批次先提交三次独立调用，再由一个 owner 循环推进，直到三个回调全部运行：
+
+```c
+CHECK(device_client_endpoint_ping_async(
+        &endpoint, &ping, 1500, ping_done, &batch, NULL) == WL_OK);
+CHECK(device_client_endpoint_add_async(
+        &endpoint, &add, 1500, add_done, &batch, NULL) == WL_OK);
+CHECK(device_client_endpoint_scale_async(
+        &endpoint, &scale, 1500, scale_done, &batch, NULL) == WL_OK);
+
+ping.nonce = 0;
+add.left = 0;
+scale.value = 0;
+
+while (batch.completed != 3) {
+  CHECK(device_client_endpoint_step(&endpoint) == WL_OK);
+  CHECK(example_udp_wait(udp, 20) == WL_OK);
+}
+```
+
+异步调用被接受时，Wirelink 已经为每个请求制作快照，所以上述局部变量随后发生变化也不会
+改写排队中的调用。每个完成回调取得自己的类型化响应，再递增 `batch.completed`。
+
+SelfTest 在服务端做了另一种选择。高级 handler 保存回复 token，并把
+`passes_remaining` 设为 `3`。Endpoint owner 在后续循环中调用 `self_test_poll()`，第三次
+推进时完成保存的请求。这是[延迟回复模式](../deferred-rpc/)在大型服务中的一次应用，并没有
+创建第二个 endpoint，也没有启动 worker 线程。
+
+<MultipleChoice
+  id="device-service-module-registration-zh-cn"
+  question="你添加了一项普通设备 RPC 及其 handler。server.c 还需要增加什么分发代码？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个答案。"
+  choices={[
+    {
+      label: '不需要增加分发代码',
+      correct: true,
+      feedback: '正确。在所属业务模块注册生成的 config 回调，生成的 runtime 会负责分发。',
+    },
+    {
+      label: '为消息 ID 增加一个 switch case',
+      correct: false,
+      feedback: 'Wirelink 会根据 schema 和 profile 生成消息匹配与类型化分发。',
+    },
+    {
+      label: '再创建一个 endpoint 循环',
+      correct: false,
+      feedback: '这些服务共用已有 endpoint 和 owner 循环。',
+    },
+  ]}
+/>
+
+## 添加第十三个 RPC
+
+用 `GetBuildLabel` 检查这种结构能否自然扩展。完整修改只涉及四个应用文件：
+
+1. 在 `device.wl` 中添加 `GetBuildLabelRequest` 和 `GetBuildLabelResponse`，并分配唯一 ID。
+2. 在 `services.bind.wl` 中把两条消息配成 `rpc GetBuildLabel`。
+3. 在 `device_service.c` 中实现 `get_build_label()`，再由 `device_service_bind()` 注册为
+   `config->on_get_build_label`。
+4. 从 `client.c` 调用 `device_client_endpoint_get_build_label_sync()`，并检查返回的标签。
+
+随后重新构建，WLC 会再次生成 codec 和两个 endpoint runtime。CMake、transport、
+`server.c`、其他业务模块和 owner 循环都不需要为新服务增加分支。
+
+仓库中的
+[`device_service_extension.py`](https://github.com/starwey604/wirelink/blob/main/tests/tutorials/device_service_extension.py)
+会在临时副本中完成这项修改，检查只有上述四个文件发生变化，然后重新构建两个程序并运行
+全部原有用例与新增用例。
+
+<Checklist
+  id="device-service-zh-cn"
+  title="完成检查"
+  progressTemplate="已完成 {done}/{total} 项"
+  items={[
+    '我能定位业务数据、共享 RPC 契约和端侧选择各自所在的文件。',
+    '我会让应用状态与 endpoint、RPC 的内部记录保持分离。',
+    '我会在实现业务行为的模块中注册普通 handler。',
+    '我能根据调度需求选择同步、异步、延迟和 latest 数据流。',
+    '我能添加一项 RPC，而不修改中央 dispatcher 或 owner 循环。',
+  ]}
+/>
+
+## 下一步
+
+下一课会把产品协议拆成可导入的 schema，再将 RPC、遥测和 bulk transfer 服务组合进同一个
+endpoint。
