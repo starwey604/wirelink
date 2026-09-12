@@ -49,6 +49,7 @@ export default defineConfig({
             { slug: 'learn/device-service' },
             { slug: 'learn/external-cmake-project' },
             { slug: 'learn/udp-transport' },
+            { slug: 'learn/zephyr-udp-subscriber' },
           ],
         },
       ],

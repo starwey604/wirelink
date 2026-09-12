@@ -1,0 +1,491 @@
+---
+title: Move the subscriber to Zephyr
+description: Build the temperature subscriber as a Zephyr application with fixed UDP adapter storage.
+sidebar:
+  order: 10
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+The last lesson connected two desktop processes through UDP. A product usually
+places at least one peer on a device, where the application must account for
+memory, network initialization, and platform resources explicitly.
+
+This lesson keeps the desktop publisher and moves only the subscriber to
+Zephyr. Both sides still generate code from the same `temperature.wl` and
+`temperature.bind.wl` files. The message API and on-wire profile remain the
+same while the platform adapter changes.
+
+**After this lesson, you can:**
+
+- add Wirelink to an external Zephyr application as a module;
+- separate network-interface provisioning from endpoint initialization;
+- reserve bounded UDP receive storage at build time;
+- build with `native_sim`, then connect a desktop publisher to an Ethernet
+  board.
+
+## Before you begin
+
+Complete [connect two processes over UDP](../udp-transport/) first. Keep the
+`wirelink-temperature-app` project and its installed desktop build. Confirm
+that the matching `wlc` still runs from `PATH`:
+
+```sh
+wlc --version
+wlc codegen-abi
+```
+
+The expected values remain `wlc 0.7.0-dev` and ABI `32`.
+
+You also need a Zephyr 4.4.0 workspace and Zephyr SDK. A **west workspace** is
+the directory that contains Zephyr, Wirelink as its manifest repository, and
+the modules selected by `west.yml`. If `west build` already works in such a
+workspace, continue to the next section.
+
+Otherwise, follow Zephyr's
+[host dependency and Python environment setup](https://docs.zephyrproject.org/4.4.0/develop/getting_started/index.html),
+activate that Python environment, then initialize a workspace from Wirelink's
+manifest:
+
+```sh
+python -m pip install west
+west init -m https://github.com/starwey604/wirelink wirelink-workspace
+cd wirelink-workspace
+west update
+west zephyr-export
+west packages pip --install
+west sdk install
+```
+
+Wirelink's manifest pins Zephyr `v4.4.0`. After these commands, the repository
+used below is `wirelink-workspace/wirelink`.
+
+## Add a Zephyr application beside the desktop one
+
+Return to `wirelink-temperature-app` and create a separate application
+directory:
+
+```sh
+mkdir -p zephyr/src
+```
+
+The project now has two build entry points that share one schema and profile:
+
+```text
+wirelink-temperature-app/
+├── CMakeLists.txt              # desktop publisher
+├── main.cpp
+├── temperature.bind.wl        # shared link profile
+├── temperature.wl             # shared message schema
+└── zephyr/
+    ├── CMakeLists.txt          # Zephyr subscriber
+    ├── prj.conf
+    ├── sim.conf
+    └── src/
+        └── main.c
+```
+
+The desktop and Zephyr builds generate their own C files in separate build
+directories. Neither side copies generated output from the other.
+
+## Load Wirelink as a Zephyr module
+
+Create `zephyr/CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.28.0)
+
+set(WIRELINK_ROOT "" CACHE PATH "Path to the Wirelink source tree")
+if(NOT EXISTS "${WIRELINK_ROOT}/zephyr/module.yml")
+  message(FATAL_ERROR "Set WIRELINK_ROOT to the Wirelink source tree")
+endif()
+
+list(APPEND ZEPHYR_EXTRA_MODULES "${WIRELINK_ROOT}")
+find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+project(temperature_zephyr_subscriber LANGUAGES C)
+
+include("${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake")
+set(TEMPERATURE_SCHEMA_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+wirelink_wlc_generate_codec(
+  TARGET temperature_codec
+  SCHEMA "${TEMPERATURE_SCHEMA_DIR}/temperature.wl")
+wirelink_wlc_generate_runtime(
+  TARGET temperature_protocol
+  CODEC_TARGET temperature_codec
+  PROFILE "${TEMPERATURE_SCHEMA_DIR}/temperature.bind.wl")
+
+target_link_libraries(temperature_codec PUBLIC zephyr_interface)
+target_link_libraries(app PRIVATE temperature_protocol)
+target_sources(app PRIVATE src/main.c)
+target_compile_options(app PRIVATE -Wall -Wextra -Werror)
+```
+
+`ZEPHYR_EXTRA_MODULES` must be set before `find_package(Zephyr)`. Zephyr then
+loads Wirelink's Kconfig options, core sources, platform implementation, and
+adapter include paths from `zephyr/module.yml`.
+
+This makes Wirelink a **Zephyr module**: an external source tree whose metadata
+adds build files, Kconfig options, and public headers to the application.
+
+The two WLC functions are the same ones used by the desktop build. Linking the
+codec to `zephyr_interface` gives generated C the board's compiler flags and
+Zephyr headers. Linking `temperature_protocol` to `app` carries the generated
+endpoint, codec, and Wirelink core into the firmware.
+
+## Configure the network and Wirelink features
+
+Create `zephyr/prj.conf`:
+
+```ini
+CONFIG_NETWORKING=y
+CONFIG_NET_IPV4=y
+CONFIG_NET_IPV6=n
+CONFIG_NET_UDP=y
+CONFIG_NET_TCP=n
+CONFIG_NET_SOCKETS=y
+CONFIG_NET_L2_ETHERNET=y
+
+CONFIG_NET_CONFIG_SETTINGS=y
+CONFIG_NET_CONFIG_AUTO_INIT=n
+CONFIG_NET_CONFIG_MY_IPV4_ADDR="192.0.2.2"
+CONFIG_NET_CONFIG_MY_IPV4_NETMASK="255.255.255.0"
+CONFIG_NET_CONFIG_MY_IPV4_GW="192.0.2.1"
+
+CONFIG_NET_PKT_TX_COUNT=16
+CONFIG_NET_PKT_RX_COUNT=16
+CONFIG_NET_BUF_TX_COUNT=32
+CONFIG_NET_BUF_RX_COUNT=32
+
+CONFIG_WIRELINK_PLATFORM=y
+CONFIG_WIRELINK_ZEPHYR_UDP=y
+CONFIG_MAIN_STACK_SIZE=4096
+```
+
+These settings belong to three different owners:
+
+| Settings | Responsibility |
+| --- | --- |
+| `CONFIG_NET_*` protocols and addresses | Zephyr's network stack and application provisioning |
+| `CONFIG_NET_PKT_*` and `CONFIG_NET_BUF_*` | Shared Zephyr network pools, sized for all network users |
+| `CONFIG_WIRELINK_PLATFORM` and `CONFIG_WIRELINK_ZEPHYR_UDP` | Wirelink's Zephyr clock/session provider and UDP adapter |
+
+`CONFIG_NET_CONFIG_AUTO_INIT=n` leaves startup visible in application code. The
+application will bring up IPv4 before creating an endpoint or socket. Wirelink
+does not configure a PHY, assign an address, choose a route, or start DHCP.
+Here, **network provisioning** means bringing up that interface and giving it
+the address and route the application expects.
+
+`192.0.2.0/24` is a documentation network used here for an isolated direct
+link. Choose valid addresses for the network where the board will run.
+
+## Add simulation-only entropy
+
+Create `zephyr/sim.conf`:
+
+```ini
+# Simulation only. Do not use this entropy source on product hardware.
+CONFIG_TEST_RANDOM_GENERATOR=y
+```
+
+An endpoint needs a new **session identity** when it is initialized. This lets
+the protocol distinguish a current connection from delayed frames belonging to
+an older one. A product board must provide a real cryptographically secure
+random source for `CONFIG_WIRELINK_PLATFORM`.
+
+`native_sim` has no product entropy device, so this extra file makes the build
+and startup reproducible. Never pass `sim.conf` to a hardware build. A session
+identity also does not authenticate a peer; product authentication remains a
+separate layer.
+
+## Write the device subscriber
+
+Create `zephyr/src/main.c`. Its control flow follows five explicit ownership
+steps:
+
+1. Initialize the Zephyr network interface.
+2. Initialize one generated endpoint.
+3. Attach one statically allocated UDP adapter.
+4. Advance and wait from the same owner thread.
+5. Close the generated endpoint before releasing adapter resources.
+
+```c
+#include <stdbool.h>
+#include <stdint.h>
+
+#include <zephyr/kernel.h>
+#include <zephyr/net/net_config.h>
+#include <zephyr/sys/printk.h>
+
+#include "temperature_endpoint.h"
+#include "wirelink/platform.h"
+#include "wirelink/zephyr/udp.h"
+
+static temperature_endpoint_t subscriber;
+WL_ZEPHYR_UDP_DEFINE(udp, TEMPERATURE_ENDPOINT_MAX_PAYLOAD, 2);
+
+int main(void) {
+  if (net_config_init("Wirelink UDP", NET_CONFIG_NEED_IPV4, 30000) < 0) {
+    printk("network unavailable\n");
+    return 1;
+  }
+
+  wl_err_t error = temperature_endpoint_init(
+      &subscriber, wl_platform_environment());
+  if (error != WL_OK) {
+    printk("endpoint init: %d\n", error);
+    return 1;
+  }
+
+  const wl_zephyr_udp_config_t network = {
+    .peer_address = "192.0.2.1",
+    .peer_port = 49000,
+    .local_port = 49001,
+  };
+  error = wl_zephyr_udp_open(
+      &udp, temperature_endpoint_handle(&subscriber), &network);
+  if (error != WL_OK) {
+    printk("UDP open: %d\n", error);
+    (void)temperature_endpoint_close(&subscriber);
+    return 1;
+  }
+
+  printk("subscriber ready on %s:%u\n",
+         CONFIG_NET_CONFIG_MY_IPV4_ADDR,
+         wl_zephyr_udp_local_port(&udp));
+  bool complete = false;
+  const uint32_t started = k_uptime_get_32();
+  while ((uint32_t)(k_uptime_get_32() - started) < 10000U) {
+    error = temperature_endpoint_step(&subscriber);
+    if (error != WL_OK) break;
+
+    temperature_t value;
+    error = temperature_endpoint_read_temperature(&subscriber, &value);
+    if (error == WL_OK) {
+      printk("latest sample=%u temperature=%d.%02d C\n",
+             value.sample,
+             value.temperature_centi_c / 100,
+             value.temperature_centi_c % 100);
+      if (value.sample >= 5U) {
+        complete = true;
+        break;
+      }
+    } else if (error != WL_ERR_NO_DATA) {
+      break;
+    }
+
+    error = wl_zephyr_udp_wait(&udp, 200U);
+    if (error != WL_OK && error != WL_ERR_NO_DATA) break;
+  }
+
+  int status = complete ? 0 : 1;
+  if (!complete) printk("subscriber stopped: %d\n", error);
+  if (temperature_endpoint_close(&subscriber) != WL_OK) status = 1;
+  if (wl_zephyr_udp_close(&udp) != WL_OK) status = 1;
+  return status;
+}
+```
+
+`WL_ZEPHYR_UDP_DEFINE()` reserves the adapter object and two complete-frame RX
+slots in static storage. The generated `TEMPERATURE_ENDPOINT_MAX_PAYLOAD`
+constant keeps that storage bound tied to the actual schema. The adapter does
+not create a thread or allocate from a heap. Zephyr's socket and packet pools
+remain separate shared resources configured in `prj.conf`.
+
+The device owner loop is shorter than the desktop helper because
+`wl_zephyr_udp_wait()` obtains and merges the endpoint hint internally. It still
+only waits. The following `temperature_endpoint_step()` receives, parses, and
+dispatches the work.
+
+<MultipleChoice
+  id="zephyr-network-owner"
+  question="The application prints “network unavailable” before endpoint initialization. Which boundary should you inspect first?"
+  choices={[
+    {
+      label: 'The board PHY, interface, and Zephyr IP configuration',
+      correct: true,
+      feedback: 'Correct. Network provisioning happens before Wirelink creates its endpoint or UDP socket.',
+    },
+    {
+      label: 'The Temperature message field IDs',
+      correct: false,
+      feedback: 'The schema has not been used yet when network initialization fails.',
+    },
+    {
+      label: 'The number of Wirelink RX slots',
+      correct: false,
+      feedback: 'Adapter storage is checked later, when the endpoint and adapter are opened.',
+    },
+  ]}
+/>
+
+## Build and boot with native_sim
+
+Start in the `wirelink-workspace` directory created earlier. Build the external
+application with the host-native Zephyr board:
+
+:::note[Linux host]
+`native_sim` builds a Linux executable. Use a Linux host or VM for this section;
+the hardware build below remains available from any host supported by Zephyr.
+:::
+
+```sh
+west build -p always -b native_sim/native/64 \
+  /absolute/path/to/wirelink-temperature-app/zephyr \
+  -d build/temperature-subscriber -- \
+  -DWIRELINK_ROOT="$PWD/wirelink" \
+  -DEXTRA_CONF_FILE=sim.conf \
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+```
+
+CMake finds `wlc` on `PATH`, generates the shared Temperature codec/runtime,
+and compiles them with the Zephyr application. Run the simulator:
+
+```sh
+./build/temperature-subscriber/zephyr/zephyr.exe
+```
+
+Before any peer is connected, it should reach:
+
+```text
+WARNING: Using a test - not safe - entropy source
+*** Booting Zephyr OS build ... ***
+subscriber ready on 192.0.2.2:49001
+```
+
+Stop it with Ctrl+C. This proves that the application builds, boots, configures
+IPv4, creates a session, and opens its adapter. Exchanging packets with a host
+requires a TAP interface; follow Zephyr's
+[native_sim networking setup](https://docs.zephyrproject.org/latest/services/connectivity/networking/native_sim_setup.html)
+if you want to complete the network run without hardware.
+
+## Observe the fixed RX allocation
+
+The native executable retains the static buffer symbol. From the workspace
+root, inspect it with:
+
+```sh
+nm -S --size-sort build/temperature-subscriber/zephyr/zephyr.elf \
+  | grep udp_rx_storage
+```
+
+For this schema and two slots, the size column is `0000000000000042`: hexadecimal
+`0x42`, or 66 bytes. This is the adapter's frame-slot storage, separate from the
+generated endpoint and Zephyr network pools.
+
+Change the final argument of `WL_ZEPHYR_UDP_DEFINE()` from `2` to `3`, rebuild,
+and run the same command. The symbol grows at build time. Restore it to `2`
+after the observation. This demonstrates that receive capacity is an explicit
+firmware decision rather than an allocation triggered by traffic.
+
+## Let the desktop program accept network addresses
+
+In the desktop `main.cpp` from the previous lesson, make the local and peer
+addresses command-line arguments. Apply these changes:
+
+```diff
+ int main(int argc, char** argv) {
+-  if (argc != 2 ||
++  if (argc != 4 ||
+       (std::string_view(argv[1]) != "publisher" &&
+        std::string_view(argv[1]) != "subscriber")) {
+-    std::fprintf(stderr, "usage: %s publisher|subscriber\n", argv[0]);
++    std::fprintf(stderr,
++                 "usage: %s publisher|subscriber LOCAL_IPV4 PEER_IPV4\n",
++                 argv[0]);
+     return 1;
+   }
+@@
+   UdpAdapterConfig config;
+-  config.bind_address = "127.0.0.1";
++  config.bind_address = argv[2];
+   config.bind_port = local_port;
+@@
+-  CHECK(adapter->set_peer("127.0.0.1", peer_port) == WL_OK);
++  CHECK(adapter->set_peer(argv[3], peer_port) == WL_OK);
+```
+
+Rebuild the desktop project. You can still repeat the localhost test by passing
+`127.0.0.1` twice. The executable can now use a board address without changing
+the message or adapter lifecycle.
+
+## Run with an Ethernet board
+
+Choose a board with Zephyr native IPv4 sockets. Configure its Ethernet PHY,
+pins, driver, and real entropy source in the board's devicetree and Kconfig.
+Socket offload is not supported by this adapter.
+
+Build without `sim.conf`, replacing the board name:
+
+```sh
+west build -p always -b YOUR_ETHERNET_BOARD \
+  /absolute/path/to/wirelink-temperature-app/zephyr \
+  -d build/temperature-board -- \
+  -DWIRELINK_ROOT="$PWD/wirelink" \
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+west flash -d build/temperature-board
+```
+
+For an isolated direct link, configure the computer's Ethernet interface as
+`192.0.2.1/24` and allow UDP ports `49000` and `49001` through its firewall.
+The firmware uses `192.0.2.2/24`. Use addresses assigned for your network when
+the board is not on an isolated link.
+
+Open the board's serial console. After it prints
+`subscriber ready on 192.0.2.2:49001`, run the desktop publisher:
+
+```sh
+./build/temperature_udp publisher 192.0.2.1 192.0.2.2
+```
+
+The board should finish with sample 5:
+
+```text
+subscriber ready on 192.0.2.2:49001
+latest sample=1 temperature=23.50 C
+latest sample=2 temperature=23.50 C
+latest sample=3 temperature=23.50 C
+latest sample=4 temperature=23.50 C
+latest sample=5 temperature=23.50 C
+```
+
+Unreliable latest-value delivery may omit an intermediate line. Sample 5 is the
+completion condition.
+
+## Diagnose the boundary that failed
+
+| Message or symptom | Check |
+| --- | --- |
+| `Set WIRELINK_ROOT to the Wirelink source tree` | Pass the workspace's `wirelink` directory, which contains `zephyr/module.yml` |
+| CMake rejects WLC version or ABI | Activate the environment where the matching `wlc` is on `PATH` |
+| `CONFIG_WIRELINK_ZEPHYR_UDP` has unmet dependencies | Enable Zephyr native IPv4 UDP sockets and disable socket offload |
+| `endpoint init` fails on hardware | Configure a real CSPRNG or inject a product session-identity provider |
+| `network unavailable` | Fix the board's Ethernet devicetree, driver, link, and IP provisioning first |
+| Board is ready but receives no values | Check host/board addresses, the reversed port pair, route, and firewall |
+
+:::caution[Functional exchange is not real-time acceptance]
+The adapter uses nonblocking socket calls, but the tested Zephyr native stack
+can still wait for roughly one second when its packet pool is exhausted. Measure
+pool sizing, driver behavior, CPU time, and latency on the product board before
+placing this owner loop in a real-time control path. See the
+[Zephyr UDP adapter contract](https://github.com/starwey604/wirelink/blob/main/docs/zephyr-udp.md)
+for the current limit and validation scope.
+:::
+
+<Checklist
+  id="zephyr-udp-subscriber"
+  title="Lesson complete"
+  items={[
+    'My Zephyr workspace uses Wirelink as a module and finds WLC on PATH.',
+    'The desktop and device builds generate from the same schema and profile.',
+    'The network interface is ready before the endpoint and UDP adapter open.',
+    'The adapter RX slots and endpoint live in fixed storage.',
+    'The Zephyr subscriber reaches sample 5 from the desktop publisher.',
+  ]}
+/>
+
+## Next step
+
+The next lesson will interrupt and restart this link. You will observe timeout
+and adapter counters, create a fresh endpoint session, and decide which
+application operations are safe to retry after an uncertain disconnect.
