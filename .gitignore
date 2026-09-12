@@ -10,6 +10,8 @@ __pycache__/
 /.venv/
 /examples/06_bindings/build/
 /examples/06_bindings/dist/
+/examples/07_device_sdk/build/
+/examples/07_device_sdk/dist/
 .pytest_cache/
 /site/.astro/
 /site/dist/

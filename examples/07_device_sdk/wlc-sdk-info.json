@@ -1,0 +1,8 @@
+{
+  "format": "wirelink-sdk-v1",
+  "binding_api": 1,
+  "namespace": "device",
+  "python_package": "device_sdk",
+  "distribution": "wirelink-device-sdk",
+  "version": "0.1.0.dev1"
+}

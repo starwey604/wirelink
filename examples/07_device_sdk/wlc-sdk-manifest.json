@@ -1,0 +1,59 @@
+{
+  "format": "wirelink-codegen-manifest-v1",
+  "compiler": {
+    "name": "wlc",
+    "version": "0.7.0-dev",
+    "codegen_abi": 32
+  },
+  "module": "device",
+  "identity": {
+    "algorithm": "fnv1a64-v1",
+    "schema": "0x5a72c7fa9b968add",
+    "binding_profile": "0x0c01202b133fda46"
+  },
+  "bounded_fields": [
+    {"message": "Settings", "message_id": 3, "field": "label", "field_number": 1, "kind": "string", "max_length": 12},
+    {"message": "Settings", "message_id": 3, "field": "token", "field_number": 4, "kind": "bytes", "max_length": 8},
+    {"message": "Settings", "message_id": 3, "field": "class", "field_number": 9, "kind": "string", "max_length": 8},
+    {"message": "InfoResponse", "message_id": 4, "field": "name", "field_number": 1, "kind": "string", "max_length": 32},
+    {"message": "ConfigureRequest", "message_id": 5, "field": "opaque", "field_number": 2, "kind": "bytes", "max_length": 4},
+    {"message": "ConfigureResponse", "message_id": 6, "field": "opaque", "field_number": 2, "kind": "bytes", "max_length": 4},
+    {"message": "Numbers", "message_id": 7, "field": "text", "field_number": 18, "kind": "string", "max_length": 16}
+  ],
+  "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
+  "artifacts": [
+    {"path": "CMakeLists.txt", "size": 3969, "digest": "0x4dddbd77144e7d2f"},
+    {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
+    {"path": "README.md", "size": 4682, "digest": "0x1f048b45894b8dab"},
+    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 191, "digest": "0x590acc60fe20d746"},
+    {"path": "generated/device.c", "size": 72145, "digest": "0xeaaca2978263cddf"},
+    {"path": "generated/device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
+    {"path": "generated/device_advanced.h", "size": 13912, "digest": "0x74a2d918ee2305c7"},
+    {"path": "generated/device_bindings.c", "size": 13882, "digest": "0xbd6126b9c4ae8194"},
+    {"path": "generated/device_bindings.h", "size": 4526, "digest": "0x6990709f680bd0f7"},
+    {"path": "generated/device_endpoint.h", "size": 393, "digest": "0xc0450b9ee4730409"},
+    {"path": "generated/device_manifest.json", "size": 1954, "digest": "0x2c2a03071963957e"},
+    {"path": "generated/device_runtime.c", "size": 71060, "digest": "0x6c0fd7fc12ae845d"},
+    {"path": "generated/device_runtime.h", "size": 53517, "digest": "0x20d1606fe6a3f07d"},
+    {"path": "generated/device_values.h", "size": 6909, "digest": "0x11711a2daa338e27"},
+    {"path": "include/device/client.hpp", "size": 1085, "digest": "0xc8f4e1017355105b"},
+    {"path": "include/device/types.hpp", "size": 2298, "digest": "0x5fade1da18f208cf"},
+    {"path": "licenses/asio.txt", "size": 1338, "digest": "0xcb7237a4720128f3"},
+    {"path": "licenses/nanobind.txt", "size": 1521, "digest": "0x6c74387e9376966e"},
+    {"path": "licenses/robin_map.txt", "size": 1103, "digest": "0xdef0f3a5dcec4200"},
+    {"path": "licenses/wirelink.txt", "size": 728, "digest": "0x6ac63ae4ccdeb60b"},
+    {"path": "pyproject.toml", "size": 910, "digest": "0xac96e589ee735cd4"},
+    {"path": "python/device_sdk/__init__.py", "size": 13497, "digest": "0x368bd827d9fa9910"},
+    {"path": "python/device_sdk/_native.pyi", "size": 816, "digest": "0xfacf920e2a1357b4"},
+    {"path": "python/device_sdk/_runtime.py", "size": 5849, "digest": "0x49fdb9d74e75d034"},
+    {"path": "python/device_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
+    {"path": "src/client.cpp", "size": 3243, "digest": "0x0172c9e70b05eb1f"},
+    {"path": "src/endpoint.c", "size": 1202, "digest": "0x57989959141103eb"},
+    {"path": "src/endpoint.h", "size": 550, "digest": "0xcc7daa2399cfcc39"},
+    {"path": "src/native.hpp", "size": 374, "digest": "0x1d50753724c3dce8"},
+    {"path": "src/python.cpp", "size": 10428, "digest": "0xf5946025e7f51cf7"},
+    {"path": "src/values.hpp", "size": 10381, "digest": "0x502114fe7c8226da"},
+    {"path": "wlc-sdk-info.json", "size": 181, "digest": "0x875f217faca03e40"},
+    {"path": "wlc-sdk-name.txt", "size": 7, "digest": "0xb2a4fa33b5d9710b"}
+  ]
+}

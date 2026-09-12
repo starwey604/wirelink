@@ -3,7 +3,8 @@
 2026-09-11。基于 Wirelink `f285d36`、本地独立 WLC checkout `85b1bdc`。
 这是最初的设计草案。第一轮的实际实现与验收见
 [迭代记录](bindings-iteration-1-cn.md)和 [calculator SDK](../examples/06_bindings/README.md)。
-下文的 `wlc sdk`、AsyncClient 和动态 schema 等仍是拟议接口；包名尚未确认可注册。
+第二轮已实现 `wlc sdk`，实际命令与验收见 [生成器迭代记录](bindings-iteration-2-cn.md)。
+下文保留早期方案对比；AsyncClient 和动态 schema 仍是拟议接口，包名尚未确认可注册。
 目标是让应用直接操作类型化消息、RPC 和订阅，并有可安装、可测试、可维护的正式 SDK。
 最初探索只记录计划；后续实现按迭代记录推进，尚未发布 binding。
 

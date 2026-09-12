@@ -6,7 +6,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "wirelink-calculator-sdk"
 version = "0.1.0.dev1"
-description = "Reference synchronous Python/C++ SDK for the Wirelink calculator schema"
+description = "Generated synchronous Python/C++ SDK for calculator"
 readme = "README.md"
 requires-python = ">=3.10"
 license-files = ["LICENSE", "licenses/*"]
@@ -16,12 +16,9 @@ minimum-version = "build-system.requires"
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["python/calculator_sdk"]
 install.components = ["python"]
-sdist.include = ["generated/**", "python/**", "include/**", "src/**", "cmake/**", "tests/**", "schema/**", "licenses/**", "CMakeLists.txt", "README.md", "LICENSE", "pyproject.toml"]
+sdist.include = ["generated/**", "python/**", "include/**", "src/**", "cmake/**", "tests/**", "licenses/**", "CMakeLists.txt", "README.md", "LICENSE", "pyproject.toml", "wlc-sdk-*.json", "wlc-sdk-name.txt"]
 sdist.exclude = ["build/**", "dist/**", ".pytest_cache/**", "**/__pycache__/**"]
 
 [tool.scikit-build.cmake.define]
 CALCULATOR_BUILD_PYTHON = "ON"
 BUILD_TESTING = "OFF"
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]

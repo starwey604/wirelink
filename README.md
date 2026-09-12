@@ -188,12 +188,14 @@ codegen ABI before any generated translation unit is compiled.
 
 ## C++ and Python binding preview
 
-The first [calculator SDK iteration](examples/06_bindings/README.md) supplies an
-owning C++20 client, synchronous Python calls, typed owned values, and wheel/sdist
-builds over UDP. `Wirelink::cpp` and `Wirelink::cpp_host` provide optional common
-support when `WIRELINK_BUILD_CPP_BINDINGS=ON`. The reference façade is handwritten;
-schema-wide SDK generation, asyncio and serial/USB bindings remain later work.
-The C core and generated wire formats are unchanged.
+WLC now generates complete C++20 and typed Python SDKs for bounded managed
+synchronous RPC over UDP. The [calculator guide](examples/06_bindings/GUIDE.md)
+shows setup and calls; the [device SDK](examples/07_device_sdk/README.md) exercises
+strings/bytes, defaults, optional fields, enums, arrays and nested messages.
+`Wirelink::cpp` and `Wirelink::cpp_host` provide common support when
+`WIRELINK_BUILD_CPP_BINDINGS=ON`. See the [generator iteration record](docs/bindings-iteration-2-cn.md).
+Asyncio and serial/USB bindings remain later work. The C core and wire formats
+are unchanged; generated C still uses ABI 32.
 
 ## Build the desktop serial adapter
 

@@ -1,0 +1,8 @@
+{
+  "format": "wirelink-sdk-v1",
+  "binding_api": 1,
+  "namespace": "calculator",
+  "python_package": "calculator_sdk",
+  "distribution": "wirelink-calculator-sdk",
+  "version": "0.1.0.dev1"
+}

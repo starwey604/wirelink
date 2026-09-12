@@ -41,11 +41,11 @@ C API/ABI 需要新 major；minor 可以新增函数和 enum value，应用的 s
 
 ## C++ / Python binding 预览
 
-可选的 `Wirelink::cpp`、`Wirelink::cpp_host` 和 calculator SDK 是第一轮源码 API，
+可选的 `Wirelink::cpp`、`Wirelink::cpp_host` 和 WLC 生成的 SDK 是预览源码 API，
 尚不承诺跨编译器的稳定 C++ ABI，必须与匹配 C 库一起重编译。Binding API revision 1、
 WLC codegen ABI 32 和 Python 扩展 ABI 相互独立。参考 wheel 私有链接 native 代码，
 不跨独立 SDK 交换 native handle。使用方式和边界见
-[calculator SDK](../examples/06_bindings/README.md)。
+[calculator SDK](../examples/06_bindings/GUIDE.md)及 [生成器迭代记录](bindings-iteration-2-cn.md)。
 
 ## WLC Payload Schema
 

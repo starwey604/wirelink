@@ -1,0 +1,35 @@
+{
+  "format": "wirelink-codegen-manifest-v1",
+  "compiler": {
+    "name": "wlc",
+    "version": "0.7.0-dev",
+    "codegen_abi": 32
+  },
+  "module": "device",
+  "identity": {
+    "algorithm": "fnv1a64-v1",
+    "schema": "0x5a72c7fa9b968add",
+    "binding_profile": "0x0c01202b133fda46"
+  },
+  "bounded_fields": [
+    {"message": "Settings", "message_id": 3, "field": "label", "field_number": 1, "kind": "string", "max_length": 12},
+    {"message": "Settings", "message_id": 3, "field": "token", "field_number": 4, "kind": "bytes", "max_length": 8},
+    {"message": "Settings", "message_id": 3, "field": "class", "field_number": 9, "kind": "string", "max_length": 8},
+    {"message": "InfoResponse", "message_id": 4, "field": "name", "field_number": 1, "kind": "string", "max_length": 32},
+    {"message": "ConfigureRequest", "message_id": 5, "field": "opaque", "field_number": 2, "kind": "bytes", "max_length": 4},
+    {"message": "ConfigureResponse", "message_id": 6, "field": "opaque", "field_number": 2, "kind": "bytes", "max_length": 4},
+    {"message": "Numbers", "message_id": 7, "field": "text", "field_number": 18, "kind": "string", "max_length": 16}
+  ],
+  "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
+  "artifacts": [
+    {"path": "device.c", "size": 72145, "digest": "0xeaaca2978263cddf"},
+    {"path": "device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
+    {"path": "device_advanced.h", "size": 13912, "digest": "0x74a2d918ee2305c7"},
+    {"path": "device_bindings.c", "size": 13882, "digest": "0xbd6126b9c4ae8194"},
+    {"path": "device_bindings.h", "size": 4526, "digest": "0x6990709f680bd0f7"},
+    {"path": "device_endpoint.h", "size": 393, "digest": "0xc0450b9ee4730409"},
+    {"path": "device_runtime.c", "size": 71060, "digest": "0x6c0fd7fc12ae845d"},
+    {"path": "device_runtime.h", "size": 53517, "digest": "0x20d1606fe6a3f07d"},
+    {"path": "device_values.h", "size": 6909, "digest": "0x11711a2daa338e27"}
+  ]
+}

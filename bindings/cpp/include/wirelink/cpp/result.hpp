@@ -34,7 +34,10 @@ struct Error {
              result.runtime_error == WL_RPC_ERR_NO_SLOT)
       error.kind = ErrorKind::queue_full;
     else if (result.local_error == WL_ERR_NO_MEM) error.kind = ErrorKind::out_of_memory;
-    else if (result.codec_error != WL_CODEC_OK) error.kind = ErrorKind::codec;
+    // Request admission may expose only the core's payload error. Keep that
+    // original local code; do not invent a more specific codec diagnostic.
+    else if (result.codec_error != WL_CODEC_OK || result.local_error == WL_ERR_CORRUPT_PAYLOAD)
+      error.kind = ErrorKind::codec;
     else if (result.transport_error != WL_OK || result.local_error == WL_ERR_IO)
       error.kind = ErrorKind::transport;
     return error;

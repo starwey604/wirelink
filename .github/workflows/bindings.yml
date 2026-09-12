@@ -1,4 +1,4 @@
-name: Binding preview
+name: Generated binding SDKs
 
 on:
   push:
@@ -13,6 +13,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  sanitizers:
+    name: Generated C/C++ bridge sanitizers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: chriskohlhoff/asio
+          ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
+          path: .tools/asio
+      - name: Build native support with Clang ASan/UBSan
+        run: |
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS=-fsanitize=address,undefined -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake --build build/native --parallel 4
+          cmake --install build/native
+      - name: Test generated bridge callback types and ownership
+        run: |
+          cmake -S examples/07_device_sdk -B build/device -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS=-fsanitize=address,undefined -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake --build build/device --parallel 4
+          ctest --test-dir build/device --output-on-failure
+          cmake -S examples/06_bindings -B build/calculator -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS=-fsanitize=address,undefined -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake --build build/calculator --parallel 4
+          ctest --test-dir build/calculator --output-on-failure
   sdk:
     name: SDK (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
@@ -65,9 +91,22 @@ jobs:
           cmake -S tests/package/calculator_consumer -B build/consumer -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
           cmake --build build/consumer --config Release --parallel 4
           ctest --test-dir build/consumer -C Release --output-on-failure
+      - name: Build and test the generated device SDK
+        run: |
+          cmake -S examples/07_device_sdk -B build/device-sdk -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake --build build/device-sdk --config Release --parallel 4
+          ctest --test-dir build/device-sdk -C Release --output-on-failure
+          cmake --install build/device-sdk --config Release
+          cmake -S tests/package/device_consumer -B build/device-consumer -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake --build build/device-consumer --config Release --parallel 4
+          ctest --test-dir build/device-consumer -C Release --output-on-failure
       - name: Build sdist and wheel from extracted sdist
         run: >-
           python -m build examples/06_bindings --outdir dist
+          -Ccmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install
+      - name: Build device sdist and wheel from extracted sdist
+        run: >-
+          python -m build examples/07_device_sdk --outdir dist
           -Ccmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install
       - name: Install wheel and run Python tests
         shell: bash
@@ -75,14 +114,17 @@ jobs:
           python -m pip install --no-deps dist/*.whl
           if [ "$RUNNER_OS" = "Windows" ]; then
             export WIRELINK_CALCULATOR_SERVER="$GITHUB_WORKSPACE/build/sdk/tests/Release/calculator_c_server.exe"
+            export WIRELINK_DEVICE_SERVER="$GITHUB_WORKSPACE/build/device-sdk/tests/Release/device_c_server.exe"
           else
             export WIRELINK_CALCULATOR_SERVER="$GITHUB_WORKSPACE/build/sdk/tests/calculator_c_server"
+            export WIRELINK_DEVICE_SERVER="$GITHUB_WORKSPACE/build/device-sdk/tests/device_c_server"
           fi
-          python -m pytest examples/06_bindings/tests -q
-          for wheel in dist/*.whl; do
+          python -m pytest examples/06_bindings/tests examples/07_device_sdk/tests -q
+          for wheel in dist/wirelink_calculator_sdk-*.whl; do
             python examples/06_bindings/tests/check_wheel.py --wheel "$wheel" --server "$WIRELINK_CALCULATOR_SERVER"
           done
+          python tests/package/check_sdk_wheels.py --calculator-wheel dist/wirelink_calculator_sdk-*.whl --device-wheel dist/wirelink_device_sdk-*.whl --calculator-server "$WIRELINK_CALCULATOR_SERVER" --device-server "$WIRELINK_DEVICE_SERVER"
       - uses: actions/upload-artifact@v4
         with:
-          name: calculator-sdk-${{ matrix.os }}-py${{ matrix.python }}
+          name: generated-sdks-${{ matrix.os }}-py${{ matrix.python }}
           path: dist/*

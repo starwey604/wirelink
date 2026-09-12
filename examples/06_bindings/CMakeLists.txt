@@ -18,7 +18,7 @@ set(WIRELINK_WLC_EXPECTED_VERSION "${WIRELINK_WLC_VERSION}")
 set(WIRELINK_WLC_EXPECTED_ABI "${WIRELINK_WLC_CODEGEN_ABI}")
 include("${Wirelink_DIR}/WirelinkWlcVerifyManifest.cmake")
 
-add_library(calculator_client STATIC src/client.cpp generated/calculator.c
+add_library(calculator_client STATIC src/client.cpp src/endpoint.c generated/calculator.c
   generated/calculator_bindings.c generated/calculator_runtime.c)
 add_library(CalculatorSdk::client ALIAS calculator_client)
 set_target_properties(calculator_client PROPERTIES EXPORT_NAME client
@@ -58,19 +58,20 @@ if(CALCULATOR_BUILD_PYTHON)
   foreach(dependency wirelink host asio_udp platform cpp_host)
     get_target_property(_type Wirelink::${dependency} TYPE)
     if(NOT _type STREQUAL "STATIC_LIBRARY")
-      message(FATAL_ERROR "The self-contained reference wheel requires static Wirelink::${dependency}")
+      message(FATAL_ERROR "The self-contained SDK wheel requires static Wirelink::${dependency}")
     endif()
   endforeach()
-  nanobind_add_module(_native NB_STATIC NB_DOMAIN calculator_sdk src/python.cpp)
-  target_link_libraries(_native PRIVATE CalculatorSdk::client)
+  nanobind_add_module(calculator_native NB_STATIC NB_DOMAIN calculator_sdk src/python.cpp)
+  set_target_properties(calculator_native PROPERTIES OUTPUT_NAME _native)
+  target_link_libraries(calculator_native PRIVATE CalculatorSdk::client)
   if(UNIX AND NOT APPLE)
     # Do not expose static Wirelink/WLC symbols to other independently built SDKs.
-    target_link_options(_native PRIVATE "LINKER:--exclude-libs,ALL")
+    target_link_options(calculator_native PRIVATE "LINKER:--exclude-libs,ALL")
   endif()
-  install(TARGETS _native LIBRARY DESTINATION calculator_sdk COMPONENT python
+  install(TARGETS calculator_native LIBRARY DESTINATION calculator_sdk COMPONENT python
     RUNTIME DESTINATION calculator_sdk COMPONENT python)
 endif()
 
-if(BUILD_TESTING)
+if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
   add_subdirectory(tests)
 endif()

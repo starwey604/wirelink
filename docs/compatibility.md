@@ -74,7 +74,7 @@ them with the matching C library. Binding API revision 1 and WLC codegen ABI 32
 are separate identifiers; Python's extension ABI is a third compatibility domain.
 The reference wheel privately links its native code and does not exchange native
 handles with other independently built schema SDKs. See the
-[calculator SDK](../examples/06_bindings/README.md) for tested scope and ownership.
+[calculator SDK](../examples/06_bindings/GUIDE.md) for tested scope and ownership.
 
 ## WLC payload schemas
 
