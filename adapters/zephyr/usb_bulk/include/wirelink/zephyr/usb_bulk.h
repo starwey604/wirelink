@@ -15,6 +15,7 @@
 extern "C" {
 #endif
 
+/* Initial descriptor addresses only. Zephyr may reassign them in usbd_init(). */
 #define WL_ZEPHYR_USB_BULK_OUT_EP 0x01U
 #define WL_ZEPHYR_USB_BULK_IN_EP 0x81U
 #define WL_ZEPHYR_USB_BULK_INTERFACE_SUBCLASS 0x57U
@@ -72,6 +73,9 @@ typedef struct wl_zephyr_usb_bulk {
   uint8_t rx_staging[512]; /* One HS packet, only used at a short ring tail. */
   wl_rx_unit_claim_t rx_unit_claim;
   wl_io_token_t tx_token;
+  /* Endpoint addresses captured when each outstanding request is queued. */
+  uint8_t rx_endpoint;
+  uint8_t tx_endpoint;
   bool native_unit_mode;
   atomic_t flags;
   atomic_t tx_completion;

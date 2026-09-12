@@ -43,6 +43,6 @@ int main(void) {
     }
   }
 
-  LOG_INF("raw vendor bulk loopback ready (OUT=0x01 IN=0x81 DMA=off)");
+  LOG_INF("raw vendor bulk loopback ready (descriptor-assigned endpoints, DMA=off)");
   return 0;
 }

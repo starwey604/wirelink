@@ -37,6 +37,7 @@ struct bulk_descriptors {
 };
 
 struct bulk_class_data {
+  struct bulk_descriptors *descriptors;
   const struct usb_desc_header **fs_descriptors;
   const struct usb_desc_header **hs_descriptors;
   wl_zephyr_usb_bulk_t *adapter;
@@ -48,6 +49,46 @@ NET_BUF_POOL_FIXED_DEFINE(wl_usb_bulk_pool, 2, 0, sizeof(struct udc_buf_info),
 static int queue_out(struct usbd_class_data *class_data,
                      wl_zephyr_usb_bulk_t *adapter);
 static struct usbd_class_data *wl_usb_bulk_class_data(void);
+
+static struct usb_ep_descriptor *bulk_out_descriptor(
+    struct usbd_class_data *class_data) {
+  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
+  struct usbd_context *context = usbd_class_get_ctx(class_data);
+
+  if (USBD_SUPPORTS_HIGH_SPEED &&
+      usbd_bus_speed(context) == USBD_SPEED_HS) {
+    return &private_data->descriptors->hs_out;
+  }
+  return &private_data->descriptors->fs_out;
+}
+
+static struct usb_ep_descriptor *bulk_in_descriptor(
+    struct usbd_class_data *class_data) {
+  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
+  struct usbd_context *context = usbd_class_get_ctx(class_data);
+
+  if (USBD_SUPPORTS_HIGH_SPEED &&
+      usbd_bus_speed(context) == USBD_SPEED_HS) {
+    return &private_data->descriptors->hs_in;
+  }
+  return &private_data->descriptors->fs_in;
+}
+
+static uint8_t bulk_out_ep(struct usbd_class_data *class_data) {
+  return bulk_out_descriptor(class_data)->bEndpointAddress;
+}
+
+static uint8_t bulk_in_ep(struct usbd_class_data *class_data) {
+  return bulk_in_descriptor(class_data)->bEndpointAddress;
+}
+
+static size_t bulk_out_packet_size(struct usbd_class_data *class_data) {
+  return sys_le16_to_cpu(bulk_out_descriptor(class_data)->wMaxPacketSize);
+}
+
+static size_t bulk_in_packet_size(struct usbd_class_data *class_data) {
+  return sys_le16_to_cpu(bulk_in_descriptor(class_data)->wMaxPacketSize);
+}
 
 static void wake_consumer(const wl_zephyr_usb_bulk_t *adapter) {
   if (adapter->wake_consumer != NULL) {
@@ -115,9 +156,9 @@ static wl_sink_result_t usb_sink(void *user_data, wl_io_token_t token,
   }
 
   info = udc_get_buf_info(buffer);
-  info->ep = WL_ZEPHYR_USB_BULK_IN_EP;
-  packet_size = usbd_bus_speed(context) == USBD_SPEED_HS ? WL_USB_HS_MPS
-                                                         : WL_USB_FS_MPS;
+  adapter->tx_endpoint = bulk_in_ep(class_data);
+  info->ep = adapter->tx_endpoint;
+  packet_size = bulk_in_packet_size(class_data);
   if ((length % packet_size) == 0U) {
     udc_ep_buf_set_zlp(buffer);
   }
@@ -127,6 +168,7 @@ static wl_sink_result_t usb_sink(void *user_data, wl_io_token_t token,
   result = usbd_ep_enqueue(class_data, buffer);
   if (result != 0) {
     adapter->tx_token = 0U;
+    adapter->tx_endpoint = 0U;
     atomic_clear_bit(&adapter->flags, ADAPTER_TX_ACTIVE);
     usbd_ep_buf_free(context, buffer);
     record_cycles(adapter, &adapter->tx_sink_cycles,
@@ -156,7 +198,8 @@ static int bulk_request(struct usbd_class_data *class_data,
   }
   started = cycle_count(adapter);
 
-  if (endpoint == WL_ZEPHYR_USB_BULK_IN_EP) {
+  if (atomic_test_bit(&adapter->flags, ADAPTER_TX_ACTIVE) &&
+      endpoint == adapter->tx_endpoint) {
     usbd_ep_buf_free(context, buffer);
     atomic_set(&adapter->tx_completion,
                error == 0 ? TX_COMPLETION_DONE : TX_COMPLETION_FAILED);
@@ -166,8 +209,8 @@ static int bulk_request(struct usbd_class_data *class_data,
     return 0;
   }
 
-  if (endpoint != WL_ZEPHYR_USB_BULK_OUT_EP ||
-      !atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE)) {
+  if (!atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE) ||
+      endpoint != adapter->rx_endpoint) {
     atomic_inc(&adapter->errors);
     usbd_ep_buf_free(context, buffer);
     return -EINVAL;
@@ -193,6 +236,7 @@ static int bulk_request(struct usbd_class_data *class_data,
     atomic_inc(&adapter->errors);
   }
   memset(&adapter->rx_unit_claim, 0, sizeof(adapter->rx_unit_claim));
+  adapter->rx_endpoint = 0U;
   atomic_clear_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
   usbd_ep_buf_free(context, buffer);
   atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
@@ -315,6 +359,7 @@ static const struct usb_desc_header *hs_descriptors[] = {
 };
 
 static struct bulk_class_data private_data = {
+    .descriptors = &descriptors,
     .fs_descriptors = fs_descriptors,
     .hs_descriptors = hs_descriptors,
 };
@@ -339,8 +384,7 @@ static int queue_out(struct usbd_class_data *class_data,
     return WL_OK;
   }
   memset(&unit_claim, 0, sizeof(unit_claim));
-  const size_t packet_size = usbd_bus_speed(context) == USBD_SPEED_HS
-                                 ? WL_USB_HS_MPS : WL_USB_FS_MPS;
+  const size_t packet_size = bulk_out_packet_size(class_data);
   result = adapter->native_unit_mode
                ? wl_rx_unit_claim(adapter->link, adapter->maximum_rx_size,
                                   &unit_claim)
@@ -370,13 +414,15 @@ static int queue_out(struct usbd_class_data *class_data,
   }
   net_buf_reset(buffer);
   info = udc_get_buf_info(buffer);
-  info->ep = WL_ZEPHYR_USB_BULK_OUT_EP;
+  adapter->rx_endpoint = bulk_out_ep(class_data);
+  info->ep = adapter->rx_endpoint;
 
   adapter->rx_unit_claim = unit_claim;
   atomic_set_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
   result = usbd_ep_enqueue(class_data, buffer);
   if (result != 0) {
     atomic_clear_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
+    adapter->rx_endpoint = 0U;
     if (adapter->native_unit_mode) {
       (void)wl_rx_unit_abort(adapter->link, &unit_claim);
     } else {
@@ -463,6 +509,7 @@ int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter) {
     wl_io_token_t token = adapter->tx_token;
 
     adapter->tx_token = 0U;
+    adapter->tx_endpoint = 0U;
     atomic_clear_bit(&adapter->flags, ADAPTER_TX_ACTIVE);
     atomic_inc(&adapter->tx_completions);
     result = wl_tx_complete(adapter->link, token,

@@ -370,9 +370,12 @@ already form one producer and Wirelink's ring is the SPSC handoff, no external
 lock-free queue or selectable USB RX backend is retained.
 
 `adapters/zephyr/usb_bulk/` provides the matching Zephyr USB-next custom class
-with vendor subclass `0x57`, protocol `0x4c`, Bulk OUT `0x01`, and Bulk IN
-`0x81`. Initialize its singleton adapter before `usbd_init()` or the sample USB
-setup helper. One externally backed `net_buf` wraps a direct ring claim for
+with vendor subclass `0x57` and protocol `0x4c`. Its descriptors initially
+request Bulk OUT `0x01` and Bulk IN `0x81`, but Zephyr may reassign either
+address during `usbd_init()`. Device code uses the assigned descriptors and host
+code must discover the endpoints from the enumerated interface. Initialize its
+singleton adapter before `usbd_init()` or the sample USB setup helper. One
+externally backed `net_buf` wraps a direct ring claim for
 OUT; a second wrapper permits simultaneous borrowed IN. Endpoint completion
 publishes only direct-claim and atomic-mailbox state. The consumer loop calls
 `wl_poll()` and then `wl_zephyr_usb_bulk_service()` to re-arm OUT and advance TX

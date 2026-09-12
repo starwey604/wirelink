@@ -1,0 +1,11 @@
+tests:
+  wirelink.usb_bulk_adapter.integration:
+    tags:
+      - wirelink
+      - usb
+      - integration
+    harness: ztest
+    integration_platforms:
+      - native_sim
+    platform_allow:
+      - native_sim

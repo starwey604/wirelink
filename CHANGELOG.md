@@ -5,6 +5,13 @@ versioning after 1.0; compatibility expectations for pre-1.0 releases are descri
 
 ## 0.8.0 — 2026-09-13
 
+- Follow Zephyr USB descriptor endpoint reassignment in the USB Bulk adapter
+  for FS and HS submissions. Use the assigned IN/OUT packet sizes for ZLP and
+  RX alignment, and retain each outstanding request's endpoint across reset or
+  speed changes so late cancellation callbacks release the correct resources.
+  The initial `0x01`/`0x81` descriptor values are no longer documented as
+  runtime addresses. No wire-format or codegen ABI change; rebuild Zephyr
+  adapter consumers because `wl_zephyr_usb_bulk_t` gains two endpoint fields.
 - Support the pinned Zephyr 4.4.0 UDP socket API with fragmentation disabled;
   reject fragmentation-enabled configurations when per-socket control is absent.
   Keep the eventfd exhaustion test compatible with the configured 4.4 pool.

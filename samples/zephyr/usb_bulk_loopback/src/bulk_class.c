@@ -19,8 +19,8 @@
 LOG_MODULE_REGISTER(wirelink_usb_bulk, LOG_LEVEL_INF);
 
 #define BULK_ENABLED 0
-#define BULK_OUT_EP 0x01U
-#define BULK_IN_EP 0x81U
+#define BULK_INITIAL_OUT_EP 0x01U
+#define BULK_INITIAL_IN_EP 0x81U
 #define BULK_FS_MPS 64U
 #define BULK_HS_MPS 512U
 
@@ -44,13 +44,25 @@ struct bulk_data {
 };
 
 static uint8_t bulk_out_ep(struct usbd_class_data *class_data) {
-  ARG_UNUSED(class_data);
-  return BULK_OUT_EP;
+  struct bulk_data *data = usbd_class_get_private(class_data);
+  struct usbd_context *context = usbd_class_get_ctx(class_data);
+
+  if (USBD_SUPPORTS_HIGH_SPEED &&
+      usbd_bus_speed(context) == USBD_SPEED_HS) {
+    return data->descriptors->hs_out.bEndpointAddress;
+  }
+  return data->descriptors->fs_out.bEndpointAddress;
 }
 
 static uint8_t bulk_in_ep(struct usbd_class_data *class_data) {
-  ARG_UNUSED(class_data);
-  return BULK_IN_EP;
+  struct bulk_data *data = usbd_class_get_private(class_data);
+  struct usbd_context *context = usbd_class_get_ctx(class_data);
+
+  if (USBD_SUPPORTS_HIGH_SPEED &&
+      usbd_bus_speed(context) == USBD_SPEED_HS) {
+    return data->descriptors->hs_in.bEndpointAddress;
+  }
+  return data->descriptors->fs_in.bEndpointAddress;
 }
 
 static struct net_buf *bulk_buffer_allocate(struct usbd_class_data *class_data,
@@ -184,7 +196,7 @@ static struct bulk_desc bulk_descriptors = {
         {
             .bLength = sizeof(struct usb_ep_descriptor),
             .bDescriptorType = USB_DESC_ENDPOINT,
-            .bEndpointAddress = BULK_OUT_EP,
+            .bEndpointAddress = BULK_INITIAL_OUT_EP,
             .bmAttributes = USB_EP_TYPE_BULK,
             .wMaxPacketSize = sys_cpu_to_le16(BULK_FS_MPS),
             .bInterval = 0U,
@@ -193,7 +205,7 @@ static struct bulk_desc bulk_descriptors = {
         {
             .bLength = sizeof(struct usb_ep_descriptor),
             .bDescriptorType = USB_DESC_ENDPOINT,
-            .bEndpointAddress = BULK_IN_EP,
+            .bEndpointAddress = BULK_INITIAL_IN_EP,
             .bmAttributes = USB_EP_TYPE_BULK,
             .wMaxPacketSize = sys_cpu_to_le16(BULK_FS_MPS),
             .bInterval = 0U,
@@ -202,7 +214,7 @@ static struct bulk_desc bulk_descriptors = {
         {
             .bLength = sizeof(struct usb_ep_descriptor),
             .bDescriptorType = USB_DESC_ENDPOINT,
-            .bEndpointAddress = BULK_OUT_EP,
+            .bEndpointAddress = BULK_INITIAL_OUT_EP,
             .bmAttributes = USB_EP_TYPE_BULK,
             .wMaxPacketSize = sys_cpu_to_le16(BULK_HS_MPS),
             .bInterval = 0U,
@@ -211,7 +223,7 @@ static struct bulk_desc bulk_descriptors = {
         {
             .bLength = sizeof(struct usb_ep_descriptor),
             .bDescriptorType = USB_DESC_ENDPOINT,
-            .bEndpointAddress = BULK_IN_EP,
+            .bEndpointAddress = BULK_INITIAL_IN_EP,
             .bmAttributes = USB_EP_TYPE_BULK,
             .wMaxPacketSize = sys_cpu_to_le16(BULK_HS_MPS),
             .bInterval = 0U,

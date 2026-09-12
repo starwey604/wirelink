@@ -654,7 +654,8 @@ int main(void) {
     }
   }
 
-  printk("Wirelink vendor bulk endpoint ready (OUT=0x01 IN=0x81 DMA=off "
+  printk("Wirelink vendor bulk endpoint ready "
+         "(descriptor-assigned endpoints, DMA=off "
          "payload=%u object_chunk=%u)\n",
          MAX_PAYLOAD, OBJECT_CHUNK_SIZE);
   for (;;) {
