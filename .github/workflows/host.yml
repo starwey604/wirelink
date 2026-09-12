@@ -60,11 +60,14 @@ jobs:
           ctest --test-dir profile-build --build-config Release --output-on-failure
 
       # Published WLC 0.8.0 / ABI 32 source pair.
+      - name: Preserve compiler template line endings
+        run: git config --global core.autocrlf false
+
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 9617907cd24524b10112ce5f0997eebe227d57e7
+          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
           path: .tools/wlc
 
       - name: Build matching WLC
@@ -76,6 +79,17 @@ jobs:
       - name: Configure WLC package consumer
         # Exercise the installed package's verified host archive download.
         run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
+
+      - name: Verify SDK generation with the downloaded release compiler
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          import sys
+          binaries = list(Path("wlc-consumer-build/_deps/wirelink-wlc").glob("v*/**/bin/wlc*"))
+          assert len(binaries) == 1, binaries
+          subprocess.run([sys.executable, "tests/package/check_generated_sdks.py",
+                          "--wlc", str(binaries[0])], check=True)
 
       - name: Verify explicit and offline compiler resolution
         run: cmake -DWIRELINK_SOURCE_DIR=${{ github.workspace }} -DMATCHING_WLC=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }} -DMODE=check -P tests/package/wlc_resolution.cmake

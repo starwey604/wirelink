@@ -1,0 +1,2 @@
+# Keep generated artifacts and embedded compiler templates identical on all hosts.
+* text=auto eol=lf

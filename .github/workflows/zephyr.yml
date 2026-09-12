@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 9617907cd24524b10112ce5f0997eebe227d57e7
+          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
           path: .tools/wlc
 
       - name: Build matching WLC

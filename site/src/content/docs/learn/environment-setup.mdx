@@ -114,7 +114,7 @@ from the [WLC release](https://github.com/starwey604/wlc/releases/tag/v0.8.0),
 verify it with SHA256SUMS, and put the executable on PATH. To build from source:
 
 ```sh
-git clone --branch v0.8.0 --depth 1 https://github.com/starwey604/wlc.git paired-wlc
+git -c core.autocrlf=false clone --branch v0.8.0 --depth 1 https://github.com/starwey604/wlc.git paired-wlc
 cargo install --path paired-wlc --locked
 ```
 

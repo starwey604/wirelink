@@ -219,7 +219,7 @@ To regenerate the complete SDK with a matching compiler:
 ```sh
 /path/to/wlc sdk examples/06_bindings/schema/calculator.wl \
   --profile examples/06_bindings/schema/calculator.bind.wl \
-  --out-dir examples/06_bindings --overwrite
+  --out-dir examples/06_bindings --name calculator --package-version 0.8.0 --overwrite
 ```
 
 The schema/profile match examples/01_rpc; keep them in sync. CMake checks the generated

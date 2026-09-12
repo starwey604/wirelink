@@ -25,7 +25,7 @@ Wirelink v0.8.0 与 WLC v0.8.0 配套发布。此版本提供 C++20 和 Python �
 下载适合本机 CPython 版本和平台的 wheel，并按附件 `SHA256SUMS` 核对摘要。例如，Linux 上的 CPython 3.14 用户可在空目录中下载 calculator 的 `cp314-cp314-manylinux_2_28_x86_64` wheel，然后执行：
 
 ```sh
-python -m pip install --no-index --no-deps ./wirelink_calculator_sdk-0.8.0-cp314-cp314-manylinux_2_28_x86_64.whl
+python -m pip install --no-index --no-deps ./wirelink_calculator_sdk-0.8.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
 python -c "import calculator_sdk; print(calculator_sdk.__version__)"
 ```
 

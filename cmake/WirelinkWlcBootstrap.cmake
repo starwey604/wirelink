@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: ISC
 include_guard(GLOBAL)
 
-# Published v0.7.0-rc.1 source pair; digest verified against the remote archive.
+# Published v0.8.0 source pair; digest verified against the remote archive.
 set(WIRELINK_WLC_SOURCE_ABI "32" CACHE INTERNAL
   "Codegen ABI of the last distributed WLC source pair" FORCE)
-set(WIRELINK_WLC_SOURCE_REVISION "1ec38f103948a0ef7a33d8655a261eed63101350"
+set(WIRELINK_WLC_SOURCE_REVISION "758d12a2466e254cb4d913fce578fb7deae766ec"
   CACHE INTERNAL "Paired WLC source commit" FORCE)
 set(WIRELINK_WLC_SOURCE_SHA256
-  "3a5007f70d227e38326610d510fee9a99c43c8b8a96b0565634a42ebb18a548b"
+  "c97fa894b7996c5d936862426d18394fe88cf2a6e06de455e65fbf8ea43df4e1"
   CACHE INTERNAL "Paired WLC source archive digest" FORCE)
 
 # Select the host, never CMAKE_SYSTEM_PROCESSOR (which names the firmware target).
@@ -17,19 +17,19 @@ function(_wirelink_wlc_release_asset system processor out_asset out_digest)
   set(_digest "")
   if(system STREQUAL "Windows" AND _processor MATCHES "^(amd64|x86_64)$")
     set(_asset "wlc-windows-x86_64.zip")
-    set(_digest "50711147c474efb38c62a55b42beb1d5345a1c344e87511e48ce0832452f60c6")
+    set(_digest "203ac910e0cacaa8732aab69a0b9cae27e6c32003007420ec1838724f41ef4c6")
   elseif(system STREQUAL "Linux" AND _processor MATCHES "^(amd64|x86_64)$")
     set(_asset "wlc-linux-x86_64-musl.tar.gz")
-    set(_digest "15a1c057c0270a6c43fda4f3b61e0eeb24bf154fc9c5f14ec685a6a8605eefba")
+    set(_digest "f5e88c221925def1a85c9940057ba55e46c14d869775275d2812bd1af6081c67")
   elseif(system STREQUAL "Linux" AND _processor MATCHES "^(arm64|aarch64)$")
     set(_asset "wlc-linux-aarch64-musl.tar.gz")
-    set(_digest "49cd9a045518c3d9a7e51972a0ce4c9366339a87103cbe231279093da31f1ccd")
+    set(_digest "79851f5b6a7fe59c5bb8f12287f96d47b0f6dd4b5cb7bc2daa0be69ea89c2445")
   elseif(system STREQUAL "Darwin" AND _processor MATCHES "^(amd64|x86_64)$")
     set(_asset "wlc-macos-x86_64.tar.gz")
-    set(_digest "265c6a59055a4198198aa58b7b770effc1846351521c96137fa20842cd0fd7dd")
+    set(_digest "ae054c0978c5a79f91cb0dc5ce626ff97b9967ceeba071cf69fa95d1666b148e")
   elseif(system STREQUAL "Darwin" AND _processor MATCHES "^(arm64|aarch64)$")
     set(_asset "wlc-macos-aarch64.tar.gz")
-    set(_digest "13752af1f8682cec42b75107f9dc33bc43fc64bce72ea842725650a217a338fc")
+    set(_digest "99dfd609a577f23b341baa2dda99c942f44b096c55051ee1fa2c7425d59f02b8")
   endif()
   set(${out_asset} "${_asset}" PARENT_SCOPE)
   set(${out_digest} "${_digest}" PARENT_SCOPE)
