@@ -58,6 +58,27 @@ RPC completion received
 
 这里没有创建后台线程。两行输出之间的应用主循环会持续推进 endpoint，直到回调执行。
 
+本地提交与最终完成之间依赖应用主动推进。真实运行中可能需要调用多次 `step()`；下图只
+画出发送请求和接收结果的两次关键调用：
+
+```mermaid
+sequenceDiagram
+  accTitle: 异步 RPC 生命周期
+  accDescr: 本地提交先返回，应用随后推进 endpoint，最后从完成回调取得 RPC 结果。
+  participant App as 应用 owner
+  participant Client as 客户端 endpoint
+  participant Server as 设备 endpoint
+
+  App->>Client: add_async(request, completed)
+  Client-->>App: WL_OK（本地已接受）
+  App->>App: 继续执行其他主循环工作
+  App->>Client: step()
+  Client->>Server: Add 请求
+  Server-->>Client: 响应或拒绝
+  App->>Client: step()
+  Client-->>App: completed(result, response)
+```
+
 :::note[Windows 程序路径]
 Visual Studio 多配置构建会把程序放在
 `build/tutorials/examples/01_rpc/Release/` 下，并添加 `.exe` 后缀。

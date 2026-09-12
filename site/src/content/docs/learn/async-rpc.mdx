@@ -63,6 +63,28 @@ from the completion callback. Only then does the client print the business resul
 No background thread was created. The application loop between those two lines
 drives the endpoint until the callback runs.
 
+Submission and completion are separated by application-controlled progress.
+Several `step()` calls may be needed in a real run; this diagram shows the calls
+that send the request and receive its result:
+
+```mermaid
+sequenceDiagram
+  accTitle: Asynchronous RPC lifecycle
+  accDescr: Local submission returns before the application drives the endpoint and receives the final result in its completion callback.
+  participant App as Application owner
+  participant Client as Client endpoint
+  participant Server as Device endpoint
+
+  App->>Client: add_async(request, completed)
+  Client-->>App: WL_OK (accepted locally)
+  App->>App: Continue other loop work
+  App->>Client: step()
+  Client->>Server: Add request
+  Server-->>Client: Response or rejection
+  App->>Client: step()
+  Client-->>App: completed(result, response)
+```
+
 :::note[Windows executable path]
 Visual Studio multi-configuration builds place the programs under
 `build/tutorials/examples/01_rpc/Release/` and add the `.exe` suffix.

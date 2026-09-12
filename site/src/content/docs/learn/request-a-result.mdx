@@ -179,6 +179,28 @@ The complete call therefore has four observable stages:
 Reliable delivery covers the link work in stages 1 and 3. The RPC outcome is only
 known after the business work and reply have completed.
 
+The link acknowledgement appears before the handler's business result. The
+client returns from the synchronous call only after the result travels back:
+
+```mermaid
+sequenceDiagram
+  accTitle: Synchronous RPC stages
+  accDescr: A link acknowledgement confirms request delivery before the handler creates a response or rejection and returns the final RPC outcome.
+  actor Controller
+  participant Client as Client endpoint
+  participant Server as Device endpoint
+  participant Handler as Add handler
+
+  Controller->>Client: add_sync(request)
+  Client->>Server: Add request
+  Server-->>Client: Link acknowledgement
+  Server->>Handler: Handle AddRequest
+  Handler-->>Server: Response or rejection
+  Server->>Client: RPC result
+  Client-->>Server: Link acknowledgement
+  Client-->>Controller: Final RPC outcome
+```
+
 <MultipleChoice
   id="rpc-delivery-versus-completion"
   question="The server has acknowledged receipt of a request, but the handler has not returned yet. Can the client report a successful RPC result?"
