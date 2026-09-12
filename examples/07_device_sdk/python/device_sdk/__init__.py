@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Generated synchronous Wirelink SDK. Message data outlives the connection."""
+"""Generated Wirelink SDK with synchronous and asyncio clients. Message data outlives the connection."""
 from __future__ import annotations
 
 import builtins as _builtins
@@ -334,8 +334,69 @@ class Client:
         return InfoResponse._from_native(value)
 
 
+class AsyncClient(_runtime.AsyncConnection):
+    """An asyncio connection bound to the event loop used by connect().
+
+    Use async with or await close(). RPC cancellation is local and cannot undo
+    work already performed by the peer. Responses own all their data.
+    """
+
+    def __init__(self, native_client: _native.Client) -> None:
+        if not isinstance(native_client, _native.Client):
+            raise TypeError("create an AsyncClient using AsyncClient.connect(Udp(...))")
+        super().__init__(native_client)
+
+    @_builtins.classmethod
+    def connect(cls, transport: Udp) -> AsyncClient:
+        _runtime.asyncio.get_running_loop()
+        if not isinstance(transport, Udp):
+            raise TypeError("transport must be Udp")
+        native, error = _native.connect(*transport.peer, *transport.bind)
+        if error is not None:
+            _runtime._raise(error)
+        assert native is not None
+        try:
+            return cls(native)
+        except BaseException:
+            native.close()
+            raise
+
+    async def __aenter__(self) -> AsyncClient:
+        self._check_loop()
+        if self._closing:
+            _runtime._raise(_native.closed_error())
+        return self
+
+    async def __aexit__(self, kind: type[BaseException] | None,
+                        error: BaseException | None, traceback: _TracebackType | None) -> None:
+        await self.close()
+
+    async def configure(self, *, settings: Settings, opaque: bytes | None = None, backup: Settings | None = None, timeout: float = 1.0) -> ConfigureResponse:
+        return await self.configure_request(ConfigureRequest(
+            settings=settings,
+            opaque=opaque,
+            backup=backup,
+        ), timeout=timeout)
+
+    async def configure_request(self, request: ConfigureRequest, *, timeout: float = 1.0) -> ConfigureResponse:
+        if not isinstance(request, ConfigureRequest):
+            raise TypeError("request must be ConfigureRequest")
+        return await self._invoke(self._client.configure_async, request._to_native(),
+                                  ConfigureResponse._from_native, _runtime.timeout_ms(timeout))
+
+    async def get_info(self, *, timeout: float = 1.0) -> InfoResponse:
+        return await self.get_info_request(InfoRequest(
+        ), timeout=timeout)
+
+    async def get_info_request(self, request: InfoRequest, *, timeout: float = 1.0) -> InfoResponse:
+        if not isinstance(request, InfoRequest):
+            raise TypeError("request must be InfoRequest")
+        return await self._invoke(self._client.get_info_async, request._to_native(),
+                                  InfoResponse._from_native, _runtime.timeout_ms(timeout))
+
+
 __all__ = [
-    "Client", "Udp", "WirelinkError", "ClosedError", "RpcTimeoutError", "CancelledError",
+    "Client", "AsyncClient", "Udp", "WirelinkError", "ClosedError", "RpcTimeoutError", "CancelledError",
     "RejectedError", "QueueFullError", "TransportError", "CodecError", "InvalidArgumentError",
     "core_version", "codegen_abi", "binding_api", "__version__",
     "Mode",

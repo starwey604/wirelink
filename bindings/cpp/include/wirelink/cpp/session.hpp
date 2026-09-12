@@ -3,6 +3,7 @@
 #define WIRELINK_CPP_SESSION_HPP
 
 #include <wirelink/cpp/result.hpp>
+#include <wirelink/cpp/operation.hpp>
 #include <wirelink/endpoint.h>
 #include <cstdint>
 #include <memory>
@@ -48,10 +49,14 @@ public:
   using InvokeFn = wl_rpc_completion_t (*)(void* endpoint, void* call) noexcept;
   wl_rpc_completion_t invoke(InvokeFn function, void* call) noexcept;
 
+  // Generator bridge. Success retains the owned call through completion;
+  // rejection leaves it unsubmitted. Each call object may be submitted once.
+  wl_err_t submit(std::shared_ptr<detail::AsyncCall> call, std::uint32_t timeout_ms) noexcept;
+
 private:
   struct Impl;
-  explicit Session(std::unique_ptr<Impl> impl) noexcept;
-  std::unique_ptr<Impl> impl_;
+  explicit Session(std::shared_ptr<Impl> impl) noexcept;
+  std::shared_ptr<Impl> impl_;
 };
 
 } // namespace wirelink

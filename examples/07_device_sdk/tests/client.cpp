@@ -50,6 +50,19 @@ int main() {
   CHECK(utf8.error().completion.local_error == WL_ERR_CORRUPT_PAYLOAD);
   CHECK(utf8.error().completion.codec_error == WL_CODEC_OK);
 
+  request.settings = saved.settings;
+  request.backup = saved.backup;
+  auto pending = client.configure_async(request);
+  CHECK(pending);
+  request.settings.class_ = "changed";
+  auto owned = pending.value().result();
+  CHECK(owned && owned.value().settings.class_ == std::string("x\0y", 3));
+  CHECK(owned.value().backup->counters == saved.backup->counters);
+  request.settings.label = std::string("\xc0\xaf", 2);
+  auto async_utf8 = client.configure_async(request);
+  CHECK(async_utf8);
+  CHECK(async_utf8.value().result().error().kind == wirelink::ErrorKind::codec);
+
   client.close();
   CHECK(!saved.settings.label && saved.backup->label->empty());
   CHECK(saved.opaque && saved.opaque->empty());

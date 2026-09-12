@@ -30,6 +30,9 @@ struct Executor::RpcJob {
     wl_time_ms_t deadline{};
     wl_rpc_call_t handle{};
     bool started{};
+    std::shared_ptr<RpcTask> task;
+    bool cancel_requested{};
+    bool cancel_dispatched{};
     wl_rpc_completion_t result{};
     bool completed{};
     std::condition_variable finished;
@@ -559,29 +562,47 @@ wl_rpc_completion_t Executor::s_invokeRpc(void* context,
 
 void Executor::s_finishRpc(void* context, const wl_rpc_completion_t* result) {
     auto& job = *static_cast<RpcJob*>(context);
-    MutexScope lock(job.owner->m_rpc_mutex, Stage::rpc_finish_wait, Stage::rpc_finish_hold);
-    job.result = *result;
-    if (job.result.status == WL_RPC_CANCELLED && job.owner->m_stop_error != WL_OK) {
-        job.result.status = WL_RPC_FAILED;
-        job.result.local_error = job.owner->m_stop_error;
+    std::shared_ptr<RpcTask> task;
+    wl_rpc_completion_t completion{};
+    {
+        MutexScope lock(job.owner->m_rpc_mutex, Stage::rpc_finish_wait, Stage::rpc_finish_hold);
+        job.result = *result;
+        if (job.result.status == WL_RPC_CANCELLED && job.owner->m_stop_error != WL_OK) {
+            job.result.status = WL_RPC_FAILED;
+            job.result.local_error = job.owner->m_stop_error;
+        }
+        job.completed = true;
+        job.owner->m_stats.m_rpc_completed.fetch_add(1, std::memory_order_relaxed);
+        job.owner->m_activity.add(ExecutorActivity::rpc_completions);
+        for (auto& slot : job.owner->m_rpc_jobs) if (slot == &job) { slot = nullptr; break; }
+        task = std::move(job.task);
+        if (task) completion = job.result;
+        // A synchronous caller cannot destroy its stack CV until this
+        // notification returns and the shared admission mutex is released.
+        else job.finished.notify_one();
     }
-    job.completed = true;
-    job.owner->m_stats.m_rpc_completed.fetch_add(1, std::memory_order_relaxed);
-    job.owner->m_activity.add(ExecutorActivity::rpc_completions);
-    for (auto& slot : job.owner->m_rpc_jobs) if (slot == &job) { slot = nullptr; break; }
-    // Notify under the shared mutex. The caller cannot destroy its stack CV
-    // until this notification returns and the mutex is released.
-    job.finished.notify_one();
+    if (task) {
+        delete &job;
+        task->finish(completion);
+    }
 }
 
 std::size_t Executor::s_dispatchRpc() noexcept {
     if (!m_rpc_pending.load(std::memory_order_acquire)) return 0;
     std::array<RpcJob*, 8> pending{};
+    std::array<bool, 8> cancelling{};
     std::size_t count{};
     {
         MutexScope lock(m_rpc_mutex, Stage::rpc_collect_wait, Stage::rpc_collect_hold);
         for (auto* job : m_rpc_jobs) {
-            if (job == nullptr || job->started) continue;
+            if (job == nullptr) continue;
+            if (job->cancel_requested && !job->cancel_dispatched) {
+                job->cancel_dispatched = true;
+                cancelling[count] = true;
+                pending[count++] = job;
+                continue;
+            }
+            if (job->started) continue;
             job->started = true;
             pending[count++] = job;
         }
@@ -598,8 +619,19 @@ std::size_t Executor::s_dispatchRpc() noexcept {
     m_activity.add(ExecutorActivity::rpc_jobs, count);
     for (std::size_t i = 0; i < count; ++i) {
         auto* job = pending[i];
-        const int error = job->call.submit(job->call.context, job->deadline,
-            &Executor::s_finishRpc, job, &job->handle);
+        const auto task = job->task; // Retain through an inline completion callback.
+        if (cancelling[i]) {
+            if (job->started) (void)task->cancel(job->handle);
+            else {
+                const auto result = localFailure(WL_ERR_CANCELLED);
+                s_finishRpc(job, &result);
+            }
+            continue;
+        }
+        const int error = task
+            ? task->submit(job->deadline, &Executor::s_finishRpc, job, &job->handle)
+            : job->call.submit(job->call.context, job->deadline,
+                &Executor::s_finishRpc, job, &job->handle);
         if (error != WL_OK) {
             auto result = localFailure(error);
             if (error == WL_ERR_TIMEOUT) {
@@ -610,6 +642,59 @@ std::size_t Executor::s_dispatchRpc() noexcept {
         }
     }
     return count;
+}
+
+int Executor::submitRpc(std::shared_ptr<RpcTask> task, std::uint32_t timeout_ms) noexcept try {
+    if (!task || timeout_ms == 0 || timeout_ms > INT32_MAX)
+        return WL_ERR_INVALID_ARG;
+    if (m_driver.endpoint == nullptr) return WL_ERR_INVALID_STATE;
+    auto job = std::unique_ptr<RpcJob>(new (std::nothrow) RpcJob);
+    if (!job) return WL_ERR_NO_MEM;
+    job->owner = this;
+    job->task = std::move(task);
+    {
+        std::lock_guard lock(m_rpc_mutex);
+        if (!m_accepting.load(std::memory_order_acquire)) return WL_ERR_NOT_INITIALIZED;
+        RpcJob** free = nullptr;
+        for (auto& slot : m_rpc_jobs) {
+            if (slot && slot->task == job->task) return WL_ERR_INVALID_STATE;
+            if (!slot && !free) free = &slot;
+        }
+        if (!free) {
+            m_stats.m_rpc_queue_full.fetch_add(1, std::memory_order_relaxed);
+            return WL_ERR_QUEUE_FULL;
+        }
+        job->deadline = nowMs() + timeout_ms;
+        *free = job.release();
+        m_rpc_pending.store(true, std::memory_order_release);
+        m_stats.m_rpc_submitted.fetch_add(1, std::memory_order_relaxed);
+    }
+    notify();
+    return WL_OK;
+} catch (const std::bad_alloc&) {
+    return WL_ERR_NO_MEM;
+} catch (const std::system_error&) {
+    return WL_ERR_IO;
+}
+
+bool Executor::cancelRpc(const RpcTask* task) noexcept {
+    if (!task) return false;
+    {
+        std::lock_guard lock(m_rpc_mutex);
+        if (!m_accepting.load(std::memory_order_acquire)) return false;
+        bool found = false;
+        for (auto* job : m_rpc_jobs) {
+            if (job && job->task.get() == task && !job->cancel_requested) {
+                job->cancel_requested = true;
+                found = true;
+                break;
+            }
+        }
+        if (!found) return false;
+        m_rpc_pending.store(true, std::memory_order_release);
+    }
+    notify();
+    return true;
 }
 
 void Executor::s_cancelQueuedRpc() noexcept {

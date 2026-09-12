@@ -9,6 +9,12 @@ namespace nb = nanobind;
 using namespace device;
 
 namespace {
+// Keep nanobind/Python reference ownership off the native owner thread.
+struct wlc_python_signal_handle {
+  std::shared_ptr<wirelink::CompletionSignal> value = std::make_shared<wirelink::CompletionSignal>();
+  bool wait() { return value->wait(); }
+  void stop() noexcept { value->stop(); }
+};
 [[maybe_unused]] InfoRequest read_InfoRequest(nb::handle object) {
   const auto input = nb::cast<nb::tuple>(object);
   if (input.size() != 0) nb::raise_type_error("invalid InfoRequest tuple length");
@@ -198,7 +204,7 @@ namespace {
 NB_MODULE(_native, module) {
   module.attr("core_version") = WIRELINK_VERSION_STRING;
   module.attr("codegen_abi") = 32;
-  module.attr("binding_api") = 1;
+  module.attr("binding_api") = 2;
   nb::class_<wirelink::Error>(module, "Error")
       .def_prop_ro("kind", [](const wirelink::Error& e) { return wirelink::error_kind_name(e.kind); })
       .def_prop_ro("status", [](const wirelink::Error& e) { return e.completion.status; })
@@ -209,6 +215,38 @@ NB_MODULE(_native, module) {
       .def_prop_ro("codec_error", [](const wirelink::Error& e) { return e.completion.codec_error; })
       .def_prop_ro("os_error", [](const wirelink::Error& e) { return e.system_error.value(); })
       .def_prop_ro("os_message", [](const wirelink::Error& e) { return e.system_error.message(); });
+  module.def("closed_error", [] { return wirelink::Error::local(WL_ERR_NOT_INITIALIZED); });
+  module.def("queue_full_error", [] { return wirelink::Error::local(WL_ERR_QUEUE_FULL); });
+  nb::class_<wlc_python_signal_handle>(module, "CompletionSignal")
+      .def(nb::init<>())
+      .def("wait", &wlc_python_signal_handle::wait, nb::call_guard<nb::gil_scoped_release>())
+      .def("stop", &wlc_python_signal_handle::stop);
+  nb::class_<wirelink::Operation<InfoResponse>>(module, "OperationInfoResponse")
+      .def_prop_ro("done", &wirelink::Operation<InfoResponse>::done)
+      .def("cancel", &wirelink::Operation<InfoResponse>::cancel)
+      .def("notify_on_completion", [](const wirelink::Operation<InfoResponse>& operation, const wlc_python_signal_handle& signal) { operation.notify_on_completion(signal.value); })
+      .def("result", [](const wirelink::Operation<InfoResponse>& operation) {
+        auto result = [&] {
+          nb::gil_scoped_release release;
+          return operation.result();
+        }();
+        if (!result) return nb::make_tuple(nb::none(), wirelink::Error(result.error()));
+        return nb::make_tuple(write_InfoResponse(result.value()), nb::none());
+      });
+
+  nb::class_<wirelink::Operation<ConfigureResponse>>(module, "OperationConfigureResponse")
+      .def_prop_ro("done", &wirelink::Operation<ConfigureResponse>::done)
+      .def("cancel", &wirelink::Operation<ConfigureResponse>::cancel)
+      .def("notify_on_completion", [](const wirelink::Operation<ConfigureResponse>& operation, const wlc_python_signal_handle& signal) { operation.notify_on_completion(signal.value); })
+      .def("result", [](const wirelink::Operation<ConfigureResponse>& operation) {
+        auto result = [&] {
+          nb::gil_scoped_release release;
+          return operation.result();
+        }();
+        if (!result) return nb::make_tuple(nb::none(), wirelink::Error(result.error()));
+        return nb::make_tuple(write_ConfigureResponse(result.value()), nb::none());
+      });
+
 
   nb::class_<device::Client>(module, "Client")
       .def("close", &device::Client::close, nb::call_guard<nb::gil_scoped_release>())
@@ -231,6 +269,24 @@ NB_MODULE(_native, module) {
         }();
         if (!result) return nb::make_tuple(nb::none(), wirelink::Error(result.error()));
         return nb::make_tuple(write_InfoResponse(result.value()), nb::none());
+      })
+      .def("configure_async", [](device::Client& client, nb::tuple request, std::int64_t timeout_ms) {
+        auto owned = read_ConfigureRequest(request);
+        auto result = [&] {
+          nb::gil_scoped_release release;
+          return client.configure_async(owned, std::chrono::milliseconds(timeout_ms));
+        }();
+        if (!result) return nb::make_tuple(nb::none(), wirelink::Error(result.error()));
+        return nb::make_tuple(std::move(result).value(), nb::none());
+      })
+      .def("get_info_async", [](device::Client& client, nb::tuple request, std::int64_t timeout_ms) {
+        auto owned = read_InfoRequest(request);
+        auto result = [&] {
+          nb::gil_scoped_release release;
+          return client.get_info_async(owned, std::chrono::milliseconds(timeout_ms));
+        }();
+        if (!result) return nb::make_tuple(nb::none(), wirelink::Error(result.error()));
+        return nb::make_tuple(std::move(result).value(), nb::none());
       })
       ;
   module.def("connect", [](const std::string& peer_address, std::uint16_t peer_port,

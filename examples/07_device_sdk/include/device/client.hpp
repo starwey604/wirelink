@@ -16,7 +16,11 @@ public:
   Client& operator=(const Client&) = delete;
   wirelink::Result<ConfigureResponse> configure(const ConfigureRequest& request,
       std::chrono::milliseconds timeout = std::chrono::seconds(1));
+  wirelink::Result<wirelink::Operation<ConfigureResponse>> configure_async(const ConfigureRequest& request,
+      std::chrono::milliseconds timeout = std::chrono::seconds(1));
   wirelink::Result<InfoResponse> get_info(const InfoRequest& request,
+      std::chrono::milliseconds timeout = std::chrono::seconds(1));
+  wirelink::Result<wirelink::Operation<InfoResponse>> get_info_async(const InfoRequest& request,
       std::chrono::milliseconds timeout = std::chrono::seconds(1));
   void close() noexcept { session_.close(); }
   bool is_open() const noexcept { return session_.is_open(); }

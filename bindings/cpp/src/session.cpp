@@ -46,7 +46,7 @@ struct Session::Impl {
   }
 };
 
-Session::Session(std::unique_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
+Session::Session(std::shared_ptr<Impl> impl) noexcept : impl_(std::move(impl)) {}
 Session::~Session() = default;
 Session::Session(Session&&) noexcept = default;
 Session& Session::operator=(Session&&) noexcept = default;
@@ -58,7 +58,7 @@ Result<Session> Session::connect(const UdpOptions& options, EndpointFactory fact
       factory.create == nullptr || factory.destroy == nullptr)
     return Error::local(WL_ERR_INVALID_ARG);
   try {
-    auto impl = std::make_unique<Impl>();
+    auto impl = std::make_shared<Impl>();
     impl->factory = factory;
     Error error = Error::local(WL_ERR_INVALID_STATE);
     impl->endpoint = factory.create(impl->driver, error);
@@ -118,6 +118,26 @@ wl_rpc_completion_t Session::invoke(InvokeFn function, void* call) noexcept {
     if (--impl_->active_calls == 0) impl_->callers_finished.notify_all();
   }
   return result;
+}
+
+wl_err_t Session::submit(std::shared_ptr<detail::AsyncCall> call,
+    std::uint32_t timeout_ms) noexcept {
+  if (!impl_) return WL_ERR_NOT_INITIALIZED;
+  if (!call) return WL_ERR_INVALID_ARG;
+  try {
+    std::lock_guard lock(impl_->gate);
+    if (impl_->closing) return WL_ERR_NOT_INITIALIZED;
+    call->endpoint = impl_->endpoint;
+    call->request_cancel = [owner = std::weak_ptr<Impl>(impl_), task = call.get()] {
+      const auto impl = owner.lock();
+      if (!impl) return false;
+      std::lock_guard lock(impl->gate);
+      return !impl->closing && impl->executor.cancelRpc(task);
+    };
+    return impl_->executor.submitRpc(std::move(call), timeout_ms);
+  } catch (const std::bad_alloc&) {
+    return WL_ERR_NO_MEM;
+  }
 }
 
 } // namespace wirelink

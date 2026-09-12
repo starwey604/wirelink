@@ -60,4 +60,36 @@ wirelink::Result<AddResponse> Client::add(const AddRequest& request,
   }
 }
 
+wirelink::Result<wirelink::Operation<AddResponse>> Client::add_async(const AddRequest& request,
+    std::chrono::milliseconds timeout) {
+  if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
+    return wirelink::Error::local(WL_ERR_INVALID_ARG);
+  struct Call final : wirelink::detail::OperationState<AddResponse> {
+    add_request_value_t request{};
+    add_response_value_t response{};
+    calculator_sdk_call_t bridge{};
+    wl_err_t submit(wl_time_ms_t deadline, wl_rpc_sync_notify_fn notify, void* context,
+        wl_rpc_call_t* call) noexcept override {
+      bridge.endpoint = this->endpoint;
+      bridge.request = &request;
+      bridge.response = &response;
+      return calculator_sdk_add_submit(&bridge, deadline, notify, context, call);
+    }
+    wl_err_t cancel(const wl_rpc_call_t& call) noexcept override {
+      return calculator_sdk_cancel(this->endpoint, &call);
+    }
+    AddResponse decode_response() override { return wlc_detail::from_c(response); }
+  };
+  try {
+    auto call = std::make_shared<Call>();
+    if (!wlc_detail::to_c(request, call->request))
+      return wirelink::Error::local(WL_ERR_INVALID_ARG);
+    const auto error = session_.submit(call, static_cast<std::uint32_t>(timeout.count()));
+    if (error != WL_OK) return wirelink::Error::local(error);
+    return wirelink::Operation<AddResponse>(std::move(call));
+  } catch (const std::bad_alloc&) {
+    return wirelink::Error::local(WL_ERR_NO_MEM);
+  }
+}
+
 } // namespace calculator

@@ -49,6 +49,27 @@ with subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, text=True) as calc_
         device_peer.terminate()
         calc_peer.wait(timeout=5)
         device_peer.wait(timeout=5)
+
+# A fresh pair of C peers also exercises both independent asyncio bridges.
+import asyncio
+with subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, text=True) as calc_peer, \
+     subprocess.Popen([sys.argv[2]], stdout=subprocess.PIPE, text=True) as device_peer:
+    try:
+        cp = int(calc_peer.stdout.readline())
+        dp = int(device_peer.stdout.readline())
+        async def exercise():
+            async with calculator.AsyncClient.connect(calculator.Udp(peer=('127.0.0.1', cp))) as c, \
+                       device.AsyncClient.connect(device.Udp(peer=('127.0.0.1', dp))) as d:
+                result, info = await asyncio.gather(c.add(left=20, right=22), d.get_info())
+                assert result.sum == 42 and info.settings.mode == 12345
+                saved = await d.configure(settings=info.settings, opaque=b'')
+            assert saved.settings.token == b'\0\x80\xff' and saved.opaque == b''
+        asyncio.run(exercise())
+    finally:
+        calc_peer.terminate()
+        device_peer.terminate()
+        calc_peer.wait(timeout=5)
+        device_peer.wait(timeout=5)
 '''
 
 

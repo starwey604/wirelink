@@ -6,10 +6,16 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Add owned asynchronous host RPC tasks sharing bounded admission with synchronous
+  calls, owner-thread cancellation, queue-inclusive deadlines and orderly shutdown.
+  WLC binding revision 2 generates C++ `Operation<T>` and Python `AsyncClient`,
+  with loop-bound, bounded completion delivery and one notification thread per
+  connection. Preserve synchronous APIs, C ABI 32 and existing wire behavior.
+
 - Add opt-in C++20 owning UDP session support and a generated calculator SDK
   preview with synchronous Python calls, owned values, preserved RPC error domains,
   concurrent close/call handling, installed C++ consumption and wheel/sdist builds.
-  WLC `sdk` now generates C++/Python projects; asynchronous bindings remain later work.
+  WLC `sdk` now generates C++/Python projects.
 - Add a generated device SDK covering owned strings/bytes, optional presence and
   defaults, open enums, packed arrays and nested messages. Test both wheels in one
   interpreter and both installed C++ packages in one consumer.

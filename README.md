@@ -189,12 +189,14 @@ codegen ABI before any generated translation unit is compiled.
 ## C++ and Python binding preview
 
 WLC now generates complete C++20 and typed Python SDKs for bounded managed
-synchronous RPC over UDP. The [calculator guide](examples/06_bindings/GUIDE.md)
+synchronous and asynchronous RPC over UDP. The [calculator guide](examples/06_bindings/GUIDE.md)
 shows setup and calls; the [device SDK](examples/07_device_sdk/README.md) exercises
 strings/bytes, defaults, optional fields, enums, arrays and nested messages.
 `Wirelink::cpp` and `Wirelink::cpp_host` provide common support when
 `WIRELINK_BUILD_CPP_BINDINGS=ON`. See the [generator iteration record](docs/bindings-iteration-2-cn.md).
-Asyncio and serial/USB bindings remain later work. The C core and wire formats
+Generated C++ operations support cancellation and owned results; Python `AsyncClient`
+supports `asyncio` with bounded completion delivery. See the
+[async iteration record](docs/bindings-iteration-3-cn.md). Serial/USB bindings remain later work. The C core and wire formats
 are unchanged; generated C still uses ABI 32.
 
 ## Build the desktop serial adapter

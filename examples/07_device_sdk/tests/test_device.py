@@ -199,3 +199,38 @@ with subprocess.Popen([sys.argv[2]], stdout=subprocess.PIPE, text=True) as c_ser
 """
     subprocess.run([sys.executable, "-I", "-c", script, order, str(CALCULATOR_SERVER), str(SERVER)],
                    check=True, timeout=20)
+
+
+def test_async_owned_nested_messages_and_two_sdk_domains():
+    import asyncio
+    import calculator_sdk as calc
+
+    async def exercise(cp, dp):
+        async with sdk.AsyncClient.connect(sdk.Udp(peer=("127.0.0.1", dp))) as device, \
+                   calc.AsyncClient.connect(calc.Udp(peer=("127.0.0.1", cp))) as calculator:
+            info, addition = await asyncio.gather(device.get_info(), calculator.add(left=20, right=22))
+            assert addition.sum == 42 and info.settings.mode == 12345
+            original = settings(class_="a\0b", timeout_=65535)
+            backup = settings(label="", counters=(0, 2**64 - 1), mode=12345)
+            response = await device.configure(settings=original, backup=backup, opaque=b"")
+            assert response.settings == original and response.backup == backup and response.opaque == b""
+            with pytest.raises(sdk.RejectedError) as rejected:
+                await device.configure(settings=sdk.Settings(enabled=True, token=b"\xff", gains=(1, 2, 3)))
+            assert rejected.value.rejection == 7
+            assert not isinstance(rejected.value, calc.WirelinkError)
+            with pytest.raises(calc.RejectedError):
+                await calculator.add(left=2**31 - 1, right=1)
+        assert response.settings.class_ == "a\0b" and response.backup.counters == (0, 2**64 - 1)
+        assert not device._worker.is_alive() and not calculator._worker.is_alive()
+
+    with subprocess.Popen([str(SERVER)], stdout=subprocess.PIPE, text=True) as device_peer, \
+         subprocess.Popen([str(CALCULATOR_SERVER)], stdout=subprocess.PIPE, text=True) as calc_peer:
+        try:
+            dp = int(device_peer.stdout.readline())
+            cp = int(calc_peer.stdout.readline())
+            asyncio.run(exercise(cp, dp), debug=True)
+        finally:
+            device_peer.terminate()
+            calc_peer.terminate()
+            device_peer.wait(timeout=5)
+            calc_peer.wait(timeout=5)

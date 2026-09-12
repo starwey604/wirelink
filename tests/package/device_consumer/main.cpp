@@ -4,6 +4,9 @@
 #include <type_traits>
 static_assert(!std::is_copy_constructible_v<device::Client>);
 static_assert(std::is_nothrow_move_constructible_v<device::Client>);
+static_assert(std::is_copy_constructible_v<wirelink::Operation<device::ConfigureResponse>>);
+static_assert(std::is_same_v<decltype(std::declval<device::Client&>().configure_async({})),
+    wirelink::Result<wirelink::Operation<device::ConfigureResponse>>>);
 int main() {
   const auto device = device::Client::connect({"127.0.0.1", 0});
   const auto calculator = calculator::Client::connect({"127.0.0.1", 0});

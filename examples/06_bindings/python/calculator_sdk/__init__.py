@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Generated synchronous Wirelink SDK. Message data outlives the connection."""
+"""Generated Wirelink SDK with synchronous and asyncio clients. Message data outlives the connection."""
 from __future__ import annotations
 
 import builtins as _builtins
@@ -108,8 +108,58 @@ class Client:
         return AddResponse._from_native(value)
 
 
+class AsyncClient(_runtime.AsyncConnection):
+    """An asyncio connection bound to the event loop used by connect().
+
+    Use async with or await close(). RPC cancellation is local and cannot undo
+    work already performed by the peer. Responses own all their data.
+    """
+
+    def __init__(self, native_client: _native.Client) -> None:
+        if not isinstance(native_client, _native.Client):
+            raise TypeError("create an AsyncClient using AsyncClient.connect(Udp(...))")
+        super().__init__(native_client)
+
+    @_builtins.classmethod
+    def connect(cls, transport: Udp) -> AsyncClient:
+        _runtime.asyncio.get_running_loop()
+        if not isinstance(transport, Udp):
+            raise TypeError("transport must be Udp")
+        native, error = _native.connect(*transport.peer, *transport.bind)
+        if error is not None:
+            _runtime._raise(error)
+        assert native is not None
+        try:
+            return cls(native)
+        except BaseException:
+            native.close()
+            raise
+
+    async def __aenter__(self) -> AsyncClient:
+        self._check_loop()
+        if self._closing:
+            _runtime._raise(_native.closed_error())
+        return self
+
+    async def __aexit__(self, kind: type[BaseException] | None,
+                        error: BaseException | None, traceback: _TracebackType | None) -> None:
+        await self.close()
+
+    async def add(self, *, left: int, right: int, timeout: float = 1.0) -> AddResponse:
+        return await self.add_request(AddRequest(
+            left=left,
+            right=right,
+        ), timeout=timeout)
+
+    async def add_request(self, request: AddRequest, *, timeout: float = 1.0) -> AddResponse:
+        if not isinstance(request, AddRequest):
+            raise TypeError("request must be AddRequest")
+        return await self._invoke(self._client.add_async, request._to_native(),
+                                  AddResponse._from_native, _runtime.timeout_ms(timeout))
+
+
 __all__ = [
-    "Client", "Udp", "WirelinkError", "ClosedError", "RpcTimeoutError", "CancelledError",
+    "Client", "AsyncClient", "Udp", "WirelinkError", "ClosedError", "RpcTimeoutError", "CancelledError",
     "RejectedError", "QueueFullError", "TransportError", "CodecError", "InvalidArgumentError",
     "core_version", "codegen_abi", "binding_api", "__version__",
     "AddRequest",

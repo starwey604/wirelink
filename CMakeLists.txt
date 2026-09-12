@@ -354,6 +354,7 @@ if(WIRELINK_INSTALL)
       RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
       INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
     install(FILES runtime/host/include/wirelink/host/executor.hpp
+      runtime/host/include/wirelink/host/rpc_task.hpp
       runtime/host/include/wirelink/host/executor_activity.hpp
       DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
     install(FILES include/wirelink/detail/coalescing_event.hpp

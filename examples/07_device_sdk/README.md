@@ -1,8 +1,8 @@
 # DeviceSdk
 
 Generated C++20 / Python 3.10+ SDK for `device`, version `0.1.0.dev1`.
-The preview source API is binding revision 1. It supports managed,
-synchronous RPC over UDP. Connecting opens local I/O without a peer handshake.
+The preview source API is binding revision 2. It supports managed,
+synchronous and asynchronous RPC over UDP. Connecting opens local I/O without a peer handshake.
 
 ## Python users
 
@@ -20,6 +20,20 @@ with Client.connect(Udp(peer=("127.0.0.1", 49101))) as device:
     # or device.<service>_request(Request(...), timeout=1.0).
     print(device.local_port)
 ```
+
+`AsyncClient` provides the same typed service methods with `await`. Create it
+inside a running event loop and use `async with AsyncClient.connect(Udp(...))`
+or `await client.close()`. Connect opens local I/O synchronously without a peer
+handshake; RPCs and orderly close keep the event loop available. A client belongs
+to its creating loop. Each connection has one completion-notification thread,
+independent of RPC count; its native owner never runs Python.
+
+Task cancellation raises `asyncio.CancelledError` and requests cancellation of that
+native call. Native RPC timeout raises `RpcTimeoutError`; connection shutdown
+settles remaining admitted calls with the SDK's `CancelledError`. Cancellation
+cannot undo work already performed by the peer. At most eight Python operations
+can await result delivery per client, including completed results not yet drained;
+native endpoint capacity may reject earlier with `QueueFullError` (default four).
 
 Wheel users do not need Wirelink, WLC, Rust, CMake, nanobind or a compiler.
 Wheels contain private static native dependencies and a separate nanobind domain.
@@ -62,6 +76,13 @@ Include `<device/client.hpp>` and use `device::Client::connect(UdpOptions)`.
 Connect and RPC return `wirelink::Result<T>`. The handle is move-only; calls and
 close are safe from multiple threads. Moving/destroying a handle requires
 exclusive access to the handle; keep request objects unchanged during calls.
+`client.<service>_async(request, timeout)` returns `Result<Operation<Response>>`.
+Check admission, then use `operation.done()`, `wait()`, `wait_for(duration)`,
+`result()` or `cancel()`. The copyable operation owns its eventual result;
+`result()` waits and returns an owned copy, including after client destruction.
+Requests are copied before `_async` returns. Dropping an operation does not
+cancel it. A successful `cancel()` means the request was queued; completion may
+already have won the race. Sync/async calls share eight host admission slots.
 The installed C++ package requires the matching native Wirelink development package.
 
 ## Values and compatibility
@@ -83,7 +104,7 @@ The installed C++ package requires the matching native Wirelink development pack
   Parameter validation raises TypeError/ValueError; native RPC errors have distinct
   classes. Blocking native operations release the GIL.
 
-This preview does not provide asyncio, subscriptions, Serial/USB, Bulk, dynamic
+This preview does not provide subscriptions, Serial/USB, Bulk, dynamic
 schemas, free-threaded Python, subinterpreters, or a stable C++ binary ABI.
 Multiple independent wheels can coexist. Linking SDKs with overlapping generated
 C symbol names into one C++ executable needs shared codec composition and is not

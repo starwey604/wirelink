@@ -16,6 +16,8 @@ public:
   Client& operator=(const Client&) = delete;
   wirelink::Result<AddResponse> add(const AddRequest& request,
       std::chrono::milliseconds timeout = std::chrono::seconds(1));
+  wirelink::Result<wirelink::Operation<AddResponse>> add_async(const AddRequest& request,
+      std::chrono::milliseconds timeout = std::chrono::seconds(1));
   void close() noexcept { session_.close(); }
   bool is_open() const noexcept { return session_.is_open(); }
   std::uint16_t local_port() const noexcept { return session_.local_port(); }

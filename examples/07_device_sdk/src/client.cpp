@@ -86,4 +86,68 @@ wirelink::Result<InfoResponse> Client::get_info(const InfoRequest& request,
   }
 }
 
+wirelink::Result<wirelink::Operation<ConfigureResponse>> Client::configure_async(const ConfigureRequest& request,
+    std::chrono::milliseconds timeout) {
+  if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
+    return wirelink::Error::local(WL_ERR_INVALID_ARG);
+  struct Call final : wirelink::detail::OperationState<ConfigureResponse> {
+    configure_request_value_t request{};
+    configure_response_value_t response{};
+    device_sdk_call_t bridge{};
+    wl_err_t submit(wl_time_ms_t deadline, wl_rpc_sync_notify_fn notify, void* context,
+        wl_rpc_call_t* call) noexcept override {
+      bridge.endpoint = this->endpoint;
+      bridge.request = &request;
+      bridge.response = &response;
+      return device_sdk_configure_submit(&bridge, deadline, notify, context, call);
+    }
+    wl_err_t cancel(const wl_rpc_call_t& call) noexcept override {
+      return device_sdk_cancel(this->endpoint, &call);
+    }
+    ConfigureResponse decode_response() override { return wlc_detail::from_c(response); }
+  };
+  try {
+    auto call = std::make_shared<Call>();
+    if (!wlc_detail::to_c(request, call->request))
+      return wirelink::Error::local(WL_ERR_INVALID_ARG);
+    const auto error = session_.submit(call, static_cast<std::uint32_t>(timeout.count()));
+    if (error != WL_OK) return wirelink::Error::local(error);
+    return wirelink::Operation<ConfigureResponse>(std::move(call));
+  } catch (const std::bad_alloc&) {
+    return wirelink::Error::local(WL_ERR_NO_MEM);
+  }
+}
+
+wirelink::Result<wirelink::Operation<InfoResponse>> Client::get_info_async(const InfoRequest& request,
+    std::chrono::milliseconds timeout) {
+  if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
+    return wirelink::Error::local(WL_ERR_INVALID_ARG);
+  struct Call final : wirelink::detail::OperationState<InfoResponse> {
+    info_request_value_t request{};
+    info_response_value_t response{};
+    device_sdk_call_t bridge{};
+    wl_err_t submit(wl_time_ms_t deadline, wl_rpc_sync_notify_fn notify, void* context,
+        wl_rpc_call_t* call) noexcept override {
+      bridge.endpoint = this->endpoint;
+      bridge.request = &request;
+      bridge.response = &response;
+      return device_sdk_get_info_submit(&bridge, deadline, notify, context, call);
+    }
+    wl_err_t cancel(const wl_rpc_call_t& call) noexcept override {
+      return device_sdk_cancel(this->endpoint, &call);
+    }
+    InfoResponse decode_response() override { return wlc_detail::from_c(response); }
+  };
+  try {
+    auto call = std::make_shared<Call>();
+    if (!wlc_detail::to_c(request, call->request))
+      return wirelink::Error::local(WL_ERR_INVALID_ARG);
+    const auto error = session_.submit(call, static_cast<std::uint32_t>(timeout.count()));
+    if (error != WL_OK) return wirelink::Error::local(error);
+    return wirelink::Operation<InfoResponse>(std::move(call));
+  } catch (const std::bad_alloc&) {
+    return wirelink::Error::local(WL_ERR_NO_MEM);
+  }
+}
+
 } // namespace device

@@ -4,7 +4,8 @@
 这是最初的设计草案。第一轮的实际实现与验收见
 [迭代记录](bindings-iteration-1-cn.md)和 [calculator SDK](../examples/06_bindings/README.md)。
 第二轮已实现 `wlc sdk`，实际命令与验收见 [生成器迭代记录](bindings-iteration-2-cn.md)。
-下文保留早期方案对比；AsyncClient 和动态 schema 仍是拟议接口，包名尚未确认可注册。
+第三轮已实现原生异步 RPC、C++ Operation 与 Python AsyncClient，见 [异步迭代记录](bindings-iteration-3-cn.md)。
+下文保留早期方案对比；订阅、动态 schema 和 Python 服务端仍待实现，包名尚未确认可注册。
 目标是让应用直接操作类型化消息、RPC 和订阅，并有可安装、可测试、可维护的正式 SDK。
 最初探索只记录计划；后续实现按迭代记录推进，尚未发布 binding。
 

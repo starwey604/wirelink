@@ -69,12 +69,15 @@ implementation detail. In particular:
 ## C++ and Python binding preview
 
 The optional `Wirelink::cpp` / `Wirelink::cpp_host` targets and calculator SDK
-are a first-iteration source API, not a stable cross-compiler C++ ABI. Rebuild
-them with the matching C library. Binding API revision 1 and WLC codegen ABI 32
+are a preview source API, not a stable cross-compiler C++ ABI. Rebuild
+them with the matching C library. Binding API revision 2 and WLC codegen ABI 32
 are separate identifiers; Python's extension ABI is a third compatibility domain.
 The reference wheel privately links its native code and does not exchange native
 handles with other independently built schema SDKs. See the
 [calculator SDK](../examples/06_bindings/GUIDE.md) for tested scope and ownership.
+Revision 2 adds C++ asynchronous operations and Python `AsyncClient` while retaining
+synchronous entry points. Regenerate SDKs and rebuild against the matching host
+support; the C codec/runtime artifacts remain ABI 32.
 
 ## WLC payload schemas
 

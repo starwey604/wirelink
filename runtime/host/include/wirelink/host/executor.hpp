@@ -10,6 +10,7 @@
 #include "wirelink/host/executor_activity.hpp"
 #include "wirelink/endpoint.h"
 #include "wirelink/rpc_sync.h"
+#include "wirelink/host/rpc_task.hpp"
 #include "wirelink/detail/coalescing_event.hpp"
 #include "wirelink/diagnostics/host_profile.hpp"
 
@@ -18,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <thread>
 
 namespace wirelink::host {
@@ -127,6 +129,14 @@ public:
 
     // Wake the owner after adapter-side async completion or direct RX commit.
     void notify() noexcept;
+
+    // Shares eight admission slots with synchronous RPCs. Success retains task
+    // until exactly one finish, including orderly shutdown. Rejection does not
+    // call finish. The timeout includes time waiting for the owner.
+    int submitRpc(std::shared_ptr<RpcTask> task, std::uint32_t timeout_ms) noexcept;
+    // Thread-safe cancellation request; true means queued, not that it won a
+    // race with a response. A finished/unknown/already cancelling task is false.
+    bool cancelRpc(const RpcTask* task) noexcept;
 
     // Replaces an unsent real-time command in the same message-id lane. Distinct
     // IDs retain independent newest values up to s_kLatestLaneCapacity; a new ID
