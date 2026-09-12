@@ -169,6 +169,28 @@ const wl_rpc_completion_t result =
 
 可靠投递负责第 1、3 步的链路工作。只有业务处理和回复完成后，客户端才知道 RPC 结果。
 
+链路确认早于 handler 的业务结果。同步调用只有等结果越过链路返回以后，才会把控制权交还
+给调用方：
+
+```mermaid
+sequenceDiagram
+  accTitle: 同步 RPC 的各个阶段
+  accDescr: 链路确认先表示请求已经送达，handler 随后产生响应或拒绝，最终 RPC 结果再返回调用方。
+  actor Controller as 控制端应用
+  participant Client as 客户端 endpoint
+  participant Server as 设备 endpoint
+  participant Handler as Add handler
+
+  Controller->>Client: add_sync(request)
+  Client->>Server: Add 请求
+  Server-->>Client: 链路确认
+  Server->>Handler: 处理 AddRequest
+  Handler-->>Server: 响应或拒绝
+  Server->>Client: RPC 结果
+  Client-->>Server: 链路确认
+  Client-->>Controller: 最终 RPC 结果
+```
+
 <MultipleChoice
   id="rpc-delivery-versus-completion-zh-cn"
   question="服务端已经确认收到请求，但 handler 还没有返回。客户端能否报告 RPC 成功？"

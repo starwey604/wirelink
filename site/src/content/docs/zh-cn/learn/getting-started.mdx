@@ -63,6 +63,22 @@ latest sample=5 temperature=23.50 C
 UDP 不保证送达，因此中间采样不一定全部出现。订阅端收到第 5 个采样后退出；十秒内没有
 收到则报告超时。
 
+链路和接收端会分别作出决定。UDP 链路上可能丢失采样；采样到达以后，`latest` 存储位会
+用新值替换旧值：
+
+```mermaid
+flowchart LR
+  accTitle: latest 值的数据路径
+  accDescr: 采样先经过可能丢包的 UDP 链路，订阅端再为显示端保留最近收到的一个值。
+  Publisher["发布端<br/>采样 1 到 5"]
+  Link["UDP 链路<br/>可能丢失采样"]
+  Endpoint["订阅端 endpoint"]
+  Latest["latest 存储位<br/>只保留一个值"]
+  Display["显示端读取<br/>当前值"]
+
+  Publisher --> Link --> Endpoint --> Latest --> Display
+```
+
 :::note[Windows 程序路径]
 Visual Studio 多配置构建会把程序放在 `Release` 目录，例如
 `build/tutorials/examples/00_telemetry/Release/telemetry_subscriber.exe`。

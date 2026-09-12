@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import mermaid from 'astro-mermaid';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
@@ -8,6 +9,10 @@ export default defineConfig({
   trailingSlash: 'always',
   outDir: './dist/wirelink',
   integrations: [
+    mermaid({
+      autoTheme: true,
+      enableLog: false,
+    }),
     starlight({
       title: 'Wirelink',
       description:
@@ -49,6 +54,7 @@ export default defineConfig({
             { slug: 'learn/device-service' },
             { slug: 'learn/external-cmake-project' },
             { slug: 'learn/udp-transport' },
+            { slug: 'learn/zephyr-udp-subscriber' },
           ],
         },
       ],

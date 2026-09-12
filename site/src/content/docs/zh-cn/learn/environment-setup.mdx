@@ -19,6 +19,20 @@ Wirelink 程序。
 - 在终端直接运行 Cargo 和匹配的 WLC 编译器；
 - 让 CMake 自动找到 standalone Asio，不再额外传入路径。
 
+## 理解构建路径
+
+这些工具组成一条构建路径。CMake 负责协调代码生成与编译：
+
+```mermaid
+flowchart TB
+  accTitle: Wirelink 构建路径
+  accDescr: CMake 先运行 WLC，把 schema 转换成生成的 C 代码，再与应用和 Wirelink 核心一起编译。
+  CMake["CMake 构建"] --> WLC["使用 WLC 处理 .wl schema"]
+  WLC --> Generated["生成的 C 源码与头文件"]
+  Generated --> Compiler["编译生成代码、应用源码与 Wirelink 核心"]
+  Compiler --> Program["Wirelink 应用"]
+```
+
 ## 安装本机构建工具
 
 最初几课需要 Git、CMake 3.21 或更新版本、C11 编译器、C++20 编译器，以及

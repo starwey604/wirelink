@@ -20,6 +20,20 @@ with working tools.
 - run Cargo and the matching WLC compiler from your terminal;
 - let CMake find standalone Asio without an extra path argument.
 
+## Follow the build path
+
+The tools form one build path. CMake coordinates generation and compilation:
+
+```mermaid
+flowchart TB
+  accTitle: Wirelink build path
+  accDescr: CMake runs WLC to turn a schema into generated C, then compiles it with the application and Wirelink core.
+  CMake["CMake build"] --> WLC["Run WLC on the .wl schema"]
+  WLC --> Generated["Generated C source and headers"]
+  Generated --> Compiler["Compile generated code, application, and Wirelink core"]
+  Compiler --> Program["Wirelink application"]
+```
+
 ## Install the native build tools
 
 The first tutorials require Git, CMake 3.21 or newer, a C11 compiler, a C++20

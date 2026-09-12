@@ -66,6 +66,22 @@ UDP does not guarantee delivery, so every intermediate sample need not appear.
 The subscriber exits after receiving sample 5 or reports a timeout after ten
 seconds.
 
+The link and the receiving endpoint make separate decisions. Loss can happen on
+the UDP link; after a sample arrives, the `latest` slot replaces its older value:
+
+```mermaid
+flowchart LR
+  accTitle: Latest-value data path
+  accDescr: Samples cross an unreliable UDP link before the subscriber keeps the most recently received value for the display.
+  Publisher["Publisher<br/>samples 1 through 5"]
+  Link["UDP link<br/>may lose a sample"]
+  Endpoint["Subscriber endpoint"]
+  Latest["latest slot<br/>keeps one value"]
+  Display["Display reads<br/>current value"]
+
+  Publisher --> Link --> Endpoint --> Latest --> Display
+```
+
 :::note[Windows executable path]
 Visual Studio multi-configuration builds place the executable under the
 `Release` directory, for example
