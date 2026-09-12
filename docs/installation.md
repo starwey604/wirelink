@@ -29,6 +29,11 @@ Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
 this does not replace your installed compiler. The checkout can live anywhere.
 The exact source commit and archive checksum are pinned in CMake.
 
+On Windows, preserve LF when cloning the tagged compiler source:
+`git -c core.autocrlf=false clone --branch v0.8.0 https://github.com/starwey604/wlc.git`.
+WLC embeds SDK template bytes at build time; automatic CRLF conversion changes
+generated artifacts. The published source archive and binaries use canonical LF.
+
 ## 3. Verify installation
 
 ```sh

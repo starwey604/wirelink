@@ -27,6 +27,8 @@ cargo build --release --locked
 这不会替换系统里已有的工具。WLC 源码与 Wirelink 可以放在不同位置。
 配套源码提交与归档 SHA256 固定在 CMake 中。
 
+Windows 从标签源码编译 WLC 时，请保留 LF 换行：`git -c core.autocrlf=false clone --branch v0.8.0 https://github.com/starwey604/wlc.git`。WLC 在构建时嵌入 SDK 模板，自动转换为 CRLF 会改变生成工件。发布的源码归档和二进制均使用 LF。
+
 ## 3. 检查安装
 
 ```sh
