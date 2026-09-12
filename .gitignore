@@ -7,6 +7,10 @@ cmake-build*
 compile_commands.json
 /plan.md
 __pycache__/
+/.venv/
+/examples/06_bindings/build/
+/examples/06_bindings/dist/
+.pytest_cache/
 /site/.astro/
 /site/dist/
 /site/node_modules/

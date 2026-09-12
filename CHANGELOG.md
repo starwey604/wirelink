@@ -6,6 +6,12 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
 ## 0.7.0-dev — unreleased
 
+- Add opt-in C++20 owning UDP session support and a handwritten calculator SDK
+  preview with synchronous Python calls, owned values, preserved RPC error domains,
+  concurrent close/call handling, installed C++ consumption and wheel/sdist builds.
+  WLC SDK generation and asynchronous bindings are not included in this iteration.
+  No C core, generated-code ABI or wire-format changes. Correct stale package
+  versions and development WLC bootstrap instructions in the public documentation.
 - Add separate Zephyr/desktop UDP peer examples sharing one RPC/telemetry
   schema, CI build checks for both Zephyr roles, and a same-storage reconnect
   regression rejecting stale RPC responses. Physical Ethernet validation is

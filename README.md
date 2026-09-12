@@ -144,7 +144,7 @@ cmake --install build/core --prefix /path/to/prefix
 ```
 
 ```cmake
-find_package(Wirelink 0.9 CONFIG REQUIRED)
+find_package(Wirelink 0.7 CONFIG REQUIRED)
 target_link_libraries(my_firmware PRIVATE Wirelink::wirelink)
 ```
 
@@ -153,12 +153,12 @@ optional Astrial adapter remains source-integrated because Astrial does not yet
 publish an installed CMake package target.
 
 The installed package exposes separate codec and runtime generation targets.
-WLC is always a host executable, including during a
-cross-build. A normal online build does not require Rust or a separately
-installed compiler:
+WLC is always a host executable, including during a cross-build. This development
+tree requires an explicit matching WLC 0.7.0-dev / ABI 32 executable; see
+[environment setup](docs/installation.md). Rust is needed only when building WLC:
 
 ```cmake
-find_package(Wirelink 0.9 CONFIG REQUIRED)
+find_package(Wirelink 0.7 CONFIG REQUIRED)
 
 wirelink_wlc_generate_codec(
   TARGET fci_arm_codec
@@ -176,18 +176,24 @@ Generate additional role runtimes against `fci_arm_codec`; set a distinct
 `wirelink_wlc_generate()` remains as a single-runtime convenience wrapper.
 
 WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
-`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names
-the pinned compatible version, Wirelink fetches the paired source commit into
-`WIRELINK_WLC_CACHE_DIR`, verifies its fixed SHA256, and builds it with host
-Rust/Cargo (`--locked`). The internal ABI has no matching release binary.
-Set `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` for offline or hermetic builds and provide
-the executable explicitly. Cargo receives the host triple reported by `rustc`,
-never the firmware target or an inherited `CARGO_BUILD_TARGET`.
+`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. There is no published
+ABI 32 archive/digest; automatic resolution deliberately rejects the historical
+ABI 31 source pin. Supply the matching executable and set
+`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`. Do not substitute the older release compiler.
 
 Generated sources are written below the build directory and regenerate when
 the schema, profile, compatibility predecessor, or WLC executable changes.
 The generated manifest must match Wirelink's pinned compiler version and
 codegen ABI before any generated translation unit is compiled.
+
+## C++ and Python binding preview
+
+The first [calculator SDK iteration](examples/06_bindings/README.md) supplies an
+owning C++20 client, synchronous Python calls, typed owned values, and wheel/sdist
+builds over UDP. `Wirelink::cpp` and `Wirelink::cpp_host` provide optional common
+support when `WIRELINK_BUILD_CPP_BINDINGS=ON`. The reference façade is handwritten;
+schema-wide SDK generation, asyncio and serial/USB bindings remain later work.
+The C core and generated wire formats are unchanged.
 
 ## Build the desktop serial adapter
 

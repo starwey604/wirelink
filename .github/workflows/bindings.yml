@@ -1,0 +1,88 @@
+name: Binding preview
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bindings-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sdk:
+    name: SDK (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.10', '3.14']
+    env:
+      CMAKE_BUILD_PARALLEL_LEVEL: 4
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Check out standalone Asio
+        uses: actions/checkout@v5
+        with:
+          repository: chriskohlhoff/asio
+          ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
+          path: .tools/asio
+      - name: Build dependencies
+        run: python -m pip install build "nanobind>=3.0,<4" "scikit-build-core>=1.0,<2" pytest
+      - name: Configure native support
+        run: >-
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF
+          -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON
+          -DWIRELINK_BUILD_EXAMPLES=OFF
+          -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
+      - name: Build and install native support
+        run: |
+          cmake --build build/native --config Release --parallel 4
+          ctest --test-dir build/native -C Release --output-on-failure
+          cmake --install build/native --config Release
+      - name: Configure installed SDK consumer and tests
+        run: >-
+          cmake -S examples/06_bindings -B build/sdk -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+      - name: Build and test SDK
+        run: |
+          cmake --build build/sdk --config Release --parallel 4
+          ctest --test-dir build/sdk -C Release --output-on-failure
+          cmake --install build/sdk --config Release
+      - name: Test standalone C++ package
+        run: |
+          cmake -S tests/package/calculator_consumer -B build/consumer -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake --build build/consumer --config Release --parallel 4
+          ctest --test-dir build/consumer -C Release --output-on-failure
+      - name: Build sdist and wheel from extracted sdist
+        run: >-
+          python -m build examples/06_bindings --outdir dist
+          -Ccmake.define.CMAKE_PREFIX_PATH=${{ github.workspace }}/install
+      - name: Install wheel and run Python tests
+        shell: bash
+        run: |
+          python -m pip install --no-deps dist/*.whl
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export WIRELINK_CALCULATOR_SERVER="$GITHUB_WORKSPACE/build/sdk/tests/Release/calculator_c_server.exe"
+          else
+            export WIRELINK_CALCULATOR_SERVER="$GITHUB_WORKSPACE/build/sdk/tests/calculator_c_server"
+          fi
+          python -m pytest examples/06_bindings/tests -q
+          for wheel in dist/*.whl; do
+            python examples/06_bindings/tests/check_wheel.py --wheel "$wheel" --server "$WIRELINK_CALCULATOR_SERVER"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: calculator-sdk-${{ matrix.os }}-py${{ matrix.python }}
+          path: dist/*

@@ -1,0 +1,28 @@
+{
+  "format": "wirelink-codegen-manifest-v1",
+  "compiler": {
+    "name": "wlc",
+    "version": "0.7.0-dev",
+    "codegen_abi": 32
+  },
+  "module": "calculator",
+  "identity": {
+    "algorithm": "fnv1a64-v1",
+    "schema": "0x96a3b1226f6423df",
+    "binding_profile": "0x640b4be3ec30d41c"
+  },
+  "bounded_fields": [
+  ],
+  "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
+  "artifacts": [
+    {"path": "calculator.c", "size": 38556, "digest": "0x0e0d52ffa8e57829"},
+    {"path": "calculator.h", "size": 1837, "digest": "0x9367696aa888af6d"},
+    {"path": "calculator_advanced.h", "size": 7182, "digest": "0xfabc5cd1d2452a8f"},
+    {"path": "calculator_bindings.c", "size": 5418, "digest": "0x8c94b073b1a8f92c"},
+    {"path": "calculator_bindings.h", "size": 2654, "digest": "0x3424be565871e450"},
+    {"path": "calculator_endpoint.h", "size": 409, "digest": "0x5d887e59dc2edba5"},
+    {"path": "calculator_runtime.c", "size": 55272, "digest": "0x03fa453fa085fa02"},
+    {"path": "calculator_runtime.h", "size": 41320, "digest": "0xf18597bbcc9197ed"},
+    {"path": "calculator_values.h", "size": 1986, "digest": "0xc5f8f24fdc224bd5"}
+  ]
+}

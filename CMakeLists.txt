@@ -120,6 +120,8 @@ option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
   "Build the optional C++20 threaded session runtime" OFF)
+option(WIRELINK_BUILD_CPP_BINDINGS
+  "Build the optional C++20 owning UDP session support" OFF)
 option(WIRELINK_HOST_PROFILING
   "Enable bounded desktop timing diagnostics (no hot-path logging)" OFF)
 option(WIRELINK_HOST_LOCK_PROFILING
@@ -161,6 +163,10 @@ if(WIRELINK_BUILD_STORAGE)
   add_subdirectory(runtime/storage)
 endif()
 
+if(WIRELINK_BUILD_CPP_BINDINGS)
+  set(WIRELINK_BUILD_HOST_RUNTIME ON)
+  set(WIRELINK_BUILD_ASIO_UDP_ADAPTER ON)
+endif()
 if(WIRELINK_BUILD_EXECUTOR_BENCHMARK)
   set(WIRELINK_BUILD_API_BENCHMARKS ON)
   set(WIRELINK_BUILD_HOST_RUNTIME ON)
@@ -223,6 +229,10 @@ endif()
 if(WIRELINK_BUILD_ASIO_UDP_ADAPTER)
   enable_language(CXX)
   add_subdirectory(adapters/asio_udp)
+endif()
+
+if(WIRELINK_BUILD_CPP_BINDINGS)
+  add_subdirectory(bindings/cpp)
 endif()
 
 if(WIRELINK_BUILD_HOST_BENCHMARKS)
