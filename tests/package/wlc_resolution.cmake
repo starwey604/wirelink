@@ -22,6 +22,21 @@ elseif(MODE STREQUAL "unpaired-source")
   # Reject an obsolete pin before attempting downloads or host tool discovery.
   set(WIRELINK_WLC_SOURCE_ABI 999)
   _wirelink_wlc_bootstrap(_compiler)
+elseif(MODE STREQUAL "windows-dependencies")
+  foreach(_case
+      [[\\?\C:\project\schema.wl|C:/project/schema.wl]]
+      [[\\?\UNC\server\share\child.wl|//server/share/child.wl]]
+      [[C:\project with spaces\schema.wl|C:/project with spaces/schema.wl]]
+      [[\\server\share\child.wl|//server/share/child.wl]]
+      [[C:/project/schema.wl|C:/project/schema.wl]])
+    string(REPLACE "|" ";" _values "${_case}")
+    list(GET _values 0 _input)
+    list(GET _values 1 _expected)
+    _wirelink_wlc_windows_dependency_path("${_input}" _actual)
+    if(NOT _actual STREQUAL _expected)
+      message(FATAL_ERROR "Windows dependency '${_input}' became '${_actual}', expected '${_expected}'")
+    endif()
+  endforeach()
 elseif(MODE STREQUAL "release-assets")
   foreach(_case
       "Windows,AMD64,wlc-windows-x86_64.zip"
@@ -52,14 +67,15 @@ elseif(MODE STREQUAL "corrupt-archive")
   _wirelink_wlc_download_binary("${_asset}"
     "0000000000000000000000000000000000000000000000000000000000000000" _compiler)
 elseif(MODE STREQUAL "check")
-  foreach(_mode explicit wrong-abi offline unpaired-source release-assets corrupt-archive)
+  foreach(_mode explicit wrong-abi offline unpaired-source windows-dependencies release-assets corrupt-archive)
     execute_process(COMMAND "${CMAKE_COMMAND}"
       "-DWIRELINK_SOURCE_DIR=${WIRELINK_SOURCE_DIR}"
       "-DMATCHING_WLC=${MATCHING_WLC}" "-DMODE=${_mode}"
       -P "${CMAKE_CURRENT_LIST_FILE}"
       RESULT_VARIABLE _result OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr)
     string(REGEX REPLACE "[ \r\n]+" " " _stderr "${_stderr}")
-    if(_mode STREQUAL "explicit" OR _mode STREQUAL "release-assets")
+    if(_mode STREQUAL "explicit" OR _mode STREQUAL "release-assets" OR
+        _mode STREQUAL "windows-dependencies")
       if(NOT _result STREQUAL "0")
         message(FATAL_ERROR "${_mode} resolution failed: ${_stdout}${_stderr}")
       endif()

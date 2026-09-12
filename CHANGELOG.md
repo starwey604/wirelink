@@ -4,6 +4,12 @@ All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for the release-candidate
 line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
+## Unreleased
+
+- Normalize WLC's Windows verbatim drive/UNC dependency paths for CMake and
+  MSBuild so imported-schema edits and newly introduced import edges trigger
+  regeneration. Compiler release and generated ABI remain 0.7.0-rc.1 / 32.
+
 ## 0.7.0-rc.1 — 2026-09-12
 
 - Publish the ABI 32 runtime/compiler pair. CMake now fetches checksummed

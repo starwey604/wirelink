@@ -63,6 +63,15 @@ function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   set(${out_reason} "" PARENT_SCOPE)
 endfunction()
 
+# Rust canonicalize() returns verbatim paths on Windows. CMake/MSBuild dependency
+# tracking expects ordinary drive/UNC paths with forward slashes.
+function(_wirelink_wlc_windows_dependency_path input out_path)
+  string(REPLACE "\\" "/" _path "${input}")
+  string(REGEX REPLACE "^//[?]/UNC/" "//" _path "${_path}")
+  string(REGEX REPLACE "^//[?]/" "" _path "${_path}")
+  set(${out_path} "${_path}" PARENT_SCOPE)
+endfunction()
+
 # Resolve imported files at configure time and refresh edges after edits.
 function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
   execute_process(COMMAND "${executable}" dependencies "${schema}"
@@ -73,6 +82,14 @@ function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
   endif()
   string(REPLACE "\r\n" "\n" _inputs "${_inputs}")
   string(REPLACE "\n" ";" _inputs "${_inputs}")
+  if(CMAKE_HOST_WIN32)
+    set(_normalized_inputs "")
+    foreach(_input IN LISTS _inputs)
+      _wirelink_wlc_windows_dependency_path("${_input}" _normalized)
+      list(APPEND _normalized_inputs "${_normalized}")
+    endforeach()
+    set(_inputs "${_normalized_inputs}")
+  endif()
   # Reconfigure when an import edge changes, then refresh the transitive set.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_inputs})
   set(${out_dependencies} "${_inputs}" PARENT_SCOPE)
