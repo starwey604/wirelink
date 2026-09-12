@@ -14,10 +14,11 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-This tree requires **WLC 0.7.0-dev with codegen ABI 32**. This development
+This tree requires **WLC 0.7.0-rc.1 with codegen ABI 32**. This prerelease
 revision adds static imports and borrowed direct routes without changing the
 ABI 31 wire formats. Published v0.6.0 / ABI 31 binaries cannot generate this API.
-Build the matching development WLC source in its independent checkout:
+CMake fetches the matching host package automatically. To build it yourself,
+check out the independent WLC repository at tag `v0.7.0-rc.1` and run:
 
 ```sh
 cargo build --release --locked
@@ -26,8 +27,7 @@ cargo build --release --locked
 
 Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
 this does not replace your installed compiler. The checkout can live anywhere.
-The exact development source commit is pinned in the repository's CI workflows.
-Publish both repositories' paired commits before running remote CI.
+The exact source commit and archive checksum are pinned in CMake.
 
 ## 3. Verify installation
 
@@ -36,7 +36,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.7.0-dev` and `32` from the executable you will pass to CMake.
+Expect `wlc 0.7.0-rc.1` and `32` from the executable you will pass to CMake.
 Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
@@ -61,9 +61,13 @@ virtual serial driver.
 
 ## 5. Automatic downloads
 
-There is no published ABI 32 source archive/digest yet. CMake deliberately
-rejects automatic fallback to the historical ABI 31 bootstrap pin. Supply
-`-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc` and
-`-DWIRELINK_WLC_AUTO_DOWNLOAD=OFF`. No consumer needs our worktree layout.
+CMake selects a package using the build host, not the embedded target: Windows
+x86-64, Linux x86-64/aarch64 (static musl), or macOS x86-64/arm64. It downloads
+the pinned v0.7.0-rc.1 archive, verifies its hard-coded SHA256, and checks both
+compiler version and ABI. No Rust toolchain or local WLC checkout is needed.
+Other hosts use the paired, verified source archive and host Rust/Cargo.
+
+For offline builds, supply `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc`
+and `-DWIRELINK_WLC_AUTO_DOWNLOAD=OFF`. No consumer needs our worktree layout.
 
 Continue with [displaying temperature](getting-started.md).

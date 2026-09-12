@@ -4,7 +4,17 @@ All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for the release-candidate
 line are described in [`docs/compatibility.md`](docs/compatibility.md).
 
-## 0.7.0-dev — unreleased
+## 0.7.0-rc.2 — 2026-09-12
+
+- Normalize WLC's Windows verbatim drive/UNC dependency paths for CMake and
+  MSBuild so imported-schema edits and newly introduced import edges trigger
+  regeneration. Compiler release and generated ABI remain 0.7.0-rc.1 / 32.
+
+## 0.7.0-rc.1 — 2026-09-12
+
+- Publish the ABI 32 runtime/compiler pair. CMake now fetches checksummed
+  WLC host packages on Windows, Linux and macOS, without requiring Rust on
+  those platforms; the pinned source build remains available for other hosts.
 
 - Add owned asynchronous host RPC tasks sharing bounded admission with synchronous
   calls, owner-thread cancellation, queue-inclusive deadlines and orderly shutdown.
@@ -47,14 +57,14 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
   buffer only at the tail, retain blocked bytes, and keep ordinary RX direct.
   USB request sizes are packet-aligned. No wire-format or codegen ABI change;
   rebuild adapters/consumers (Zephyr adapter state grows by about 0.6 KiB).
-- Pair with WLC 0.7.0-dev / ABI 32 for static schema imports and borrowed
+- Pair with WLC 0.7.0-rc.1 / ABI 32 for static schema imports and borrowed
   direct routes; rebuild generated code and consumers together.
 - Add static endpoint service progress/deadline/session/close hooks and
   reliable RPC response terminal observers without changing wire formats.
 - Track imported schemas transitively in CMake; add a mixed RPC/telemetry/bulk
   example tested on the host and H723 (RAM sink, loopback only).
-- Development builds require an explicit matching compiler; do not fall back
-  to the published ABI 31 archive. No release tag or archive is created here.
+- Pin both compiler version and generated ABI; reject an explicit incompatible
+  compiler rather than generating headers from the historical ABI 31 archive.
 
 ## 0.6.0 — 2026-09-09
 

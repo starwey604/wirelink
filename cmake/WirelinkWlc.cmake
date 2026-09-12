@@ -3,12 +3,12 @@ include_guard(GLOBAL)
 # These values are consumed by functions that may be called from a parent
 # directory after Wirelink itself was added with add_subdirectory(). Keep them
 # in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.7.0-dev" CACHE INTERNAL
+set(WIRELINK_WLC_VERSION "0.7.0-rc.1" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
 set(WIRELINK_WLC_CODEGEN_ABI "32" CACHE INTERNAL
   "Pinned WLC generated-code ABI" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
-  "Fetch and build pinned WLC source when no matching host compiler is installed" ON)
+  "Fetch verified WLC host tools, or build pinned source on other hosts" ON)
 set(WIRELINK_WLC_CACHE_DIR
   "${CMAKE_BINARY_DIR}/_deps/wirelink-wlc" CACHE PATH
   "Directory for verified WLC host compiler downloads")
@@ -63,6 +63,15 @@ function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   set(${out_reason} "" PARENT_SCOPE)
 endfunction()
 
+# Rust canonicalize() returns verbatim paths on Windows. CMake/MSBuild dependency
+# tracking expects ordinary drive/UNC paths with forward slashes.
+function(_wirelink_wlc_windows_dependency_path input out_path)
+  string(REPLACE "\\" "/" _path "${input}")
+  string(REGEX REPLACE "^//[?]/UNC/" "//" _path "${_path}")
+  string(REGEX REPLACE "^//[?]/" "" _path "${_path}")
+  set(${out_path} "${_path}" PARENT_SCOPE)
+endfunction()
+
 # Resolve imported files at configure time and refresh edges after edits.
 function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
   execute_process(COMMAND "${executable}" dependencies "${schema}"
@@ -73,6 +82,14 @@ function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
   endif()
   string(REPLACE "\r\n" "\n" _inputs "${_inputs}")
   string(REPLACE "\n" ";" _inputs "${_inputs}")
+  if(CMAKE_HOST_WIN32)
+    set(_normalized_inputs "")
+    foreach(_input IN LISTS _inputs)
+      _wirelink_wlc_windows_dependency_path("${_input}" _normalized)
+      list(APPEND _normalized_inputs "${_normalized}")
+    endforeach()
+    set(_inputs "${_normalized_inputs}")
+  endif()
   # Reconfigure when an import edge changes, then refresh the transitive set.
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_inputs})
   set(${out_dependencies} "${_inputs}" PARENT_SCOPE)

@@ -16,7 +16,7 @@ The [Chinese tutorial](docs/getting-started-cn.md) follows the same sequence.
 Install WLC independently using [environment setup](docs/installation.md)
 ([中文](docs/installation-cn.md)); no nested WLC checkout is required.
 
-This development tree is `0.7.0-dev`, a pre-1.0 library using wire protocol v1.
+This prerelease is `0.7.0-rc.2`, a pre-1.0 library using wire protocol v1.
 Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in
@@ -24,13 +24,13 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The tutorials require matching WLC 0.7.0-dev / codegen ABI 32: static schema
+The tutorials require matching WLC 0.7.0-rc.1 / codegen ABI 32: static schema
 composition, borrowed direct routes, service lifecycle hooks, and owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
 Managed RPC v2 binds replies to the originating client session; both peers must upgrade.
-Build the matching development WLC described in [installation](docs/installation.md); older release
-assets do not contain this API. Implementation/H7 handoff evidence is recorded in
+Use the matching WLC described in [installation](docs/installation.md); CMake
+downloads its verified host package automatically. Implementation/H7 handoff evidence is recorded in
 [the milestone log](docs/rpc-usability-progress-cn.md).
 See the [RPC/telemetry/bulk composition example](examples/04_composed_services/README.md)
 and [product integration notes](docs/composed-services-cn.md).
@@ -176,10 +176,14 @@ Generate additional role runtimes against `fci_arm_codec`; set a distinct
 `wirelink_wlc_generate()` remains as a single-runtime convenience wrapper.
 
 WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
-`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. There is no published
-ABI 32 archive/digest; automatic resolution deliberately rejects the historical
-ABI 31 source pin. Supply the matching executable and set
-`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`. Do not substitute the older release compiler.
+`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names
+the pinned compatible version, Wirelink fetches the v0.7.0-rc.1 host archive into
+`WIRELINK_WLC_CACHE_DIR` and verifies its fixed SHA256. Windows x86-64,
+Linux x86-64/aarch64 and macOS x86-64/arm64 need no Rust installation.
+Other hosts build the paired, SHA256-verified source with Rust/Cargo (`--locked`).
+Set `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` for offline or hermetic builds and provide
+the executable explicitly. Cargo receives the host triple reported by `rustc`,
+never the firmware target or an inherited `CARGO_BUILD_TARGET`.
 
 Generated sources are written below the build directory and regenerate when
 the schema, profile, compatibility predecessor, or WLC executable changes.

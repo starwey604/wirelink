@@ -1,6 +1,6 @@
 # Wirelink compatibility policy
 
-Wirelink `0.7.0-dev` is a pre-1.0 development tree using protocol v1. The earlier `0.9.0`
+Wirelink `0.7.0-rc.2` is a pre-1.0 prerelease using protocol v1. The earlier `0.9.0`
 source version was an untagged development placeholder. This policy separates
 four compatibility domains that evolve at
 different rates.

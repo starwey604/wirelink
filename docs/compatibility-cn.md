@@ -2,8 +2,8 @@
 
 > 英文版 [`compatibility.md`](compatibility.md) 是规范来源。
 
-Wirelink `0.7.0-dev` 是使用 protocol v1 的 1.0 前开发版本。早期 `0.9.0` 是未发布的
-开发占位版本。兼容性分为多个独立演进的域。
+Wirelink `0.7.0-rc.2` 是使用 protocol v1 的 1.0 前预发布版本。兼容性分为多个独立
+演进的域。
 
 ## 线上协议
 
