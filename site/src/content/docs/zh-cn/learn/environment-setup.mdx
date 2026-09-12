@@ -102,11 +102,11 @@ PowerShell。Rustup 默认把命令安装到 `%USERPROFILE%\.cargo\bin`。
 
 ## 安装匹配的 WLC 编译器
 
-当前开发版与 WLC 0.7.0-dev、生成代码 ABI 32 配套，尚无已发布的 ABI 32 包。
-从本地配套 WLC 源码安装（提交 `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29`）：
+Wirelink 0.8.0 与 WLC 0.8.0、生成代码 ABI 32 配套。从 [WLC 发布页](https://github.com/starwey604/wlc/releases/tag/v0.8.0) 下载主机包，按 SHA256SUMS 校验后将可执行文件加入 PATH。若需从源码安装：
 
 ```sh
-cargo install --path /path/to/paired-wlc --locked
+git clone --branch v0.8.0 --depth 1 https://github.com/starwey604/wlc.git paired-wlc
+cargo install --path paired-wlc --locked
 ```
 
 命令会把 `wlc` 可执行文件放入 Cargo 的二进制目录，通常是 `$HOME/.cargo/bin`。
@@ -127,7 +127,7 @@ wlc codegen-abi
 预期输出：
 
 ```text
-wlc 0.7.0-dev
+wlc 0.8.0
 32
 ```
 
@@ -186,7 +186,7 @@ cmake --build build/environment-check --config Release --parallel
     'CMake 显示 3.21 或更新版本。',
     'C 与 C++ 编译器可以从终端运行。',
     'Cargo 可以从终端运行。',
-    'WLC 显示版本 0.7.0-dev、生成代码 ABI 32。',
+    'WLC 显示版本 0.8.0、生成代码 ABI 32。',
     'Wirelink 核心构建成功完成。',
   ]}
 />

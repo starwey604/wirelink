@@ -48,12 +48,12 @@ jobs:
           --outdir twister-out
 
       # Exercise the same generated-code sample used for the H7 clock check.
-      # Published WLC 0.7.0-rc.1 / ABI 32 source pair.
+      # Published WLC 0.8.0 / ABI 32 source pair.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5
         with:
           repository: starwey604/wlc
-          ref: 1ec38f103948a0ef7a33d8655a261eed63101350
+          ref: 9617907cd24524b10112ce5f0997eebe227d57e7
           path: .tools/wlc
 
       - name: Build matching WLC

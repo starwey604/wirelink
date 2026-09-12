@@ -1,7 +1,7 @@
 # Wirelink / RPC 静态多服务迭代（ABI 32）
 
 本轮只修改 Wirelink 和独立 WLC 仓库，不修改 Ragtime_Firmwares、libflorid 或 FCI
-现有业务协议。开发版本为 `0.7.0-dev` / codegen ABI 32，须配套重建生成代码和核心。
+现有业务协议。开发版本为 `0.8.0` / codegen ABI 32，须配套重建生成代码和核心。
 compact-v1 帧、现有 codec 字节、managed/mapped RPC payload 均不改变。
 
 ## 已实现

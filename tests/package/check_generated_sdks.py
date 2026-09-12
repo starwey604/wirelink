@@ -21,6 +21,7 @@ def main():
                 str(compiler), "sdk", str(project / "schema" / f"{name}.wl"),
                 "--profile", str(project / "schema" / f"{name}.bind.wl"),
                 "--out-dir", str(output), "--name", name,
+                "--package-version", "0.8.0",
             ], check=True)
             for artifact in sorted(output.rglob("*")):
                 if artifact.is_file():

@@ -14,11 +14,11 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-This tree requires **WLC 0.7.0-rc.1 with codegen ABI 32**. This prerelease
+This tree requires **WLC 0.8.0 with codegen ABI 32**. This release
 revision adds static imports and borrowed direct routes without changing the
 ABI 31 wire formats. Published v0.6.0 / ABI 31 binaries cannot generate this API.
 CMake fetches the matching host package automatically. To build it yourself,
-check out the independent WLC repository at tag `v0.7.0-rc.1` and run:
+check out the independent WLC repository at tag `v0.8.0` and run:
 
 ```sh
 cargo build --release --locked
@@ -36,7 +36,7 @@ wlc --version
 wlc codegen-abi
 ```
 
-Expect `wlc 0.7.0-rc.1` and `32` from the executable you will pass to CMake.
+Expect `wlc 0.8.0` and `32` from the executable you will pass to CMake.
 Codegen ABI identifies generated C interfaces/layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
@@ -63,7 +63,7 @@ virtual serial driver.
 
 CMake selects a package using the build host, not the embedded target: Windows
 x86-64, Linux x86-64/aarch64 (static musl), or macOS x86-64/arm64. It downloads
-the pinned v0.7.0-rc.1 archive, verifies its hard-coded SHA256, and checks both
+the pinned v0.8.0 archive, verifies its hard-coded SHA256, and checks both
 compiler version and ABI. No Rust toolchain or local WLC checkout is needed.
 Other hosts use the paired, verified source archive and host Rust/Cargo.
 

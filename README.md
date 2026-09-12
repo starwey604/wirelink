@@ -16,7 +16,7 @@ The [Chinese tutorial](docs/getting-started-cn.md) follows the same sequence.
 Install WLC independently using [environment setup](docs/installation.md)
 ([中文](docs/installation-cn.md)); no nested WLC checkout is required.
 
-This prerelease is `0.7.0-rc.2`, a pre-1.0 library using wire protocol v1.
+This release is `0.8.0`, a pre-1.0 library using wire protocol v1.
 Exact wire bytes are frozen by the
 [`v1 conformance vectors`](docs/conformance-v1.md); compatibility guarantees
 and pre-1.0 limits are documented in
@@ -24,7 +24,7 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The tutorials require matching WLC 0.7.0-rc.1 / codegen ABI 32: static schema
+The tutorials require matching WLC 0.8.0 / codegen ABI 32: static schema
 composition, borrowed direct routes, service lifecycle hooks, and owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
@@ -53,7 +53,7 @@ and [product integration notes](docs/composed-services-cn.md).
    Optional creation and fixed pools are covered in
    [`endpoint-storage.md`](docs/endpoint-storage.md).
 3. Define typed payloads and roles using
-   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/c6b6a8fa560a15c45d564aad0afd197b13682de8/README.md).
+   [`schema-v1.md`](docs/schema-v1.md) and the [WLC guide](https://github.com/starwey604/wlc/blob/v0.8.0/README.md).
 4. Add retained state, RPC, or objects with
    [`application-layer.md`](docs/application-layer.md),
    [`rpc-runtime.md`](docs/rpc-runtime.md), and
@@ -144,7 +144,7 @@ cmake --install build/core --prefix /path/to/prefix
 ```
 
 ```cmake
-find_package(Wirelink 0.7 CONFIG REQUIRED)
+find_package(Wirelink 0.8 CONFIG REQUIRED)
 target_link_libraries(my_firmware PRIVATE Wirelink::wirelink)
 ```
 
@@ -154,11 +154,11 @@ publish an installed CMake package target.
 
 The installed package exposes separate codec and runtime generation targets.
 WLC is always a host executable, including during a cross-build. This development
-tree requires an explicit matching WLC 0.7.0-dev / ABI 32 executable; see
+tree requires an explicit matching WLC 0.8.0 / ABI 32 executable; see
 [environment setup](docs/installation.md). Rust is needed only when building WLC:
 
 ```cmake
-find_package(Wirelink 0.7 CONFIG REQUIRED)
+find_package(Wirelink 0.8 CONFIG REQUIRED)
 
 wirelink_wlc_generate_codec(
   TARGET fci_arm_codec
@@ -177,7 +177,7 @@ Generate additional role runtimes against `fci_arm_codec`; set a distinct
 
 WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
 `WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names
-the pinned compatible version, Wirelink fetches the v0.7.0-rc.1 host archive into
+the pinned compatible version, Wirelink fetches the v0.8.0 host archive into
 `WIRELINK_WLC_CACHE_DIR` and verifies its fixed SHA256. Windows x86-64,
 Linux x86-64/aarch64 and macOS x86-64/arm64 need no Rust installation.
 Other hosts build the paired, SHA256-verified source with Rust/Cargo (`--locked`).
@@ -190,7 +190,10 @@ the schema, profile, compatibility predecessor, or WLC executable changes.
 The generated manifest must match Wirelink's pinned compiler version and
 codegen ABI before any generated translation unit is compiled.
 
-## C++ and Python binding preview
+## C++ and Python bindings
+
+See the [v0.8.0 release guide](docs/release-v0.8.0-cn.md) for supported APIs,
+platform wheels, source builds and migration requirements.
 
 WLC now generates complete C++20 and typed Python SDKs for bounded managed
 synchronous and asynchronous RPC over UDP. The [calculator guide](examples/06_bindings/GUIDE.md)

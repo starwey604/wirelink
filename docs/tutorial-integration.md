@@ -88,7 +88,7 @@ Windows multi-configuration builds add `Release/` and `.exe` to executable paths
 
 The independent consumer needs no Asio source include path: the installed adapter
 is already compiled and hides Asio headers. WLC runs only at build time; use
-WLC 0.7.0-dev with codegen ABI 32 as pinned in [installation](installation.md).
+WLC 0.8.0 with codegen ABI 32 as pinned in [installation](installation.md).
 Codec-only consumers need neither runtime nor UDP. For shared codecs and
 `RUNTIME_NAME`, consult the
 [WLC guide](https://github.com/starwey604/wlc/blob/18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29/README.md).

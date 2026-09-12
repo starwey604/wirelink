@@ -109,12 +109,13 @@ then reopen PowerShell. Rustup places installed commands in
 
 ## Install the matching WLC compiler
 
-This development tree pairs with WLC 0.7.0-dev and codegen ABI 32. There is no
-published ABI 32 archive yet. Install from the matching local WLC checkout
-(paired commit `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29`):
+Wirelink 0.8.0 pairs with WLC 0.8.0 and codegen ABI 32. Download a host archive
+from the [WLC release](https://github.com/starwey604/wlc/releases/tag/v0.8.0),
+verify it with SHA256SUMS, and put the executable on PATH. To build from source:
 
 ```sh
-cargo install --path /path/to/paired-wlc --locked
+git clone --branch v0.8.0 --depth 1 https://github.com/starwey604/wlc.git paired-wlc
+cargo install --path paired-wlc --locked
 ```
 
 This puts the `wlc` executable in Cargo's binary directory, normally
@@ -136,7 +137,7 @@ wlc codegen-abi
 Expected output:
 
 ```text
-wlc 0.7.0-dev
+wlc 0.8.0
 32
 ```
 
@@ -194,7 +195,7 @@ which also exercises WLC and Asio.
     'CMake reports version 3.21 or newer.',
     'My C and C++ compilers run from the terminal.',
     'Cargo runs from the terminal.',
-    'WLC reports version 0.7.0-dev and codegen ABI 32.',
+    'WLC reports version 0.8.0 and codegen ABI 32.',
     'The Wirelink core build completes.',
   ]}
 />

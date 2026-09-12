@@ -1,8 +1,31 @@
 # Changelog
 
 All notable Wirelink changes are recorded here. The project uses semantic
-versioning after 1.0; compatibility expectations for the release-candidate
-line are described in [`docs/compatibility.md`](docs/compatibility.md).
+versioning after 1.0; compatibility expectations for pre-1.0 releases are described in [`docs/compatibility.md`](docs/compatibility.md).
+
+## 0.8.0 — 2026-09-13
+
+- Release the supported C++20 and CPython managed RPC bindings, paired with WLC
+  0.8.0. Binding source API is revision 2; generated C ABI remains 32 and protocol
+  v1 is unchanged. Rebuild native libraries and regenerate SDKs together.
+- Publish calculator/device SDK 0.8.0 source distributions and CPython 3.10–3.14
+  wheels for Linux x86-64 (manylinux_2_28), Windows x86-64 and macOS x86-64/arm64.
+  Validate extracted source builds, installed C++ consumers and offline wheel RPC.
+- Add owned asynchronous host RPC tasks sharing bounded admission with synchronous
+  calls, owner-thread cancellation, queue-inclusive deadlines and orderly shutdown.
+  WLC binding revision 2 generates C++ `Operation<T>` and Python `AsyncClient`,
+  with loop-bound, bounded completion delivery and one notification thread per
+  connection. Preserve synchronous APIs, C ABI 32 and existing wire behavior.
+
+- Add opt-in C++20 owning UDP session support and a generated calculator SDK with synchronous Python calls, owned values, preserved RPC error domains,
+  concurrent close/call handling, installed C++ consumption and wheel/sdist builds.
+  WLC `sdk` now generates C++/Python projects.
+- Add a generated device SDK covering owned strings/bytes, optional presence and
+  defaults, open enums, packed arrays and nested messages. Test both wheels in one
+  interpreter and both installed C++ packages in one consumer.
+- Classify request-admission `WL_ERR_CORRUPT_PAYLOAD` as a binding codec error
+  while retaining its original local diagnostic; C core/wire behavior is unchanged.
+  No C core, generated-code ABI or wire-format changes. Update package versions and paired WLC bootstrap instructions.
 
 ## 0.7.0-rc.2 — 2026-09-12
 
@@ -16,23 +39,6 @@ line are described in [`docs/compatibility.md`](docs/compatibility.md).
   WLC host packages on Windows, Linux and macOS, without requiring Rust on
   those platforms; the pinned source build remains available for other hosts.
 
-- Add owned asynchronous host RPC tasks sharing bounded admission with synchronous
-  calls, owner-thread cancellation, queue-inclusive deadlines and orderly shutdown.
-  WLC binding revision 2 generates C++ `Operation<T>` and Python `AsyncClient`,
-  with loop-bound, bounded completion delivery and one notification thread per
-  connection. Preserve synchronous APIs, C ABI 32 and existing wire behavior.
-
-- Add opt-in C++20 owning UDP session support and a generated calculator SDK
-  preview with synchronous Python calls, owned values, preserved RPC error domains,
-  concurrent close/call handling, installed C++ consumption and wheel/sdist builds.
-  WLC `sdk` now generates C++/Python projects.
-- Add a generated device SDK covering owned strings/bytes, optional presence and
-  defaults, open enums, packed arrays and nested messages. Test both wheels in one
-  interpreter and both installed C++ packages in one consumer.
-- Classify request-admission `WL_ERR_CORRUPT_PAYLOAD` as a binding codec error
-  while retaining its original local diagnostic; C core/wire behavior is unchanged.
-  No C core, generated-code ABI or wire-format changes. Correct stale package
-  versions and development WLC bootstrap instructions in the public documentation.
 - Add separate Zephyr/desktop UDP peer examples sharing one RPC/telemetry
   schema, CI build checks for both Zephyr roles, and a same-storage reconnect
   regression rejecting stale RPC responses. Physical Ethernet validation is

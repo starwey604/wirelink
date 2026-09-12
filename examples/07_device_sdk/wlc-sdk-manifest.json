@@ -2,7 +2,7 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.7.0-dev",
+    "version": "0.8.0",
     "codegen_abi": 32
   },
   "module": "device",
@@ -22,17 +22,17 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "CMakeLists.txt", "size": 3969, "digest": "0x4dddbd77144e7d2f"},
+    {"path": "CMakeLists.txt", "size": 3969, "digest": "0xf54bb7ccafe30243"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 6186, "digest": "0x9f98235d5ce8e24d"},
-    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 191, "digest": "0x590acc60fe20d746"},
+    {"path": "README.md", "size": 6157, "digest": "0xa7f6ba01a2e6d698"},
+    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 191, "digest": "0xd23d95c70f6e4327"},
     {"path": "generated/device.c", "size": 72145, "digest": "0xeaaca2978263cddf"},
     {"path": "generated/device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
     {"path": "generated/device_advanced.h", "size": 13912, "digest": "0x74a2d918ee2305c7"},
     {"path": "generated/device_bindings.c", "size": 13882, "digest": "0xbd6126b9c4ae8194"},
     {"path": "generated/device_bindings.h", "size": 4526, "digest": "0x6990709f680bd0f7"},
     {"path": "generated/device_endpoint.h", "size": 393, "digest": "0xc0450b9ee4730409"},
-    {"path": "generated/device_manifest.json", "size": 1954, "digest": "0x2c2a03071963957e"},
+    {"path": "generated/device_manifest.json", "size": 1950, "digest": "0x0da9adb395e7ce61"},
     {"path": "generated/device_runtime.c", "size": 71060, "digest": "0x6c0fd7fc12ae845d"},
     {"path": "generated/device_runtime.h", "size": 53517, "digest": "0x20d1606fe6a3f07d"},
     {"path": "generated/device_values.h", "size": 6909, "digest": "0x11711a2daa338e27"},
@@ -42,8 +42,8 @@
     {"path": "licenses/nanobind.txt", "size": 1521, "digest": "0x6c74387e9376966e"},
     {"path": "licenses/robin_map.txt", "size": 1103, "digest": "0xdef0f3a5dcec4200"},
     {"path": "licenses/wirelink.txt", "size": 728, "digest": "0x6ac63ae4ccdeb60b"},
-    {"path": "pyproject.toml", "size": 910, "digest": "0xac96e589ee735cd4"},
-    {"path": "python/device_sdk/__init__.py", "size": 16228, "digest": "0x8e1c969cfb8880a4"},
+    {"path": "pyproject.toml", "size": 922, "digest": "0xcf9e16debd70d190"},
+    {"path": "python/device_sdk/__init__.py", "size": 16223, "digest": "0x2d5f03619f3a5d3d"},
     {"path": "python/device_sdk/_native.pyi", "size": 1797, "digest": "0x4017170497a5d6fe"},
     {"path": "python/device_sdk/_runtime.py", "size": 11232, "digest": "0xf453ee3b54ae42d6"},
     {"path": "python/device_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
@@ -53,7 +53,7 @@
     {"path": "src/native.hpp", "size": 374, "digest": "0x1d50753724c3dce8"},
     {"path": "src/python.cpp", "size": 13708, "digest": "0xaa7ba6f26fab9a85"},
     {"path": "src/values.hpp", "size": 10381, "digest": "0x502114fe7c8226da"},
-    {"path": "wlc-sdk-info.json", "size": 181, "digest": "0xf301ea447e6b8ced"},
+    {"path": "wlc-sdk-info.json", "size": 176, "digest": "0x4ad8171eb638f292"},
     {"path": "wlc-sdk-name.txt", "size": 7, "digest": "0xb2a4fa33b5d9710b"}
   ]
 }

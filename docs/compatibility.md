@@ -1,6 +1,6 @@
 # Wirelink compatibility policy
 
-Wirelink `0.7.0-rc.2` is a pre-1.0 prerelease using protocol v1. The earlier `0.9.0`
+Wirelink `0.8.0` is a pre-1.0 release using protocol v1. The earlier `0.9.0`
 source version was an untagged development placeholder. This policy separates
 four compatibility domains that evolve at
 different rates.
@@ -51,7 +51,7 @@ as normal for a C library.
 
 Until 1.0, source or ABI corrections may occur between `0.x` minor releases
 and will be recorded in [`CHANGELOG.md`](../CHANGELOG.md). CMake therefore
-considers only the same minor `0.7.x` line package-compatible. Starting with
+considers only the same minor `0.8.x` line package-compatible. Starting with
 1.0, Wirelink follows semantic versioning: incompatible public C API or ABI
 changes require a new major library version. Additive functions and enum
 values may appear in minor releases; applications should include a `default`
@@ -66,10 +66,10 @@ implementation detail. In particular:
 - a sink-owned TX pointer remains valid until synchronous completion or the
   matching `wl_tx_complete()`.
 
-## C++ and Python binding preview
+## C++ and Python bindings
 
-The optional `Wirelink::cpp` / `Wirelink::cpp_host` targets and calculator SDK
-are a preview source API, not a stable cross-compiler C++ ABI. Rebuild
+The optional `Wirelink::cpp` / `Wirelink::cpp_host` targets and WLC-generated SDKs
+provide the v0.8 source API. They do not promise a stable cross-compiler C++ ABI. Rebuild
 them with the matching C library. Binding API revision 2 and WLC codegen ABI 32
 are separate identifiers; Python's extension ABI is a third compatibility domain.
 The reference wheel privately links its native code and does not exchange native

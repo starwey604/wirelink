@@ -84,7 +84,7 @@ cmake --build /path/to/temperature-display/build --config Release
 Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 
 独立消费者不需要 Asio 源码路径：安装的 UDP 库已编译好，不把 Asio 头文件暴露给应用。
-WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 WLC 0.7.0-dev 与
+WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 WLC 0.8.0 与
 生成 ABI 32。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见

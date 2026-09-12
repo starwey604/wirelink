@@ -10,7 +10,7 @@ from . import _native, _runtime
 from ._runtime import (Udp, WirelinkError, ClosedError, RpcTimeoutError, CancelledError,
     RejectedError, QueueFullError, TransportError, CodecError, InvalidArgumentError)
 
-__version__ = "0.1.0.dev1"
+__version__ = "0.8.0"
 core_version: str = _native.core_version
 codegen_abi: int = _native.codegen_abi
 binding_api: int = _native.binding_api

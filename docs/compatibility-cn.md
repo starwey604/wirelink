@@ -2,7 +2,7 @@
 
 > 英文版 [`compatibility.md`](compatibility.md) 是规范来源。
 
-Wirelink `0.7.0-rc.2` 是使用 protocol v1 的 1.0 前预发布版本。兼容性分为多个独立
+Wirelink `0.8.0` 是使用 protocol v1 的 1.0 前正式版本。兼容性分为多个独立
 演进的域。
 
 ## 线上协议
@@ -31,7 +31,7 @@ public enum-like domain 通常使用固定宽度 `int32_t` typedef 与命名常�
 enum 宽度和 `-fshort-enums` 影响。含 pointer/`size_t` 的结构仍依赖目标架构。
 
 1.0 前，`0.x` minor 之间仍可修正 source/ABI，并记录在 `CHANGELOG.md`；CMake 只把
-同一 `0.7.x` minor 视为 package-compatible。1.0 起遵循语义化版本：不兼容 public
+同一 `0.8.x` minor 视为 package-compatible。1.0 起遵循语义化版本：不兼容 public
 C API/ABI 需要新 major；minor 可以新增函数和 enum value，应用的 switch 应保留
 `default`。
 
@@ -39,13 +39,11 @@ C API/ABI 需要新 major；minor 可以新增函数和 enum value，应用的 s
 拥有 poll、event release、adapter service 和 reset；event payload 借用到
 `wl_event_release()`；sink TX 指针有效到同步完成或匹配的 `wl_tx_complete()`。
 
-## C++ / Python binding 预览
+## C++ / Python bindings
 
-可选的 `Wirelink::cpp`、`Wirelink::cpp_host` 和 WLC 生成的 SDK 是预览源码 API，
-尚不承诺跨编译器的稳定 C++ ABI，必须与匹配 C 库一起重编译。Binding API revision 1、
-WLC codegen ABI 32 和 Python 扩展 ABI 相互独立。参考 wheel 私有链接 native 代码，
-不跨独立 SDK 交换 native handle。使用方式和边界见
-[calculator SDK](../examples/06_bindings/GUIDE.md)及 [生成器迭代记录](bindings-iteration-2-cn.md)。
+可选的 `Wirelink::cpp`、`Wirelink::cpp_host` 和 WLC 生成的 SDK 提供 v0.8 源码 API，须与匹配的 C 库一起重编译，不承诺跨编译器的稳定 C++ ABI。Binding source API revision 2、WLC codegen ABI 32 和 Python 扩展 ABI 相互独立。
+
+Revision 2 提供同步 RPC、C++ 异步操作和 Python `AsyncClient`。wheel 私有链接原生代码，不跨独立 SDK 交换原生句柄。安装方式、支持范围及迁移要求见 [v0.8.0 发布说明](release-v0.8.0-cn.md)。
 
 ## WLC Payload Schema
 

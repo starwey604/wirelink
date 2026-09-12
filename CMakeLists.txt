@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(wirelink VERSION 0.7.0 LANGUAGES C)
+project(wirelink VERSION 0.8.0 LANGUAGES C)
 
 include(CTest)
 include(GNUInstallDirs)

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-project(CalculatorSdk VERSION 0.1.0 LANGUAGES C CXX)
+project(CalculatorSdk VERSION 0.8.0 LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-find_package(Wirelink 0.7.0 EXACT CONFIG REQUIRED)
+find_package(Wirelink 0.8.0 EXACT CONFIG REQUIRED)
 foreach(dependency cpp_host platform)
   if(NOT TARGET Wirelink::${dependency})
     message(FATAL_ERROR "Install Wirelink with CPP_BINDINGS and PLATFORM enabled")
