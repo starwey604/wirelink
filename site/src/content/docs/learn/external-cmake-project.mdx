@@ -1,0 +1,335 @@
+---
+title: Use Wirelink from your own CMake project
+description: Install Wirelink to a local prefix, find its CMake package from a new project, and build generated code without source-tree dependencies.
+sidebar:
+  order: 8
+---
+
+import Checklist from '../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+
+Every earlier lesson was built as part of the Wirelink repository. That is
+useful while learning one feature at a time, but your application should not
+copy private source files or depend on paths inside a Wirelink checkout.
+
+In this lesson, you will install Wirelink into a local staging directory, then
+create a separate four-file CMake project. Its two generated endpoints exchange
+one temperature value through Wirelink's in-memory loopback adapter. This keeps
+the package boundary visible before a later lesson introduces real hardware.
+
+**After this lesson, you can:**
+
+- install Wirelink to a project-local prefix without administrator access;
+- find the installed `Wirelink` CMake package from another source tree;
+- generate codec and runtime targets in your own build directory;
+- identify which dependencies belong to your application and which come from the package.
+
+## Before you begin
+
+Complete [organizing multiple RPCs as a device service](../device-service/)
+first. Keep the Wirelink repository and its `build/tutorials` directory: this
+lesson installs the build you already made there.
+
+Confirm that the matching host compiler is still available:
+
+```sh
+wlc --version
+wlc codegen-abi
+```
+
+It should report `wlc 0.7.0-dev` and codegen ABI `32`.
+
+## Install Wirelink into a local prefix
+
+From the Wirelink repository root, rebuild and install into a directory below
+the existing build tree:
+
+```sh
+cmake --build build/tutorials --config Release --parallel
+cmake --install build/tutorials --config Release \
+  --prefix "$PWD/build/tutorial-install"
+```
+
+A **prefix** is the root of an installed package layout. This command places
+public headers under `build/tutorial-install/include`, libraries under
+`build/tutorial-install/lib`, and CMake package files under
+`build/tutorial-install/lib/cmake/Wirelink`.
+
+This is a local staging install. It does not write to `/usr/local`, require
+`sudo`, or change the Wirelink source tree. You can delete and recreate the
+prefix when switching Wirelink versions.
+
+## Create an independent project
+
+Move outside the Wirelink repository and create a new directory:
+
+```sh
+cd ..
+mkdir wirelink-temperature-app
+cd wirelink-temperature-app
+```
+
+The finished source tree contains only four files:
+
+```text
+wirelink-temperature-app/
+├── CMakeLists.txt
+├── main.c
+├── temperature.bind.wl
+└── temperature.wl
+```
+
+There is no copied Wirelink header, library, generated C file, or repository
+relative path in this directory.
+
+## Define the known temperature message
+
+Create `temperature.wl`:
+
+```text
+version 1;
+
+message Temperature @id(10) {
+  required uint32 sample @id(1);
+  required int32 temperature_centi_c @id(2);
+}
+```
+
+Create `temperature.bind.wl`:
+
+```text
+profile version 1;
+
+endpoint { envelope = native_packet; }
+latest Temperature { delivery = unreliable; }
+```
+
+These are the schema and latest-value behavior from the first lesson. Reusing
+them lets us focus on the build boundary. `native_packet` also matches the
+loopback adapter, which delivers complete packets between two in-memory links.
+
+## Write a self-contained application
+
+Create `main.c`:
+
+```c
+#include <stdio.h>
+
+#include "temperature_endpoint.h"
+#include "wirelink/loopback.h"
+#include "wirelink/platform.h"
+
+#define CHECK(expression) do {                                      \
+  if (!(expression)) {                                              \
+    fprintf(stderr, "line %d: %s\n", __LINE__, #expression);       \
+    return 1;                                                       \
+  }                                                                \
+} while (0)
+
+int main(void) {
+  static temperature_endpoint_t publisher;
+  static temperature_endpoint_t subscriber;
+  wl_loopback_t cable;
+  temperature_t sent;
+  temperature_t received;
+  wl_err_t read_result = WL_ERR_NO_DATA;
+
+  CHECK(temperature_endpoint_init(
+          &publisher, wl_platform_environment()) == WL_OK);
+  CHECK(temperature_endpoint_init(
+          &subscriber, wl_platform_environment()) == WL_OK);
+  CHECK(wl_loopback_connect(
+          &cable,
+          temperature_endpoint_handle(&publisher),
+          temperature_endpoint_handle(&subscriber)) == WL_OK);
+
+  temperature_clear(&sent);
+  sent.has_sample = true;
+  sent.sample = 7;
+  sent.has_temperature_centi_c = true;
+  sent.temperature_centi_c = 2350;
+  CHECK(temperature_endpoint_send_temperature(&publisher, &sent).domain ==
+        TEMPERATURE_SEND_OK);
+
+  for (unsigned pass = 0;
+       pass < 16 && read_result == WL_ERR_NO_DATA;
+       ++pass) {
+    CHECK(temperature_endpoint_step(&publisher) == WL_OK);
+    CHECK(temperature_endpoint_step(&subscriber) == WL_OK);
+    read_result = temperature_endpoint_read_temperature(
+        &subscriber, &received);
+  }
+
+  CHECK(read_result == WL_OK);
+  printf("latest sample=%u temperature=%.2f C\n",
+         (unsigned)received.sample,
+         received.temperature_centi_c / 100.0);
+
+  CHECK(temperature_endpoint_close(&publisher) == WL_OK);
+  CHECK(temperature_endpoint_close(&subscriber) == WL_OK);
+  return 0;
+}
+```
+
+Two endpoint values share one process only to make this package test
+deterministic. Each `endpoint_step()` performs a bounded amount of protocol,
+adapter, and generated-runtime work. The loop stops as soon as the subscriber
+reads its latest value, with 16 passes as a finite failure bound.
+
+The three included headers have different origins:
+
+| Header | Origin |
+| --- | --- |
+| `temperature_endpoint.h` | Generated from this project's `.wl` files |
+| `wirelink/loopback.h` | Installed optional loopback target |
+| `wirelink/platform.h` | Installed host clock and session-identity provider |
+
+## Describe the build with targets
+
+Create `CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(temperature_loopback LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+find_package(Wirelink 0.7 CONFIG REQUIRED)
+
+wirelink_wlc_generate_codec(
+  TARGET temperature_codec
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/temperature.wl")
+wirelink_wlc_generate_runtime(
+  TARGET temperature_protocol
+  CODEC_TARGET temperature_codec
+  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/temperature.bind.wl")
+
+add_executable(temperature_loopback main.c)
+target_link_libraries(temperature_loopback PRIVATE
+  temperature_protocol
+  Wirelink::loopback
+  Wirelink::platform)
+```
+
+`find_package()` loads Wirelink's exported targets and WLC helper functions.
+The remaining targets form a small dependency chain:
+
+| Target | Responsibility |
+| --- | --- |
+| `temperature_codec` | Compile generated message values and encode/decode functions |
+| `temperature_protocol` | Compile the generated endpoint and latest-value behavior |
+| `Wirelink::loopback` | Connect the two endpoints without sockets or hardware |
+| `Wirelink::platform` | Supply host clock and fresh session identities |
+| `temperature_loopback` | Compile this application's `main.c` |
+
+Linking `temperature_protocol` gives `main.c` its generated include directory
+and transitively links the codec and Wirelink core. Do not add
+`build/wirelink-generated` to include paths by hand.
+
+<MultipleChoice
+  id="external-cmake-generated-header"
+  question="How does main.c obtain temperature_endpoint.h?"
+  choices={[
+    {
+      label: 'By linking temperature_protocol',
+      correct: true,
+      feedback: 'Correct. The generated runtime target publishes its generated include directory and dependencies.',
+    },
+    {
+      label: 'By copying it from the Wirelink repository',
+      correct: false,
+      feedback: 'Generated headers belong to this schema and build; copying one would separate it from regeneration.',
+    },
+    {
+      label: 'By adding the build directory globally',
+      correct: false,
+      feedback: 'The target carries its own include path. A global include path hides the real dependency.',
+    },
+  ]}
+/>
+
+## Configure against the installed package
+
+Configure the new project. Replace the prefix with the absolute path to the
+installation created earlier:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH=/absolute/path/to/wirelink/build/tutorial-install \
+  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+cmake --build build --config Release --parallel
+```
+
+`CMAKE_PREFIX_PATH` tells `find_package()` where to look; it is not compiled
+into your application. WLC is a host build tool found on `PATH`. Setting
+auto-download off makes this exercise fail immediately if that compiler is
+missing or incompatible instead of trying to fetch another source tree.
+
+Run the program:
+
+```sh
+./build/temperature_loopback
+```
+
+It should print:
+
+```text
+latest sample=7 temperature=23.50 C
+```
+
+:::note[Windows executable path]
+With a Visual Studio generator, use
+`build/Release/temperature_loopback.exe`.
+:::
+
+## Keep generated files in the build tree
+
+The configure and build steps create these directories:
+
+```text
+build/wirelink-generated/temperature_codec/
+build/wirelink-generated/temperature_protocol/
+```
+
+They contain generated headers, C sources, and manifests. CMake tracks the
+schema, profile, WLC executable, and compatibility input as dependencies. Edit
+the four source files and rebuild; do not edit or commit these generated files.
+
+This separation gives the project three clear ownership boundaries:
+
+- you maintain `main.c`, the schema, the profile, and `CMakeLists.txt`;
+- WLC owns generated code below this project's build directory;
+- the installed Wirelink prefix owns public library headers, archives, and
+  package metadata.
+
+## Diagnose the three common configuration failures
+
+| Message or symptom | Check |
+| --- | --- |
+| CMake cannot find `WirelinkConfig.cmake` | Point `CMAKE_PREFIX_PATH` at the exact installation prefix, not its `lib` subdirectory |
+| CMake cannot find compatible WLC | Run `wlc --version` and `wlc codegen-abi`; restore Cargo's binary directory to `PATH` if needed |
+| `temperature_endpoint.h` is missing while compiling | Link the executable to `temperature_protocol` and let that target publish its generated include directory |
+
+These failures occur at different boundaries. Fix the package search, host
+generator, or target dependency named by the error instead of adding copied
+headers or repository-relative paths.
+
+<Checklist
+  id="external-cmake-project"
+  title="Lesson complete"
+  items={[
+    'I installed Wirelink into a local prefix.',
+    'My new project finds Wirelink through find_package().',
+    'WLC generates codec and runtime files inside my project build directory.',
+    'My executable links generated and installed targets instead of copying headers.',
+    'The loopback program prints the received temperature.',
+  ]}
+/>
+
+## Next step
+
+The next lesson will replace the in-memory cable with a real transport and
+explain envelope selection, adapter lifecycle, endpoint ownership, and clean
+shutdown.

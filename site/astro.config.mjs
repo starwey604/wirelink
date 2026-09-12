@@ -47,6 +47,7 @@ export default defineConfig({
             { slug: 'learn/async-rpc' },
             { slug: 'learn/deferred-rpc' },
             { slug: 'learn/device-service' },
+            { slug: 'learn/external-cmake-project' },
           ],
         },
       ],
