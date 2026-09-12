@@ -167,7 +167,11 @@ sequenceDiagram
   Controller->>Client: add_sync(request)
   Client->>Server: Add 请求
   Server-->>Client: 链路确认
-Server->>Handler: 处理 AddRequest Handler-->>Server: 响应或拒绝 Server->>Client: RPC 结果 Client-->>Server: 链路确认 Client-->>Controller: 最终 RPC 结果
+Server->>Handler: 处理 AddRequest
+Handler-->>Server: 响应或拒绝
+Server->>Client: RPC 结果
+Client-->>Server: 链路确认
+Client-->>Controller: 最终 RPC 结果
 ```
 
 <MultipleChoice

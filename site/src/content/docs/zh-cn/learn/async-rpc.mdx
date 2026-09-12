@@ -67,7 +67,12 @@ sequenceDiagram
 
   App->>Client: add_async(request, completed)
   Client-->>App: WL_OK（本地已接受）
-App->>App: 继续执行其他主循环工作 App->>Client: step() Client->>Server: Add 请求 Server-->>Client: 响应或拒绝 App->>Client: step() Client-->>App: completed(result, response)
+App->>App: 继续执行其他主循环工作
+App->>Client: step()
+Client->>Server: Add 请求
+Server-->>Client: 响应或拒绝
+App->>Client: step()
+Client-->>App: completed(result, response)
 ```
 
 :::note[Windows 程序路径]

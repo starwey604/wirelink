@@ -26,7 +26,9 @@ flowchart TB
   accTitle: Wirelink 构建路径
   accDescr: CMake 先运行 WLC，把 schema 转换成生成的 C 代码，再与应用和 Wirelink 核心一起编译。
   CMake["CMake 构建"] --> WLC["使用 WLC 处理 .wl schema"]
-WLC --> Generated["生成的 C 源码与头文件"] Generated --> Compiler["编译生成代码、应用源码与 Wirelink 核心"] Compiler --> Program["Wirelink 应用"]
+WLC --> Generated["生成的 C 源码与头文件"]
+Generated --> Compiler["编译生成代码、应用源码与 Wirelink 核心"]
+Compiler --> Program["Wirelink 应用"]
 ```
 
 ## 安装本机构建工具
