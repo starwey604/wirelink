@@ -47,7 +47,7 @@
     {"path": "python/device_sdk/_native.pyi", "size": 1797, "digest": "0x4017170497a5d6fe"},
     {"path": "python/device_sdk/_runtime.py", "size": 11232, "digest": "0xf453ee3b54ae42d6"},
     {"path": "python/device_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
-    {"path": "src/client.cpp", "size": 6188, "digest": "0xe0326f7f968eb73f"},
+    {"path": "src/client.cpp", "size": 6228, "digest": "0xb817312a33e3cdb1"},
     {"path": "src/endpoint.c", "size": 3144, "digest": "0x4598457a113794dd"},
     {"path": "src/endpoint.h", "size": 993, "digest": "0xc720405c470eb295"},
     {"path": "src/native.hpp", "size": 374, "digest": "0x1d50753724c3dce8"},

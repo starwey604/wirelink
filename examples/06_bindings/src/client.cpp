@@ -64,7 +64,7 @@ wirelink::Result<wirelink::Operation<AddResponse>> Client::add_async(const AddRe
     std::chrono::milliseconds timeout) {
   if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
     return wirelink::Error::local(WL_ERR_INVALID_ARG);
-  struct Call final : wirelink::detail::OperationState<AddResponse> {
+  struct wlc_call_state final : wirelink::detail::OperationState<AddResponse> {
     add_request_value_t request{};
     add_response_value_t response{};
     calculator_sdk_call_t bridge{};
@@ -81,7 +81,7 @@ wirelink::Result<wirelink::Operation<AddResponse>> Client::add_async(const AddRe
     AddResponse decode_response() override { return wlc_detail::from_c(response); }
   };
   try {
-    auto call = std::make_shared<Call>();
+    auto call = std::make_shared<wlc_call_state>();
     if (!wlc_detail::to_c(request, call->request))
       return wirelink::Error::local(WL_ERR_INVALID_ARG);
     const auto error = session_.submit(call, static_cast<std::uint32_t>(timeout.count()));

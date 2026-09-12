@@ -40,7 +40,7 @@
     {"path": "python/calculator_sdk/_native.pyi", "size": 1268, "digest": "0x2f0e58f106477125"},
     {"path": "python/calculator_sdk/_runtime.py", "size": 11232, "digest": "0xf453ee3b54ae42d6"},
     {"path": "python/calculator_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
-    {"path": "src/client.cpp", "size": 3667, "digest": "0x692a06f6ee788597"},
+    {"path": "src/client.cpp", "size": 3687, "digest": "0xa329a3abaa4310ab"},
     {"path": "src/endpoint.c", "size": 2086, "digest": "0x62a0a0a8279c6c07"},
     {"path": "src/endpoint.h", "size": 822, "digest": "0xc0e18be50cb96307"},
     {"path": "src/native.hpp", "size": 346, "digest": "0x8939ae6752aeed96"},

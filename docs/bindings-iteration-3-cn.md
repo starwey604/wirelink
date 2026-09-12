@@ -1,6 +1,6 @@
 # Binding 第三轮：原生异步 RPC 与 asyncio SDK
 
-2026-09-12。本轮在 WLC 自动生成 SDK 的基础上增加异步调用、取消和关闭语义。
+2026-09-12—13。本轮在 WLC 自动生成 SDK 的基础上增加异步调用、取消和关闭语义。
 Wirelink 与独立的 `wlc/` 仓库分别记录提交，使用本机既有 Git 身份。
 本轮只在本地构建和提交，没有 push、发布 wheel 或创建 release。
 
@@ -94,7 +94,7 @@ Linux x86_64，GCC / Clang，CPython 3.14；最终两套 wheel 已安装到工�
 | 验收 | 结果 / 证据 |
 | --- | --- |
 | WLC 完整回归 | 156 项通过，`build/async-wlc-tests.log` |
-| 最终 SDK / CLI 专项 | 8 + 13 项通过；增加 AsyncClient / async 方法 / C bridge 名称冲突诊断，编译真实 C/C++ façade；`build/async-wlc-final-sdk-tests.log` |
+| 最终 SDK / CLI 专项 | 8 + 13 项通过；增加 AsyncClient / async 方法 / C bridge 名称冲突诊断，编译真实 C/C++ façade（含响应名 `Call`）；`build/async-wlc-final-sdk-tests.log` |
 | Rust fmt / Clippy | 通过，all-targets / all-features / warnings as errors；`build/async-wlc-clippy.log` |
 | WLC SDK ASan/UBSan | 8 项通过，`build/async-wlc-sdk-sanitizers.log` |
 | 基础 host / adapter CTest | `build/bindings-core` 的 5 项通过 |

@@ -90,7 +90,7 @@ wirelink::Result<wirelink::Operation<ConfigureResponse>> Client::configure_async
     std::chrono::milliseconds timeout) {
   if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
     return wirelink::Error::local(WL_ERR_INVALID_ARG);
-  struct Call final : wirelink::detail::OperationState<ConfigureResponse> {
+  struct wlc_call_state final : wirelink::detail::OperationState<ConfigureResponse> {
     configure_request_value_t request{};
     configure_response_value_t response{};
     device_sdk_call_t bridge{};
@@ -107,7 +107,7 @@ wirelink::Result<wirelink::Operation<ConfigureResponse>> Client::configure_async
     ConfigureResponse decode_response() override { return wlc_detail::from_c(response); }
   };
   try {
-    auto call = std::make_shared<Call>();
+    auto call = std::make_shared<wlc_call_state>();
     if (!wlc_detail::to_c(request, call->request))
       return wirelink::Error::local(WL_ERR_INVALID_ARG);
     const auto error = session_.submit(call, static_cast<std::uint32_t>(timeout.count()));
@@ -122,7 +122,7 @@ wirelink::Result<wirelink::Operation<InfoResponse>> Client::get_info_async(const
     std::chrono::milliseconds timeout) {
   if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
     return wirelink::Error::local(WL_ERR_INVALID_ARG);
-  struct Call final : wirelink::detail::OperationState<InfoResponse> {
+  struct wlc_call_state final : wirelink::detail::OperationState<InfoResponse> {
     info_request_value_t request{};
     info_response_value_t response{};
     device_sdk_call_t bridge{};
@@ -139,7 +139,7 @@ wirelink::Result<wirelink::Operation<InfoResponse>> Client::get_info_async(const
     InfoResponse decode_response() override { return wlc_detail::from_c(response); }
   };
   try {
-    auto call = std::make_shared<Call>();
+    auto call = std::make_shared<wlc_call_state>();
     if (!wlc_detail::to_c(request, call->request))
       return wirelink::Error::local(WL_ERR_INVALID_ARG);
     const auto error = session_.submit(call, static_cast<std::uint32_t>(timeout.count()));
