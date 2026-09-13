@@ -1,0 +1,123 @@
+---
+title: .wl 消息定义与 binding profile
+description: .wl 和 .bind.wl 的语法、字段类型和可选项。
+sidebar:
+  order: 2
+---
+
+本页汇总 `.wl` 消息定义和 `.bind.wl` binding profile 的语法，面向需要精确写法的读者。第一次使用请先完成[让显示端读取最新温度](../../learn/getting-started/)。API 标识符和协议字段不翻译。
+
+## `.wl`：消息定义
+
+`.wl` 文件用 `version` 声明兼容版本，然后定义 message 和 enum。
+
+```text
+version 1;
+
+enum MotorMode @id(1) {
+  MOTOR_MODE_DISABLED = 0;
+  MOTOR_MODE_CURRENT = 1;
+}
+
+message MotorCommand @id(16) {
+  required uint32 operation_id @id(1);
+  required MotorMode mode @id(2);
+  optional fixed32 target_milliamps @id(3);
+  optional bytes<64> vendor_extension @id(4);
+}
+```
+
+- `version` 只用于 WLC 兼容性检查，不写入 payload。
+- message 和 enum 的 `@id(n)` 是非零 16 位声明编号；旧写法 `= n` 完全等价。
+- message 编号就是链路 DATA 包里的 `message_id`。enum 编号只是编译器符号。
+- 删除的 message、enum、field、enum value 编号永久保留，不能重新分配。
+
+### 字段基数
+
+| 写法 | 含义 |
+| --- | --- |
+| `required type name @id(n);` | 必须出现；缺失时解码返回 `WL_CODEC_ERR_MISSING_REQUIRED_FIELD` |
+| `optional type name @id(n);` | 可以缺失；生成 `has_` 标志 |
+| `repeated type name @id(n);` | 任意数量；解码需要调用方提供数组 |
+| `packed type name[N] @id(n);` | 固定 N 个数值，内联存储 |
+| `required packed type name[N] @id(n);` | 固定 N 个数值，且必须出现 |
+
+`required` 不能带默认值，也不能是 `repeated`。需要固定数量的必填向量时，用 `required packed`。
+
+### 内建类型
+
+| 类型 | C 表示 | 说明 |
+| --- | --- | --- |
+| `bool` | `bool` | 只取 0 或 1 |
+| `uint8`…`uint64` | 精确宽度无符号整数 | |
+| `int8`…`int64` | 精确宽度有符号整数 | |
+| `fixed32`、`fixed64` | `uint32_t`、`uint64_t` | 固定 4/8 字节，大端 |
+| `float32`、`float64` | `float`、`double` | IEEE-754，大端 |
+| `bytes<MAX>` | `wl_codec_bytes_t` | 最多 MAX 字节 |
+| `string<MAX>` | `wl_codec_string_t` | 最多 MAX 字节的 UTF-8 |
+
+`bytes<MAX>` 和 `string<MAX>` 的 `MAX` 取值为 1…65535，按编码字节计数，不含 NUL。编码越界返回 `WL_CODEC_ERR_INVALID_VALUE`，UTF-8 错误返回 `WL_CODEC_ERR_UTF8`。
+
+v1 不支持 map、`oneof`、service 或 extension。嵌套 message 最大深度为 8，直接或间接递归会被拒绝。
+
+## `.bind.wl`：binding profile
+
+`.bind.wl` 选择消息如何保留、RPC 如何配对，以及本端的 envelope 和角色。
+
+```text
+profile version 1;
+
+endpoint {
+  envelope = native_packet;
+  rpc_role = client;
+}
+
+latest Telemetry { delivery = unreliable; }
+
+rpc Add {
+  request = AddRequest;
+  response = AddResponse;
+}
+```
+
+### endpoint
+
+| 属性 | 取值 | 省略时的默认 |
+| --- | --- | --- |
+| `envelope` | `native_packet`、`cobs_stream`、`bus_length16`、`any` | `any` |
+| `rpc_role` | `client`、`server`、`both` | `both` |
+
+`envelope` 描述一帧数据如何装进传输，取值含义见 [adapter 与 envelope](../../concepts/adapter-vs-envelope/) 和[排查 Wirelink UDP 集成问题](../../how-to/troubleshoot-udp-integration/)。
+
+`rpc_role` 是本端能力：`client` 发起调用，`server` 处理请求，`both` 两者都保留。组合后的 profile 至多有一个 `endpoint` 块；重复即报错，没有文件覆盖优先级。
+
+### 路由
+
+| 写法 | 作用 |
+| --- | --- |
+| `latest M { delivery = ...; }` | 本端保留 M 的最新值；新值覆盖尚未读取的旧值 |
+| `fifo M { delivery = ...; }` | 本端按顺序保留 M；满时拒绝 |
+| `send M { delivery = ...; }` | 只生成发送 API，不分配接收邮箱 |
+| `direct M { delivery = ...; }` | 类型化借用回调，bytes 和 string 不复制进 mailbox |
+
+每个路由块必须写 `delivery`，取值 `reliable` 或 `unreliable`。`latest` 与 `fifo` 的区别见 [latest 保留与可靠投递](../../concepts/latest-vs-reliable/)。
+
+### rpc
+
+| 属性 | 说明 |
+| --- | --- |
+| `request` | 请求消息，必填 |
+| `response` | 响应消息，必填 |
+| `request_delivery`、`response_delivery` | 覆盖该方向的投递方式；默认 `reliable` |
+| `request_operation_id`、`response_operation_id`、`response_status` | 三个一起使用，选择显式映射模式；省略则使用托管 RPC 自动关联 |
+
+`request` 和 `response` 的值后面可以写 `@delivery(reliable)` 或 `@delivery(unreliable)`，与 `request_delivery` 表达同一件事。三个映射属性只写一部分会编译失败。两种模式的区别见[链路投递与 RPC 业务完成](../../concepts/delivery-vs-completion/)。
+
+## 生成产物
+
+WLC 从 schema 生成 codec：`*_values.h`、`*_MESSAGE_ID`、`*_clear()`、`*_encoded_size()`、`*_encode()` 和 `*_decode()`。它从 binding profile 生成类型化 send、dispatch、latest/fifo 保留和 RPC runtime。生成代码不分配内存；解码得到的 bytes 和 string 借用输入缓冲，只在接口规定的借用期间有效。
+
+## 相关文档
+
+- 教程：[向设备请求计算结果](../../learn/request-a-result/)、[把多个 RPC 组织成设备服务](../../learn/device-service/)
+- 参考：[状态码与 RPC 结果](../status-and-results/)、[术语表](../glossary/)

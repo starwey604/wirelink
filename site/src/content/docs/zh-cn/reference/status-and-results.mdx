@@ -1,0 +1,121 @@
+---
+title: 状态码与 RPC 结果
+description: wl_err_t、RPC 终态、wl_rpc_completion_t 和 codec 错误的取值与含义。
+sidebar:
+  order: 3
+---
+
+本页汇总 Wirelink 的返回值、RPC 终态和诊断字段，面向需要判读返回码、写重试或错误处理的读者。符号含义第一次出现在教程中的位置见[向设备请求计算结果](../../learn/request-a-result/)和[链路投递与 RPC 业务完成](../../concepts/delivery-vs-completion/)。
+
+## `wl_err_t`：通用与链路错误
+
+`wl_err_t` 是 `int32_t`，`WL_OK` 为 0，其余为负数。用 `wl_err_str(code)` 取得可读文本。
+
+| 值 | 名称 | 含义 |
+| ---: | --- | --- |
+| 0 | `WL_OK` | 成功 |
+| -1 | `WL_ERR_INVALID_ARG` | 无效参数，例如空指针或越界数值 |
+| -2 | `WL_ERR_NOT_INITIALIZED` | 模块尚未初始化 |
+| -3 | `WL_ERR_NOT_SUPPORTED` | 当前平台或配置不支持该功能 |
+| -10 | `WL_ERR_NO_MEM` | 分配失败 |
+| -11 | `WL_ERR_BUF_TOO_SMALL` | 目标缓冲区装不下序列化结果 |
+| -12 | `WL_ERR_NO_SPACE` | 缓冲区没有足够的连续可写空间 |
+| -13 | `WL_ERR_NO_DATA` | 当前没有可读数据 |
+| -20 | `WL_ERR_BAD_FRAME` | 帧结构非法 |
+| -21 | `WL_ERR_COBS_DECODE` | COBS 解码失败 |
+| -22 | `WL_ERR_CRC` | 完整性校验失败 |
+| -23 | `WL_ERR_FRAME_TOO_LONG` | 帧长度超过上限 |
+| -30 | `WL_ERR_BUSY` | 设备忙，例如前一个可靠事务还没收到 ACK |
+| -31 | `WL_ERR_TIMEOUT` | 可靠传输超时 |
+| -32 | `WL_ERR_TX_FAILED` | 重试次数达到上限 |
+| -33 | `WL_ERR_INVALID_STATE` | 当前状态不允许该操作 |
+| -34 | `WL_ERR_WOULD_BLOCK` | 暂时无法完成，稍后重试 |
+| -35 | `WL_ERR_QUEUE_FULL` | 队列或槽位已满 |
+| -36 | `WL_ERR_NOT_FOUND` | 找不到句柄或令牌 |
+| -37 | `WL_ERR_PAYLOAD_TOO_LONG` | 载荷超过协议上限 |
+| -38 | `WL_ERR_IO` | 发送路径发生确定性 I/O 失败 |
+| -39 | `WL_ERR_CANCELLED` | 事务已取消 |
+| -40 | `WL_ERR_PROTOCOL_VERSION` | 帧版本不兼容 |
+| -41 | `WL_ERR_REENTRANT` | 回调重入或并发访问 |
+| -42 | `WL_ERR_ID_EXHAUSTED` | 调用编号耗尽，需要在安全关闭后重建实例 |
+| -50 | `WL_ERR_CORRUPT_PAYLOAD` | payload 解析失败，例如字段越界或类型不符 |
+
+`WL_ERR_WOULD_BLOCK` 是背压，不是终态失败：等下一次 transport 通知，再让 owner 执行一次 service pass。
+
+## RPC 终态 `wl_rpc_status_t`
+
+`wl_rpc_completion_t.status` 只取下面五种终态，不会报告中间链路状态。用 `wl_rpc_status_str(status)` 取得可读文本。
+
+| 名称 | 含义 |
+| --- | --- |
+| `WL_RPC_SUCCESS` | 业务成功，此时 `response` 有效 |
+| `WL_RPC_REJECTED` | 业务拒绝，此时 `result.rejection` 有效 |
+| `WL_RPC_TIMED_OUT` | 调用在预算内没有完成 |
+| `WL_RPC_CANCELLED` | 调用被本地取消 |
+| `WL_RPC_FAILED` | 其他失败 |
+
+`WL_RPC_FAILED` 表示链路或运行时失败，不是业务拒绝。业务拒绝总是 `WL_RPC_REJECTED` 加非零 `rejection`。
+
+## `wl_rpc_completion_t` 字段
+
+```c
+typedef struct {
+  wl_rpc_status_t status;
+  int32_t rejection;
+  wl_err_t local_error;
+  wl_err_t transport_error;
+  int32_t runtime_error;
+  wl_codec_status_t codec_error;
+} wl_rpc_completion_t;
+```
+
+| 字段 | 何时有效 |
+| --- | --- |
+| `status` | 总是 |
+| `rejection` | 仅 `WL_RPC_REJECTED` |
+| typed `response` | 仅 `WL_RPC_SUCCESS` |
+| `local_error` | 本地提交或平台等待错误；已接受的异步完成中为 0 |
+| `transport_error` | 链路错误，取值属于 `wl_err_t` |
+| `runtime_error` | 高级 RPC 错误，取值属于 `wl_rpc_err_t` |
+| `codec_error` | 编解码错误，取值属于 `wl_codec_status_t` |
+
+这几个错误域彼此独立：不要用 `transport_error` 判断业务结果，也不要把 `rejection` 当成链路错误码。
+
+## `wl_rpc_err_t`：高级 RPC 错误
+
+高级 `call`、`complete`、`reject` 等入口返回 `wl_rpc_err_t`。用 `wl_rpc_err_str(error)` 取得可读文本。
+
+| 值 | 名称 | 含义 |
+| ---: | --- | --- |
+| -1000 | `WL_RPC_ERR_INVALID_ARG` | 无效参数 |
+| -1001 | `WL_RPC_ERR_NOT_INITIALIZED` | RPC 组件尚未初始化 |
+| -1002 | `WL_RPC_ERR_NO_SLOT` | 没有空闲的调用槽 |
+| -1003 | `WL_RPC_ERR_OPERATION_CONFLICT` | 同一编号与不同数据冲突 |
+| -1004 | `WL_RPC_ERR_NOT_FOUND` | 找不到调用或令牌 |
+| -1005 | `WL_RPC_ERR_INVALID_STATE` | 当前状态不允许该操作 |
+| -1006 | `WL_RPC_ERR_RESPONSE_MISMATCH` | 响应的编号或类型不匹配 |
+| -1007 | `WL_RPC_ERR_RESPONSE_TOO_LARGE` | 响应超过预留容量 |
+| -1008 | `WL_RPC_ERR_CACHE_FULL` | 最近结果缓存已满 |
+| -1009 | `WL_RPC_ERR_MALFORMED_METADATA` | RPC 元数据格式错误 |
+| -1010 | `WL_RPC_ERR_SESSION_MISMATCH` | 响应来自旧的会话身份 |
+| -1011 | `WL_RPC_ERR_ID_EXHAUSTED` | 调用编号耗尽 |
+
+## `wl_codec_status_t`：编解码错误
+
+编解码失败通过 `wl_codec_status_t` 报告。
+
+| 名称 | 含义 |
+| --- | --- |
+| `WL_CODEC_ERR_MALFORMED` | payload 结构非法 |
+| `WL_CODEC_ERR_OVERFLOW` | 窄整数装不下解码值，不截断 |
+| `WL_CODEC_ERR_CAPACITY` | 调用方存储不足 |
+| `WL_CODEC_ERR_WIRE_TYPE` | 已知字段的 wire type 不匹配 |
+| `WL_CODEC_ERR_DUPLICATE_FIELD` | 重复出现 optional 或 packed 字段 |
+| `WL_CODEC_ERR_UTF8` | string 不是有效 UTF-8 |
+| `WL_CODEC_ERR_INVALID_VALUE` | 值越界，例如超出 `string<MAX>` 上限 |
+| `WL_CODEC_ERR_MISSING_REQUIRED_FIELD` | 缺少 required 字段 |
+
+## 相关文档
+
+- 概念：[链路投递与 RPC 业务完成](../../concepts/delivery-vs-completion/)、[session identity 与会话隔离](../../concepts/session-identity/)
+- 参考：[.wl 消息定义与 binding profile](../schema-and-binding/)、[术语表](../glossary/)
