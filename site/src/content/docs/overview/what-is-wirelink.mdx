@@ -1,0 +1,72 @@
+---
+title: What is Wirelink
+description: Starting from a robot-arm controller, what Wirelink solves, which capabilities it ships with, and where its boundaries are.
+sidebar:
+  order: 1
+---
+
+A robot-arm controller often connects to the arm and to a PC at the same time. It runs real-time motion control while the host keeps sending messages so the MCU can close the loop with low latency. The host also needs the occasional request with a result, such as enable or disable.
+
+This kind of point-to-point communication repeats across intelligent-device product lines. Every new MCU or project means porting the send/receive code and the host SDK again. A field change can leave the two ends out of sync.
+
+General-purpose serialization (for example Protobuf or FlatBuffers) leans toward desktop and server environments and often needs dynamic allocation or a C++ runtime. Putting it on an MCU adds integration and trimming work.
+
+## What Wirelink provides
+
+Wirelink is built for this kind of point-to-point link. Messages live in `.wl` files, and WLC generates matching codecs for both ends. You keep one message definition and regenerate both sides after a change.
+
+It is written in C11 for bare-metal and desktop targets. An endpoint uses caller-provided static storage and needs no dynamic allocation, hidden threads, or C++ runtime. When you change MCU or link, the message definition and generated code carry over, and you rewrite only the hardware integration.
+
+The latest, FIFO, and RPC capabilities compose as needed, so you can spend your effort on business logic.
+
+## Capabilities out of the box
+
+One endpoint can combine several message semantics. Each capability has a runnable example:
+
+| What you need | What Wirelink provides | Start here |
+| --- | --- | --- |
+| Keep one current value fresh | latest retention: stores only the newest value and overwrites older ones | [Display the latest temperature](../learn/getting-started/) |
+| Process every value in order | FIFO queue: bounded and ordered, rejects new values when full | [Latest retention and reliable delivery](../concepts/latest-vs-reliable/) |
+| Make one request and get a result | RPC: request, business result, timeout, and cancellation | [Request a result](../learn/request-a-result/) |
+| Keep a slow service from blocking the caller | Async calls and deferred replies | [Async calls](../learn/async-rpc/), [Deferred work](../learn/deferred-rpc/) |
+| Send more data than one message can carry | Sequential bulk transfer | [Composed services example](https://github.com/starwey604/wirelink/blob/main/examples/04_composed_services/README.md) |
+| Carry several services in one endpoint | Static multi-service composition | [Device service](../learn/device-service/) |
+| Keep strings alive after the call returns | owned values and borrowed views | [Save device info](../learn/save-device-info/) |
+
+## Transports already supported
+
+Wirelink covers the USB, serial, and UDP links that intelligent devices use most. UDP uses the cross-platform Asio adapter; serial and USB come from platform adapters covering Zephyr and Linux, macOS, and Windows hosts.
+
+The generated code stays the same across these links, and the application only swaps the adapter and its setup. See [connect two processes over UDP](../learn/udp-transport/) and [move the subscriber to Zephyr](../learn/zephyr-udp-subscriber/).
+
+## Bounded and predictable performance
+
+Wirelink aims for bounded, predictable behavior. The hot path never calls an allocator, each endpoint step performs a bounded amount of work, and static storage sizes are known at generation time.
+
+These figures are all verifiable in the repository:
+
+| Fact | Number | Source |
+| --- | --- | --- |
+| Dynamic allocation on the hot path | 0 | [README](https://github.com/starwey604/wirelink/blob/main/README.md) |
+| Control vector encoding | A 30-element binary32 vector encodes to 122 payload bytes | [README](https://github.com/starwey604/wirelink/blob/main/README.md) |
+| Composed example payload bound | 2048 B, computed at generation time | [ABI 32 composed services record](https://github.com/starwey604/wirelink/blob/main/docs/composed-services-cn.md) |
+| Bulk transfer route | 1 MiB covered by an integration test | [bulk_transfer test](https://github.com/starwey604/wirelink/tree/main/tests/zephyr/integration/bulk_transfer) |
+
+Host CPU and UDP latency vary with ABI, compiler, and hardware; see the [host performance benchmarks](https://github.com/starwey604/wirelink/blob/main/benchmarks/api/README.md).
+
+## Scope and boundaries
+
+Wirelink handles one link between two endpoints. Other concerns belong to the transport or the application:
+
+| Responsibility | Owner |
+| --- | --- |
+| Framing, integrity checks, reliable delivery, application runtimes | Wirelink |
+| Serial, UDP, USB, and other concrete transports | An adapter or your application |
+| Node addressing, discovery, routing, broadcast | The layer above the link or your application |
+| Authentication, encryption, access control | The transport or application layer |
+
+When the link is not trusted, run Wirelink over an authenticated transport.
+
+## Next step
+
+To start building, [set up the development environment](../learn/environment-setup/) and install both parts: the core library and WLC. Then [display the latest temperature](../learn/getting-started/) and run your first message between two local programs.

@@ -9,10 +9,13 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 import Checklist from '../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
 
-Wirelink applications are C11 programs. WLC is a separate host tool that turns
-`.wl` message definitions into C source before your compiler builds the
-application. Set up both parts once, and the rest of this learning path can start
-with working tools.
+Wirelink applications are ordinary C11 programs assembled from two parts. The
+core library is compiled into your application and handles framing, integrity
+checks, reliable delivery, and runtime state.
+
+WLC is a separate host tool that turns `.wl` message definitions into C source
+before your compiler builds the application. Set up both parts once, and the
+rest of this learning path can start with working tools.
 
 **After this lesson, you can:**
 

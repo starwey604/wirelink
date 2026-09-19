@@ -45,6 +45,11 @@ export default defineConfig({
       ],
       sidebar: [
         {
+          label: 'Overview',
+          translations: { 'zh-CN': '概览' },
+          items: [{ autogenerate: { directory: 'overview' } }],
+        },
+        {
           label: 'Tutorials',
           translations: { 'zh-CN': '教程' },
           items: [{ autogenerate: { directory: 'learn' } }],

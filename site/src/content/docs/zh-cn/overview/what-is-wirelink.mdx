@@ -1,0 +1,72 @@
+---
+title: Wirelink 是什么
+description: 从机械臂控制器的场景出发，说明 Wirelink 解决什么问题、提供哪些能力，以及它的边界。
+sidebar:
+  order: 1
+---
+
+一台机械臂控制器可能同时连着机械臂和电脑。它一边执行实时运动控制，一边接收上位机持续下发的消息，让 MCU 完成低延迟控制。有时上位机还要发起一次带结果的请求，例如使能或失能。
+
+这类点对点通信在智能设备产品线里反复出现。每换一个 MCU 或一个新项目，你都要重新移植一遍消息收发代码和上位机 SDK。字段一旦改动，两端还容易不同步。
+
+通用序列化方案（例如 Protobuf 或 FlatBuffers）更偏向桌面和服务器环境，常需要动态分配或 C++ 运行时。把它们放进 MCU，会增加集成和裁剪成本。
+
+## Wirelink 的定位
+
+Wirelink 就是为这类点对点链路准备的。它把消息集中定义在 `.wl` 文件里，由 WLC 为两端生成一致的编解码代码。你只维护一份消息定义，改一处，两端重新生成即可。
+
+它用 C11 编写，面向裸机和桌面环境。endpoint 使用调用方提供的静态存储，不需要动态分配、隐藏线程或 C++ 运行时。换 MCU 或换链路时，消息定义和生成代码可以复用，你只重写硬件接入部分。
+
+已实现的 latest、FIFO、RPC 等能力按需组合，你可以把精力放在业务逻辑上。
+
+## 开箱即用的能力
+
+同一个 endpoint 可以同时使用多种消息语义。下面这些能力都有可运行示例：
+
+| 你要做的事 | Wirelink 提供 | 从哪里开始 |
+| --- | --- | --- |
+| 持续刷新一个当前值 | latest 保留：只保存最新值，旧值被覆盖 | [显示最新温度](../learn/getting-started/) |
+| 按顺序处理每个值 | FIFO 队列：有界、保序，满时拒绝新值 | [latest 保留与可靠投递](../concepts/latest-vs-reliable/) |
+| 发起一次请求并拿到结果 | RPC：请求、业务结果、超时和取消 | [向设备请求计算结果](../learn/request-a-result/) |
+| 不让慢业务阻塞调用方 | 异步调用与延迟回复 | [异步调用](../learn/async-rpc/)、[延迟处理](../learn/deferred-rpc/) |
+| 发送超过单条消息上限的数据 | 顺序大块传输 | [组合服务示例](https://github.com/starwey604/wirelink/blob/main/examples/04_composed_services/README.md) |
+| 一个 endpoint 承载多个服务 | 静态多服务组合 | [设备服务](../learn/device-service/) |
+| 在调用结束后继续持有字符串 | owned value 与 borrowed view | [保存设备信息](../learn/save-device-info/) |
+
+## 已适配的链路
+
+Wirelink 覆盖智能设备最常用的 USB、串口和 UDP。UDP 使用跨平台的 Asio 适配器；串口和 USB 由平台适配器提供，覆盖 Zephyr 以及 Linux、macOS 和 Windows 主机。
+
+把同一份 schema 接到这些链路时，生成代码不变，应用只需替换 adapter 和初始化方式。相关步骤见[通过 UDP 连接两个独立进程](../learn/udp-transport/)和[把 subscriber 移到 Zephyr](../learn/zephyr-udp-subscriber/)。
+
+## 有界且可预测的性能
+
+Wirelink 的设计目标是有界和可预测。热路径不调用分配器，每次推进的工作量有界，静态存储尺寸在生成期确定。
+
+下面这些数字都可以在仓库中核对：
+
+| 可核对的事实 | 数字 | 出处 |
+| --- | --- | --- |
+| 热路径动态分配 | 0 次 | [README](https://github.com/starwey604/wirelink/blob/main/README.md) |
+| 控制向量编码 | 30 个 binary32 值编码为 122 B payload | [README](https://github.com/starwey604/wirelink/blob/main/README.md) |
+| 组合样例的 payload 上界 | 生成期自动得到 2048 B | [ABI 32 组合服务记录](https://github.com/starwey604/wirelink/blob/main/docs/composed-services-cn.md) |
+| 大块传输路径 | 1 MiB 由集成测试覆盖 | [bulk_transfer 测试](https://github.com/starwey604/wirelink/tree/main/tests/zephyr/integration/bulk_transfer) |
+
+主机 CPU 和 UDP 延迟随 ABI、编译器和硬件变化，计时数据见[主机性能基准](https://github.com/starwey604/wirelink/blob/main/benchmarks/api/README-cn.md)。
+
+## 适用范围与边界
+
+Wirelink 处理两个端点之间的一条链路，其他职责由传输或应用承担：
+
+| 职责 | 由谁负责 |
+| --- | --- |
+| 成帧、完整性校验、可靠投递、应用层运行时 | Wirelink |
+| 串口、UDP、USB 等具体传输 | adapter（传输适配器）或应用 |
+| 节点寻址、发现、路由、广播 | 链路之上的一层或应用 |
+| 认证、加密、访问控制 | 传输或应用层 |
+
+链路不可信时，把 Wirelink 放在已认证的传输之上。
+
+## 下一步
+
+要动手，先[配置开发环境](../learn/environment-setup/)，把核心库和 WLC 两部分工具装好。然后从[显示最新温度](../learn/getting-started/)开始，用两个本机程序跑通第一条消息。

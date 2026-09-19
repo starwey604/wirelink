@@ -9,15 +9,31 @@ import { TabItem, Tabs } from '@astrojs/starlight/components';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-用 Wirelink 写的应用是普通 C11 程序，但消息的编解码代码不用手写。你在 `.wl` 文件里定义消息，WLC 把它生成对应的 C 源码，C 编译器再把生成代码、应用源码和 Wirelink 核心一起编译成程序。
+Wirelink 由两部分组成。核心库编进你的应用，负责成帧、完整性校验、可靠投递和状态运行时。WLC 是运行在开发机上的 schema 编译器，它读取 `.wl` 消息定义，生成对应的 C 源码。
 
-开始之前需要两类工具：一个 C 工具链，一个匹配版本的 WLC。本课把它们一次装好、验证一遍，后续课程直接进入写代码。
+本课把这两部分工具一次装好并验证，后续课程直接进入写代码。
 
 **完成本课后，你能够：**
 
 - 使用 CMake 构建 C11 和 C++20 程序；
 - 在终端直接运行 Cargo 和匹配的 WLC 编译器；
 - 让 CMake 自动找到 standalone Asio。
+
+## 构建路径
+
+这两部分形成一条构建路径。CMake 负责协调生成和编译：
+
+```mermaid
+flowchart TB
+  accTitle: Wirelink 构建路径
+  accDescr: CMake 运行 WLC 把 schema 生成 C 源码，再与应用程序和 Wirelink 核心一起编译。
+  CMake["CMake 构建"] --> WLC["用 WLC 处理 .wl schema"]
+  WLC --> Generated["生成的 C 源码和头文件"]
+  Generated --> Compiler["编译生成代码、应用代码和 Wirelink 核心"]
+  Compiler --> Program["Wirelink 应用"]
+```
+
+最终产物是普通的 C11 程序。
 
 ## 安装 C 工具链和 CMake
 
