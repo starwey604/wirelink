@@ -47,5 +47,5 @@ Important distinctions:
   not a coherent multi-counter transaction; compare final joined snapshots.
 
 For CPU and submission-to-sink age, use the separate
-[executor benchmark](../api/EXECUTOR-cn.md) with activity/timing instrumentation OFF.
-See the [measurement and tradeoffs](../../docs/owner-pass-performance-cn.md).
+[executor benchmark](../api/EXECUTOR.md) with activity/timing instrumentation
+OFF.

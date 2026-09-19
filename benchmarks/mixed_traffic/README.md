@@ -1,19 +1,18 @@
 # Reliable RPC / telemetry coexistence
 
 This is a deterministic **protocol-time** regression, not a CPU benchmark or a
-prediction of UART, USB, H7 or OS scheduling latency. It runs real generated
-ABI 29 endpoints, owned async RPCs, retained telemetry and the core with a fake
-clock and a serialized asynchronous transport. No sockets, threads, sleeps or
-Google Benchmark dependency are required. [中文结果与设计](../../docs/mixed-traffic-progress-cn.md).
+prediction of UART, USB or OS scheduling latency. It runs real generated
+endpoints, owned async RPCs, retained telemetry and the core with a fake clock
+and a serialized asynchronous transport. No sockets, threads, sleeps or Google
+Benchmark dependency are required.
 
-A separate [H7 app](../zephyr/mixed_traffic/README-cn.md) reuses this workload and
-adds real DWT measurements, including cached versus reconstructed retries.
-See the [H7 results and measurement limits](../../docs/mixed-traffic-h7-cn.md);
-running the model on a board does not turn its ages into USB/UART latency.
+A firmware variant under `benchmarks/zephyr/mixed_traffic` reuses this workload
+with real timer measurements, including cached versus reconstructed retries.
+Running the model on a board does not turn its ages into USB/UART latency.
 
 ## Run
 
-Build a matching development WLC independently, then point CMake at it:
+Build a matching WLC independently, then point CMake at it:
 
 ```sh
 cmake -S benchmarks/mixed_traffic -B build/mixed-traffic \
@@ -86,6 +85,6 @@ west twister -T /path/to/wirelink/tests/zephyr/integration/mixed_traffic \
   --extra-args=WIRELINK_WLC_EXECUTABLE=/path/to/wlc/target/release/wlc
 ```
 
-Isolate unrelated product modules as required by the workspace. These runs
-validate target ABI/toolchain behavior using simulated protocol time; their
-wall time and printed ages are not firmware CPU measurements.
+Isolate unrelated modules as required by the workspace. These runs validate
+target toolchain behavior using simulated protocol time; their wall time and
+printed ages are not firmware CPU measurements.

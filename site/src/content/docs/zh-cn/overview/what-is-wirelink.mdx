@@ -49,7 +49,7 @@ Wirelink 的设计目标是有界和可预测。热路径不调用分配器，�
 | --- | --- | --- |
 | 热路径动态分配 | 0 次 | [README](https://github.com/starwey604/wirelink/blob/main/README.md) |
 | 控制向量编码 | 30 个 binary32 值编码为 122 B payload | [README](https://github.com/starwey604/wirelink/blob/main/README.md) |
-| 组合样例的 payload 上界 | 生成期自动得到 2048 B | [组合服务记录](https://github.com/starwey604/wirelink/blob/main/docs/composed-services-cn.md) |
+| 组合样例的 payload 上界 | 生成期自动得到 2048 B | — |
 | 大块传输路径 | 1 MiB 由集成测试覆盖 | [bulk_transfer 测试](https://github.com/starwey604/wirelink/tree/main/tests/zephyr/integration/bulk_transfer) |
 
 主机 CPU 和 UDP 延迟随编译器版本和硬件变化，计时数据见[主机性能基准](https://github.com/starwey604/wirelink/blob/main/benchmarks/api/README-cn.md)。

@@ -225,7 +225,7 @@ diagnostic path. Long-running work uses the explicit
   bounded; Wirelink creates no thread, heap or unbounded queue.
   The recent-result cache may evict its oldest delivered response. Its 10-second
   TTL is a maximum age, not a promise of ten seconds of duplicate suppression.
-  See [default endpoint](default-endpoint.md) for strict policy and capacity tuning.
+  Strict policy and capacity tuning use `config.advanced`.
 
 Try changing the arguments, or run
 `calculator_client 49100 49101 2147483647 1` to observe rejection.

@@ -50,8 +50,6 @@ bootloader in that range. Use a disposable test board or obtain permission to
 overwrite the existing firmware. A backup is needed only if that firmware must
 be preserved. Ordinary J-Link `loadfile` erases/programs/verifies the affected
 sectors; this sample does not need a full-chip erase or option-byte changes.
-Hardware results belong in
-[the clock evolution record](../../../docs/endpoint-clock-evolution.md).
 
 ## Windows probe recovery
 

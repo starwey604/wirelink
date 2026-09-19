@@ -74,4 +74,4 @@ Release 教程构建中的 `wirelink_clock_benchmark` 对比裸 pump 空闲、�
 模拟／原生时钟，以及 unreliable 类型化提交。记录编译器、CPU、实际耗时和进程 CPU 时间；
 这些路径的工作量不同，不能把差值直接叫作函数指针开销，也不能当作端到端网络延迟。
 取时钟次数另有明确断言。[独立 Zephyr 测试](../samples/zephyr/endpoint_clock/)
-用于验证固件行为和空闲周期成本；进度见[演进记录](endpoint-clock-evolution.md)。
+用于验证固件行为和空闲周期成本。

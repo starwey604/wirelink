@@ -118,7 +118,7 @@ WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定
 改 `config.link.envelope` 等字段，再调用 `endpoint_init_config()`。
 普通 client 已在初始化时准备，`config.on_<service>` 注册即时服务。
 容量/缓存等专家覆盖位于 `config.advanced`，链路调优位于 `config.link`；
-默认参数只是起点，详见[默认端点](default-endpoint-cn.md)。
+默认参数只是起点。
 
 `*_HAS_DEFAULT_ENDPOINT` 为 1 时有完整默认类型；被 profile 选中的消息无界或超出
 单帧 2048 字节能力时为 0。未被 profile 选中的大消息不会放大端点。

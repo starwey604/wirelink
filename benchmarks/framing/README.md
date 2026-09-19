@@ -1,14 +1,15 @@
 # Frame encoding and retry CPU benchmark
 
 This opt-in benchmark isolates allocation-free frame/link work. It does not need
-WLC, Asio, an executor, or a network. For actual two-process latency and executor
-contention use [the API benchmarks](../api/README.md). H7 uses the
-[same C workload](../zephyr/framing/README-cn.md).
+WLC, Asio, an executor, or a network. For actual two-process latency and
+executor contention use [the API benchmarks](../api/README.md). The firmware
+variant under `benchmarks/zephyr/framing` reuses the same C workload on the
+ESP32-S3.
 
 ## Build and run
 
 Install Google Benchmark 1.9+ or pass a local checkout; nothing is downloaded by
-this target. The reference measurements use Google Benchmark 1.9.5.
+this target.
 
 ```sh
 cmake -S . -B build/framing -DCMAKE_BUILD_TYPE=Release \
@@ -55,9 +56,10 @@ correctness smoke can still run, but its timings are not performance evidence.
 | `retry3` | Reliable send, three ACK-timeout retries, then cancel/take cleanup |
 
 `e0/e1/e2` select COBS/native packet/length16. `i0/i1/i2` select
-NONE/CRC16/CRC32C. `p0/p1/p2` select all-zero/nonzero/zero-every-17-byte payloads.
-`bN` is payload size, excluding link headers and integrity bytes. The full smoke
-matrix has 1,134 groups, including empty payloads and 254-byte boundaries.
+NONE/CRC16/CRC32C. `p0/p1/p2` select all-zero/nonzero/zero-every-17-byte
+payloads. `bN` is payload size, excluding link headers and integrity bytes. The
+full smoke matrix has 1,134 groups, including empty payloads and 254-byte
+boundaries.
 
 Tight buffers can still use the fast path when their exact size equals the
 worst-case bound. `claim` includes a setup copy, so it is not a direct-codec
@@ -75,10 +77,7 @@ For sanitizer smoke, configure a separate Clang build with
 `-DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'` and the
 same `CMAKE_CXX_FLAGS`. Never compare its times with Release results.
 `WIRELINK_BUILD_FUZZERS=ON` adds `wirelink_fuzz_frame_encode`, which checks all
-three envelopes over arbitrary payloads, capacities, aliases and output alignment.
-COBS uses the standalone encoder as an independent oracle; packet envelopes
-compare overlapping/unaligned output against a disjoint native reference.
-
-See [the first iteration](../../docs/framing-performance-cn.md) and
-[the fallback follow-up](../../docs/framing-fallback-performance-cn.md) for results,
-limits and hardware-validation status.
+three envelopes over arbitrary payloads, capacities, aliases and output
+alignment. COBS uses the standalone encoder as an independent oracle; packet
+envelopes compare overlapping/unaligned output against a disjoint native
+reference.

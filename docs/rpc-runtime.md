@@ -57,7 +57,7 @@ accepted calls notify once under continued driving or orderly close. Deadlines
 are 1..2³¹−1 ms and include queue time. Optional `wl_rpc_call_t` enables cancellation;
 there is no ordinary inspect/release. Immediate `config.on_<service>` handlers
 return zero for success, nonzero for business rejection. Callback pointers expire
-on return, but a struct copy is independent; see [default endpoint](default-endpoint.md).
+on return, but a struct copy is independent.
 
 Managed defaults provide four slots and a finite recent-result cache.
 `config.advanced` retains expert overrides; choose REJECT_NEW for strict retention.

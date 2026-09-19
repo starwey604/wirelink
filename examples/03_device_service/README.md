@@ -16,7 +16,6 @@ The outgoing 100-channel message is larger than every RPC: its bound must size
 the default endpoint even though the sender has no receive mailbox.
 Both local profiles select `native_packet` and their own `rpc_role`. WLC removes
 unused transport/RPC storage; handlers and client calls need no extra switches.
-See [layout options and memory results](../../docs/endpoint-layout.md).
 
 Set `config.user_data` once for ordinary handlers. Non-null per-service
 `<service>_user_data` overrides it; NULL inherits. Advanced deferred contexts and

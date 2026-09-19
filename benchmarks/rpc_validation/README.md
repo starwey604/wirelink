@@ -1,13 +1,13 @@
 # RPC validation work
 
-Opt-in CPU regression workload, shared by Google Benchmark and a standalone H7
-Zephyr app. No transport, allocation, timing probes or benchmark dependencies
-are added to production. Use the [API benchmark](../api/README.md) separately
-for complete RPC/UDP measurements.
+Opt-in CPU regression workload, shared by Google Benchmark and a standalone
+ESP32-S3 Zephyr app. No transport, allocation, timing probes or benchmark
+dependencies are added to production. Use the [API benchmark](../api/README.md)
+separately for complete RPC/UDP measurements.
 
 ## Build and run on a host
 
-Supply a matching development WLC (ABI 29) and Google Benchmark 1.9+:
+Supply a matching WLC compiler and Google Benchmark 1.9+:
 
 ```sh
 cmake -S . -B build/rpc-validation -DCMAKE_BUILD_TYPE=Release \
@@ -54,24 +54,24 @@ The private functions are used here only to isolate generated-internal work.
 Applications must keep using public owned APIs. Full outer owned zeroing remains;
 only duplicate validation/clearing and canonical byte storage are removed.
 
-## H7
+## ESP32-S3
 
-Build `benchmarks/zephyr/rpc_validation` twice from an initialized Zephyr workspace
-with the same board, SDK, module list and flags. Pass the frozen codec directory
-and corresponding ABI via CMake as above. Board roots and modules are installation
-specific; the local validation uses `dm_mc02` / STM32H723ZG.
+Build `benchmarks/zephyr/rpc_validation` twice from an initialized Zephyr
+workspace with the same board, SDK, module list and flags. Pass the frozen codec
+directory and the corresponding optimized-codec setting via CMake as above. The
+reference board is the ESP32-S3 DevKitC
+(`esp32s3_devkitc/esp32s3/procpu`).
 
-The app records DWT cycles at the reported timing frequency. It warms each group,
-then takes 5 batches of 32 operations with interrupts masked **only inside the
-test batch**. Assertions, RTT output and sleeps are outside timing. This is a
-hot-cache CPU microbenchmark, not production scheduling or total firmware CPU.
+The app records timer cycles at the reported timing frequency. It warms each
+group, then takes 5 batches of 32 operations with interrupts masked **only
+inside the test batch**. Assertions, RTT output and sleeps are outside timing.
+This is a hot-cache CPU microbenchmark, not production scheduling or total
+firmware CPU.
 
-Use an active J-Link Commander RTT server and
-`benchmarks/zephyr/willow_cpu/capture.py` to capture raw boot-to-pass output.
-Start capturing before running the reset core; do not attach a second probe.
-Then compare two complete logs with `compare.py before.log after.log`. The parser
-requires all 65 groups × 5 repetitions, one begin/end and `result=pass`; it rejects
-missing/duplicate rows, resets, errors and mismatched versions or frequency.
+Capture raw boot-to-pass output with the shared firmware harness under
+`benchmarks/zephyr/`. Then compare two complete logs with
+`compare.py before.log after.log`. The parser requires all 65 groups × 5
+repetitions, one begin/end and `result=pass`; it rejects missing/duplicate rows,
+resets, errors and mismatched versions or frequency.
 
 Run `python3 benchmarks/rpc_validation/test_compare.py` for parser contracts.
-Measured evidence and limitations: [中文记录](../../docs/rpc-validation-performance-cn.md).

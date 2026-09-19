@@ -88,6 +88,5 @@ USB↔UDP 实板切换。切换 stream/native profile 还需匹配生成布局�
 ## 验收范围
 
 预算、内存、通知与关闭合同见[适配器文档](../../../docs/zephyr-udp-cn.md)。
-可选插桩及测试结果见[实施记录](../../../docs/zephyr-udp-progress-cn.md)。
-packet 池耗尽的等待已列为后续优化；H5 Ethernet/DMA、真实断网恢复、池容量、
+packet 池耗尽的等待已列为后续优化；Ethernet/DMA、真实断网恢复、池容量、
 CPU 与延迟仍待实板验收。

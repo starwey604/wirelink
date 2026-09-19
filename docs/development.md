@@ -80,8 +80,8 @@ CTest is used for host-only integration concerns: Astrial pseudo-terminals,
 installed-package consumption, executable examples, and bounded fuzz smoke
 runs.
 
-The frozen v1 C surface, lifecycle decisions, and the only two approved
-pre-1.0 additive API candidates are recorded in `docs/api-v1-audit.md`.
+The frozen v1 C surface and lifecycle decisions are recorded in this document
+and in [`api-boundary.md`](api-boundary.md).
 
 The top-level target is compiled as strict ISO C11. GCC and Clang builds enable
 `-Wall`, `-Wextra`, and `-Wpedantic`; warnings in Wirelink sources are treated

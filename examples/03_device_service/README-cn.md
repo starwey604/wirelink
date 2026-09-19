@@ -61,7 +61,6 @@ CMake 用 `PROFILES services.bind.wl server.bind.wl` 组合它们。WLC 不做�
 
 每端的一处 `endpoint` 声明让 WLC 裁掉 stream FIFO 和另一侧 RPC 存储。
 新增 RPC 不修改这些配置；角色不是逐服务开关。省略配置时仍保留通用布局。
-详细边界和 RAM 对照见[端点布局裁剪](../../docs/endpoint-layout-cn.md)。
 
 发送声明参与端点缓冲区上限计算，不分配 retained 存储。这里的 100 通道遥测比任意 RPC 都大，
 用它验证“只发送的消息也能正确推导容量”。旧 `latest/fifo` 仍提供同 delivery 的对称发送助手；

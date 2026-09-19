@@ -159,7 +159,6 @@ ACK/control 优先；可靠重传到期后，先拒绝新的不可靠 DATA，让
 
 重传 I/O 尚未完成时收到匹配 ACK，可以先将逻辑结果标为成功，但终态 event 和 `take()`
 要等可靠 I/O 释放缓冲区。反过来，回收或取消可靠事务不会回收同时存在的不可靠 I/O。
-模拟验收与取舍见[混合流量记录](mixed-traffic-progress-cn.md)。
 
 timeout/retry 是本地策略，不上 wire。比较必须 wrap-safe：
 

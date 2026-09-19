@@ -49,7 +49,7 @@ session 为零也属于畸形元数据；可靠请求身份须与链路头一致
 已接受调用在持续推进或有序 close 下恰好通知一次。超时必须为 1..2³¹−1 毫秒且包含排队。
 取消使用可选 `wl_rpc_call_t`；常规路径没有 inspect/release。
 `config.on_<service>` 的即时 handler 返回零表示成功、非零表示业务拒绝。
-普通结果的指针只在回调内有效，复制结构体即可长期保存，见[默认端点](default-endpoint-cn.md)。
+普通结果的指针只在回调内有效，复制结构体即可长期保存。
 
 默认托管端点为四槽最近结果策略；`config.advanced` 保留专家覆盖，严格缓存选 REJECT_NEW。
 同步调用见[平台等待](rpc-platform-cn.md)，可选 create/destroy 见[端点存储](endpoint-storage-cn.md)。

@@ -3,7 +3,7 @@
 This host microbenchmark isolates the steady-session check generated before a
 reliable RPC request. It compares the former unconditional
 `wl_rpc_peer_observe()` call with the inline session guard. It does not predict
-end-to-end H7 latency; use it to detect whether the avoided call remains
+end-to-end link latency; use it to detect whether the avoided call remains
 material before running the firmware CPU telemetry gate.
 
 ```sh

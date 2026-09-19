@@ -44,4 +44,3 @@ test/confirm/revert and reconnect are outside this example.
 
 The same source runs on Zephyr via
 [`samples/zephyr/composed_services`](../../samples/zephyr/composed_services/).
-Hardware and migration notes: [Chinese handoff](../../docs/composed-services-cn.md).

@@ -3,9 +3,8 @@
 [中文](zephyr-udp-cn.md). This experimental C adapter attaches to a generated
 endpoint through `<wirelink/zephyr/udp.h>`. It uses Zephyr native IPv4 sockets,
 one owner, static RX storage, and no adapter-created thread or heap allocation.
-The generated ABI and wire format are unchanged. The subsequent M2 regression
-also fixed generic managed-RPC cancellation cleanup; see the
-[implementation record](zephyr-udp-progress-cn.md).
+The wire format is unchanged. A later revision also fixed generic managed-RPC
+cancellation cleanup.
 
 **Functional validation is not real-time acceptance.** On the tested Zephyr
 revision, UDP packet-pool exhaustion blocks a `MSG_DONTWAIT` send for about one
@@ -139,13 +138,12 @@ clock wrap/isolation, budget/rearm behavior and close/reopen tests. The
 [generated validation app](../samples/zephyr/udp_validation/) adds managed
 async/sync RPC, continuous telemetry, rejection, absent-peer timeout and generated
 close. It is an integration test, not a two-device getting-started tutorial.
-The [M0 suite](zephyr-udp-m0-cn.md) continues to cover socket boundary/notification
-contracts. Exact commands and results are in the [Chinese record](zephyr-udp-cn.md).
+Socket boundary and notification contracts are covered by the Zephyr tests.
 
 Later tests add a real-socket fault relay (lost request/response/ACK, duplicates,
 blackhole recovery), same-storage reopen and stale response rejection. Desktop
 peers and both Zephyr roles share a schema. Their build/functional gates do not
-constitute Ethernet hardware acceptance; see the [M2/M3 record](zephyr-udp-progress-cn.md).
+constitute Ethernet hardware acceptance.
 
 In Zephyr `e4e6910cc19b7f11eada127e54c0b5248f413799`,
 `subsys/net/ip/net_context.c` passes fixed `PKT_WAIT_TIME` (1 second) to

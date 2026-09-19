@@ -124,7 +124,7 @@ storage. Start with `endpoint_config_defaults()`, change `config.link.envelope`
 or other settings, and call `endpoint_init_config()`. Client capability is prepared
 at init; register immediate services with `config.on_<service>`. Expert capacity
 and cache overrides live in `config.advanced`, link tuning in `config.link`.
-Defaults are starting points; see [default endpoint](default-endpoint.md).
+Defaults are starting points; capacity and cache overrides live in `config.advanced`.
 
 `*_HAS_DEFAULT_ENDPOINT` is 1 when the full default type is available. Unbounded
 selected messages or bounds above the 2048-byte frame limit set it to 0.

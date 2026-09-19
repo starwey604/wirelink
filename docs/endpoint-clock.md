@@ -85,4 +85,4 @@ tutorial build; report compiler/CPU and both wall/CPU time. Its paths do differe
 amounts of work, so differences are not a pure function-pointer cost or an
 end-to-end network latency claim. Clock-read budgets are checked independently.
 [`samples/zephyr/endpoint_clock`](../samples/zephyr/endpoint_clock/) provides the
-separate firmware correctness/idle-cycle test. See [evolution status](endpoint-clock-evolution.md).
+separate firmware correctness/idle-cycle test.

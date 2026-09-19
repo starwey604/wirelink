@@ -28,8 +28,7 @@ The order below is for reviewing the API after using those examples.
    [`rpc-runtime.md`](rpc-runtime.md), and
    [`bulk-performance.md`](bulk-performance.md).
 6. Finish with [`compatibility.md`](compatibility.md) and the normative
-   [`protocol.md`](protocol.md). Read [`api-v1-audit.md`](api-v1-audit.md) only
-   as historical evidence for earlier decisions.
+   [`protocol.md`](protocol.md).
 
 ## Boundary in One Sentence
 
@@ -202,7 +201,7 @@ or TX handles already owned by this default loop.
 The bound covers profile-selected messages; unrelated unbounded messages do not
 force allocation. Unbounded or oversized selected messages set
 `HAS_DEFAULT_ENDPOINT=0`. Larger queues, custom arenas, or DMA placement use the
-existing manual storage path. See [design and limits](default-endpoint.md).
+existing manual storage path.
 
 Ordinary managed RPC uses owned `*_value_t`, blocking `endpoint_*_sync()` where
 platform waiting is available, or `endpoint_*_async()` and completion
@@ -210,7 +209,7 @@ callbacks, with automatic request snapshots and call reclamation. Register
 `config.on_<service>` for immediate response/rejection. Optional `wl_rpc_call_t`
 is for cancellation only; inspect/release is not required. Defaults use four
 bounded slots and a recent-result cache. Manual calls/tokens and
-`config.advanced` are expert paths; see [default endpoint](default-endpoint.md).
+`config.advanced` are expert paths.
 Explicit field mappings remain a separate interoperability mode.
 See [platform integration](rpc-platform.md) for waiters and background proxies.
 

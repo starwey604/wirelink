@@ -1,12 +1,8 @@
-# H1: ordinary RPC ownership on Zephyr
+# Ordinary RPC ownership on Zephyr
 
 This is a standalone target-CPU functional check, not product firmware or a
 host-to-board transport test. Both endpoints run on the same owner over loopback.
-It does not drive actuators or change persistent storage. Authorized H7 execution
-on 2026-09-07 passed both capacities, including a system-reset rerun and a
-user-confirmed power cycle of each. H1 is complete; no implementation changes
-were needed. Evidence, probe-recovery history and limitations are in the
-[H7 validation record](../../../docs/rpc-h1-h7-validation-cn.md).
+It does not drive actuators or change persistent storage.
 
 The sample covers bounded strings, a 2023-byte response, request snapshotting,
 100 consecutive operations within cache TTL, full-capacity bursts, BUSY admission,

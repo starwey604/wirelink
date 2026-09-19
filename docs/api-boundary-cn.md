@@ -28,7 +28,6 @@
    [`bulk-performance-cn.md`](bulk-performance-cn.md)。
 6. 最后阅读 [`compatibility-cn.md`](compatibility-cn.md) 和规范性的
    [`protocol-cn.md`](protocol-cn.md)。
-   [`api-v1-audit-cn.md`](api-v1-audit-cn.md) 只用于回顾早期决策。
 
 ## 一句话边界
 
@@ -188,13 +187,12 @@ ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `n
 容量只根据 profile 选中的消息推导；无关的无界消息不扩大端点。
 选中消息无界或超过单帧能力时，`HAS_DEFAULT_ENDPOINT=0`。
 更大队列、外部 arena 或 DMA 放置仍走高级自定义存储路径。
-详见[设计与限制](default-endpoint-cn.md)。
 
 普通托管 RPC 使用自持 `*_value_t`，平台支持阻塞时用 `endpoint_*_sync()`，
 事件循环用 `endpoint_*_async()` 和完成回调；[平台接入](rpc-platform-cn.md)说明等待与后台代理。
 自动快照请求并回收调用。服务端注册 `config.on_<service>`，返回业务响应或拒绝码。
 需要取消才领取 `wl_rpc_call_t`，不要求 inspect/release。默认四槽有界提交与最近结果缓存；
-手动 call/token 和 `config.advanced` 是高级入口，详见[默认端点](default-endpoint-cn.md)。
+手动 call/token 和 `config.advanced` 是高级入口。
 已有字段映射仍为独立的互操作模式。
 
 ## WLC 生成接口（ABI 26）
