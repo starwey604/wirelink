@@ -87,13 +87,14 @@ selecting the frozen `CODEC_PLAN_CODEC_DIR`. Both sides must use the same
 configuration. The reference board is the ESP32-S3 DevKitC
 (`esp32s3_devkitc/esp32s3/procpu`).
 
-The primary configuration enables LTO, speed optimization, caches and local ISR
-table declarations. CMake **fails** if Kconfig did not actually enable LTO.
-Verify `CONFIG_LTO=y` in `.config` and `-flto` in the actual build commands as
-well. For the diagnostic no-LTO pair, pass
-`-DEXTRA_CONF_FILE=/absolute/path/to/benchmarks/zephyr/codec_plan/no_lto.conf`
-and `-DCODEC_PLAN_EXPECT_LTO=OFF`. Do not compare different LTO settings as an
-A/B.
+The primary configuration enables speed optimizations and caches. The ESP32-S3
+Xtensa toolchain does not support link-time optimization, so the reference
+build runs without LTO. CMake checks that the requested and actual LTO settings
+agree and fails on a mismatch. To build the LTO variant on a host whose
+toolchain supports it, pass
+`-DEXTRA_CONF_FILE=/absolute/path/to/benchmarks/zephyr/codec_plan/lto.conf`
+and `-DCODEC_PLAN_EXPECT_LTO=ON`. Do not compare different LTO settings as an
+A/B, and verify `CONFIG_LTO` in `.config` plus `-flto` in the build commands.
 
 The firmware matrix has three modes (`m`):
 

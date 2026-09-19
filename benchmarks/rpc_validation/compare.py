@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Compare complete v2 host or H7 RPC validation workloads; reject partial runs."""
+"""Compare complete v2 host or FIRMWARE RPC validation workloads; reject partial runs."""
 import argparse
 import json
 import math
@@ -53,7 +53,7 @@ def host(report):
                  "wall_ns": [v[1] for v in samples.values()]} for k, samples in groups.items()})
 
 
-def h7(text):
+def firmware(text):
     begin, end, rows = None, None, {}
     for line in text.splitlines():
         at = line.find("rpc_validation_")
@@ -80,21 +80,21 @@ def h7(text):
                 raise ValueError("duplicate sample or changed batch")
             rows[key] = positive(int(fields["cycles"])) / 32
         else:
-            raise ValueError("unsupported H7 record")
+            raise ValueError("unsupported firmware record")
     if set(rows) != {(*k, r) for k in GROUPS for r in range(5)} or end != {
             "groups": "65", "samples": "325", "result": "pass"}:
-        raise ValueError("incomplete H7 capture")
+        raise ValueError("incomplete firmware capture")
     groups = {}
     for (*key, _), cycles in rows.items():
         values = groups.setdefault(name(key), {"cpu_ns": [], "cycles": []})
         values["cycles"].append(cycles)
         values["cpu_ns"].append(cycles * 1e9 / begin["hz"])
-    return ({"kind": "h7", **begin}, groups)
+    return ({"kind": "firmware", **begin}, groups)
 
 
 def read(path):
     text = path.read_text(encoding="utf-8")
-    return host(json.loads(text)) if path.suffix == ".json" else h7(text)
+    return host(json.loads(text)) if path.suffix == ".json" else firmware(text)
 
 
 def compare(left, right):

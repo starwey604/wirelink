@@ -19,17 +19,17 @@ def report():
 
 class CompareTests(unittest.TestCase):
     def test_valid(self):
-        for parsed in (compare.h7(capture()), compare.host(report())):
+        for parsed in (compare.firmware(capture()), compare.host(report())):
             self.assertEqual(len(list(compare.compare(parsed, parsed))), 130)
 
-    def test_missing_h7(self):
+    def test_missing_firmware(self):
         with self.assertRaises(ValueError):
-            compare.h7(capture().replace("rpc_validation_v2,k=0,s=0,b=0,r=0,n=32,cycles=3200\n", ""))
+            compare.firmware(capture().replace("rpc_validation_v2,k=0,s=0,b=0,r=0,n=32,cycles=3200\n", ""))
 
-    def test_h7_duplicate_reset_or_wrong_version(self):
+    def test_firmware_duplicate_reset_or_wrong_version(self):
         for text in (capture() + "\n" + capture(), capture().replace("_v2", "_v1")):
             with self.assertRaises(ValueError):
-                compare.h7(text)
+                compare.firmware(text)
 
     def test_host_missing_duplicate_error(self):
         base = report()

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Strict comparison of complete codec-plan host or H7 captures."""
+"""Strict comparison of complete codec-plan host or firmware captures."""
 import argparse
 import json
 import math
@@ -7,7 +7,7 @@ from pathlib import Path
 import statistics
 
 HOST = {(k, p, s) for k in range(12) for p in range(3) for s in range(3)}
-H7 = {(m, k, p, s) for m in range(3) for k in range(1 if m == 2 else 12)
+FIRMWARE = {(m, k, p, s) for m in range(3) for k in range(1 if m == 2 else 12)
       for p in range(3) for s in range(3)}
 
 
@@ -48,7 +48,7 @@ def host(data):
              for k, samples in groups.items()})
 
 
-def h7(text):
+def firmware(text):
     begin, end, rows = None, None, {}
     for line in text.splitlines():
         at = line.find("codec_plan_")
@@ -78,20 +78,20 @@ def h7(text):
             rows[key] = positive(int(f["cycles"])) / batch
         else:
             raise ValueError("unknown record")
-    if rows.keys() != {(*k, r) for k in H7 for r in range(5)} or end != {
+    if rows.keys() != {(*k, r) for k in FIRMWARE for r in range(5)} or end != {
             "groups": "225", "samples": "1125", "result": "pass"}:
-        raise ValueError("incomplete H7 capture")
+        raise ValueError("incomplete firmware capture")
     groups = {}
     for (m, k, p, s, _), cycles in rows.items():
         v = groups.setdefault(f"m{m}/k{k}/p{p}/s{s}", {"cpu_ns": [], "cycles": []})
         v["cycles"].append(cycles)
         v["cpu_ns"].append(cycles * 1e9 / begin["hz"])
-    return ({"kind": "h7", **begin}, groups)
+    return ({"kind": "firmware", **begin}, groups)
 
 
 def read(path):
     text = Path(path).read_text(encoding="utf-8")
-    return host(json.loads(text)) if str(path).endswith(".json") else h7(text)
+    return host(json.loads(text)) if str(path).endswith(".json") else firmware(text)
 
 
 def compare(a, b):

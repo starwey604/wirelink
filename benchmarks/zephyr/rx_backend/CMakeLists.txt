@@ -19,6 +19,7 @@ set(WIRELINK_CORE_SOURCES
   ${WIRELINK_ROOT}/src/schedule.c
   ${WIRELINK_ROOT}/src/transport.c
   ${WIRELINK_ROOT}/src/types.c
+  ${WIRELINK_ROOT}/src/unit_rx.c
 )
 
 if(WIRELINK_BENCH_INGRESS STREQUAL "IRQ")

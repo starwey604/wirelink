@@ -2,7 +2,15 @@
 #include "workload.h"
 #include <zephyr/kernel.h>
 #include <zephyr/timing/timing.h>
+
+#if defined(CONFIG_CPU_CORTEX_M)
 #include <cmsis_core.h>
+#define CODEC_PLAN_INVALIDATE_ICACHE() SCB_InvalidateICache()
+#else
+/* No portable instruction-cache flush exists for this architecture, so the
+ * mode-1 cold-entry step is a no-op. */
+#define CODEC_PLAN_INVALIDATE_ICACHE() ((void)0)
+#endif
 static codec_plan_fixture_t fixtures[CODEC_PLAN_KINDS];
 int main(void) {
   timing_init(); timing_start();
@@ -23,7 +31,7 @@ int main(void) {
             for (unsigned i = 0; i < batch; ++i) {
               codec_plan_fixture_t *f = &fixtures[mode == 2 ? i % CODEC_PLAN_KINDS : kind];
               unsigned lock = irq_lock();
-              if (mode == 1) SCB_InvalidateICache();
+              if (mode == 1) CODEC_PLAN_INVALIDATE_ICACHE();
               timing_t start = timing_counter_get();
               compiler_barrier();
               int result = codec_plan_step(f);

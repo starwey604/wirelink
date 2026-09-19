@@ -7,7 +7,7 @@ static framing_fixture_t fixture;
 int main(void) {
   timing_init();
   timing_start();
-  printk("framing_h7_begin_v1,hz=%llu,context_bytes=%u,irq_masked_batch=32\n",
+  printk("framing_cpu_begin_v1,hz=%llu,context_bytes=%u,irq_masked_batch=32\n",
       (unsigned long long)timing_freq_get(), (unsigned)sizeof(wl_ctx_t));
   for (unsigned mode = 0U; mode < FRAMING_MODES; ++mode)
     for (int envelope = WL_ENVELOPE_COBS_STREAM; envelope <= WL_ENVELOPE_NATIVE_PACKET; ++envelope)
@@ -29,7 +29,7 @@ int main(void) {
             timing_t end = timing_counter_get();
             irq_unlock(key);
             __ASSERT_NO_MSG(error == WL_OK && framing_check(&fixture) == WL_OK);
-            printk("framing_h7_v1,mode=%s,e=%d,i=0,p=%u,b=%u,r=%u,n=32,cycles=%llu\n",
+            printk("framing_cpu_v1,mode=%s,e=%d,i=0,p=%u,b=%u,r=%u,n=32,cycles=%llu\n",
                 framing_mode_name(mode), envelope, pattern, (unsigned)sizes[size], repeat,
                 (unsigned long long)timing_cycles_get(&begin, &end));
           }
@@ -37,6 +37,6 @@ int main(void) {
           k_sleep(K_MSEC(20));
         }
       }
-  printk("framing_h7_end_v1,result=pass,groups=168,samples=840\n");
+  printk("framing_cpu_end_v1,result=pass,groups=168,samples=840\n");
   return 0;
 }

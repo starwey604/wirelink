@@ -19,5 +19,5 @@ set_tests_properties(mixed_traffic_freshness PROPERTIES LABELS "integration;dete
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
   add_test(NAME mixed_traffic_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare.py")
-  add_test(NAME mixed_traffic_h7_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare_h7.py")
+  add_test(NAME mixed_traffic_firmware_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare_firmware.py")
 endif()

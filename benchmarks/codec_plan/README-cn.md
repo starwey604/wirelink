@@ -68,11 +68,12 @@ stage（`s`）：0 公开 view 解码，1 公开 view 编码，2 公开 encoded-
 从已初始化的 Zephyr workspace 构建 `benchmarks/zephyr/codec_plan`，指定冻结的 `CODEC_PLAN_CODEC_DIR`。
 两侧配置必须相同。参考板是 ESP32-S3 DevKitC（`esp32s3_devkitc/esp32s3/procpu`）。
 
-主配置启用 LTO、速度优化、缓存和本地 ISR table 声明。如果 Kconfig 实际没有启用 LTO，CMake **会失败**。
-同时确认 `.config` 里 `CONFIG_LTO=y`，以及实际构建命令里有 `-flto`。
-诊断用的 no-LTO 对照传
-`-DEXTRA_CONF_FILE=/absolute/path/to/benchmarks/zephyr/codec_plan/no_lto.conf`
-和 `-DCODEC_PLAN_EXPECT_LTO=OFF`。不要把不同 LTO 设置当作 A/B。
+主配置启用速度优化和缓存。ESP32-S3 的 Xtensa 工具链不支持 link-time optimization，
+参考构建不启用 LTO。CMake 会检查请求值与实际 LTO 设置是否一致，不一致就失败。
+要在支持 LTO 的主机工具链上构建 LTO 变体，传
+`-DEXTRA_CONF_FILE=/absolute/path/to/benchmarks/zephyr/codec_plan/lto.conf`
+和 `-DCODEC_PLAN_EXPECT_LTO=ON`。不要把不同 LTO 设置当作 A/B，
+并确认 `.config` 的 `CONFIG_LTO` 与实际构建命令里的 `-flto`。
 
 固件矩阵有三种模式（`m`）：
 

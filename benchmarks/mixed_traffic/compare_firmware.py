@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Validate complete mixed-traffic H7 captures; do not confuse simulated age with CPU time."""
+"""Validate complete mixed-traffic firmware captures; do not confuse simulated age with CPU time."""
 import argparse
 import json
 from pathlib import Path
@@ -38,7 +38,7 @@ def parse(text):
             continue
         if end is not None:
             raise ValueError("data after end marker")
-        if line.startswith("mixed_h7_begin_v1,"):
+        if line.startswith("mixed_fw_begin_v1,"):
             if begin is not None:
                 raise ValueError("duplicate boot")
             begin = fields(line)
@@ -70,7 +70,7 @@ def parse(text):
                 raise ValueError("unexpected/duplicate retry sample")
             cycles(row, 16)
             retry[key] = row
-        elif line.startswith("mixed_h7_end_v1,"):
+        elif line.startswith("mixed_fw_end_v1,"):
             end = fields(line)
         else:
             raise ValueError(f"unrecognized output: {line!r}")

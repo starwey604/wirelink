@@ -6,7 +6,7 @@ common:
   platform_allow:
     - esp32s3_devkitc/esp32s3/procpu
   extra_args:
-    - DTC_OVERLAY_FILE=esp32s3_devkitc.overlay
+    - DTC_OVERLAY_FILE=boards/esp32s3_devkitc_esp32s3_procpu.overlay
 tests:
   benchmark.wirelink.rx.irq:
     extra_args:

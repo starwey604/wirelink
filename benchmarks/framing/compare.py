@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Validate and compare Google Benchmark JSON or complete H7 RTT captures."""
+"""Validate and compare Google Benchmark JSON or complete firmware console captures."""
 import argparse
 import itertools
 import json
@@ -50,27 +50,27 @@ def host(report):
                     "wall_ns": [v[1] for v in samples.values()]} for name, samples in groups.items()})
 
 
-def h7(text):
+def firmware(text):
     begin, end, rows = None, None, {}
     for line in text.splitlines():
         # Boot banners may precede the first record on the same RTT line.
-        start = line.find("framing_h7_")
+        start = line.find("framing_cpu_")
         if start < 0:
             continue
         kind, *items = line[start:].split(",")
         fields = dict(item.split("=", 1) for item in items)
-        if kind == "framing_h7_begin_v1":
+        if kind == "framing_cpu_begin_v1":
             if begin is not None or rows or end is not None:
                 raise ValueError("duplicate or misplaced begin")
             begin = {key: int(fields[key]) for key in ("hz", "context_bytes", "irq_masked_batch")}
             positive(begin["hz"])
             if begin["context_bytes"] != 896 or begin["irq_masked_batch"] != 32:
-                raise ValueError("H7 workload invariant changed")
-        elif kind == "framing_h7_end_v1":
+                raise ValueError("firmware workload invariant changed")
+        elif kind == "framing_cpu_end_v1":
             if begin is None or end is not None:
                 raise ValueError("duplicate or misplaced end")
             end = fields
-        elif kind == "framing_h7_v1":
+        elif kind == "framing_cpu_v1":
             if begin is None or end is not None:
                 raise ValueError("measurement outside begin/end")
             key = (fields["mode"], *(int(fields[k]) for k in ("e", "i", "p", "b", "r")))
@@ -81,19 +81,19 @@ def h7(text):
             raise ValueError(f"unknown framing record: {kind}")
     expected = set(itertools.product(MODES, (0, 1), (0,), range(3), (32, 120, 512, 2048), range(5)))
     if set(rows) != expected or end != {"result": "pass", "groups": "168", "samples": "840"}:
-        raise ValueError("incomplete H7 matrix (lost RTT data, reset or assertion failure)")
+        raise ValueError("incomplete firmware matrix (lost console data, reset or assertion failure)")
     groups = {}
     for (mode, envelope, integrity, pattern, size, _), cycles in rows.items():
         name = f"{mode}/e{envelope}/i{integrity}/p{pattern}/b{size}"
         samples = groups.setdefault(name, {"cycles": [], "cpu_ns": []})
         samples["cycles"].append(cycles)
         samples["cpu_ns"].append(cycles * 1e9 / begin["hz"])
-    return ({"kind": "h7", **begin}, groups)
+    return ({"kind": "firmware", **begin}, groups)
 
 
 def read(path):
     text = path.read_text(encoding="utf-8", errors="strict")
-    return host(json.loads(text)) if path.suffix == ".json" else h7(text)
+    return host(json.loads(text)) if path.suffix == ".json" else firmware(text)
 
 
 def compare(left, right):

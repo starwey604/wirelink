@@ -13,11 +13,11 @@ def host_report():
                            for i in range(3)]}
 
 
-def h7_report():
-    rows = ["boot: framing_h7_begin_v1,hz=550000000,context_bytes=896,irq_masked_batch=32"]
+def firmware_report():
+    rows = ["boot: framing_cpu_begin_v1,hz=550000000,context_bytes=896,irq_masked_batch=32"]
     for mode, e, p, b, r in itertools.product(compare.MODES, range(2), range(3), (32, 120, 512, 2048), range(5)):
-        rows.append(f"framing_h7_v1,mode={mode},e={e},i=0,p={p},b={b},r={r},n=32,cycles=17600")
-    rows.append("framing_h7_end_v1,result=pass,groups=168,samples=840")
+        rows.append(f"framing_cpu_v1,mode={mode},e={e},i=0,p={p},b={b},r={r},n=32,cycles=17600")
+    rows.append("framing_cpu_end_v1,result=pass,groups=168,samples=840")
     return "\n".join(rows)
 
 
@@ -68,32 +68,32 @@ class Reports(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare.compare(before, after)
 
-    def test_h7_complete_matrix_and_units(self):
-        report = compare.h7(h7_report())
+    def test_firmware_complete_matrix_and_units(self):
+        report = compare.firmware(firmware_report())
         self.assertEqual(len(report[1]), 168)
         self.assertEqual(report[1]["spare/e0/i0/p0/b32"]["cycles"], [550] * 5)
         self.assertEqual(report[1]["spare/e0/i0/p0/b32"]["cpu_ns"], [1000] * 5)
         self.assertTrue(all(row[4] == 0 for row in compare.compare(report, report)))
 
-    def test_h7_missing_record_or_footer(self):
-        lines = h7_report().splitlines()
+    def test_firmware_missing_record_or_footer(self):
+        lines = firmware_report().splitlines()
         for index in (0, 100, -1):
             damaged = lines.copy()
             del damaged[index]
             with self.subTest(index=index), self.assertRaises(ValueError):
-                compare.h7("\n".join(damaged))
+                compare.firmware("\n".join(damaged))
 
-    def test_h7_duplicate_or_reset(self):
-        text = h7_report()
-        for damaged in (text + "\n" + text, text.replace("framing_h7_end_v1", text.splitlines()[1] + "\nframing_h7_end_v1")):
+    def test_firmware_duplicate_or_reset(self):
+        text = firmware_report()
+        for damaged in (text + "\n" + text, text.replace("framing_cpu_end_v1", text.splitlines()[1] + "\nframing_cpu_end_v1")):
             with self.assertRaises(ValueError):
-                compare.h7(damaged)
+                compare.firmware(damaged)
 
-    def test_h7_invalid_batch_or_cycle(self):
+    def test_firmware_invalid_batch_or_cycle(self):
         for old, new in (("n=32", "n=31"), ("cycles=17600", "cycles=0"),
                          ("hz=550000000", "hz=0"), ("result=pass", "result=fail")):
             with self.subTest(old=old), self.assertRaises(ValueError):
-                compare.h7(h7_report().replace(old, new, 1))
+                compare.firmware(firmware_report().replace(old, new, 1))
 
 
 if __name__ == "__main__":

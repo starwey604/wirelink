@@ -226,12 +226,12 @@ static void run(scenario_t scenario, wl_envelope_type_t envelope, bool check) {
     CHECK(wl_endpoint_attach(p->owner, &hooks) == WL_OK);
     CHECK(wl_set_sink(p->link, transmit, p) == WL_OK);
   }
-#ifdef MIXED_TRAFFIC_H7
-  mixed_h7_case_begin();
+#ifdef MIXED_TRAFFIC_FIRMWARE
+  mixed_fw_case_begin();
 #endif
   for (s.tick = 0U; s.tick < DURATION; ++s.tick) {
-#ifdef MIXED_TRAFFIC_H7
-    mixed_h7_tick_begin();
+#ifdef MIXED_TRAFFIC_FIRMWARE
+    mixed_fw_tick_begin();
 #endif
     if (scenario.rpc && s.tick >= 100U && (s.tick - 100U) % 400U == 0U &&
         (s.tick - 100U) / 400U < CALLS) {
@@ -248,12 +248,12 @@ static void run(scenario_t scenario, wl_envelope_type_t envelope, bool check) {
     for (unsigned i = 0U; i < 2U; ++i) CHECK(mixed_endpoint_step(&s.endpoints[i]) == WL_OK);
     if (!scenario.telemetry_first) for (unsigned i = 0U; i < 2U; ++i) telemetry(&s, i);
     for (unsigned i = 0U; i < 2U; ++i) observe(&s, i);
-#ifdef MIXED_TRAFFIC_H7
-    mixed_h7_tick_end();
+#ifdef MIXED_TRAFFIC_FIRMWARE
+    mixed_fw_tick_end();
 #endif
   }
-#ifdef MIXED_TRAFFIC_H7
-  mixed_h7_case_end(scenario.name, envelope);
+#ifdef MIXED_TRAFFIC_FIRMWARE
+  mixed_fw_case_end(scenario.name, envelope);
 #endif
   CHECK(s.completed == (scenario.rpc ? CALLS * 2U : 0U));
   CHECK(s.handled == s.completed); /* Retries must not repeat business work. */
