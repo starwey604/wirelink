@@ -1,5 +1,7 @@
 # Reliable RPC / telemetry coexistence
 
+[中文](README-cn.md).
+
 This is a deterministic **protocol-time** regression, not a CPU benchmark or a
 prediction of UART, USB or OS scheduling latency. It runs real generated
 endpoints, owned async RPCs, retained telemetry and the core with a fake clock

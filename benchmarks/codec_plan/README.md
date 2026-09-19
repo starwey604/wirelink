@@ -1,5 +1,7 @@
 # Compile-time codec planning
 
+[中文](README-cn.md).
+
 Standalone CPU workload for field lookup and fixed packed-array specialization.
 No Google Benchmark dependency or diagnostic code enters the Wirelink core. The
 same C fixture runs on a host and on an ESP32-S3 with an independent

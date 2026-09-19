@@ -1,5 +1,7 @@
 # Executor multi-producer performance regression
 
+[中文](EXECUTOR-cn.md).
+
 This benchmark isolates thread-to-thread submission, wakeups, result
 notification and LATEST replacement. The ordinary [API benchmark](README.md)
 still covers codec/endpoint CPU and UDP RTT; it does not replace this

@@ -1,5 +1,7 @@
 # Benchmarks
 
+[中文](README-cn.md).
+
 Opt-in, reproducible measurements for Wirelink. None of them are correctness
 gates, none of their dependencies enter the core, and none of the numbers are
 performance guarantees. Each directory has one short guide: what it measures,

@@ -1,4 +1,6 @@
-# RPC Peer Fast-Path Benchmark
+# RPC peer fast-path benchmark
+
+[中文](README-cn.md).
 
 This host microbenchmark isolates the steady-session check generated before a
 reliable RPC request. It compares the former unconditional

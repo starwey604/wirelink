@@ -1,5 +1,7 @@
 # RPC validation work
 
+[中文](README-cn.md).
+
 Opt-in CPU regression workload, shared by Google Benchmark and a standalone
 ESP32-S3 Zephyr app. No transport, allocation, timing probes or benchmark
 dependencies are added to production. Use the [API benchmark](../api/README.md)

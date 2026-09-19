@@ -1,5 +1,7 @@
 # Frame encoding and retry CPU benchmark
 
+[中文](README-cn.md).
+
 This opt-in benchmark isolates allocation-free frame/link work. It does not need
 WLC, Asio, an executor, or a network. For actual two-process latency and
 executor contention use [the API benchmarks](../api/README.md). The firmware

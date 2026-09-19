@@ -1,5 +1,7 @@
 # Generated API performance regression
 
+[中文](README-cn.md).
+
 [EXECUTOR.md](EXECUTOR.md) covers multi-producer executor contention separately.
 Use Google Benchmark for single-thread CPU/loopback work and two real UDP
 processes for end-to-end latency. Zephyr `native_sim` remains a behavior gate,

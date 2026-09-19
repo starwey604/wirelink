@@ -1,5 +1,7 @@
 # Executor owner-pass accounting
 
+[中文](README-cn.md).
+
 This is a deterministic scheduling regression, not a CPU benchmark. It requires
 neither WLC, Asio, Google Benchmark nor hardware:
 
