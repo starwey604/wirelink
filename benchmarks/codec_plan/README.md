@@ -55,7 +55,7 @@ compare a pinned run against an unpinned run or mix the two datasets. Frequency
 scaling and other system work can still introduce noise even with affinity.
 
 Use A/B/B/A ordering with repeated samples, then run correctness CTest suites
-and Zephyr Twister separately after timing completes. Firmware RTT collection
+and Zephyr Twister separately after timing completes. Firmware capture
 also belongs in a separate phase when validating host performance. Keep
 exploratory, smoke and formal logs distinguishable rather than treating every
 printed duration as performance evidence.
@@ -108,8 +108,8 @@ invalidation, validation, logging and sleeping are outside measured cycles. The
 timer/call overhead is retained identically on both sides, not estimated and
 subtracted.
 
-Capture raw boot-to-pass output with the shared firmware harness under
-`benchmarks/zephyr/`. `compare.py before.log after.log` requires complete
+Capture raw boot-to-pass output with the [firmware harness](../zephyr/README.md).
+`compare.py before.log after.log` requires complete
 boot-to-pass records, the timing-barrier marker and equal LTO/frequency.
 
 Mode 1 is an artificial cold-entry stress test, **not** an I-cache miss counter;

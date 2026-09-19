@@ -8,8 +8,8 @@ endpoints, owned async RPCs, retained telemetry and the core with a fake clock
 and a serialized asynchronous transport. No sockets, threads, sleeps or Google
 Benchmark dependency are required.
 
-A firmware variant under `benchmarks/zephyr/mixed_traffic` reuses this workload
-with real timer measurements, including cached versus reconstructed retries.
+A [firmware variant](../zephyr/README.md) reuses this workload with real timer
+measurements, including cached versus reconstructed retries.
 Running the model on a board does not turn its ages into USB/UART latency.
 
 ## Run

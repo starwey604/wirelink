@@ -55,10 +55,10 @@ v2 负载在拷贝 owned 值前，把预计算的 RPC domain seed 和指纹交�
 对应的 optimized-codec 设置。参考板是 ESP32-S3 DevKitC（`esp32s3_devkitc/esp32s3/procpu`）。
 
 app 按报告的计时频率记录 timer cycle。它先预热每组，再取 5 批、每批 32 次操作，
-**只在测试批次内**屏蔽中断。断言、RTT 输出和 sleep 都在计时外。
+**只在测试批次内**屏蔽中断。断言、console 输出和 sleep 都在计时外。
 这是热缓存 CPU 微基准，不是生产调度或固件总 CPU。
 
-用 `benchmarks/zephyr/` 下共用的固件 harness 采集原始 boot-to-pass 输出，
+用[固件 harness](../zephyr/README-cn.md)采集原始 boot-to-pass 输出，
 再用 `compare.py before.log after.log` 比较两份完整日志。
 解析器要求全部 65 组 × 5 次重复、一个 begin/end 和 `result=pass`；
 拒绝缺失/重复行、复位、错误和版本或频率不一致。

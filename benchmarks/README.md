@@ -24,9 +24,9 @@ in the test matrix exist for correctness, not for timing.
 | [fifo](../docs/fifo-performance.md) | The ordered SPSC FIFO runtime | Host |
 | `zephyr/rx_backend` | RX ring backend behavior | ESP32-S3 |
 
-The firmware variants under `benchmarks/zephyr/` share a DWT capture harness
-with the host benchmarks and must use the same frozen generated artifacts on
-both sides.
+The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the
+same workloads on the ESP32-S3 DevKitC and must use the same frozen generated
+artifacts on both sides.
 
 How to reproduce each result is documented here. Published, machine-specific
 numbers live on the [documentation site](https://docs.silkenkite.ink/wirelink/)

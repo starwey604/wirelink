@@ -4,7 +4,7 @@
 UART、USB 或 OS 调度延迟。它用假时钟和串行化异步 transport 跑真实生成端点、owned async RPC、
 retained 遥测和核心。不需要 socket、线程、sleep 或 Google Benchmark 依赖。
 
-`benchmarks/zephyr/mixed_traffic` 下的固件变体复用同一负载，并加入真实计时测量，
+[固件变体](../zephyr/README-cn.md)复用同一负载，并加入真实计时测量，
 包括缓存重传与重建重传。把模型跑在板子上不会把它的年龄变成 USB/UART 延迟。
 
 ## 运行

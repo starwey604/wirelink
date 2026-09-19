@@ -2,7 +2,7 @@
 
 这个可选基准单独隔离无分配的 frame/link 工作。不需要 WLC、Asio、executor 或网络。
 真实双进程延迟和 executor 争用见 [API 基准](../api/README-cn.md)。
-`benchmarks/zephyr/framing` 下的固件变体在 ESP32-S3 上复用同一份 C 负载。
+[固件变体](../zephyr/README-cn.md)在 ESP32-S3 上复用同一份 C 负载。
 
 ## 构建与运行
 

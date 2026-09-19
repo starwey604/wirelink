@@ -43,7 +43,7 @@ CTest 的短基准只检查正确性，打印的耗时不是回归测量。正�
 即使 pin 了，调频和其他系统工作仍会带来噪声。
 
 使用重复样本的 A/B/B/A 顺序，计时完成后再单独跑正确性 CTest 和 Zephyr Twister。
-固件 RTT 采集也属于验证主机性能之后的独立阶段。保留 exploratory、smoke 和正式日志的区别，
+固件采集也属于验证主机性能之后的独立阶段。保留 exploratory、smoke 和正式日志的区别，
 不要把每个打印耗时都当成性能证据。
 
 ## 矩阵
@@ -84,7 +84,7 @@ stage（`s`）：0 公开 view 解码，1 公开 view 编码，2 公开 encoded-
 并用编译器内存屏障防止 LTO 把工作提出计时区。IRQ mask 只覆盖被测操作；
 cache invalidate、校验、日志和 sleep 都在计时外。两侧保留相同的计时/调用开销，不估算也不扣除。
 
-用 `benchmarks/zephyr/` 下共用的固件 harness 采集原始 boot-to-pass 输出。
+用[固件 harness](../zephyr/README-cn.md)采集原始 boot-to-pass 输出。
 `compare.py before.log after.log` 要求完整 boot-to-pass 记录、计时屏障 marker，以及相同的 LTO/频率。
 
 模式 1 是人为冷入口压力测试，**不是** I-cache miss 计数器；模式 2 是受控混合负载，

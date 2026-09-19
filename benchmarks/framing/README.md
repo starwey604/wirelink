@@ -4,8 +4,8 @@
 
 This opt-in benchmark isolates allocation-free frame/link work. It does not need
 WLC, Asio, an executor, or a network. For actual two-process latency and
-executor contention use [the API benchmarks](../api/README.md). The firmware
-variant under `benchmarks/zephyr/framing` reuses the same C workload on the
+executor contention use [the API benchmarks](../api/README.md). The
+[firmware variant](../zephyr/README.md) reuses the same C workload on the
 ESP32-S3.
 
 ## Build and run

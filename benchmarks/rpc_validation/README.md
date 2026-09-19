@@ -66,12 +66,12 @@ reference board is the ESP32-S3 DevKitC
 
 The app records timer cycles at the reported timing frequency. It warms each
 group, then takes 5 batches of 32 operations with interrupts masked **only
-inside the test batch**. Assertions, RTT output and sleeps are outside timing.
+inside the test batch**. Assertions, console output and sleeps are outside timing.
 This is a hot-cache CPU microbenchmark, not production scheduling or total
 firmware CPU.
 
-Capture raw boot-to-pass output with the shared firmware harness under
-`benchmarks/zephyr/`. Then compare two complete logs with
+Capture raw boot-to-pass output with the [firmware harness](../zephyr/README.md).
+Then compare two complete logs with
 `compare.py before.log after.log`. The parser requires all 65 groups × 5
 repetitions, one begin/end and `result=pass`; it rejects missing/duplicate rows,
 resets, errors and mismatched versions or frequency.
