@@ -38,10 +38,10 @@ class Reports(unittest.TestCase):
             with self.assertRaises(ValueError):
                 compare(before, after)
 
-    def test_build_flags_must_match_but_abi_and_binary_may_change(self):
+    def test_build_flags_must_match_but_contract_and_binary_may_change(self):
         before, after = report(), report()
-        before["context"]["build"] = {"CMAKE_C_FLAGS_RELEASE": "-O3", "WIRELINK_WLC_CODEGEN_ABI": "27"}
-        after["context"]["build"] = {"CMAKE_C_FLAGS_RELEASE": "-O3", "WIRELINK_WLC_CODEGEN_ABI": "28"}
+        before["context"]["build"] = {"CMAKE_C_FLAGS_RELEASE": "-O3", "WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR": "0"}
+        after["context"]["build"] = {"CMAKE_C_FLAGS_RELEASE": "-O3", "WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR": "1"}
         before["artifacts"], after["artifacts"] = {"one": "before"}, {"one": "after"}
         self.assertTrue(compare(before, after))
         after["context"]["build"]["CMAKE_C_FLAGS_RELEASE"] = "-O0"

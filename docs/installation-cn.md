@@ -13,14 +13,14 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 ## 2. 获取与 Wirelink 匹配的 WLC
 
-当前工作区需要 **WLC 0.8.0、生成 ABI 32**，增加静态 schema 导入和借用式
-direct 路由，不改变 ABI 31 的线上格式。已发布的 v0.6.0 / ABI 31 二进制不能
-生成本轮 API。CMake 默认自动下载配套主机工具；若要自行构建，请在独立 WLC
+当前工作区需要 **WLC 0.8.0、生成契约 0.8**，增加静态 schema 导入和借用式
+direct 路由，不改变线上格式。较旧的已发布编译器不能生成本轮 API。
+CMake 默认自动下载配套主机工具；若要自行构建，请在独立 WLC
 源码仓库检出 `v0.8.0` 标签后执行：
 
 ```sh
 cargo build --release --locked
-./target/release/wlc codegen-abi
+./target/release/wlc codegen-contract
 ```
 
 把 `target/release/wlc`（Windows 为 `wlc.exe`）的绝对路径传给 CMake；
@@ -33,14 +33,14 @@ Windows 从标签源码编译 WLC 时，请保留 LF 换行：`git -c core.autoc
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
-本轮期望分别输出 `wlc 0.8.0` 和 `32`。请检查将传给 CMake 的那个可执行文件。
-ABI 是生成 C 接口与布局的修订编号，不是线上协议版本。
+本轮期望分别输出 `wlc 0.8.0` 和 `0.8`。请检查将传给 CMake 的那个可执行文件。
+生成契约标识生成的 C 接口与布局，不是线上协议版本。
 托管与旧映射 RPC 的 payload 格式不同；托管 v1/v2 也不互通。
 必须一起重建核心和生成消费者，并成对部署通信双方。
-若没有 `codegen-abi` 命令或输出不匹配，需要更换配套 WLC。
+若没有 `codegen-contract` 命令或输出不匹配，需要更换配套 WLC。
 CMake 也会在生成前检查这两项，避免到编译固件时才发现头文件不匹配。
 
 ## 4. 获取 standalone Asio

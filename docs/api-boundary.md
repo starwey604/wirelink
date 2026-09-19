@@ -224,9 +224,9 @@ WLC deliberately splits these entries:
 4. `<runtime>_runtime.h/.c`: advanced retained/RPC assembly and implementation.
 
 Use one codec target and generate separate named host/device runtimes against
-it. Generated artifacts must match compiler version, codegen ABI, schema
-identity, and binding-profile identity. ABI 20 adds managed RPC to the default endpoint
-facade above; advanced runtime families remain:
+it. Generated artifacts must match compiler version, codegen contract, schema
+identity, and binding-profile identity. The default endpoint facade includes
+managed RPC; advanced runtime families remain:
 
 | Family | Generated pattern |
 | --- | --- |

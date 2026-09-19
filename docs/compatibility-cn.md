@@ -41,7 +41,7 @@ C API/ABI 需要新 major；minor 可以新增函数和 enum value，应用的 s
 
 ## C++ / Python bindings
 
-可选的 `Wirelink::cpp`、`Wirelink::cpp_host` 和 WLC 生成的 SDK 提供 v0.8 源码 API，须与匹配的 C 库一起重编译，不承诺跨编译器的稳定 C++ ABI。Binding source API revision 2、WLC codegen ABI 32 和 Python 扩展 ABI 相互独立。
+可选的 `Wirelink::cpp`、`Wirelink::cpp_host` 和 WLC 生成的 SDK 提供 v0.8 源码 API，须与匹配的 C 库一起重编译，不承诺跨编译器的稳定 C++ ABI。Binding source API revision 2、WLC 生成契约 0.8 和 Python 扩展 ABI 相互独立。
 
 Revision 2 提供同步 RPC、C++ 异步操作和 Python `AsyncClient`。wheel 私有链接原生代码，不跨独立 SDK 交换原生句柄。安装方式、支持范围及迁移要求见 [v0.8.0 发布说明](release-v0.8.0-cn.md)。
 

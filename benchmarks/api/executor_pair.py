@@ -61,8 +61,8 @@ def main():
         print(f"{index + 1}/{len(cases)} paired {mode} p{producers} {size}B period={period}", flush=True)
     before = reports["before"]["runs"][0]
     after = reports["after"]["runs"][0]
-    if before["abi"] != after["abi"]:
-        raise RuntimeError("different generated ABI; investigate before comparing")
+    if before["codegen_contract"] != after["codegen_contract"]:
+        raise RuntimeError("different generated-code contract; investigate before comparing")
     for name, report in reports.items():
         (args.out / f"{name}.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
         (args.out / f"{name}-summary.json").write_text(

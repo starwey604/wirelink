@@ -15,7 +15,7 @@ static uint64_t reference(const uint8_t *data, size_t length) {
   return hash;
 }
 
-#if RPC_VALIDATION_ABI >= 29
+#if RPC_VALIDATION_OPTIMIZED_CODEC
 /* Generator-private seam: never an application-facing API. */
 #define DECLARE(name) \
   wl_codec_status_t name##_wlc_detail_fingerprint(const name##_t *, uint64_t *, size_t *); \

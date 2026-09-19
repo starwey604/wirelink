@@ -14,15 +14,15 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-This tree requires **WLC 0.8.0 with codegen ABI 32**. This release
-revision adds static imports and borrowed direct routes without changing the
-ABI 31 wire formats. Published v0.6.0 / ABI 31 binaries cannot generate this API.
+This tree requires **WLC 0.8.0 with codegen contract 0.8**. It adds static imports
+and borrowed direct routes without changing the wire format. Older published
+compilers cannot generate this API.
 CMake fetches the matching host package automatically. To build it yourself,
 check out the independent WLC repository at tag `v0.8.0` and run:
 
 ```sh
 cargo build --release --locked
-./target/release/wlc codegen-abi
+./target/release/wlc codegen-contract
 ```
 
 Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
@@ -38,15 +38,15 @@ generated artifacts. The published source archive and binaries use canonical LF.
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
-Expect `wlc 0.8.0` and `32` from the executable you will pass to CMake.
-Codegen ABI identifies generated C interfaces/layouts,
+Expect `wlc 0.8.0` and `0.8` from the executable you will pass to CMake.
+The codegen contract identifies generated C interfaces and layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
 rebuild core and generated consumers together. A missing command or
-different ABI means a different compiler build is needed. CMake checks both
+different contract means a different compiler build is needed. CMake checks both
 values before generation rather than leaving a header mismatch for firmware compilation.
 
 ## 4. Obtain standalone Asio

@@ -28,8 +28,8 @@ time are reported independently. Smoke tests check correctness, not speed; no
 fixed timing gate is imposed on shared CI machines.
 
 To reproduce the old implementation, generate `validation.wl` with a preserved
-ABI 28 compiler. Set `RPC_VALIDATION_CODEC_DIR` to that frozen output directory
-and `RPC_VALIDATION_CODEGEN_ABI=28`; the benchmark will not regenerate it.
+compiler. Set `RPC_VALIDATION_CODEC_DIR` to that frozen output directory and
+`RPC_VALIDATION_OPTIMIZED_CODEC=0`; the benchmark will not regenerate it.
 Keep the old and new codec artifacts and binaries separately with SHA-256 hashes.
 
 ## Matrix and interpretation

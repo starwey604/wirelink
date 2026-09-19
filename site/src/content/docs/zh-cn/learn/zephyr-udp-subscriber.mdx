@@ -27,10 +27,10 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
-预期值仍然是 `wlc 0.8.0` 和 ABI `32`。
+预期值仍然是 `wlc 0.8.0` 和生成契约 `0.8`。
 
 此外还需要 Zephyr 4.4.0 workspace 和 Zephyr SDK。
 
@@ -342,7 +342,7 @@ nm -S --size-sort build/temperature-subscriber/zephyr/zephyr.elf \
 | 报错或现象 | 检查位置 |
 | --- | --- |
 | `Set WIRELINK_ROOT to the Wirelink source tree` | 传入 workspace 中包含 `zephyr/module.yml` 的 `wirelink` 目录 |
-| CMake 拒绝 WLC version 或 ABI | 激活能从 `PATH` 找到匹配 `wlc` 的环境 |
+| CMake 拒绝 WLC version 或生成契约 | 激活能从 `PATH` 找到匹配 `wlc` 的环境 |
 | `CONFIG_WIRELINK_ZEPHYR_UDP` 依赖不满足 | 启用 Zephyr native IPv4 UDP socket，并关闭 socket offload |
 
 <Checklist

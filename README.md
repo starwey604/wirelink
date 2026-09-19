@@ -24,7 +24,7 @@ and pre-1.0 limits are documented in
 [`docs/api-boundary.md`](docs/api-boundary.md), and remaining integration work
 is tracked in [`docs/onboarding-api-gaps.md`](docs/onboarding-api-gaps.md).
 
-The tutorials require matching WLC 0.8.0 / codegen ABI 32: static schema
+The tutorials require matching WLC 0.8.0 / codegen contract 0.8: static schema
 composition, borrowed direct routes, service lifecycle hooks, and owned RPC business
 values, immediate handlers, synchronous/platform waiting, automatic async call
 recycling, optional one-allocation endpoint creation, and automatic session identities.
@@ -188,7 +188,7 @@ never the firmware target or an inherited `CARGO_BUILD_TARGET`.
 Generated sources are written below the build directory and regenerate when
 the schema, profile, compatibility predecessor, or WLC executable changes.
 The generated manifest must match Wirelink's pinned compiler version and
-codegen ABI before any generated translation unit is compiled.
+codegen contract before any generated translation unit is compiled.
 
 ## C++ and Python bindings
 

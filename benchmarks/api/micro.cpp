@@ -152,7 +152,10 @@ int main(int argc, char **argv) {
   benchmark::AddCustomContext("variant", API_VARIANT);
   benchmark::AddCustomContext("compiler", API_COMPILER);
   benchmark::AddCustomContext("build_type", API_BUILD_TYPE);
-  benchmark::AddCustomContext("codegen_abi", std::to_string(PERF_RUNTIME_CODEGEN_ABI_VERSION));
+  benchmark::AddCustomContext(
+      "codegen_contract",
+      std::to_string(PERF_CODEGEN_CONTRACT_MAJOR) + "." +
+          std::to_string(PERF_CODEGEN_CONTRACT_MINOR));
   benchmark::RunSpecifiedBenchmarks();
   benchmark::Shutdown();
 }

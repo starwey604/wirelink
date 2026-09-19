@@ -25,11 +25,11 @@ handlers; transport, RPC dispatch and result recycling are not application code.
 
 ## Build and run
 
-Use the matching development WLC 0.7.0-dev / codegen ABI 32 and standalone Asio.
-ABI 32 has no published bootstrap source pair yet: build paired WLC commit
-`18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29` in its separate workspace with
-`cargo build --release --locked`, verify `wlc --version` and `wlc codegen-abi`,
-and pass its executable explicitly. No nested WLC checkout is required.
+Use the matching WLC 0.8.0 / codegen contract 0.8 and standalone Asio. Build the
+paired WLC commit `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29` in its separate
+workspace with `cargo build --release --locked`, verify `wlc --version` and
+`wlc codegen-contract`, and pass its executable explicitly. No nested WLC
+checkout is required.
 
 ```sh
 cmake -S . -B build/device-service -DCMAKE_BUILD_TYPE=Release \

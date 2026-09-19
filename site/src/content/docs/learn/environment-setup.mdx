@@ -112,7 +112,7 @@ then reopen PowerShell. Rustup places installed commands in
 
 ## Install the matching WLC compiler
 
-Wirelink 0.8.0 pairs with WLC 0.8.0 and codegen ABI 32. Download a host archive
+Wirelink 0.8.0 pairs with WLC 0.8.0 and codegen contract 0.8. Download a host archive
 from the [WLC release](https://github.com/starwey604/wlc/releases/tag/v0.8.0),
 verify it with SHA256SUMS, and put the executable on PATH. To build from source:
 
@@ -134,14 +134,14 @@ Verify the installation:
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
 Expected output:
 
 ```text
 wlc 0.8.0
-32
+0.8
 ```
 
 If `wlc` is not found, restart the terminal and check that Cargo's binary
@@ -174,7 +174,7 @@ which also exercises WLC and Asio.
   question="After this setup, how does a Wirelink CMake build choose WLC?"
   choices={[
     {
-      label: 'It finds wlc on the host PATH and validates its version and codegen ABI',
+      label: 'It finds wlc on the host PATH and validates its version and codegen contract',
       correct: true,
       feedback: 'Correct. The installed compiler is reused only when both compatibility checks pass.',
     },
@@ -198,7 +198,7 @@ which also exercises WLC and Asio.
     'CMake reports version 3.21 or newer.',
     'My C and C++ compilers run from the terminal.',
     'Cargo runs from the terminal.',
-    'WLC reports version 0.8.0 and codegen ABI 32.',
+    'WLC reports version 0.8.0 and codegen contract 0.8.',
     'The Wirelink core build completes.',
   ]}
 />

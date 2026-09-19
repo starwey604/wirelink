@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.8.0",
-    "codegen_abi": 32
+    "codegen_contract": {"major": 0, "minor": 8}
   },
   "module": "device",
   "identity": {
@@ -29,7 +29,7 @@
     {"path": "device_bindings.h", "size": 4526, "digest": "0x6990709f680bd0f7"},
     {"path": "device_endpoint.h", "size": 393, "digest": "0xc0450b9ee4730409"},
     {"path": "device_runtime.c", "size": 71060, "digest": "0x6c0fd7fc12ae845d"},
-    {"path": "device_runtime.h", "size": 53517, "digest": "0x20d1606fe6a3f07d"},
+    {"path": "device_runtime.h", "size": 53788, "digest": "0x8f34397921a3560c"},
     {"path": "device_values.h", "size": 6909, "digest": "0x11711a2daa338e27"}
   ]
 }

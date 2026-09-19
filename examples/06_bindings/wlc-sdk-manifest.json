@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.8.0",
-    "codegen_abi": 32
+    "codegen_contract": {"major": 0, "minor": 8}
   },
   "module": "calculator",
   "identity": {
@@ -15,7 +15,7 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "CMakeLists.txt", "size": 4117, "digest": "0xb0421c3e300cf459"},
+    {"path": "CMakeLists.txt", "size": 4250, "digest": "0xa3d5b5c478f91b31"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
     {"path": "README.md", "size": 6189, "digest": "0x1777189b1df9f868"},
     {"path": "cmake/CalculatorSdkConfig.cmake.in", "size": 199, "digest": "0x0c46bcefaaad4a4f"},
@@ -25,9 +25,9 @@
     {"path": "generated/calculator_bindings.c", "size": 5418, "digest": "0x8c94b073b1a8f92c"},
     {"path": "generated/calculator_bindings.h", "size": 2654, "digest": "0x3424be565871e450"},
     {"path": "generated/calculator_endpoint.h", "size": 409, "digest": "0x5d887e59dc2edba5"},
-    {"path": "generated/calculator_manifest.json", "size": 1142, "digest": "0x1aa333a7a05a3505"},
+    {"path": "generated/calculator_manifest.json", "size": 1169, "digest": "0x8c7aff65b4093c66"},
     {"path": "generated/calculator_runtime.c", "size": 55272, "digest": "0x03fa453fa085fa02"},
-    {"path": "generated/calculator_runtime.h", "size": 41320, "digest": "0xf18597bbcc9197ed"},
+    {"path": "generated/calculator_runtime.h", "size": 41603, "digest": "0x719ab9e4e5d6bfba"},
     {"path": "generated/calculator_values.h", "size": 1986, "digest": "0xc5f8f24fdc224bd5"},
     {"path": "include/calculator/client.hpp", "size": 1099, "digest": "0x7c1c2f44a0423cd7"},
     {"path": "include/calculator/types.hpp", "size": 348, "digest": "0xa9b4f16645612248"},
@@ -36,15 +36,15 @@
     {"path": "licenses/robin_map.txt", "size": 1103, "digest": "0xdef0f3a5dcec4200"},
     {"path": "licenses/wirelink.txt", "size": 728, "digest": "0x6ac63ae4ccdeb60b"},
     {"path": "pyproject.toml", "size": 938, "digest": "0x2f8c14adb59f5794"},
-    {"path": "python/calculator_sdk/__init__.py", "size": 5914, "digest": "0x56d9e8449a464794"},
-    {"path": "python/calculator_sdk/_native.pyi", "size": 1268, "digest": "0x2f0e58f106477125"},
+    {"path": "python/calculator_sdk/__init__.py", "size": 5929, "digest": "0x9df0cc1a1e15b8d4"},
+    {"path": "python/calculator_sdk/_native.pyi", "size": 1273, "digest": "0xa3ff967d3d77b415"},
     {"path": "python/calculator_sdk/_runtime.py", "size": 11232, "digest": "0xf453ee3b54ae42d6"},
     {"path": "python/calculator_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
     {"path": "src/client.cpp", "size": 3687, "digest": "0xa329a3abaa4310ab"},
     {"path": "src/endpoint.c", "size": 2086, "digest": "0x62a0a0a8279c6c07"},
     {"path": "src/endpoint.h", "size": 822, "digest": "0xc0e18be50cb96307"},
     {"path": "src/native.hpp", "size": 346, "digest": "0x8939ae6752aeed96"},
-    {"path": "src/python.cpp", "size": 5612, "digest": "0x7fa5f9635784bbb7"},
+    {"path": "src/python.cpp", "size": 5620, "digest": "0x11bf044baf6cd436"},
     {"path": "src/values.hpp", "size": 1309, "digest": "0xb5493da8f3e6d2c6"},
     {"path": "wlc-sdk-info.json", "size": 188, "digest": "0x2fb7ec7e90c42a28"},
     {"path": "wlc-sdk-name.txt", "size": 11, "digest": "0x4f9a68c7cc6306f5"}

@@ -121,7 +121,7 @@ static void close_pair(void) {
   CHECK(clock_reads == before);
 }
 int main(void) {
-  printk("RPC_H1 ABI=%u capacity=%u start\n", RPC_VALIDATION_RUNTIME_CODEGEN_ABI_VERSION, (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY);
+  printk("RPC_H1 contract=%u.%u capacity=%u start\n", RPC_VALIDATION_CODEGEN_CONTRACT_MAJOR, RPC_VALIDATION_CODEGEN_CONTRACT_MINOR, (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY);
   request_value_t value = request();
   unsigned before, target;
   initialize();

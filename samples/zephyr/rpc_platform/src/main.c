@@ -171,8 +171,9 @@ static void done(void *context, const wl_rpc_completion_t *result, const respons
 
 int main(void) {
   cycle_init();
-  printk("RPC_H2 ABI=%u capacity=%u endpoint_bytes=%u cycle_hz=%u start\n",
-      RPC_VALIDATION_RUNTIME_CODEGEN_ABI_VERSION, (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY,
+  printk("RPC_H2 contract=%u.%u capacity=%u endpoint_bytes=%u cycle_hz=%u start\n",
+      RPC_VALIDATION_CODEGEN_CONTRACT_MAJOR, RPC_VALIDATION_CODEGEN_CONTRACT_MINOR,
+      (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY,
       (unsigned)sizeof(rpc_validation_endpoint_t), sys_clock_hw_cycles_per_sec());
   CHECK(wl_fixed_pool_init(&pool, memory.bytes, sizeof(memory.bytes), sizeof(rpc_validation_endpoint_t),
       RPC_VALIDATION_ENDPOINT_ALIGNMENT, 2) == WL_OK);

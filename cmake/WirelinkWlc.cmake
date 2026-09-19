@@ -5,14 +5,39 @@ include_guard(GLOBAL)
 # in the global CMake cache so function call-site scope cannot hide them.
 set(WIRELINK_WLC_VERSION "0.8.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_ABI "32" CACHE INTERNAL
-  "Pinned WLC generated-code ABI" FORCE)
+set(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR "0" CACHE INTERNAL
+  "Pinned WLC generated-code contract major" FORCE)
+set(WIRELINK_WLC_CODEGEN_CONTRACT_MINOR "8" CACHE INTERNAL
+  "Pinned WLC generated-code contract minor" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Fetch verified WLC host tools, or build pinned source on other hosts" ON)
 set(WIRELINK_WLC_CACHE_DIR
   "${CMAKE_BINARY_DIR}/_deps/wirelink-wlc" CACHE PATH
   "Directory for verified WLC host compiler downloads")
 mark_as_advanced(WIRELINK_WLC_CACHE_DIR)
+
+# A generated consumer is compatible with this core when the majors match and,
+# before 1.0, the minors match exactly. From 1.0 on, an older generated minor is
+# accepted because additive core changes stay backward compatible.
+function(_wirelink_codegen_contract_accepts generated_major generated_minor out_valid)
+  if(NOT generated_major STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR)
+    set(${out_valid} FALSE PARENT_SCOPE)
+    return()
+  endif()
+  if(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR STREQUAL "0")
+    if(generated_minor STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT_MINOR)
+      set(${out_valid} TRUE PARENT_SCOPE)
+    else()
+      set(${out_valid} FALSE PARENT_SCOPE)
+    endif()
+    return()
+  endif()
+  if(generated_minor GREATER WIRELINK_WLC_CODEGEN_CONTRACT_MINOR)
+    set(${out_valid} FALSE PARENT_SCOPE)
+  else()
+    set(${out_valid} TRUE PARENT_SCOPE)
+  endif()
+endfunction()
 
 function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   if(NOT EXISTS "${executable}" OR IS_DIRECTORY "${executable}")
@@ -45,16 +70,26 @@ function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   endif()
 
   execute_process(
-    COMMAND "${executable}" codegen-abi
-    RESULT_VARIABLE _abi_result
-    OUTPUT_VARIABLE _abi
+    COMMAND "${executable}" codegen-contract
+    RESULT_VARIABLE _contract_result
+    OUTPUT_VARIABLE _contract
     ERROR_QUIET
     OUTPUT_STRIP_TRAILING_WHITESPACE
     TIMEOUT 10)
-  if(NOT _abi_result STREQUAL "0" OR NOT _abi STREQUAL "${WIRELINK_WLC_CODEGEN_ABI}")
+  if(NOT _contract_result STREQUAL "0" OR
+      NOT _contract MATCHES "^([0-9]+)\\.([0-9]+)$")
     set(${out_valid} FALSE PARENT_SCOPE)
     set(${out_reason}
-      "does not provide codegen ABI ${WIRELINK_WLC_CODEGEN_ABI}; install the matching WLC build"
+      "did not report a MAJOR.MINOR generated-code contract; install the matching WLC build"
+      PARENT_SCOPE)
+    return()
+  endif()
+  _wirelink_codegen_contract_accepts("${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}"
+    _contract_valid)
+  if(NOT _contract_valid)
+    set(${out_valid} FALSE PARENT_SCOPE)
+    set(${out_reason}
+      "provides generated-code contract ${_contract}, incompatible with ${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}.${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}"
       PARENT_SCOPE)
     return()
   endif()
@@ -199,7 +234,8 @@ function(wirelink_wlc_generate_runtime)
     COMMAND "${CMAKE_COMMAND}"
       "-DWIRELINK_WLC_MANIFEST=${_manifest}"
       "-DWIRELINK_WLC_EXPECTED_VERSION=${WIRELINK_WLC_VERSION}"
-      "-DWIRELINK_WLC_EXPECTED_ABI=${WIRELINK_WLC_CODEGEN_ABI}"
+      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MAJOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}"
+      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MINOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}"
       -P "${_manifest_verifier}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${_codegen_stamp}"
     DEPENDS
@@ -414,7 +450,8 @@ function(wirelink_wlc_generate_codec)
     COMMAND "${CMAKE_COMMAND}"
       "-DWIRELINK_WLC_MANIFEST=${_manifest}"
       "-DWIRELINK_WLC_EXPECTED_VERSION=${WIRELINK_WLC_VERSION}"
-      "-DWIRELINK_WLC_EXPECTED_ABI=${WIRELINK_WLC_CODEGEN_ABI}"
+      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MAJOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}"
+      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MINOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}"
       -P "${_manifest_verifier}"
     COMMAND "${CMAKE_COMMAND}" -E touch "${_codegen_stamp}"
     DEPENDS ${_depends} "${_manifest_verifier}"

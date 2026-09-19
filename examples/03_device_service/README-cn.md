@@ -69,13 +69,12 @@ CMake 用 `PROFILES services.bind.wl server.bind.wl` 组合它们。WLC 不做�
 
 ## 构建与运行
 
-本开发迭代需要 **WLC 0.7.0-dev / 生成 ABI 32**。ABI 32 目前没有已发布的 bootstrap
-源码组合；请在独立工作区构建配套提交
+本开发迭代需要 **WLC 0.8.0 / 生成契约 0.8**。请在独立工作区构建配套提交
 `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29`，并显式指定本轮开发编译器。
 WLC 可以放在任意目录，不要求嵌套在 Wirelink 仓库内。
 
 在独立 WLC 工作区执行 `cargo build --release --locked`，确认 `wlc --version` 输出
-`wlc 0.7.0-dev`，且 `wlc codegen-abi` 输出 `32`。
+`wlc 0.8.0`，且 `wlc codegen-contract` 输出 `0.8`。
 从 Wirelink 根目录构建：
 
 ```sh

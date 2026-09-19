@@ -2,8 +2,7 @@
 
 Start with the [calculator tutorial](tutorial-rpc.md). This page covers platform
 integration, background ownership and custom clocks. [中文](rpc-platform-cn.md).
-Introduced in codegen ABI 24; the current pairing is ABI 26. These changes affect
-local APIs, not framing or RPC wire format.
+These APIs affect local integration, not framing or the RPC wire format.
 
 ## One entry, two ownership modes
 

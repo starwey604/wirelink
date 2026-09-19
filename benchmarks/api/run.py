@@ -29,7 +29,7 @@ def build_context(directory):
     keys = {"CMAKE_BUILD_TYPE", "CMAKE_C_COMPILER", "CMAKE_CXX_COMPILER",
             "CMAKE_C_FLAGS", "CMAKE_C_FLAGS_RELEASE", "CMAKE_CXX_FLAGS",
             "CMAKE_CXX_FLAGS_RELEASE", "CMAKE_INTERPROCEDURAL_OPTIMIZATION",
-            "WIRELINK_WLC_CODEGEN_ABI"}
+            "WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR", "WIRELINK_WLC_CODEGEN_CONTRACT_MINOR"}
     for parent in [directory.resolve(), *directory.resolve().parents]:
         cache = parent / "CMakeCache.txt"
         if cache.is_file():

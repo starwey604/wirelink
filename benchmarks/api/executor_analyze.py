@@ -44,13 +44,13 @@ def summarize(report):
     for key, rows in sorted(groups.items()):
         if len({row["repetition"] for row in rows}) != len(rows):
             raise ValueError("duplicate repetition")
-        if len({(row["abi"], row["calls"]) for row in rows}) != 1:
+        if len({(row["codegen_contract"], row["calls"]) for row in rows}) != 1:
             raise ValueError("mixed workload")
         stage_names = set(rows[0]["stages"])
         if any(set(row["stages"]) != stage_names for row in rows):
             raise ValueError("missing profiling stages")
         item = dict(zip(["mode", "producers", "bytes", "period_us"], key))
-        item.update(repetitions=len(rows), abi=rows[0]["abi"], calls=rows[0]["calls"])
+        item.update(repetitions=len(rows), codegen_contract=rows[0]["codegen_contract"], calls=rows[0]["calls"])
         item["metrics"] = {metric: spread([row[metric] for row in rows]) for metric in [
             "wall_ns", "cpu_ns_per_call", "calls_per_second", "p50_ns", "p95_ns", "p99_ns",
             "max_ns", "dispatched", "coalesced"]}

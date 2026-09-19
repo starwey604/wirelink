@@ -33,10 +33,10 @@ that the matching `wlc` still runs from `PATH`:
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
-The expected values remain `wlc 0.8.0` and ABI `32`.
+The expected values remain `wlc 0.8.0` and codegen contract `0.8`.
 
 You also need a Zephyr 4.4.0 workspace and Zephyr SDK. A **west workspace** is
 the directory that contains Zephyr, Wirelink as its manifest repository, and
@@ -457,7 +457,7 @@ completion condition.
 | Message or symptom | Check |
 | --- | --- |
 | `Set WIRELINK_ROOT to the Wirelink source tree` | Pass the workspace's `wirelink` directory, which contains `zephyr/module.yml` |
-| CMake rejects WLC version or ABI | Activate the environment where the matching `wlc` is on `PATH` |
+| CMake rejects the WLC version or contract | Activate the environment where the matching `wlc` is on `PATH` |
 | `CONFIG_WIRELINK_ZEPHYR_UDP` has unmet dependencies | Enable Zephyr native IPv4 UDP sockets and disable socket offload |
 | `endpoint init` fails on hardware | Configure a real CSPRNG or inject a product session-identity provider |
 | `network unavailable` | Fix the board's Ethernet devicetree, driver, link, and IP provisioning first |

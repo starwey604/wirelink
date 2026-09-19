@@ -11,7 +11,7 @@ import time
 import pytest
 from calculator_sdk import (
     AddRequest, Client, Udp, CancelledError, ClosedError, QueueFullError,
-    RejectedError, RpcTimeoutError, TransportError, core_version, codegen_abi,
+    RejectedError, RpcTimeoutError, TransportError, core_version, codegen_contract,
 )
 
 
@@ -30,7 +30,7 @@ def peer():
 
 
 def test_values_and_context(peer):
-    assert core_version == "0.8.0" and codegen_abi == 32
+    assert core_version == "0.8.0" and codegen_contract == "0.8"
     with Client.connect(Udp(peer=peer)) as client:
         assert client.is_open and client.local_port > 0
         for i in range(100):

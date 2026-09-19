@@ -24,7 +24,7 @@ class ExecutorReportTests(unittest.TestCase):
     def fixture(self):
         rows = []
         for repeat, value in enumerate([10, 12, 100]):
-            row = {"profile": "locks", "errors": 0, "calls": 100, "abi": 28,
+            row = {"profile": "locks", "errors": 0, "calls": 100, "codegen_contract": "0.8",
                    "mode": "rpc", "producers": 1, "bytes": 32, "period_us": 0,
                    "repetition": repeat, "stages": {"rpc_admit_wait": {
                        "count": 50, "wall_ns": value * 50, "max_ns": value * 2}}}
@@ -43,7 +43,7 @@ class ExecutorReportTests(unittest.TestCase):
         self.assertEqual(row["stages"]["rpc_admit_wait"]["max_ns"], 200)
 
     def test_rejects_invalid_or_mixed_runs(self):
-        for field, value in [("errors", 1), ("calls", 0), ("abi", 27), ("profile", "off"),
+        for field, value in [("errors", 1), ("calls", 0), ("codegen_contract", "0.9"), ("profile", "off"),
                              ("repetition", 1), ("stages", {}), ("p99_ns", float("nan"))]:
             report = copy.deepcopy(self.fixture())
             report["runs"][0][field] = value

@@ -2,8 +2,10 @@
 include_guard(GLOBAL)
 
 # Published v0.8.0 source pair; digest verified against the remote archive.
-set(WIRELINK_WLC_SOURCE_ABI "32" CACHE INTERNAL
-  "Codegen ABI of the last distributed WLC source pair" FORCE)
+set(WIRELINK_WLC_SOURCE_CONTRACT_MAJOR "0" CACHE INTERNAL
+  "Codegen contract major of the last distributed WLC source pair" FORCE)
+set(WIRELINK_WLC_SOURCE_CONTRACT_MINOR "8" CACHE INTERNAL
+  "Codegen contract minor of the last distributed WLC source pair" FORCE)
 set(WIRELINK_WLC_SOURCE_REVISION "758d12a2466e254cb4d913fce578fb7deae766ec"
   CACHE INTERNAL "Paired WLC source commit" FORCE)
 set(WIRELINK_WLC_SOURCE_SHA256
@@ -90,11 +92,12 @@ function(_wirelink_wlc_download_binary asset digest out_executable)
 endfunction()
 
 function(_wirelink_wlc_bootstrap out_executable)
-  if(NOT WIRELINK_WLC_SOURCE_ABI STREQUAL WIRELINK_WLC_CODEGEN_ABI)
+  if(NOT WIRELINK_WLC_SOURCE_CONTRACT_MAJOR STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR
+      OR NOT WIRELINK_WLC_SOURCE_CONTRACT_MINOR STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT_MINOR)
     message(FATAL_ERROR
-      "WLC development ABI ${WIRELINK_WLC_CODEGEN_ABI} has no published source pair yet. "
+      "WLC development contract ${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}.${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR} has no published source pair yet. "
       "Build the matching development compiler and set WIRELINK_WLC_EXECUTABLE. "
-      "The pinned ABI ${WIRELINK_WLC_SOURCE_ABI} compiler cannot generate this API.")
+      "The pinned contract ${WIRELINK_WLC_SOURCE_CONTRACT_MAJOR}.${WIRELINK_WLC_SOURCE_CONTRACT_MINOR} compiler cannot generate this API.")
   endif()
   cmake_host_system_information(RESULT _processor QUERY OS_PLATFORM)
   _wirelink_wlc_release_asset("${CMAKE_HOST_SYSTEM_NAME}" "${_processor}"
@@ -108,7 +111,7 @@ function(_wirelink_wlc_bootstrap out_executable)
   find_program(_rustc NAMES rustc NO_CMAKE_FIND_ROOT_PATH)
   if(NOT _cargo OR NOT _rustc)
     message(FATAL_ERROR
-      "WLC ABI ${WIRELINK_WLC_CODEGEN_ABI} needs a matching host binary or "
+      "WLC contract ${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}.${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR} needs a matching host binary or "
       "Rust/Cargo (Rust 2024 edition) to build the pinned source. "
       "Set WIRELINK_WLC_EXECUTABLE or install Rust/Cargo on the host PATH. "
       "There is no prebuilt WLC package for ${CMAKE_HOST_SYSTEM_NAME}/${_processor}.")
@@ -170,7 +173,7 @@ function(_wirelink_wlc_bootstrap out_executable)
   # cache is private to this source commit and host, not an editable worktree.
   file(ARCHIVE_EXTRACT INPUT "${_archive}" DESTINATION "${_root}/source")
   set(_source "${_root}/source/wlc-${WIRELINK_WLC_SOURCE_REVISION}")
-  message(STATUS "Wirelink: building WLC ABI ${WIRELINK_WLC_CODEGEN_ABI} for ${_host}")
+  message(STATUS "Wirelink: building WLC contract ${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}.${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR} for ${_host}")
   execute_process(
     COMMAND "${_cargo}" build --release --locked --jobs 2
       --manifest-path "${_source}/Cargo.toml" --target "${_host}"

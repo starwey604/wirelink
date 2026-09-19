@@ -252,10 +252,10 @@ int main(int argc, char **argv) {
   std::sort(all.begin(), all.end());
   auto quantile = [&](double q) { return all[std::min(all.size() - 1, size_t(q * all.size()))]; };
   const auto total = uint64_t(producers) * count;
-  std::printf("{\"profile\":\"%s\",\"abi\":%u,\"mode\":\"%s\",\"producers\":%u,\"calls\":%llu,\"bytes\":%u,\"period_us\":%u,"
+  std::printf("{\"profile\":\"%s\",\"codegen_contract\":\"%u.%u\",\"mode\":\"%s\",\"producers\":%u,\"calls\":%llu,\"bytes\":%u,\"period_us\":%u,"
     "\"wall_ns\":%.0f,\"cpu_ns_per_call\":%.3f,\"calls_per_second\":%.3f,"
     "\"p50_ns\":%.3f,\"p95_ns\":%.3f,\"p99_ns\":%.3f,\"max_ns\":%.3f,"
-    "\"dispatched\":%llu,\"coalesced\":%llu,\"errors\":0", profile, PERF_RUNTIME_CODEGEN_ABI_VERSION, mode.c_str(), producers,
+    "\"dispatched\":%llu,\"coalesced\":%llu,\"errors\":0", profile, PERF_CODEGEN_CONTRACT_MAJOR, PERF_CODEGEN_CONTRACT_MINOR, mode.c_str(), producers,
     static_cast<unsigned long long>(total), bytes, period, wall, used_cpu / total,
     total * 1e9 / wall, quantile(.5), quantile(.95), quantile(.99), all.back(),
     static_cast<unsigned long long>(stats.m_latest_dispatched), static_cast<unsigned long long>(stats.m_latest_coalesced));

@@ -33,10 +33,10 @@ never selects from the target sysroot during a cross-build. Set
 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` and `WIRELINK_WLC_EXECUTABLE` for an offline
 tool cache.
 
-Wirelink pins both the WLC release version and its codegen ABI. Every generated
-manifest is checked at build time before generated C compilation; updating WLC
-therefore requires updating the version, source commit/digest, expected ABI,
-fixtures, and package-consumer tests together.
+Wirelink pins both the WLC release version and its codegen contract. Every
+generated manifest is checked at build time before generated C compilation;
+updating WLC therefore requires updating the version, source commit/digest,
+expected contract, fixtures, and package-consumer tests together.
 
 WLC emits a codec pair (`<module>.h/.c`) and a binding pair
 (`<module>_bindings.h/.c`). The codec exposes allocation-free clear,

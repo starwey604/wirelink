@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.8.0",
-    "codegen_abi": 32
+    "codegen_contract": {"major": 0, "minor": 8}
   },
   "module": "calculator",
   "identity": {
@@ -22,7 +22,7 @@
     {"path": "calculator_bindings.h", "size": 2654, "digest": "0x3424be565871e450"},
     {"path": "calculator_endpoint.h", "size": 409, "digest": "0x5d887e59dc2edba5"},
     {"path": "calculator_runtime.c", "size": 55272, "digest": "0x03fa453fa085fa02"},
-    {"path": "calculator_runtime.h", "size": 41320, "digest": "0xf18597bbcc9197ed"},
+    {"path": "calculator_runtime.h", "size": 41603, "digest": "0x719ab9e4e5d6bfba"},
     {"path": "calculator_values.h", "size": 1986, "digest": "0xc5f8f24fdc224bd5"}
   ]
 }

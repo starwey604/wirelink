@@ -207,8 +207,8 @@ WLC 有意拆分以下入口：
 4. `<runtime>_runtime.h/.c`：高级 retained/RPC 装配及实现。
 
 同一 codec target 可供多个独立命名的 host/device runtime 共用。生成产物必须同时
-匹配 compiler version、codegen ABI、schema identity 和 binding-profile identity。
-ABI 20 增加默认托管 RPC；以下表格为高级 runtime API family：
+匹配 compiler version、生成契约、schema identity 和 binding-profile identity。
+默认 endpoint facade 包含托管 RPC；以下表格为高级 runtime API family：
 
 | 类别 | 生成模式 |
 | --- | --- |
@@ -243,9 +243,9 @@ runtime 自有状态，不要直接操作其组件指针。
 
 ## 兼容性边界
 
-线上协议、C 库版本、WLC compiler 版本、生成代码 ABI、schema identity 和 profile
-identity 是彼此独立的兼容域。Compact-v1 字节向量已经冻结；生成 ABI 要求精确匹配，
-所有生成产物应作为一个整体重新生成。
+线上协议、C 库版本、WLC compiler 版本、生成契约、schema identity 和 profile
+identity 是彼此独立的兼容域。Compact-v1 字节向量已经冻结；1.0 之前生成契约要求
+精确匹配，所有生成产物应作为一个整体重新生成。
 
 固定宽度的 public enum-like domain 和不透明存储大小计划作为 1.x ABI。
 包含 pointer/`size_t` 的结构依赖具体架构。1.x 新能力应通过新函数和独立结构增加，

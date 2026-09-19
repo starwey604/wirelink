@@ -37,12 +37,12 @@ python -c "import calculator_sdk; print(calculator_sdk.__version__)"
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 wlc sdk product.wl --profile product.bind.wl --name product \
   --package-version 1.0.0 --out-dir product-sdk
 ```
 
-前两条命令应分别输出 `wlc 0.8.0` 和 `32`。SDK 的包名和版本由产品维护者决定。生成目录内的 README 包含 C++ 和 Python 构建步骤。源码构建需要先安装 Wirelink 0.8.0，并启用 `WIRELINK_BUILD_CPP_BINDINGS`、`WIRELINK_BUILD_PLATFORM` 和静态 PIC 构建；提供 standalone Asio 头文件。sdist 包含生成的 C 文件，构建时无需 WLC，但仍需要这些原生开发依赖。
+前两条命令应分别输出 `wlc 0.8.0` 和 `0.8`。SDK 的包名和版本由产品维护者决定。生成目录内的 README 包含 C++ 和 Python 构建步骤。源码构建需要先安装 Wirelink 0.8.0，并启用 `WIRELINK_BUILD_CPP_BINDINGS`、`WIRELINK_BUILD_PLATFORM` 和静态 PIC 构建；提供 standalone Asio 头文件。sdist 包含生成的 C 文件，构建时无需 WLC，但仍需要这些原生开发依赖。
 
 ## 兼容性与升级
 

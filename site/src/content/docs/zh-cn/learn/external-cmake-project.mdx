@@ -27,10 +27,10 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
-两条命令应分别显示 `wlc 0.8.0` 和生成 ABI `32`。
+两条命令应分别显示 `wlc 0.8.0` 和生成契约 `0.8`。
 
 ## 把 Wirelink 安装到本地前缀
 
@@ -283,7 +283,7 @@ build/wirelink-generated/temperature_protocol/
 | 报错或现象 | 检查位置 |
 | --- | --- |
 | CMake 找不到 `WirelinkConfig.cmake` | 让 `CMAKE_PREFIX_PATH` 指向安装前缀本身，而不是其中的 `lib` 子目录 |
-| CMake 找不到兼容 WLC | 运行 `wlc --version` 和 `wlc codegen-abi`；必要时把 Cargo 二进制目录重新加入 `PATH` |
+| CMake 找不到兼容 WLC | 运行 `wlc --version` 和 `wlc codegen-contract`；必要时把 Cargo 二进制目录重新加入 `PATH` |
 | 编译 `main.c` 时找不到 `temperature_endpoint.h` | 把可执行程序链接到 `temperature_protocol`，由 target 提供生成 include 目录 |
 
 这些错误分别来自 package 查找、主机 generator 和 target 依赖边界。按照报错指出的边界修复：复制头文件或加入仓库内部路径会掩盖真正的问题。

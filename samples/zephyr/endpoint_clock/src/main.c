@@ -124,8 +124,8 @@ static int performance(void) {
 }
 
 int main(void) {
-  printk("CLOCK_HIL ABI=%u native_ms=%u start\n", CALCULATOR_RUNTIME_CODEGEN_ABI_VERSION,
-      k_uptime_get_32());
+  printk("CLOCK_HIL contract=%u.%u native_ms=%u start\n", CALCULATOR_CODEGEN_CONTRACT_MAJOR,
+      CALCULATOR_CODEGEN_CONTRACT_MINOR, k_uptime_get_32());
   if (transaction(0, 75U) || transaction(0, 150U) || transaction(1, 75U) ||
       transaction(2, 75U) || performance()) return 1;
   printk("CLOCK_HIL ALL PASS\n");

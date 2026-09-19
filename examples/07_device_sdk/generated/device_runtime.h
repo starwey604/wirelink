@@ -6,6 +6,7 @@
 #include <wirelink/endpoint.h>
 #include <wirelink/allocator.h>
 #include <wirelink/frame.h>
+#include <wirelink/version.h>
 #include <string.h>
 #include <wirelink/rpc.h>
 #include <wirelink/rpc_sync.h>
@@ -19,7 +20,11 @@ extern "C" {
 #define DEVICE_BINDING_PROFILE_VERSION 1U
 #define DEVICE_IDENTITY_ALGORITHM "fnv1a64-v1"
 
-#define DEVICE_RUNTIME_CODEGEN_ABI_VERSION 32U
+#define DEVICE_CODEGEN_CONTRACT_MAJOR 0U
+#define DEVICE_CODEGEN_CONTRACT_MINOR 8U
+#if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(DEVICE_CODEGEN_CONTRACT_MAJOR, DEVICE_CODEGEN_CONTRACT_MINOR)
+#  error "Generated code requires an incompatible Wirelink core; regenerate with a matching WLC."
+#endif
 
 /* Generated capabilities, not application overrides. */
 #define DEVICE_RUNTIME_HAS_RPC_CLIENT 1

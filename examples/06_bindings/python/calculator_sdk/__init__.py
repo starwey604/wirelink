@@ -12,7 +12,7 @@ from ._runtime import (Udp, WirelinkError, ClosedError, RpcTimeoutError, Cancell
 
 __version__ = "0.8.0"
 core_version: str = _native.core_version
-codegen_abi: int = _native.codegen_abi
+codegen_contract: str = _native.codegen_contract
 binding_api: int = _native.binding_api
 
 
@@ -161,7 +161,7 @@ class AsyncClient(_runtime.AsyncConnection):
 __all__ = [
     "Client", "AsyncClient", "Udp", "WirelinkError", "ClosedError", "RpcTimeoutError", "CancelledError",
     "RejectedError", "QueueFullError", "TransportError", "CodecError", "InvalidArgumentError",
-    "core_version", "codegen_abi", "binding_api", "__version__",
+    "core_version", "codegen_contract", "binding_api", "__version__",
     "AddRequest",
     "AddResponse",
 ]

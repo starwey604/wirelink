@@ -34,10 +34,10 @@ Confirm that the matching host compiler is still available:
 
 ```sh
 wlc --version
-wlc codegen-abi
+wlc codegen-contract
 ```
 
-It should report `wlc 0.8.0` and codegen ABI `32`.
+It should report `wlc 0.8.0` and codegen contract `0.8`.
 
 ## Install Wirelink into a local prefix
 
@@ -309,7 +309,7 @@ This separation gives the project three clear ownership boundaries:
 | Message or symptom | Check |
 | --- | --- |
 | CMake cannot find `WirelinkConfig.cmake` | Point `CMAKE_PREFIX_PATH` at the exact installation prefix, not its `lib` subdirectory |
-| CMake cannot find compatible WLC | Run `wlc --version` and `wlc codegen-abi`; restore Cargo's binary directory to `PATH` if needed |
+| CMake cannot find compatible WLC | Run `wlc --version` and `wlc codegen-contract`; restore Cargo's binary directory to `PATH` if needed |
 | `temperature_endpoint.h` is missing while compiling | Link the executable to `temperature_protocol` and let that target publish its generated include directory |
 
 These failures occur at different boundaries. Fix the package search, host
