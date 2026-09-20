@@ -59,6 +59,14 @@ Freeze the baseline ELF, map and `.config` before changing the core; build the
 candidate in a separate directory. Both sides must use the same board,
 toolchain and optimization setting.
 
+## Linux USB permissions
+
+`west flash` and `capture_serial.py` need read/write access to the board's
+serial ports. Install
+[`contrib/udev/99-wirelink.rules`](../../contrib/udev/99-wirelink.rules) once,
+or add your user to the `uucp` group; see
+[contrib/udev](../../contrib/udev/README.md).
+
 ## Capture
 
 Start the capture, then reset the board so the boot banner and every sample are

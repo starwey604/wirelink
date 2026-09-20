@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Wirelink development hardware: grant the active desktop session access to the
+# USB serial devices used to flash and monitor ESP32 boards.
+#
+# Install once:
+#   sudo cp contrib/udev/99-wirelink.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload
+#   sudo udevadm trigger
+#
+# Then replug the board. On Arch Linux you can instead add your user to the
+# uucp group: sudo usermod -aG uucp "$USER"  (then log out and back in).
+
+# Espressif native USB Serial/JTAG (ESP32-S2/S3/C3 and later).
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", TAG+="uaccess"
+
+# USB-UART bridges commonly used to flash and monitor ESP32 boards:
+# Silicon Labs CP210x, WCH CH34x/CH910x, FTDI FT232.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", TAG+="uaccess"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", TAG+="uaccess"

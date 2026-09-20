@@ -55,6 +55,12 @@ ESP32-S3 的 Xtensa 工具链不支持 link-time optimization，所以这些构�
 改核心前先冻结基线的 ELF、map 和 `.config`；candidate 在另一个目录构建。
 两侧必须使用相同板子、工具链和优化设置。
 
+## Linux USB 权限
+
+`west flash` 和 `capture_serial.py` 需要读写开发板的串口。安装一次
+[`contrib/udev/99-wirelink.rules`](../../contrib/udev/99-wirelink.rules)，
+或把用户加入 `uucp` 组；见 [contrib/udev](../../contrib/udev/README.md)。
+
 ## 采集
 
 先启动采集，再复位板子，以记录启动横幅和全部样本：
