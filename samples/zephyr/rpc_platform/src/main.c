@@ -10,7 +10,7 @@
 #include <cmsis_core.h>
 #endif
 
-#define CHECK(x) do { if (!(x)) { printk("RPC_H2 FAIL line=%u: %s\n", __LINE__, #x); abort(); } } while (0)
+#define CHECK(x) do { if (!(x)) { printk("RPC_PLATFORM FAIL line=%u: %s\n", __LINE__, #x); abort(); } } while (0)
 typedef struct port {
   rpc_validation_endpoint_t *endpoint;
   struct port *peer;
@@ -171,7 +171,7 @@ static void done(void *context, const wl_rpc_completion_t *result, const respons
 
 int main(void) {
   cycle_init();
-  printk("RPC_H2 contract=%u.%u capacity=%u endpoint_bytes=%u cycle_hz=%u start\n",
+  printk("RPC_PLATFORM contract=%u.%u capacity=%u endpoint_bytes=%u cycle_hz=%u start\n",
       RPC_VALIDATION_CODEGEN_CONTRACT_MAJOR, RPC_VALIDATION_CODEGEN_CONTRACT_MINOR,
       (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY,
       (unsigned)sizeof(rpc_validation_endpoint_t), sys_clock_hw_cycles_per_sec());
@@ -213,7 +213,7 @@ int main(void) {
     const uint32_t start = k_cycle_get_32();
     wl_rpc_completion_t result = rpc_validation_endpoint_execute_sync(client.endpoint, &request, &response, 2000);
     roundtrips[i] = k_cycle_get_32() - start;
-    if (result.status != WL_RPC_SUCCESS) printk("RPC_H2 call=%u result=%d local=%d runtime=%d transport=%d waits=%u/%u handlers=%u reads=%u/%u\n",
+    if (result.status != WL_RPC_SUCCESS) printk("RPC_PLATFORM call=%u result=%d local=%d runtime=%d transport=%d waits=%u/%u handlers=%u reads=%u/%u\n",
         i, result.status, result.local_error, result.runtime_error, result.transport_error,
         client.waits, server.waits, server.handlers, client.reads, server.reads);
     CHECK(result.status == WL_RPC_SUCCESS && response.output == 42 && response.name.length == 3);
@@ -259,13 +259,13 @@ int main(void) {
   CHECK(rpc_validation_endpoint_destroy(&server.endpoint) == WL_OK);
   CHECK(wl_fixed_pool_in_use(&pool) == 0 && response.output == 42 && large.data.data[2022] == 0xa5);
   qsort(roundtrips, 100, sizeof(roundtrips[0]), compare);
-  printk("RPC_H2 tasks calls=122 callbacks=20 hot_alloc=0 waits=%u/%u stack_unused=%u/%u\n",
+  printk("RPC_PLATFORM tasks calls=122 callbacks=20 hot_alloc=0 waits=%u/%u stack_unused=%u/%u\n",
       client.waits, server.waits, (unsigned)unused_main, (unsigned)unused_server);
-  printk("RPC_H2 scheduled_RAM cycles p50=%u p95=%u p99=%u completion_pass_avg=%u irq=on\n",
+  printk("RPC_PLATFORM scheduled_RAM cycles p50=%u p95=%u p99=%u completion_pass_avg=%u irq=on\n",
       roundtrips[49], roundtrips[94], roundtrips[98], completion_cycles / 20);
 
   /* Isolate CPU paths after both other tasks joined; IRQ-off bounded batches.
-   * QEMU/native numbers are functional diagnostics, never H7 performance. */
+   * QEMU/native numbers are functional diagnostics, never hardware performance. */
   CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(103, (wl_clock_t){0})) == WL_OK);
   config.environment.clock = (wl_clock_t){now, &client};
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_OK);
@@ -299,11 +299,11 @@ int main(void) {
   irq_unlock(locked);
   CHECK(decoded.data.length == 2023 && copied.data.data[2022] == 0xa5);
   CHECK(k_thread_stack_space_get(k_current_get(), &unused_main) == 0);
-  printk("RPC_H2 isolated cycles idle=%u encode2023=%u decode2023=%u volatile_copy=%u irq=off reads_per_idle=1 stack_unused=%u\n",
+  printk("RPC_PLATFORM isolated cycles idle=%u encode2023=%u decode2023=%u volatile_copy=%u irq=off reads_per_idle=1 stack_unused=%u\n",
       idle_cycles / 128, encode_cycles / 32, decode_cycles / 32, copy_cycles / 128, (unsigned)unused_main);
   CHECK(rpc_validation_endpoint_destroy(&client.endpoint) == WL_OK);
   CHECK(wl_fixed_pool_in_use(&pool) == 0 && allocations == deallocations + 2); /* Two NULL failures. */
-  printk("RPC_H2 pool attempts=%u frees=%u in_use=0 ALL PASS\n", allocations, deallocations);
-  printk("RPC_H2 ALL PASS\n");
+  printk("RPC_PLATFORM pool attempts=%u frees=%u in_use=0 ALL PASS\n", allocations, deallocations);
+  printk("RPC_PLATFORM ALL PASS\n");
   return 0;
 }

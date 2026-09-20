@@ -5,7 +5,7 @@
 #include "calculator_advanced.h"
 #include "wirelink/loopback.h"
 
-#define CHECK(x) do { if (!(x)) { printk("CLOCK_HIL FAIL line=%u: %s\n", \
+#define CHECK(x) do { if (!(x)) { printk("CLOCK_CHECK FAIL line=%u: %s\n", \
   (unsigned)__LINE__, #x); return -1; } } while (0)
 
 static calculator_endpoint_t client, server;
@@ -90,7 +90,7 @@ static int transaction(int selected_mode, uint32_t idle_ms) {
   }
   const uint32_t elapsed = k_uptime_get_32() - started;
   if (selected_mode == 0 && !result.response_valid)
-    printk("CLOCK_HIL unexpected state=%d elapsed_ms=%u handled=%u\n", (int)result.state, elapsed, handled);
+    printk("CLOCK_CHECK unexpected state=%d elapsed_ms=%u handled=%u\n", (int)result.state, elapsed, handled);
   if (selected_mode == 0) CHECK(result.response_valid && result.response.sum == 42);
   if (selected_mode == 1) CHECK(result.state == WL_RPC_CLIENT_APPLICATION_ERROR && result.application_status == 7);
   if (selected_mode == 2) CHECK(result.state == WL_RPC_CLIENT_TIMED_OUT && elapsed >= 50U);
@@ -99,7 +99,7 @@ static int transaction(int selected_mode, uint32_t idle_ms) {
   wl_adapter_stats_t stats;
   CHECK(wl_loopback_get_stats(&cable, WL_LOOPBACK_ENDPOINT_A, &stats) == WL_OK);
   CHECK(stats.tx_units == (selected_mode == 2 ? 1U : 2U)); /* No premature retry. */
-  printk("CLOCK_HIL rpc mode=%d idle_ms=%u elapsed_ms=%u client_units=%llu PASS\n",
+  printk("CLOCK_CHECK rpc mode=%d idle_ms=%u elapsed_ms=%u client_units=%llu PASS\n",
       selected_mode, idle_ms, elapsed, (unsigned long long)stats.tx_units);
   return 0;
 }
@@ -115,7 +115,7 @@ static int performance(void) {
     CHECK(calculator_endpoint_step(&client) == WL_OK);
   const uint32_t cycles = k_cycle_get_32() - begin;
   CHECK(clock_reads == reads + ITERATIONS);
-  printk("CLOCK_HIL idle iterations=%u cycles/op=%u ns/op=%llu reads/op=1 endpoint_bytes=%u\n",
+  printk("CLOCK_CHECK idle iterations=%u cycles/op=%u ns/op=%llu reads/op=1 endpoint_bytes=%u\n",
       ITERATIONS, cycles / ITERATIONS,
       (unsigned long long)(k_cyc_to_ns_floor64(cycles) / ITERATIONS),
       (unsigned)sizeof(client));
@@ -124,10 +124,10 @@ static int performance(void) {
 }
 
 int main(void) {
-  printk("CLOCK_HIL contract=%u.%u native_ms=%u start\n", CALCULATOR_CODEGEN_CONTRACT_MAJOR,
+  printk("CLOCK_CHECK contract=%u.%u native_ms=%u start\n", CALCULATOR_CODEGEN_CONTRACT_MAJOR,
       CALCULATOR_CODEGEN_CONTRACT_MINOR, k_uptime_get_32());
   if (transaction(0, 75U) || transaction(0, 150U) || transaction(1, 75U) ||
       transaction(2, 75U) || performance()) return 1;
-  printk("CLOCK_HIL ALL PASS\n");
+  printk("CLOCK_CHECK ALL PASS\n");
   return 0;
 }

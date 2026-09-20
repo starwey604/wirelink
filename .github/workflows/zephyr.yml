@@ -49,7 +49,7 @@ jobs:
           --inline-logs
           --outdir twister-out
 
-      # Exercise the same generated-code sample used for the H7 clock check.
+      # Exercise the same generated-code sample used for the clock check.
       # Published WLC 0.8.0 / ABI 32 source pair.
       - name: Check out matching standalone WLC
         uses: actions/checkout@v5

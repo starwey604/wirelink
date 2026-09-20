@@ -94,5 +94,5 @@ sample at the sender; include a sample counter/time if order matters.
 
 See the [adapter contract](../../../docs/zephyr-udp.md) for ownership, budgets,
 optional timing and the deferred Zephyr pool-exhaustion wait. This example is
-not a hard-real-time guarantee. H5 Ethernet/DMA, physical link disconnects,
+not a hard-real-time guarantee. Ethernet/DMA, physical link disconnects,
 pool sizing and CPU/latency tests remain hardware acceptance work.

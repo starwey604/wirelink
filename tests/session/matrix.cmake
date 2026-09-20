@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Same generated code and cases run on desktop, simulators and the H7.
+# Same generated code and cases run on desktop, simulators and hardware.
 set(_session_dir "${CMAKE_CURRENT_LIST_DIR}")
 wirelink_wlc_generate_codec(TARGET session_codec SCHEMA "${_session_dir}/session.wl")
 if(TARGET zephyr_interface)

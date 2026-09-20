@@ -10,7 +10,7 @@ wirelink_wlc_generate_codec(TARGET validation_codec
 wirelink_wlc_generate_runtime(TARGET validation_protocol CODEC_TARGET validation_codec
   PROFILE "${CMAKE_CURRENT_LIST_DIR}/../rpc_usability/rpc_validation.bind.wl")
 target_link_libraries(validation_codec PUBLIC zephyr_interface)
-set(WIRELINK_RPC_TEST_CAPACITY 4 CACHE STRING "Static RPC capacity for H2")
+set(WIRELINK_RPC_TEST_CAPACITY 4 CACHE STRING "Static RPC capacity")
 target_compile_definitions(validation_protocol PUBLIC RPC_VALIDATION_ENDPOINT_RPC_CAPACITY=${WIRELINK_RPC_TEST_CAPACITY})
 target_sources(app PRIVATE src/main.c)
 target_link_libraries(app PRIVATE validation_protocol)

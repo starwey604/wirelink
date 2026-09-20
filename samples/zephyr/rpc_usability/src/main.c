@@ -54,7 +54,7 @@ static int32_t download(void *context, const empty_value_t *input, large_value_t
 static void done(void *context, const wl_rpc_completion_t *result, const response_value_t *output) {
   unsigned before = clock_reads;
   if (result->status != expected)
-    printk("RPC_H1 unexpected outcome=%d expected=%d real_clock=%u runtime=%d transport=%d\n",
+    printk("RPC_OWNERSHIP unexpected outcome=%d expected=%d real_clock=%u runtime=%d transport=%d\n",
         (int)result->status, (int)expected, real_clock, (int)result->runtime_error, (int)result->transport_error);
   CHECK(context == &completions);
   CHECK(result->status == expected);
@@ -121,7 +121,7 @@ static void close_pair(void) {
   CHECK(clock_reads == before);
 }
 int main(void) {
-  printk("RPC_H1 contract=%u.%u capacity=%u start\n", RPC_VALIDATION_CODEGEN_CONTRACT_MAJOR, RPC_VALIDATION_CODEGEN_CONTRACT_MINOR, (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY);
+  printk("RPC_OWNERSHIP contract=%u.%u capacity=%u start\n", RPC_VALIDATION_CODEGEN_CONTRACT_MAJOR, RPC_VALIDATION_CODEGEN_CONTRACT_MINOR, (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY);
   request_value_t value = request();
   unsigned before, target;
   initialize();
@@ -211,6 +211,6 @@ int main(void) {
   CHECK(saved.output == 42 && large_saved.data.data[2022] == 0xa5);
   printk("async endpoint: capacity=%u bytes=%zu completions=%u handlers=%u\n",
       (unsigned)RPC_VALIDATION_ENDPOINT_RPC_CAPACITY, sizeof(client), completions, handlers);
-  printk("RPC_H1 ALL PASS\n");
+  printk("RPC_OWNERSHIP ALL PASS\n");
   return 0;
 }

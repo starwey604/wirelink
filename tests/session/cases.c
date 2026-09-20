@@ -8,7 +8,7 @@
 #define P(suffix) CAT(SESSION_PREFIX,suffix)
 #define STR_(x) #x
 #define STR(x) STR_(x)
-#define CHECK(x) do { if (!(x)) { printf("SESSION_P0 %s line=%d: %s FAIL\n", STR(SESSION_PREFIX), __LINE__, #x); return 1; } } while (0)
+#define CHECK(x) do { if (!(x)) { printf("SESSION %s line=%d: %s FAIL\n", STR(SESSION_PREFIX), __LINE__, #x); return 1; } } while (0)
 
 static P(_endpoint_t) client, server;
 static uint64_t identity = UINT64_C(0x123456789abcdef0);
@@ -201,7 +201,7 @@ int P(_run)(void) {
   CHECK(P(_endpoint_init_config)(&client, &config) == WL_OK && attach() == 0);
   CHECK(call(90) == 0 && drain(10) == 0 && notifications == 8 && value == 91);
   CHECK(P(_endpoint_close)(&client) == WL_OK && P(_endpoint_close)(&server) == WL_OK);
-  printf("SESSION_P0 %s rebuild/success/reject/deferred source_reads=%u hot_reads=0 endpoint_bytes=%u PASS\n",
+  printf("SESSION %s rebuild/success/reject/deferred source_reads=%u hot_reads=0 endpoint_bytes=%u PASS\n",
       STR(SESSION_PREFIX), source_reads, (unsigned)sizeof(client));
   return 0;
 }

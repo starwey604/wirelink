@@ -9,7 +9,7 @@ common:
   harness: console
   harness_config:
     type: one_line
-    regex: ['RPC_H1 ALL PASS']
+    regex: ['RPC_OWNERSHIP ALL PASS']
 tests:
   sample.wirelink.rpc_usability:
     # Two near-2-KiB/four-slot endpoints plus Zephyr exceed this M3's 64-KiB RAM.

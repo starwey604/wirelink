@@ -1,6 +1,6 @@
-# H2: RPC platform, storage and CPU probes
+# RPC platform, storage and CPU probes
 
-Standalone ABI 26 validation, not product firmware. Two Zephyr tasks exchange
+A standalone validation app, not product firmware. Two Zephyr tasks exchange
 native packets through bounded RAM queues with latched data/credit notifications.
 One task owns each endpoint. This is not USB/UART/DMA hardware validation.
 
@@ -15,30 +15,35 @@ It reports cycle-counter frequency, endpoint bytes, wait counts and unused stack
 completion-containing owner pass, not isolated RPC completion CPU cost. Separate
 bounded IRQ-off batches measure an idle step, encode/decode of 2023 bytes and
 volatile full-value copy after other tasks have joined. No subtractive timer
-overhead correction is applied. Cortex-M uses DWT CYCCNT for CPU passes/batches,
-not SysTick's interrupt-dependent wrap accounting while IRQs are masked. The
-IRQ-enabled round-trip measurement uses the system cycle clock to include sleep.
-Native_sim's simulated cycles/stacks are not
-hardware measurements; QEMU numbers are also functional diagnostics only.
+overhead correction is applied. The IRQ-enabled round-trip measurement uses the
+system cycle clock to include sleep. Simulator cycles and stacks are not hardware
+measurements; QEMU numbers are functional diagnostics only.
 
-Build from an initialized Zephyr workspace:
+## Build and run
+
+From an initialized Zephyr workspace:
 
 ```sh
-west build -b dm_mc02/stm32h723xx /path/to/wirelink/samples/zephyr/rpc_platform \
-  -d /path/to/wirelink/build/rpc-h2-h7-four -- \
-  -DBOARD_ROOT=/path/to/Ragtime_Firmwares/firmware \
+west build -s /path/to/wirelink/samples/zephyr/rpc_platform -b native_sim \
+  -d /path/to/build/rpc-platform-native -- \
   -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/matching/abi26/wlc
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
 ```
 
 Repeat with a separate directory and `-DWIRELINK_RPC_TEST_CAPACITY=1`. The sample
-matrix runs native_sim, RISC-V and x86_64 QEMU; it does not enlarge the 64-KiB M3
-RAM to accommodate two maximum-size endpoints, packet queues and measurement buffers.
+matrix runs `native_sim`, RISC-V and x86_64 QEMU.
 
-Before hardware, require software/CI gates. Record core/compiler SHAs, ELF hash,
-board clocks/cache configuration, RAM and build flags. Direct flash is authorized;
-no old-firmware backup. Capture RTT including `RPC_H2 ALL PASS`, run/reset both
-capacities, and separately report observations rather than comparing QEMU or old
-idle figures as if they shared the same measurement setup. Probe connection
-failure may need the user to replug/hold RESET. Product physical-link validation
-remains H3.
+## ESP32-S3 hardware run
+
+```sh
+west build -b esp32s3_devkitc/esp32s3/procpu \
+  /path/to/wirelink/samples/zephyr/rpc_platform -d build/rpc-platform-hw -- \
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+west flash -d build/rpc-platform-hw
+python benchmarks/zephyr/capture_serial.py \
+  --port /dev/ttyACM0 --out rpc-platform.log --until "ALL PASS" --seconds 120
+```
+
+`boards/esp32s3_devkitc_esp32s3_procpu.overlay` routes the console to the board
+USB Serial/JTAG port. Record the board clocks/cache configuration, RAM and build
+flags with the result, and do not compare hardware numbers with simulator numbers.

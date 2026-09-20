@@ -11,39 +11,41 @@ wrap, failed admission, close notification and stale handles. Saved responses
 survive slot reuse and endpoint reinitialization. Clock-read budgets are asserted.
 The deterministic phase uses an injected manual clock. A separate phase uses
 Zephyr uptime after a 75-ms idle gap; its 2000-ms deadline is a functional margin,
-not an RPC latency benchmark. The existing `endpoint_clock` sample additionally
-checks real deadlines and remains an advanced-token regression.
+not an RPC latency benchmark. The `endpoint_clock` sample additionally checks real
+deadlines and remains an advanced-token regression.
 
-## Build
+## Build and run
 
-From an initialized Zephyr workspace, with absolute paths adjusted to your machine:
+From an initialized Zephyr workspace with a matching WLC compiler:
 
 ```sh
-west build -b dm_mc02/stm32h723xx /path/to/wirelink/samples/zephyr/rpc_usability \
-  -d /path/to/wirelink/build/rpc-m2-h7 -- \
-  -DBOARD_ROOT=/path/to/Ragtime_Firmwares/firmware \
+west build -s /path/to/wirelink/samples/zephyr/rpc_usability -b native_sim \
+  -d /path/to/build/rpc-ownership-native -- \
   -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/matching/wlc
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
 ```
 
-The external board root supplies only the board definition, not a product
-dependency migration. Use matching ABI 23 WLC. Repeat in a separate build directory
-with `-DWIRELINK_RPC_TEST_CAPACITY=1`; the default is four slots. This sets capacity
-consistently for all generated-runtime consumers.
+Repeat in a separate build directory with `-DWIRELINK_RPC_TEST_CAPACITY=1`; the
+default is four slots. This sets capacity consistently for all generated-runtime
+consumers.
 
-Native/QEMU validation uses `west twister -T samples/zephyr/rpc_usability` from the
-Wirelink repository or the equivalent absolute path. The 64-KiB Cortex-M3 supports
-the one-slot stress configuration only: two large four-slot endpoints plus Zephyr
-exceed its RAM. Four slots are exercised on native_sim, RISC-V and x86_64 QEMU.
+Twister runs `native_sim`, Cortex-M3, RISC-V and x86_64 QEMU. The 64-KiB Cortex-M3
+supports the one-slot stress configuration only: two large four-slot endpoints
+plus Zephyr exceed its RAM. Four slots are exercised on `native_sim`, RISC-V and
+x86_64 QEMU.
 
-## H7 handoff checklist
+## ESP32-S3 hardware run
 
-1. Record matching Wirelink/WLC commits, ABI, ELF hash, board, clocks and build flags.
-2. When H1 is authorized, flash the standalone image and capture RTT output.
-   No old-firmware backup is required. Ask for replug/held RESET only if J-Link
-   connection fails; the sample itself requires no buttons.
-3. Require `RPC_H1 ABI=23 capacity=... start`, no FAIL/abort, the final size/count
-   record, and `RPC_H1 ALL PASS`. Repeat both capacities and cold restarts.
-4. A successful loopback check proves target execution/ownership, not USB/UART/DMA
-   performance, hardware transport reliability or product compatibility. Those
-   require later H2/H3 work; do not use host timings as firmware CPU measurements.
+```sh
+west build -b esp32s3_devkitc/esp32s3/procpu \
+  /path/to/wirelink/samples/zephyr/rpc_usability -d build/rpc-ownership-hw -- \
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+west flash -d build/rpc-ownership-hw
+python benchmarks/zephyr/capture_serial.py \
+  --port /dev/ttyACM0 --out rpc-ownership.log --until "ALL PASS" --seconds 120
+```
+
+`boards/esp32s3_devkitc_esp32s3_procpu.overlay` routes the console to the board
+USB Serial/JTAG port. Expect `RPC_OWNERSHIP ALL PASS`, no FAIL/abort, and the
+final size/count record. A successful loopback check proves target execution and
+ownership, not USB/UART/DMA performance or hardware transport reliability.
