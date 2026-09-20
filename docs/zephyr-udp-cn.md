@@ -111,18 +111,17 @@ owner 可以查询 `get_stats()`：通用收发计数、拒绝包数、真正 so
 
 ## 验收记录与复现
 
-2026-09-11：Zephyr `e4e6910cc19b7f11eada127e54c0b5248f413799`（4.4.99）、
-SDK 1.0.1，生成器为本地 WLC `85b1bdc`，0.7.0-dev / ABI 32。未改动 WLC 工作区。
+Zephyr 4.4.99、SDK 1.0.1，使用本地构建的 WLC。
 
 | 测试组 | 平台 | 执行结果 |
 | --- | --- | --- |
-| M0 socket + M1 adapter + 既有 protocol/waiter | native_sim 32/64、Cortex-M3 QEMU | 10 配置，112/112 用例通过 |
+| socket 合同 + adapter + 既有 protocol/waiter | native_sim 32/64、Cortex-M3 QEMU | 10 配置，112/112 用例通过 |
 | 生成端点 UDP 验收 | 同上 | 3 配置，12/12 用例通过 |
 
-M1 新增 12 个 adapter 用例及 4 个生成端点用例。C++17 头文件消费、自动 attach、真实
+本轮新增 12 个 adapter 用例及 4 个生成端点用例。C++17 头文件消费、自动 attach、真实
 DATA/ACK 背压、静态槽复用、混合 RPC/遥测、同步等待、拒绝、取消、无对端超时和生成层
 close 均通过。ACK 背压测试注入已接收的 core 单元后耗尽 packet 池；其余收发走真实
-Zephyr UDP loopback。这里没有 Linux socket offload、实际 Ethernet/DMA 或 H5 CPU 结果。
+Zephyr UDP loopback。这里没有平台 socket offload、实际 Ethernet/DMA 或固件 CPU 结果。
 
 在初始化的 Zephyr workspace 中，替换路径后运行：
 
@@ -133,22 +132,21 @@ west twister \
   -T /path/to/wirelink/tests/zephyr/integration/waiter \
   -T /path/to/wirelink/tests/zephyr/integration/protocol \
   -p native_sim -p native_sim/native/64 -p qemu_cortex_m3 \
-  -j 2 --inline-logs --outdir /path/to/wirelink/build/udp-m1-final
+  -j 2 --inline-logs --outdir /path/to/wirelink/build/udp-adapter
 
 west twister -T /path/to/wirelink/samples/zephyr/udp_validation \
   -p native_sim -p native_sim/native/64 -p qemu_cortex_m3 \
   -x=WIRELINK_WLC_AUTO_DOWNLOAD=OFF \
   -x=WIRELINK_WLC_EXECUTABLE=/path/to/matching/wlc \
-  -j 2 --inline-logs --outdir /path/to/wirelink/build/udp-m1-generated-final
+  -j 2 --inline-logs --outdir /path/to/wirelink/build/udp-generated
 ```
 
 结果保存在对应目录的 `twister.json`、`twister.log` 和各配置的 `handler.log`。
-CI 已将生成端点验收接入“先构建匹配 WLC，再运行生成示例”的步骤，不要求用户仓库内
-存在开发用 `wlc/` worktree。本轮未修改产品依赖、未发布、未烧录，也未跑性能 benchmark。
+CI 先构建匹配的 WLC，再运行生成示例。
 
 ## 必须保留的下一步：Zephyr 原生发送等待
 
-此项按用户决定暂缓，保留为后续优化，不阻止实验状态的 M3 合入。
+此项保留为后续优化。
 容量规划可以减少耗尽，但不能替代耗尽时的非阻塞兜底。
 
 耗尽 TX packet 池后，三种测试平台均打印了 `UDP_TX_POOL_WAIT elapsed_ms=1010`。
@@ -162,6 +160,6 @@ manifest 中的 [Zephyr v4.4.0](https://github.com/zephyrproject-rtos/zephyr/blo
 也存在同样调用，但本轮运行结果仅代表上述实际构建版本。
 
 后续应在隔离的 Zephyr 改动中使分配路径尊重非阻塞/时间上限，再验证 packet **和** buffer
-耗尽；之后才进行 H5 驱动锁、DMA 描述符压力、网络线程优先级及控制线程受扰测试。
+耗尽；之后才测量驱动锁、DMA 描述符压力、网络线程优先级及控制线程受扰。
 发送前读取全局池空闲数量存在竞争，不能当作保证；直接改用 net_context 也绕不开共用路径。
-本轮没有修改仓库外 Zephyr，不能把 M1 的功能通过描述为实时性问题已经解决。
+本轮没有修改仓库外 Zephyr；功能通过不等于实时性问题已解决。

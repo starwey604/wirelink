@@ -1,7 +1,7 @@
 # Automatic session identity and platform environment
 
-Ordinary applications do not select or retain session IDs. Codegen ABI 26 acquires
-a fresh identity at endpoint initialization. [中文](session-cn.md). No new release
+Ordinary applications do not select or retain session IDs. An endpoint acquires
+a fresh identity at initialization. [中文](session-cn.md). No new release
 is published; both managed-RPC peers must use matching builds.
 
 ## Default integration
@@ -67,7 +67,7 @@ Advanced raw link/runtime integrations still explicitly own their identity polic
 Replace `init(endpoint, session_id, clock)` with `init(endpoint, environment)` and
 `config.clock` with `config.environment.clock`. Leave the ordinary configuration's
 `link.session_id` zero: initialization fills an internal copy. Regenerate all
-consumers for ABI 26. Managed metadata v2 is 20 rather than 12 bytes and does not
+consumers. Managed metadata v2 is 20 rather than 12 bytes and does not
 interoperate with v1: upgrade both peers. Maximum one-frame business capacity
 shrinks by eight bytes. Mapped RPC, business codec bytes and Compact-v1 frames are
 unchanged; mapped responses do not automatically acquire this new protection.

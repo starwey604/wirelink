@@ -2,7 +2,7 @@
 
 静态 `calculator_endpoint_t client = {0}` 仍是默认方式。只有不想由调用者保存大结构体，
 或需要绑定层统一管理对象时，才使用本篇的创建层。[English](endpoint-storage.md)。
-生成 ABI 26；创建层复用[自动会话](session-cn.md)，托管 RPC 采用元数据 v2。
+创建层复用[自动会话](session-cn.md)，托管 RPC 采用元数据 v2。
 
 ## 分配器只决定存储来自哪里
 

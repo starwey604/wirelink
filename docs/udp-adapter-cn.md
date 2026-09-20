@@ -67,7 +67,7 @@ native 路径没有这次复制。并不承诺 Asio 或其他主机操作完全�
 超长包与关闭后重建。Release 检查不依赖会被 `NDEBUG` 删除的 assert。
 旧单进程示例保留在 `tests/tutorials/loopback/` 做确定性回归。
 
-时钟演进采用生成 ABI 21，不改变核心冻结帧／codec 字节。
+时钟注入不改变核心冻结帧／codec 字节。
 客户端重建、调用编号复用后的旧响应隔离限制仍然存在，见 [RPC 合同](rpc-runtime-cn.md)。
 
 ### 链路与 RPC 共用一个时钟

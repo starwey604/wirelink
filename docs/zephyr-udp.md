@@ -156,11 +156,10 @@ platforms. It is logged, not asserted as a required minimum that would freeze
 the upstream behavior. This also limits how promptly RPC timeout/stop can be
 observed when the owner is inside that send.
 
-This allocation issue is explicitly deferred, not a blocker for the experimental
-M3 merge. Before real-time acceptance, make the native allocation path honor nonblocking
+This allocation issue is explicitly deferred. Before real-time acceptance, make the native allocation path honor nonblocking
 operation/time bounds in an isolated Zephyr change and retest packet **and**
 buffer exhaustion. Then measure driver locks, descriptor pressure, priority and
-control-task interference on H5 Ethernet. Checking free global pool counts
+control-task interference on Ethernet. Checking free global pool counts
 before send is not a race-free workaround, and using net_context directly would
 still encounter this shared path. This iteration does not modify the external Zephyr tree,
-product pins, firmware or release tags, and does not claim H5 latency/CPU results.
+product pins, firmware or release tags, and does not claim hardware latency or CPU results.

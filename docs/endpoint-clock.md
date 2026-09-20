@@ -2,7 +2,7 @@
 
 Wirelink needs elapsed time to retry unacknowledged packets and expire RPC work.
 It does not need the calendar date or synchronized clocks on both devices.
-ABI 21 moves this input from every default endpoint operation to initialization.
+Initialization takes this input once; default endpoint operations do not.
 [中文](endpoint-clock-cn.md).
 
 ## Ordinary applications
@@ -53,10 +53,10 @@ its clock context must survive `stop()`.
 
 ## Advanced API migration
 
-Rebuild core, generated code, and consumers together; do not mix generated ABI
-headers or endpoint layouts. Clock injection arrived in ABI 21 without changing
-wire bytes. Current ABI 26 also introduces [automatic sessions and managed RPC v2](session.md),
-which requires paired managed-RPC peer upgrades.
+Rebuild core, generated code, and consumers together; do not mix generated
+contract headers or endpoint layouts. Clock injection does not change wire
+bytes. [Automatic sessions and managed RPC v2](session.md) require paired
+managed-RPC peer upgrades.
 
 | API | Current use |
 | --- | --- |

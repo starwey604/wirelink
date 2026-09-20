@@ -2,8 +2,9 @@
 
 Static `calculator_endpoint_t client = {0}` remains the default. Use creation
 when a caller or language binding should not embed the large endpoint object.
-[中文](endpoint-storage-cn.md). Codegen ABI 26 uses [automatic sessions](session.md)
-and managed RPC metadata v2; creation shares ordinary endpoint initialization.
+[中文](endpoint-storage-cn.md). The creation layer uses
+[automatic sessions](session.md) and managed RPC metadata v2; creation shares
+ordinary endpoint initialization.
 
 ## The allocator supplies storage, not message lifetimes
 

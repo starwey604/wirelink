@@ -184,8 +184,8 @@ Ordinary applications use a generated `*_endpoint_t`, not a hand-written struct
 of buffer pointers. The type contains a generic `wl_endpoint_t`, runtime state,
 and statically sized storage. Its private members are not application API.
 `*_endpoint_init()` supplies native-packet/CRC32C defaults; `init_config()` allows
-explicit transport settings, RPC roles, policies, and callbacks. ABI 21 requires
-an initialization-time `wl_clock_t`; daily endpoint operations no longer take
+explicit transport settings, RPC roles, policies, and callbacks. Initialization
+takes a `wl_clock_t`; daily endpoint operations no longer take
 `now_ms`. Advanced runtime/link APIs remain explicit-time. See
 [clock ownership and migration](endpoint-clock.md). Objects must
 start zero-initialized and must not move until closed.
@@ -213,7 +213,7 @@ bounded slots and a recent-result cache. Manual calls/tokens and
 Explicit field mappings remain a separate interoperability mode.
 See [platform integration](rpc-platform.md) for waiters and background proxies.
 
-## WLC-Generated Surface (ABI 26)
+## WLC-Generated Surface
 
 WLC deliberately splits these entries:
 
@@ -277,7 +277,7 @@ append fields to closed v1 configuration/event structures. See
 
 ## Pre-1.0 Review Points
 
-ABI 26 / managed metadata v2 resolves response ownership by echoing the originating
+Managed RPC metadata v2 resolves response ownership by echoing the originating
 client identity and checking it with the call number across every delivery
 combination. See the [RPC contract](rpc-runtime.md). Compact-v1 framing is unchanged.
 

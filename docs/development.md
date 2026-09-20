@@ -22,8 +22,8 @@ cargo test --manifest-path wlc/Cargo.toml
 ```
 
 Consumer builds use an independently installed matching compiler rather than
-requiring this development worktree. Current internal ABI 26 has no matching
-release binary; the automatic fallback builds the paired source commit.
+requiring this development worktree. When no matching release binary is found,
+the automatic fallback builds the paired source commit.
 `wirelink_wlc_generate_codec()` resolves a per-call executable, a
 project-wide executable, or a compatible `wlc` on the host `PATH` before
 fetching the pinned source archive. The fallback verifies its fixed SHA256,

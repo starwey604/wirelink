@@ -175,7 +175,7 @@ deadline hint。reset 必须由外部串行化，存在 borrow/claim 时不得 r
 `endpoint_init()` 使用整包传输/CRC32C 默认配置；`init_config()` 允许选择传输、
 RPC 角色、超时策略和回调。对象首次使用前必须零初始化，关闭前不能移动。
 
-ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `now_ms`；
+初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `now_ms`；
 高级 runtime/link 保留显式时间，见[时钟所有权与迁移](endpoint-clock-cn.md)。
 
 `endpoint_send_<message>()` 采用 retained profile 的传输方式；
@@ -195,7 +195,7 @@ ABI 21 在初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `n
 手动 call/token 和 `config.advanced` 是高级入口。
 已有字段映射仍为独立的互操作模式。
 
-## WLC 生成接口（ABI 26）
+## WLC 生成接口
 
 WLC 有意拆分以下入口：
 
@@ -264,7 +264,7 @@ identity 是彼此独立的兼容域。Compact-v1 字节向量已经冻结；1.0
   header；
 - 对可靠非 RPC 流量手动执行 peer observation 是否足够易发现，还是应引入统一的
   session object。
-- 托管 RPC 响应归属已由 ABI 26 / 元数据 v2 收敛：自动身份与编号共同校验，
+- 托管 RPC 响应归属由元数据 v2 收敛：自动身份与编号共同校验，
   覆盖客户端重建及所有 delivery 组合，见 [RPC 合同](rpc-runtime-cn.md)。
 
 上述设计在 1.0 前仍可调整。RPC 元数据的演进可能改变 RPC payload，

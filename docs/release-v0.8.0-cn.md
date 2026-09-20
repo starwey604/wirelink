@@ -48,7 +48,7 @@ wlc sdk product.wl --profile product.bind.wl --name product \
 
 Protocol v1 保持不变。WLC 生成 C ABI 为 `32`，binding source API revision 为 `2`，Python 扩展使用对应 CPython ABI；这些版本彼此独立。
 
-从 v0.6.0 升级时，重新生成所有 C 工件和 SDK，并与 Wirelink 0.8.0 一起重编译。已有 ABI 32 开发版本也应重新生成 SDK，以更新版本、构建依赖和包元数据。不要混用旧版原生开发包。v0.8 的 CMake 包按同一 minor 版本匹配，生成的 SDK 要求精确的 Wirelink 0.8.0；C++ 不承诺跨编译器的稳定二进制 ABI。
+从 v0.6.0 升级时，重新生成所有 C 工件和 SDK，并与 Wirelink 0.8.0 一起重编译。已有开发版本也应重新生成 SDK，以更新版本、构建依赖和包元数据。不要混用旧版原生开发包。v0.8 的 CMake 包按同一 minor 版本匹配，生成的 SDK 要求精确的 Wirelink 0.8.0；C++ 不承诺跨编译器的稳定二进制 ABI。
 
 取消操作不能撤销对端已经执行的业务。应用应使用 `with`、`async with` 或显式关闭来确定资源释放时间；连接创建只打开本地 I/O，不代表已经与对端握手。
 

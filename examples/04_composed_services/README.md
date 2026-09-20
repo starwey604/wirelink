@@ -5,7 +5,7 @@ one dispatch loop. `product.wl` imports independently maintained `arm.wl` and
 `upgrade.wl`; their profiles compose at generation time. No dynamic registry,
 USB channel or wire-frame revision is involved.
 
-Build with the matching WLC 0.7.0-dev / ABI 32:
+Build with a matching WLC:
 
 ```sh
 cmake -S . -B build/composed -DWIRELINK_BUILD_COMPOSED_SERVICES=ON \

@@ -88,7 +88,7 @@ queue pressure, readiness timeout/wakeup, wrong sources, oversize rejection and
 close/reinitialization. Release tests use checks that remain active with `NDEBUG`.
 The old combined tutorials remain under `tests/tutorials/loopback/`.
 
-The clock evolution uses generated ABI 21 without changing frozen core frame/codec bytes.
+Clock injection does not change frozen core frame/codec bytes.
 The existing limitation around old RPC responses after client reconstruction and
 wire-ID reuse still applies; see [RPC correlation](rpc-runtime.md).
 
