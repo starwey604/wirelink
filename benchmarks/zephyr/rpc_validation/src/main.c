@@ -4,6 +4,8 @@
 #include <zephyr/timing/timing.h>
 static rpc_validation_fixture_t fixture;
 int main(void) {
+  /* Let the USB Serial/JTAG console attach after reset before printing. */
+  k_sleep(K_MSEC(2000));
   timing_init(); timing_start();
   printk("rpc_validation_begin_v2,hz=%llu,batch=32\n", (unsigned long long)timing_freq_get());
   const size_t lengths[] = {0, 16, 32, 256, 512};

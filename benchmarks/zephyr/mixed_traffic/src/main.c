@@ -41,6 +41,8 @@ void mixed_fw_case_end(const char *scenario, int envelope) {
 void mixed_retry_cpu(void);
 
 int main(void) {
+  /* Let the USB Serial/JTAG console attach after reset before printing. */
+  k_sleep(K_MSEC(2000));
   timing_init();
   timing_start();
   printk("mixed_fw_begin_v1,hz=%llu,lto=%u,coexist=%u,endpoint_bytes=%u,barriers=1\n",

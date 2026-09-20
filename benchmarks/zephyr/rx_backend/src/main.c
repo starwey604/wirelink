@@ -709,6 +709,8 @@ static void run_usb_ingress(void) {
 #endif
 
 int main(void) {
+  /* Let the USB Serial/JTAG console attach after reset before printing. */
+  k_sleep(K_MSEC(2000));
   int ret = init_link();
 
   if (ret != 0) {

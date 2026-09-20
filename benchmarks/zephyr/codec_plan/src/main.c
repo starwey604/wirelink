@@ -13,6 +13,8 @@
 #endif
 static codec_plan_fixture_t fixtures[CODEC_PLAN_KINDS];
 int main(void) {
+  /* Let the USB Serial/JTAG console attach after reset before printing. */
+  k_sleep(K_MSEC(2000));
   timing_init(); timing_start();
   printk("codec_plan_begin_v1,hz=%llu,lto=%u,barriers=1\n", (unsigned long long)timing_freq_get(), IS_ENABLED(CONFIG_LTO));
   /* mode 0: warm homogeneous; mode 1: I-cache invalidated before each sample;

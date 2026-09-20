@@ -5,6 +5,8 @@
 
 static framing_fixture_t fixture;
 int main(void) {
+  /* Let the USB Serial/JTAG console attach after reset before printing. */
+  k_sleep(K_MSEC(2000));
   timing_init();
   timing_start();
   printk("framing_cpu_begin_v1,hz=%llu,context_bytes=%u,irq_masked_batch=32\n",
