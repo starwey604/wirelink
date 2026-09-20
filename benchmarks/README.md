@@ -29,5 +29,6 @@ same workloads on the ESP32-S3 DevKitC and must use the same frozen generated
 artifacts on both sides.
 
 How to reproduce each result is documented here. Published, machine-specific
-numbers live on the [documentation site](https://docs.silkenkite.ink/wirelink/)
+numbers live on the
+[documentation site](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)
 and are refreshed by hand after a real measurement, not committed per run.

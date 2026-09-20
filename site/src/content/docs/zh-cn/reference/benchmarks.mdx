@@ -1,0 +1,46 @@
+---
+title: 性能实测结果
+description: Wirelink 的代表性实测运行及其环境。
+sidebar:
+  order: 4
+---
+
+Wirelink 的基准是复现指南，不是性能承诺。本页由人工在真实测量后记录代表性运行，每条都写明完整环境。要自己复现，从[基准说明](https://github.com/starwey604/wirelink/tree/main/benchmarks)开始。
+
+:::note[单次运行，不是承诺]
+每张表都是某台机器上的一次运行。频率、温度、工具链和后台负载都会改变数字。请把它当作观察，而不是性能承诺。
+:::
+
+## 怎么记录一次运行
+
+每次运行加一节，并写全这些字段：
+
+- 日期和目标（主机，或 ESP32-S3 DevKitC）。
+- 硬件：CPU 或开发板、主频、cache 和内存配置。
+- 来源：Wirelink commit，以及 WLC 版本和生成契约。
+- 工具链与构建参数：编译器、优化级别、LTO 开关。
+- 完整命令，以及重复次数或样本量。
+- 结果表。
+
+## 已发布运行
+
+目前还没有发布结果。真实的主机或实板测量完成后，在这里补上。
+
+{/* 每次运行复制这个模板：
+
+### 2026-09-20 - ESP32-S3 DevKitC
+
+| 字段 | 值 |
+| --- | --- |
+| 目标 | esp32s3_devkitc/esp32s3/procpu |
+| Wirelink | <commit> |
+| WLC / 契约 | 0.8.0 / 0.8 |
+| 工具链 | Zephyr 4.4.99、Zephyr SDK 1.0.1 |
+| 构建 | -O2、LTO 关闭 |
+| 命令 | `python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 --out run.log --until result=pass` |
+
+| 基准 | 指标 | 值 |
+| --- | --- | --- |
+| framing | cycles/op | ... |
+
+*/}

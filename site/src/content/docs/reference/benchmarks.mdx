@@ -1,0 +1,46 @@
+---
+title: Benchmark results
+description: Representative Wirelink benchmark runs and the environment that produced them.
+sidebar:
+  order: 4
+---
+
+Wirelink's benchmarks are reproduction guides, not guarantees. This page records representative runs by hand after a real measurement, and every entry states the full environment. To re-run a benchmark yourself, start from the [benchmark guides](https://github.com/starwey604/wirelink/tree/main/benchmarks).
+
+:::note[Single runs, not guarantees]
+Each table is one run on one machine. Clock frequency, thermal state, toolchain and background load all move the numbers. Treat them as observations, not performance commitments.
+:::
+
+## How to record a run
+
+Add one section per run and include every field:
+
+- Date and target (host, or ESP32-S3 DevKitC).
+- Hardware: CPU or board, clock, cache and memory configuration.
+- Source: Wirelink commit, and WLC version plus codegen contract.
+- Toolchain and build flags: compiler, optimization, LTO on or off.
+- The exact command, and the repetition count or sample size.
+- The result table.
+
+## Published runs
+
+No results are published yet. This section is filled in after a real host or hardware run.
+
+{/* Copy this template for each run:
+
+### 2026-09-20 - ESP32-S3 DevKitC
+
+| Field | Value |
+| --- | --- |
+| Target | esp32s3_devkitc/esp32s3/procpu |
+| Wirelink | <commit> |
+| WLC / contract | 0.8.0 / 0.8 |
+| Toolchain | Zephyr 4.4.99, Zephyr SDK 1.0.1 |
+| Build | -O2, LTO off |
+| Command | `python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 --out run.log --until result=pass` |
+
+| Benchmark | Metric | Value |
+| --- | --- | --- |
+| framing | cycles/op | ... |
+
+*/}

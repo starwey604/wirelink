@@ -176,7 +176,8 @@ Top-level examples are enabled by default and may be disabled with
 The opt-in benchmarks under [`benchmarks`](benchmarks/README.md) measure CPU,
 memory, and transport cost. They never enter the core, are not correctness
 gates, and are not performance guarantees. Machine-specific results are
-published on the [documentation site](https://docs.silkenkite.ink/wirelink/).
+published on the
+[documentation site](https://docs.silkenkite.ink/wirelink/reference/benchmarks/).
 
 ## Documentation
 
