@@ -27,8 +27,12 @@
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/framing -d build/framing-hw -- \
   -DZEPHYR_EXTRA_MODULES=/path/to/wirelink
-west flash -d build/framing-hw
+west flash -d build/framing-hw --esp-device /dev/ttyACM0
 ```
+
+烧录用开发板的 UART 桥，采集用 USB Serial/JTAG console，否则两个进程会抢同一个口。
+UART 桥是 `ttyACM0` 时，console 就是 `ttyACM1`。
+app 启动时等两秒，让主机在复位后有时间重新打开 console。
 
 `rpc_validation` 和 `codec_plan` 链接冻结的生成产物：
 

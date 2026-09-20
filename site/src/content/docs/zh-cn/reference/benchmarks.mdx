@@ -24,23 +24,74 @@ Wirelink 的基准是复现指南，不是性能承诺。本页由人工在真�
 
 ## 已发布运行
 
-目前还没有发布结果。真实的主机或实板测量完成后，在这里补上。
-
-{/* 每次运行复制这个模板：
-
 ### 2026-09-20 - ESP32-S3 DevKitC
 
 | 字段 | 值 |
 | --- | --- |
-| 目标 | esp32s3_devkitc/esp32s3/procpu |
-| Wirelink | <commit> |
+| 目标 | `esp32s3_devkitc/esp32s3/procpu`，ESP32-S3 rev v0.2，240 MHz |
+| 内存 | 8 MB flash、2 MB PSRAM |
+| Wirelink | `acc08c1` |
 | WLC / 契约 | 0.8.0 / 0.8 |
-| 工具链 | Zephyr 4.4.99、Zephyr SDK 1.0.1 |
-| 构建 | -O2、LTO 关闭 |
-| 命令 | `python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 --out run.log --until result=pass` |
+| 工具链 | Zephyr 4.4.99、Zephyr SDK 1.0.1、GCC 14.3.0 |
+| 构建 | `-O2`、LTO 关闭、`CONFIG_ASSERT=y` |
+| 烧录/串口 | `west flash --esp-device /dev/ttyACM0`；console 在 `/dev/ttyACM1` |
+| 采集 | `python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM1 --out run.log --until result=pass` |
+
+240 MHz 下 1 cycle 等于 4.1667 ns。
+
+`framing`，每次操作，native 封装、全零 payload（`e1`、`p0`）：
+
+| 用例 | Cycles | ns |
+| --- | ---: | ---: |
+| `spare`，32 B | 644 | 2681 |
+| `spare`，2048 B | 24836 | 103481 |
+| `retry3`，32 B | 2177 | 9069 |
+| `retry3`，2048 B | 27629 | 115119 |
+
+`codec_plan`，每次解码操作：
+
+| 形状 | Cycles | ns |
+| --- | ---: | ---: |
+| 2 个 `uint32` | 879 | 3663 |
+| 64 个 `uint32`，连续 | 26275 | 109479 |
+| 64 个 `uint32`，步长 997 | 29828 | 124283 |
+| packed `float32[30]` | 1086 | 4525 |
+| packed `float64[64]` | 7100 | 29583 |
+
+模式 1 只在 Cortex-M 上 invalidate I-cache；ESP32-S3 上是空操作，所以模式 1 与模式 0 相同。
+
+`rpc_validation`，每次解码操作：
+
+| 形状 | Cycles | ns |
+| --- | ---: | ---: |
+| `k0`，空结构，32 B 字符串 | 816 | 3402 |
+| `k2`，嵌套加 packed `float32[128]`，512 B 字符串 | 11713 | 48806 |
+
+`mixed_traffic`，一次 2400 tick 运行，两个端点，native 封装：
+
+| 场景 | 总 cycles | 最大单 tick | 最大遥测年龄 | 最大 RPC |
+| --- | ---: | ---: | ---: | ---: |
+| `telemetry_only` | 48,356,396 | 151,632 | 6 ms | - |
+| `rpc_clean` | 54,516,786 | 231,406 | 8 ms | 5 ms |
+| `drop_ack_backpressure` | 67,867,110 | 234,564 | 26 ms | 266 ms |
+
+`mixed_traffic` 跑在模拟协议时间上，年龄是协议毫秒，不是传输往返时间。
+
+{/* 下一次运行复制这个模板：
+
+### YYYY-MM-DD - <目标>
+
+| 字段 | 值 |
+| --- | --- |
+| 目标 | ... |
+| Wirelink | <commit> |
+| WLC / 契约 | ... |
+| 工具链 | ... |
+| 构建 | ... |
+| 命令 | ... |
 
 | 基准 | 指标 | 值 |
 | --- | --- | --- |
-| framing | cycles/op | ... |
+| ... | ... | ... |
 
 */}

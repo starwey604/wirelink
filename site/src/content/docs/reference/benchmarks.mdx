@@ -24,23 +24,74 @@ Add one section per run and include every field:
 
 ## Published runs
 
-No results are published yet. This section is filled in after a real host or hardware run.
-
-{/* Copy this template for each run:
-
 ### 2026-09-20 - ESP32-S3 DevKitC
 
 | Field | Value |
 | --- | --- |
-| Target | esp32s3_devkitc/esp32s3/procpu |
-| Wirelink | <commit> |
+| Target | `esp32s3_devkitc/esp32s3/procpu`, ESP32-S3 rev v0.2, 240 MHz |
+| Memory | 8 MB flash, 2 MB PSRAM |
+| Wirelink | `acc08c1` |
 | WLC / contract | 0.8.0 / 0.8 |
-| Toolchain | Zephyr 4.4.99, Zephyr SDK 1.0.1 |
-| Build | -O2, LTO off |
-| Command | `python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 --out run.log --until result=pass` |
+| Toolchain | Zephyr 4.4.99, Zephyr SDK 1.0.1, GCC 14.3.0 |
+| Build | `-O2`, LTO off, `CONFIG_ASSERT=y` |
+| Flash / console | `west flash --esp-device /dev/ttyACM0`; console on `/dev/ttyACM1` |
+| Capture | `python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM1 --out run.log --until result=pass` |
+
+One cycle is 4.1667 ns at 240 MHz.
+
+`framing`, per operation, native envelope and all-zero payload (`e1`, `p0`):
+
+| Case | Cycles | ns |
+| --- | ---: | ---: |
+| `spare`, 32 B | 644 | 2681 |
+| `spare`, 2048 B | 24836 | 103481 |
+| `retry3`, 32 B | 2177 | 9069 |
+| `retry3`, 2048 B | 27629 | 115119 |
+
+`codec_plan`, decode per operation:
+
+| Shape | Cycles | ns |
+| --- | ---: | ---: |
+| 2 x `uint32` | 879 | 3663 |
+| 64 x `uint32`, contiguous | 26275 | 109479 |
+| 64 x `uint32`, stride 997 | 29828 | 124283 |
+| packed `float32[30]` | 1086 | 4525 |
+| packed `float64[64]` | 7100 | 29583 |
+
+Mode 1 invalidates the I-cache only on Cortex-M; on ESP32-S3 it is a no-op, so mode 1 matches mode 0 here.
+
+`rpc_validation`, decode per operation:
+
+| Shape | Cycles | ns |
+| --- | ---: | ---: |
+| `k0`, empty, 32 B strings | 816 | 3402 |
+| `k2`, nested + packed `float32[128]`, 512 B strings | 11713 | 48806 |
+
+`mixed_traffic`, one 2400-tick run, two endpoints, native envelope:
+
+| Scenario | Total cycles | Max tick | Max telemetry age | Max RPC |
+| --- | ---: | ---: | ---: | ---: |
+| `telemetry_only` | 48,356,396 | 151,632 | 6 ms | - |
+| `rpc_clean` | 54,516,786 | 231,406 | 8 ms | 5 ms |
+| `drop_ack_backpressure` | 67,867,110 | 234,564 | 26 ms | 266 ms |
+
+`mixed_traffic` runs on simulated protocol time; its ages are protocol milliseconds, not transport round-trip times.
+
+{/* Copy this template for the next run:
+
+### YYYY-MM-DD - <target>
+
+| Field | Value |
+| --- | --- |
+| Target | ... |
+| Wirelink | <commit> |
+| WLC / contract | ... |
+| Toolchain | ... |
+| Build | ... |
+| Command | ... |
 
 | Benchmark | Metric | Value |
 | --- | --- | --- |
-| framing | cycles/op | ... |
+| ... | ... | ... |
 
 */}

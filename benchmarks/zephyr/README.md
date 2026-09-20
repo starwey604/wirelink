@@ -28,8 +28,13 @@ the app. For example `framing`:
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/framing -d build/framing-hw -- \
   -DZEPHYR_EXTRA_MODULES=/path/to/wirelink
-west flash -d build/framing-hw
+west flash -d build/framing-hw --esp-device /dev/ttyACM0
 ```
+
+Flash over the board's UART bridge and capture over the USB Serial/JTAG
+console, otherwise the two processes contend for the same port. On a board
+whose UART bridge is `ttyACM0`, the console is `ttyACM1`. The apps sleep two
+seconds at startup so the host can reopen the console after a reset.
 
 `rpc_validation` and `codec_plan` link frozen generated artifacts:
 
