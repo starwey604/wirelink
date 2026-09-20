@@ -1,9 +1,11 @@
 # udev rules
 
-`99-wirelink.rules` grants the active desktop session access to the Espressif
-USB Serial/JTAG port and the common USB-UART bridges used to flash and monitor
-ESP32 boards, so `west flash` and `benchmarks/zephyr/capture_serial.py` run
-without root.
+`99-wirelink.rules` grants the active desktop session access to:
+
+- the Espressif USB Serial/JTAG port and the common USB-UART bridges, so
+  `west flash` and `benchmarks/zephyr/capture_serial.py` run without root;
+- the Wirelink custom USB bulk device (`2fe3:574c`), so libusb-based samples
+  and the host transport benchmark run without root.
 
 Install once and replug the board:
 

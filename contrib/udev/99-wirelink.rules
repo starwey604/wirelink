@@ -19,3 +19,8 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", TAG+="uaccess"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", TAG+="uaccess"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", TAG+="uaccess"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", TAG+="uaccess"
+
+# Wirelink custom USB bulk endpoint used by samples/zephyr/usb_bulk and
+# usb_bulk_loopback, the host transport benchmark and the RX backend USB
+# ingress. libusb needs write access to the raw USB device, not just the tty.
+SUBSYSTEM=="usb", ATTR{idVendor}=="2fe3", ATTR{idProduct}=="574c", TAG+="uaccess"
