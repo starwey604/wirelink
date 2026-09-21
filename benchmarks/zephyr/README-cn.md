@@ -56,11 +56,6 @@ west build -b esp32s3_devkitc/esp32s3/procpu \
 ESP32-S3 的 Xtensa 工具链不支持 link-time optimization，所以这些构建都不启用 LTO。
 `codec_plan` 可在支持 LTO 的主机工具链上启用。
 
-`rx_backend` 用 `WIRELINK_BENCH_INGRESS=DMA` 时会走 ESP32 的 async UART DMA
-接收路径。该路径依赖
-[zephyrproject-rtos/zephyr#119768](https://github.com/zephyrproject-rtos/zephyr/pull/119768)
-中的修复，在上游合并前请用带 `esp32-uart-async-rx-fixes` 分支的工作区来构建。
-
 改核心前先冻结基线的 ELF、map 和 `.config`；candidate 在另一个目录构建。
 两侧必须使用相同板子、工具链和优化设置。
 
