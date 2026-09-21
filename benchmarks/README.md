@@ -22,7 +22,7 @@ in the test matrix exist for correctness, not for timing.
 | [rpc_peer](rpc_peer/README.md) | The generated steady-session guard before a reliable RPC request | Host |
 | [bulk](../docs/bulk-performance.md) | The sequential bulk state machine against a matched raw sink | Host |
 | [fifo](../docs/fifo-performance.md) | The ordered SPSC FIFO runtime | Host |
-| `zephyr/rx_backend` | RX ring backend behavior | ESP32-S3 |
+| [zephyr/rx_backend](zephyr/rx_backend/README.md) | RX ring backend behavior | ESP32-S3 |
 
 The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the
 same workloads on the ESP32-S3 DevKitC and must use the same frozen generated

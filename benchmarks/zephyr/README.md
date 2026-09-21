@@ -12,7 +12,7 @@ probe is required. The reference board is `esp32s3_devkitc/esp32s3/procpu`.
 | `framing` | [framing](../framing/README.md) |
 | `mixed_traffic` | [mixed_traffic](../mixed_traffic/README.md) |
 | `rpc_validation` | [rpc_validation](../rpc_validation/README.md) |
-| `rx_backend` | Zephyr-only RX ring test |
+| [rx_backend](rx_backend/README.md) | Zephyr-only RX ring test |
 
 Each app selects `zephyr,console = &usb_serial` and enables `&usb_serial` in
 `boards/esp32s3_devkitc_esp32s3_procpu.overlay`, so the firmware output and the

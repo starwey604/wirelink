@@ -24,7 +24,9 @@
 #include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
+#ifndef BENCH_RX_USABLE
 #define BENCH_RX_USABLE 4096U
+#endif
 #define BENCH_FALLBACK_SIZE WL_FRAME_MAX_COBS_LEN
 #define BENCH_UART_CHUNK 64U
 #ifndef BENCH_PRIMITIVE_WARMUP
@@ -47,6 +49,18 @@
 #endif
 #ifndef BENCH_DMA_MAX_CHUNK
 #define BENCH_DMA_MAX_CHUNK BENCH_RX_USABLE
+#endif
+/* Continuous-stream mode sends every frame back to back without waiting for
+ * the previous frame to be delivered, so it exercises the re-arm path under
+ * sustained load instead of the idle line of the stop-and-wait profiles. */
+#ifndef BENCH_STREAM_WARMUP
+#define BENCH_STREAM_WARMUP 200U
+#endif
+#ifndef BENCH_STREAM_FRAMES
+#define BENCH_STREAM_FRAMES 2000U
+#endif
+#ifndef BENCH_STREAM_TIMEOUT_MS
+#define BENCH_STREAM_TIMEOUT_MS 120000U
 #endif
 #ifndef BENCH_PAYLOAD_START_INDEX
 #define BENCH_PAYLOAD_START_INDEX 0U
@@ -71,6 +85,15 @@ static const size_t payload_sizes[] = {16U, 20U, 64U, 120U, 256U, 1024U,
 static uint8_t frame_payload[WL_FRAME_MAX_PAYLOAD];
 static uint8_t frame_wire[WL_FRAME_MAX_COBS_LEN];
 static uint64_t latency_samples[BENCH_SAMPLE_FRAMES];
+#if defined(WL_BENCH_STREAM)
+#if BENCH_STREAM_FRAMES > BENCH_SAMPLE_FRAMES
+#error "BENCH_STREAM_FRAMES must not exceed BENCH_SAMPLE_FRAMES"
+#endif
+/* Cycle stamp taken when each measured frame is fully queued to the TX FIFO.
+ * The difference to the delivery cycle is the stream latency. Stored as
+ * 32-bit so the cycle-counter wrap subtraction stays local to one frame. */
+static uint32_t stream_enqueue[BENCH_STREAM_FRAMES];
+#endif
 #endif
 
 static atomic_t producer_calls;
@@ -422,6 +445,15 @@ static int init_uart_ingress(void) {
 #endif
 }
 
+/* Deterministic payload for a sequence number; the stream workload rebuilds
+ * it to validate a delivered frame independently of the TX buffer. */
+static void fill_expected_payload(uint8_t *dst, size_t length,
+                                  uint32_t sequence) {
+  for (size_t i = 0U; i < length; ++i) {
+    dst[i] = (uint8_t)((i * 33U + sequence * 17U) & 0xFFU);
+  }
+}
+
 static size_t encode_frame(size_t payload_len, uint32_t sequence) {
   wl_wire_packet_t packet = {
       .type = WL_PACKET_DATA,
@@ -435,9 +467,7 @@ static size_t encode_frame(size_t payload_len, uint32_t sequence) {
   };
   size_t wire_len = 0U;
 
-  for (size_t i = 0U; i < payload_len; ++i) {
-    frame_payload[i] = (uint8_t)((i * 33U + sequence * 17U) & 0xFFU);
-  }
+  fill_expected_payload(frame_payload, payload_len, sequence);
   if (wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM, frame_wire,
                       sizeof(frame_wire), &wire_len) != WL_OK) {
     return 0U;
@@ -476,6 +506,7 @@ static int ensure_dma_running(void) {
 }
 #endif
 
+#if !defined(WL_BENCH_STREAM)
 static int wait_for_frame(size_t payload_len, uint32_t started,
                           uint64_t *out_latency) {
   int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
@@ -534,6 +565,7 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
 #endif
   return -ETIMEDOUT;
 }
+#endif /* !WL_BENCH_STREAM */
 
 static void sort_latencies(size_t count) {
   for (size_t gap = count / 2U; gap != 0U; gap /= 2U) {
@@ -549,6 +581,7 @@ static void sort_latencies(size_t count) {
   }
 }
 
+#if !defined(WL_BENCH_STREAM)
 static int run_uart_profile(size_t payload_len) {
   const size_t total = BENCH_WARMUP_FRAMES + BENCH_SAMPLE_FRAMES;
   uint64_t run_cycles = 0U;
@@ -624,7 +657,209 @@ static int run_uart_profile(size_t payload_len) {
              ? 0
              : -EIO;
 }
+#endif /* !WL_BENCH_STREAM */
 #endif /* !WL_BENCH_INGRESS_USB */
+
+#if defined(WL_BENCH_STREAM) && !defined(WL_BENCH_INGRESS_USB)
+/* Send frames back to back and consume them concurrently. Unlike the
+ * stop-and-wait profiles this never lets the line go idle between frames, so
+ * it measures sustained goodput and exposes re-arm or short-claim loss that an
+ * idle-line test cannot see. */
+static int run_stream_profile(size_t payload_len) {
+  const size_t total = BENCH_STREAM_WARMUP + BENCH_STREAM_FRAMES;
+  const int64_t deadline = k_uptime_get() + (int64_t)BENCH_STREAM_TIMEOUT_MS;
+  uint8_t expected[WL_FRAME_MAX_PAYLOAD];
+  size_t sent = 0U;
+  size_t received = 0U;
+  size_t tx_offset = 0U;
+  size_t tx_wire_len = 0U;
+  int tx_active = 0;
+  uint64_t wire_bytes = 0U;
+  int64_t first_queued_ms = 0;
+  int64_t last_delivered_ms = 0;
+  int64_t last_progress_ms;
+  size_t last_seen = 0U;
+  uint64_t run_cycles = 0U;
+  wl_rx_counters_t counters = {0};
+  long long call_count;
+  long long cycle_count;
+  long long accepted_count;
+  unsigned int adapter_errors = 0U;
+#if defined(WL_BENCH_INGRESS_DMA)
+  wl_zephyr_uart_dma_stats_t dma_before;
+#endif
+
+  reset_ingress_stats();
+#if defined(WL_BENCH_INGRESS_DMA)
+  {
+    int ret = ensure_dma_running();
+
+    if (ret != 0) {
+      return ret;
+    }
+    wl_zephyr_uart_dma_get_stats(&dma_adapter, &dma_before);
+  }
+#endif
+  for (size_t i = 0U; i < BENCH_STREAM_FRAMES; ++i) {
+    latency_samples[i] = 0U;
+  }
+  last_progress_ms = k_uptime_get();
+
+  while ((sent < total || received < total) && k_uptime_get() < deadline) {
+    /* Keep the TX FIFO as full as it accepts, then service RX. Never wait for
+     * TX idle: the goal is a continuously busy RX line. */
+    while (sent < total) {
+      size_t chunk;
+      int wrote;
+
+      if (tx_active == 0) {
+        tx_wire_len = encode_frame(payload_len, (uint32_t)sent);
+        if (tx_wire_len == 0U) {
+          return -EINVAL;
+        }
+        tx_offset = 0U;
+        tx_active = 1;
+      }
+      chunk = MIN(tx_wire_len - tx_offset, BENCH_UART_CHUNK);
+      wrote = uart_fifo_fill(tx_uart, frame_wire + tx_offset, chunk);
+      if (wrote <= 0) {
+        break;
+      }
+      tx_offset += (size_t)wrote;
+      if (tx_offset < tx_wire_len) {
+        break; /* TX FIFO full mid-frame */
+      }
+      if (sent == 0U) {
+        first_queued_ms = k_uptime_get();
+      }
+      wire_bytes += tx_wire_len;
+      if (sent >= BENCH_STREAM_WARMUP &&
+          (sent - BENCH_STREAM_WARMUP) < BENCH_STREAM_FRAMES) {
+        stream_enqueue[sent - BENCH_STREAM_WARMUP] = bench_cycle_count();
+      }
+      tx_active = 0;
+      ++sent;
+    }
+
+    /* Drain every frame the consumer can deliver before yielding again. */
+    for (;;) {
+      wl_event_t event = {0};
+      int ret = wl_poll(&link_ctx, (wl_time_ms_t)k_uptime_get_32(), &event);
+
+      if (ret == WL_ERR_NO_DATA) {
+        break;
+      }
+      if (ret != WL_OK) {
+        return -EIO;
+      }
+      if (event.type == WL_EVT_UNRELIABLE_RX ||
+          event.type == WL_EVT_RELIABLE_RX) {
+        fill_expected_payload(expected, payload_len, (uint32_t)received);
+        if (event.payload_len != payload_len ||
+            memcmp(event.payload, expected, payload_len) != 0) {
+          atomic_inc(&ingress_errors);
+        } else {
+          uint32_t now = bench_cycle_count();
+
+          last_delivered_ms = k_uptime_get();
+          if (received >= BENCH_STREAM_WARMUP &&
+              (received - BENCH_STREAM_WARMUP) < BENCH_STREAM_FRAMES) {
+            size_t slot = received - BENCH_STREAM_WARMUP;
+
+            latency_samples[slot] =
+                (uint64_t)(uint32_t)(now - stream_enqueue[slot]);
+          }
+        }
+        ++received;
+      }
+      wl_event_release(&link_ctx, &event);
+    }
+
+#if defined(WL_BENCH_INGRESS_DMA)
+    (void)wl_zephyr_uart_dma_service(&dma_adapter);
+#endif
+    if (received != last_seen) {
+      last_seen = received;
+      last_progress_ms = k_uptime_get();
+    } else if (k_uptime_get() - last_progress_ms >
+               (int64_t)BENCH_FRAME_TIMEOUT_MS) {
+      break; /* RX stalled: stop waiting on an idle line */
+    }
+    k_yield();
+  }
+
+  if (last_delivered_ms > first_queued_ms) {
+    uint64_t run_ms = (uint64_t)(last_delivered_ms - first_queued_ms);
+
+    run_cycles = run_ms * (uint64_t)(sys_clock_hw_cycles_per_sec() / 1000U);
+  }
+  (void)wl_rx_get_counters(&link_ctx, &counters);
+#if defined(WL_BENCH_INGRESS_DMA)
+  {
+    wl_zephyr_uart_dma_stats_t dma_after;
+
+    wl_zephyr_uart_dma_get_stats(&dma_adapter, &dma_after);
+    call_count =
+        (long long)(dma_after.rx_ready_events - dma_before.rx_ready_events);
+    cycle_count =
+        (long long)(dma_after.producer_cycles - dma_before.producer_cycles);
+    accepted_count =
+        (long long)(dma_after.published_bytes - dma_before.published_bytes);
+    adapter_errors = dma_after.errors - dma_before.errors;
+  }
+#else
+  call_count = (long long)atomic_get(&producer_calls);
+  cycle_count = (long long)atomic_get(&producer_cycles);
+  accepted_count = (long long)atomic_get(&accepted_bytes);
+#endif
+
+  sort_latencies(BENCH_STREAM_FRAMES);
+  printk("wirelink_rx_stream_v1,%s,%s,%u,%u,%llu,%u,%llu,%lld,%lld,%lld,%lld,"
+         "%u,%u,%u,%u,%llu,%llu,%llu,%llu\n",
+         backend_name(), ingress_name(), (unsigned int)payload_len,
+         (unsigned int)total, (unsigned long long)wire_bytes,
+         (unsigned int)received, (unsigned long long)run_cycles, call_count,
+         cycle_count, accepted_count, (long long)atomic_get(&dropped_bytes),
+         (unsigned int)counters.overflow, (unsigned int)counters.malformed,
+         (unsigned int)counters.bad_integrity, adapter_errors,
+         (unsigned long long)latency_samples[BENCH_STREAM_FRAMES / 2U],
+         (unsigned long long)latency_samples[(BENCH_STREAM_FRAMES * 95U) / 100U],
+         (unsigned long long)latency_samples[(BENCH_STREAM_FRAMES * 99U) / 100U],
+         (unsigned long long)latency_samples[BENCH_STREAM_FRAMES - 1U]);
+
+  if (received != total || atomic_get(&ingress_errors) != 0) {
+    return -EIO;
+  }
+  if (counters.overflow != 0U || counters.malformed != 0U ||
+      counters.bad_integrity != 0U) {
+    return -EIO;
+  }
+  if (adapter_errors != 0U || atomic_get(&dropped_bytes) != 0) {
+    return -EIO;
+  }
+  return 0;
+}
+
+static int run_stream_profiles(void) {
+  int result = 0;
+
+  printk("wirelink_rx_stream_v1,backend,ingress,payload,frames,wire_bytes,"
+         "received,run_cycles,producer_calls,producer_cycles,accepted,dropped,"
+         "overflow,malformed,bad_integrity,adapter_errors,latency_median,"
+         "latency_p95,latency_p99,latency_max\n");
+  /* Report every payload even when an earlier one lost frames, so a failing
+   * continuous path still produces a full profile table. */
+  for (size_t i = BENCH_PAYLOAD_START_INDEX;
+       i < ARRAY_SIZE(payload_sizes) && i < BENCH_PAYLOAD_END_INDEX; ++i) {
+    int ret = run_stream_profile(payload_sizes[i]);
+
+    if (ret != 0 && result == 0) {
+      result = ret;
+    }
+  }
+  return result;
+}
+#endif /* WL_BENCH_STREAM && !WL_BENCH_INGRESS_USB */
 
 #if defined(WL_BENCH_INGRESS_USB)
 static const struct device *const cdc_uart =
@@ -730,9 +965,11 @@ int main(void) {
          backend_name(), ingress_name(), sys_clock_hw_cycles_per_sec(),
          BENCH_RX_USABLE, (unsigned int)physical_ring_size(),
          BENCH_FALLBACK_SIZE);
+#if !defined(WL_BENCH_STREAM)
   printk("wirelink_rx_bench_v1,backend,ingress,payload,frames,run_cycles,"
          "producer_calls,producer_cycles,accepted,dropped,latency_median,"
          "latency_p95,latency_p99,latency_max\n");
+#endif
 
 #if defined(WL_BENCH_INGRESS_USB)
   ret = init_usb_ingress();
@@ -748,6 +985,9 @@ int main(void) {
   }
 #endif
   if (ret == 0) {
+#if defined(WL_BENCH_STREAM)
+    ret = run_stream_profiles();
+#else
     for (size_t i = BENCH_PAYLOAD_START_INDEX;
          i < ARRAY_SIZE(payload_sizes) && i < BENCH_PAYLOAD_END_INDEX; ++i) {
       ret = run_uart_profile(payload_sizes[i]);
@@ -755,6 +995,7 @@ int main(void) {
         break;
       }
     }
+#endif
   }
 #endif
 

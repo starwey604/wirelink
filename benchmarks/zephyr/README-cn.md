@@ -11,7 +11,7 @@
 | `framing` | [framing](../framing/README-cn.md) |
 | `mixed_traffic` | [mixed_traffic](../mixed_traffic/README-cn.md) |
 | `rpc_validation` | [rpc_validation](../rpc_validation/README-cn.md) |
-| `rx_backend` | 仅 Zephyr 的 RX ring 测试 |
+| [rx_backend](rx_backend/README-cn.md) | 仅 Zephyr 的 RX ring 测试 |
 
 每个 app 的 `boards/esp32s3_devkitc_esp32s3_procpu.overlay` 都选择
 `zephyr,console = &usb_serial` 并启用 `&usb_serial`，

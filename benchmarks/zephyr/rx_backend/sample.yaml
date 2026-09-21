@@ -14,6 +14,14 @@ tests:
   benchmark.wirelink.rx.dma:
     extra_args:
       - WIRELINK_BENCH_INGRESS=DMA
+  benchmark.wirelink.rx.irq.stream:
+    extra_args:
+      - WIRELINK_BENCH_INGRESS=IRQ
+      - WIRELINK_BENCH_STREAM=ON
+  benchmark.wirelink.rx.dma.stream:
+    extra_args:
+      - WIRELINK_BENCH_INGRESS=DMA
+      - WIRELINK_BENCH_STREAM=ON
   benchmark.wirelink.rx.usb:
     extra_args:
       - WIRELINK_BENCH_INGRESS=USB
