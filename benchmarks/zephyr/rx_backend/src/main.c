@@ -498,9 +498,10 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
     if (ret != WL_OK && ret != WL_ERR_NO_DATA) {
       return -EIO;
     }
-#if defined(WL_BENCH_INGRESS_DMA)
-    (void)wl_zephyr_uart_dma_service(&dma_adapter);
-#endif
+    /* Do not restart RX here: re-arming before the pending event is released
+     * leaves the ring non-empty, so the next claim is shorter than the frame
+     * and the frame is split across buffers. The release path below restarts
+     * RX once the consumer has advanced. */
     k_yield();
   }
 #if defined(WL_BENCH_INGRESS_DMA)
