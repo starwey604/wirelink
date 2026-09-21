@@ -60,6 +60,12 @@ The ESP32-S3 Xtensa toolchain does not support link-time optimization, so these
 builds run without LTO. `codec_plan` can enable it on a host toolchain that
 supports it.
 
+`rx_backend` with `WIRELINK_BENCH_INGRESS=DMA` drives the ESP32 async UART DMA
+RX path. That path needs the fixes in
+[zephyrproject-rtos/zephyr#119768](https://github.com/zephyrproject-rtos/zephyr/pull/119768)
+until they are merged, so build the app against a workspace that carries the
+`esp32-uart-async-rx-fixes` branch.
+
 Freeze the baseline ELF, map and `.config` before changing the core; build the
 candidate in a separate directory. Both sides must use the same board,
 toolchain and optimization setting.
