@@ -195,6 +195,6 @@ out/<run-id>/
 
 上述契约分阶段落地：先逐套件落地退出码、
 `--json-out`/`--markdown-out` 与 gate；`bench.py` 与 `presets.toml`
-已提供共享注册表与 `list`/`doctor`，`run`、`pair`、`report`、`calibrate`
+已提供共享注册表与 `list`/`doctor`/`run`/`report`，`pair`、`calibrate`
 与 CI 分层随后落地。在某个套件完成转换之前，其 `compare.py` 仍可直接使用，
 其原生输出仍是 `raw/` 中的权威数据。

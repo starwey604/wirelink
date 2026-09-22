@@ -12,6 +12,8 @@ invalid environment or input — never a performance conclusion.
 """
 import argparse
 import glob
+import hashlib
+import json
 import os
 import platform
 import re
@@ -148,6 +150,186 @@ def run_id():
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     revision = manifest.revision()
     return stamp + (f"-{revision[:9]}" if revision else "")
+
+
+class RunFailure(RuntimeError):
+    """A suite could not produce trustworthy evidence (never a regression)."""
+
+
+def _select_suites(args, data, parser):
+    """(suites, manifest_suite_label): --suite overrides --preset."""
+    if getattr(args, "suite", None):
+        unknown = [name for name in args.suite if name not in data["suites"]]
+        if unknown:
+            parser.error(f"unknown suite(s): {', '.join(unknown)}; known: "
+                         f"{', '.join(sorted(data['suites']))}")
+        names = list(dict.fromkeys(args.suite))
+        label = "+".join(names)
+    else:
+        if args.preset not in data["presets"]:
+            parser.error(f"unknown preset: {args.preset}; known: "
+                         f"{', '.join(sorted(data['presets']))}")
+        names = data["presets"][args.preset]["suites"]
+        label = args.preset
+    return [(name, data["suites"][name]) for name in names], label
+
+
+def _resolve(argv, mapping):
+    """Substitute {python}/{out}/{bin}/... placeholders with exact strings."""
+    resolved = []
+    for item in argv:
+        for key, value in mapping.items():
+            item = item.replace("{" + key + "}", str(value))
+        resolved.append(item)
+    return resolved
+
+
+def _run(argv, cwd=REPO, stdout_path=None, step="command"):
+    try:
+        if stdout_path is None:
+            code = subprocess.run(argv, cwd=cwd).returncode
+        else:
+            with open(stdout_path, "w", encoding="utf-8") as sink:
+                code = subprocess.run(argv, cwd=cwd, stdout=sink).returncode
+    except OSError as error:
+        raise RunFailure(f"{step}: {error}")
+    if code != 0:
+        head = " ".join(str(part) for part in argv[:4])
+        raise RunFailure(f"{step} exited {code}: {head}")
+
+
+def _build(suite, args):
+    """Configure and build one suite; returns its build directory."""
+    bin_dir = REPO / "build" / "bench" / suite["name"]
+    mapping = {"python": sys.executable, "out": bin_dir, "bin": bin_dir}
+    if suite.get("codegen"):
+        wlc = os.environ.get("WIRELINK_WLC_EXECUTABLE") or shutil.which("wlc")
+        if not wlc:
+            raise RunFailure("WLC not found (set WIRELINK_WLC_EXECUTABLE or "
+                             "put wlc on PATH)")
+        out_dir = bin_dir / suite["codegen"]["out"]
+        _run([wlc, "compile", str(REPO / suite["codegen"]["schema"]),
+              "--out-dir", str(out_dir)], step="wlc compile")
+    source = REPO if suite["build"] == "top" else REPO / suite["source"]
+    configure = ["cmake", "-S", str(source), "-B", str(bin_dir),
+                 "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
+                 *_resolve(suite.get("cmake_options", []), mapping)]
+    if "google-benchmark" in suite.get("requires", ()):
+        gb = os.environ.get("WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR")
+        if gb:
+            configure.append(f"-DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR={gb}")
+    _run(configure, step="cmake configure")
+    build = ["cmake", "--build", str(bin_dir), "--parallel"]
+    if args.jobs:
+        build.append(str(args.jobs))
+    _run(build, step="cmake build")
+    return bin_dir
+
+
+def _run_suite(name, suite, raw, out, args):
+    bin_dir = None
+    if suite["build"] != "none":
+        bin_dir = _build(suite, args) if not args.skip_build \
+            else REPO / "build" / "bench" / name
+    mapping = {"python": sys.executable, "out": raw, "bin": bin_dir or ""}
+    stdout_path = raw / suite["stdout"] if suite.get("stdout") else None
+    _run(_resolve(suite["run"], mapping), stdout_path=stdout_path,
+         step=f"{name} runner")
+    if suite.get("stamp"):
+        sources = [REPO / source for source in suite["stamp"]]
+        reports = sorted(raw.glob("*.json"))
+        if not reports:
+            raise RunFailure("no report to stamp")
+        for report in reports:
+            try:
+                from report import manifest
+                manifest.stamp(report, sources)
+            except (OSError, ValueError) as error:
+                raise RunFailure(f"stamp {report.name}: {error}")
+    if bin_dir and (bin_dir / "CMakeCache.txt").is_file():
+        shutil.copy2(bin_dir / "CMakeCache.txt",
+                     out / "artifacts" / f"{name}.CMakeCache.txt")
+    binary = suite.get("binary")
+    if binary and bin_dir and (bin_dir / binary).is_file():
+        digest = hashlib.sha256((bin_dir / binary).read_bytes()).hexdigest()
+        with open(out / "artifacts" / "binaries.sha256", "a",
+                  encoding="utf-8") as stream:
+            stream.write(f"{digest}  {name}/{Path(binary).name}\n")
+
+
+def cmd_run(args, data, parser):
+    from report import manifest
+    suites, label = _select_suites(args, data, parser)
+    out = args.out if args.out else REPO / "out" / run_id()
+    try:
+        out.mkdir(parents=True)
+    except FileExistsError:
+        print(f"bench: refusing to overwrite existing run directory {out}")
+        return 2
+    (out / "raw").mkdir()
+    (out / "artifacts").mkdir()
+    testbed = args.testbed or f"local-{platform.system().lower()}-" \
+        f"{platform.machine()}"
+    identity = manifest.manifest(suite=label, testbed=testbed)
+    manifest.write_manifest(out / "manifest.json", identity)
+    failed = []
+    for name, suite in suites:
+        raw = out / "raw" / name
+        raw.mkdir()
+        named = dict(suite, name=name)
+        try:
+            _run_suite(name, named, raw, out, args)
+        except RunFailure as error:
+            print(f"bench: {name}: {error}")
+            failed.append(name)
+    if failed:
+        print(f"bench: {len(failed)} suite(s) failed ({', '.join(failed)}); "
+              f"partial evidence kept in {out}")
+        return 2
+    print(f"bench: {len(suites)} suite(s) complete: {out}\n"
+          f"bench: next: python3 benchmarks/bench.py report {out}")
+    return 0
+
+
+def cmd_report(args, _data):
+    from report import normalize, schema
+    run_dir = args.run
+    manifest_path = run_dir / "manifest.json"
+    raw_root = run_dir / "raw"
+    if not manifest_path.is_file() or not raw_root.is_dir():
+        print(f"bench: {run_dir}: not a run directory "
+              "(manifest.json and raw/ are required)")
+        return 2
+    try:
+        identity = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"bench: {manifest_path}: {error}")
+        return 2
+    rows, errors, count = [], [], 0
+    for suite_dir in sorted(path for path in raw_root.iterdir()
+                            if path.is_dir()):
+        count += 1
+        try:
+            rows.extend(normalize.normalize(suite_dir.name, suite_dir))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            errors.append(f"{suite_dir.name}: {error}")
+    if errors:
+        for error in errors:
+            print(f"bench: invalid raw evidence: {error}")
+        return 2
+    try:
+        document = schema.document(identity.get("testbed"),
+                                   identity.get("revision"),
+                                   identity.get("environment") or {}, rows)
+    except ValueError as error:
+        print(f"bench: cannot build wirelink-benchmark-v2 document: {error}")
+        return 2
+    (run_dir / "normalized.json").write_text(
+        json.dumps(document, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8")
+    print(f"bench: {run_dir / 'normalized.json'}: {len(rows)} measurement(s) "
+          f"from {count} suite(s)")
+    return 0
 
 
 def cmd_list(_args, data):
@@ -291,6 +473,26 @@ def main(argv=None):
     doctor.add_argument(
         "--preset", default="smoke",
         help="gate requirements against this preset (default: smoke)")
+    run = commands.add_parser(
+        "run", help="build, execute and collect suites into out/<run-id>/")
+    run.add_argument("--preset", default="smoke",
+                     help="suites to run when --suite is not given "
+                          "(default: smoke)")
+    run.add_argument("--suite", action="append", default=None, metavar="NAME",
+                     help="run exactly this suite (repeatable)")
+    run.add_argument("--out", type=Path, default=None,
+                     help="run directory (default: out/<run-id>); never "
+                          "overwritten")
+    run.add_argument("--testbed", default=None,
+                     help="testbed id (default: local-<os>-<arch>)")
+    run.add_argument("--jobs", type=int, default=None,
+                     help="parallel build jobs (default: cmake default)")
+    run.add_argument("--skip-build", action="store_true",
+                     help="reuse existing build/bench/<suite> trees")
+    report = commands.add_parser(
+        "report", help="normalize raw/ into normalized.json (idempotent)")
+    report.add_argument("run", type=Path, metavar="RUN_DIR",
+                        help="run directory containing manifest.json and raw/")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         data = load_presets()
@@ -300,10 +502,14 @@ def main(argv=None):
         raise
     if args.command == "list":
         return cmd_list(args, data)
-    if args.preset not in data["presets"]:
-        parser.error(f"unknown preset: {args.preset}; "
-                     f"known: {', '.join(sorted(data['presets']))}")
-    return cmd_doctor(args, data)
+    if args.command == "report":
+        return cmd_report(args, data)
+    if args.command == "doctor":
+        if args.preset not in data["presets"]:
+            parser.error(f"unknown preset: {args.preset}; "
+                         f"known: {', '.join(sorted(data['presets']))}")
+        return cmd_doctor(args, data)
+    return cmd_run(args, data, parser)
 
 
 if __name__ == "__main__":

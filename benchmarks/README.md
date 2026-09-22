@@ -34,18 +34,23 @@ artifacts on both sides.
 
 [`bench.py`](bench.py) reads the suite registry and presets in
 [`presets.toml`](presets.toml) (deterministic `smoke`, sentinel `quick`,
-diagnostic `full`); `run`, `pair`, `report` and `calibrate` land on top of it
-per [SPEC](SPEC.md). Two commands are available now:
+diagnostic `full`); `pair` and `calibrate` land per [SPEC](SPEC.md). Four
+commands are available now:
 
 ```sh
-python3 benchmarks/bench.py list     # suites and presets
-python3 benchmarks/bench.py doctor   # required tools for a preset (exit 2 if one is missing)
+python3 benchmarks/bench.py list      # suites and presets
+python3 benchmarks/bench.py doctor    # required tools for a preset (exit 2 if one is missing)
+python3 benchmarks/bench.py run --preset smoke   # build, execute, collect into out/<run-id>/
+python3 benchmarks/bench.py report out/<run-id>  # normalize raw/ into normalized.json (idempotent)
 ```
 
 `doctor` gates against `--preset smoke` by default: Python 3.11+, CMake ≥
 3.21, a C compiler, `size` and WLC. Timing suites additionally need Google
-Benchmark (`--preset quick`/`--preset full`). The per-suite guides below stay
-authoritative for manual runs.
+Benchmark (`--preset quick`/`--preset full`). A run directory is created
+exclusively and never overwritten: it holds `manifest.json` plus the
+authoritative `raw/`, and `report` rebuilds the derived `normalized.json`
+from `raw/` alone. The per-suite guides below stay authoritative for manual
+runs.
 
 How to reproduce each result is documented here. Published, machine-specific
 numbers live on the

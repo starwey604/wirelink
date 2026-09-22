@@ -27,17 +27,21 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 ## 统一入口
 
 [`bench.py`](bench.py) 读取 [`presets.toml`](presets.toml) 里的套件注册表与预设
-（确定性 `smoke`、哨兵 `quick`、诊断 `full`）；`run`、`pair`、`report`、
-`calibrate` 按 [SPEC](SPEC-cn.md) 后续落地。目前可用两个命令：
+（确定性 `smoke`、哨兵 `quick`、诊断 `full`）；`pair`、`calibrate` 按
+[SPEC](SPEC-cn.md) 后续落地。目前可用四个命令：
 
 ```sh
-python3 benchmarks/bench.py list     # 列出套件与预设
-python3 benchmarks/bench.py doctor   # 检查预设所需工具（缺必需项则退出 2）
+python3 benchmarks/bench.py list      # 列出套件与预设
+python3 benchmarks/bench.py doctor    # 检查预设所需工具（缺必需项则退出 2）
+python3 benchmarks/bench.py run --preset smoke   # 构建、执行并收集到 out/<run-id>/
+python3 benchmarks/bench.py report out/<run-id>  # 把 raw/ 归一化为 normalized.json（幂等）
 ```
 
 `doctor` 默认按 `--preset smoke` 判定必需项：Python 3.11+、CMake ≥ 3.21、
 C 编译器、`size` 和 WLC。timing 套件还需要 Google Benchmark
-（`--preset quick`/`--preset full`）。手工运行仍以下方各套件指南为准。
+（`--preset quick`/`--preset full`）。运行目录独占创建、绝不覆盖：其中
+`manifest.json` 与权威的 `raw/`，`report` 只从 `raw/` 重建派生的
+`normalized.json`。手工运行仍以下方各套件指南为准。
 
 这里说明的是怎么复现。机器相关的实测数字发布在
 [文档站](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)，

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import contextlib
 import io
+import json
 import sys
 import tempfile
 import unittest
@@ -109,6 +110,52 @@ class Commands(unittest.TestCase):
             with self.assertRaises(SystemExit) as caught:
                 bench.main(["doctor", "--preset", "nope"])
         self.assertEqual(caught.exception.code, 2)
+
+    def test_run_unknown_suite_exits_two(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as caught:
+                bench.main(["run", "--suite", "ghost"])
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_report_requires_a_run_directory(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = bench.main(["report", d])
+            self.assertEqual(code, 2)
+            self.assertIn("not a run directory", out.getvalue())
+
+    def test_report_normalizes_raw_evidence(self):
+        if bench.tomllib is None:
+            self.skipTest("tomllib needs Python 3.11+")
+        from report import manifest
+        with tempfile.TemporaryDirectory() as d:
+            run = Path(d)
+            (run / "raw").mkdir()
+            raw = run / "raw" / "owner_pass"
+            raw.mkdir()
+            (raw / "owner_pass.jsonl").write_text(
+                '{"case":"idle","budget":0,"delivered":0,"received":0,'
+                '"max_per_pass":2}\n')
+            manifest.write_manifest(run / "manifest.json",
+                                    manifest.manifest(suite="smoke",
+                                                      testbed="unit"))
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = bench.main(["report", str(run)])
+            self.assertEqual(code, 0, out.getvalue())
+            normalized = json.loads(
+                (run / "normalized.json").read_text(encoding="utf-8"))
+            self.assertEqual("wirelink-benchmark-v2", normalized["schema"])
+            self.assertEqual("unit", normalized["testbed"])
+            self.assertEqual(3, len(normalized["measurements"]))
+            # Idempotent: a second report produces the same document.
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, bench.main(["report", str(run)]))
+            self.assertEqual(
+                normalized,
+                json.loads((run / "normalized.json").read_text()))
 
 
 if __name__ == "__main__":
