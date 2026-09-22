@@ -108,10 +108,12 @@ fallback 大小。随后是表头，再按所选负载每个 payload 一行。
 
 ## 连续流现状
 
-连续流会暴露停止等待看不到的路径。在当前 adapter 上，`IRQ` ingress 能完成
-所有 payload；`DMA` ingress 在默认有限 idle 超时下，从第一个 4096 字节满
-claim 发布起就开始丢帧，并随 payload 增大而恶化。原因是单 claim 的
-finite-timeout 模式加上“direct claim 与 ring 一样大”：消费者还持有未读数据
-时，生产者无法发布一个满 claim。`received` 小于帧数就应视为失败，不是噪声。
-该负载被保留，用于验证后续的多 claim / 连续路径修复；RX buffer 历史见
-[../../../docs/rx-performance.md](../../../docs/rx-performance.md)。
+连续流会暴露停止等待看不到的路径。触发条件不是“线路 100% 占空”：只要对端
+在没有任何 ≥ 配置超时的空闲间隙的情况下，连续发送超过一个 direct claim
+（默认 4096 字节），finite-timeout 的 UART DMA ingress 就会丢帧。`IRQ`
+ingress 能完成所有 payload；`DMA` ingress 从第一个满 claim 起就开始丢帧，并
+随 payload 增大而恶化。`received` 小于帧数就应视为失败，不是噪声。该负载被
+保留，用于验证后续的连续/突发修复；`received == frames` 且 `overflow`、
+`malformed` 均为 0 是通过条件。机制、证据和修复约束见
+[../../../docs/rx-performance.md](../../../docs/rx-performance.md) 的
+continuous/burst RX failure 一节。

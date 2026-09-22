@@ -123,13 +123,14 @@ sizes, and UART fixture.
 
 ## Continuous-stream status
 
-Continuous streaming exposes a path the stop-and-wait workload cannot see. On
-the current adapter, `IRQ` ingress completes every payload, while `DMA` ingress
-with the default finite idle timeout starts losing frames as soon as the first
-full 4096-byte claim is published, and the loss grows with the payload size. The
-cause is the single-claim finite-timeout mode plus a direct claim as large as the
-ring: the producer cannot publish a full claim while the consumer still holds
-unread data. Treat a `received` lower than the frame count as a failure, not as
-noise. The workload is retained so the multi-claim / continuous-path fix can be
-verified against it; see [../../../docs/rx-performance.md](../../../docs/rx-performance.md)
-for the RX buffer history.
+Continuous streaming exposes a path the stop-and-wait workload cannot see. The
+trigger is not a 100%-duty line: any peer that sends more than one direct claim
+(default 4096 bytes) without an idle gap of at least the configured timeout
+loses frames on the finite-timeout UART DMA ingress. `IRQ` ingress completes
+every payload, while `DMA` ingress starts losing at the first full claim and
+degrades with payload size. Treat a `received` count below the frame count as a
+failure, not as noise. The workload is retained so the continuous/burst fix can
+be verified against it; `received == frames` with zero `overflow` and
+`malformed` is the pass condition. See the continuous/burst RX failure section
+in [../../../docs/rx-performance.md](../../../docs/rx-performance.md) for the
+mechanism, evidence and fix constraints.

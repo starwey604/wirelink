@@ -184,6 +184,129 @@ performance baseline: its purpose is to prove that TX completion, physical
 idle deferral, and subsequent RX DMA release/re-arm coexist on the same
 adapter instance.
 
+## ESP32-S3 continuous/burst RX failure — 2026-09-22
+
+The stop-and-wait rounds above keep the line idle between frames and never
+reach the buffer-full path. A continuous-stream workload added to
+`benchmarks/zephyr/rx_backend` (`WIRELINK_BENCH_STREAM=ON`) now reproduces a
+frame loss on the finite-timeout UART DMA ingress. This section records the
+trigger, mechanism and evidence so the fix can be planned against them; the loss
+is a defect, not a tuning result.
+
+### Trigger
+
+On the Zephyr async-UART DMA RX adapter in finite-timeout mode, a peer that
+sends more bytes than one direct claim (default 4096) without an idle gap of at
+least `timeout_us` (default 200 us) loses frames. Concretely:
+
+- a burst larger than `maximum_chunk` whose gaps stay below the idle timeout;
+- a sustained stream whose frame gaps stay below the idle timeout;
+- any peer that pipelines frames, retransmits in a burst, or bulk-transfers.
+
+The threshold scales with `maximum_chunk`: a smaller claim fails on a smaller
+burst. The failure is not specific to a 100%-duty line. A nominal 1 kHz
+six-joint profile (about 130 wire bytes, with roughly 600 us of idle between
+1 ms frames) stays below the threshold and is unaffected.
+
+### Mechanism
+
+The finite-timeout adapter holds exactly one direct claim at a time and
+deliberately does not supply a successor: `UART_RX_BUF_REQUEST` pauses when
+`timeout_us != SYS_FOREVER_US`.
+
+1. While bytes arrive faster than the idle timeout, the UART DMA fills the
+   claim and raises a buffer-full completion instead of an idle completion.
+2. The driver republishes the partial prefix (`UART_RX_RDY`), releases the
+   buffer (`UART_RX_BUF_RELEASED`) and disables RX because no successor was
+   queued (`UART_RX_DISABLED`).
+3. RX can only be re-armed after the consumer releases the RX event and
+   `wl_zephyr_uart_dma_service()` finishes the slot and calls `start_rx()`.
+   During that window the peer keeps sending and nothing drains the UART FIFO,
+   so the handoff drops bytes.
+4. Re-arming calls `wl_rx_ring_dma_claim()`. Its empty-ring normalization to
+   the full physical capacity only applies when the ring is empty; when the
+   consumer still holds unread data the claim is limited to the free contiguous
+   region. With the default `maximum_chunk` equal to the ring, a full-size claim
+   is only possible once the consumer has fully drained, so a lagging consumer
+   also forces short claims or a `WOULD_BLOCK` stall.
+5. The dropped bytes break the COBS byte stream. The link's overflow recovery
+   then discards all currently readable ring bytes to resynchronize
+   (`wl_process_rx_stream`), and every following frame is misaligned until the
+   next delimiter and fails its payload or CRC check. A small drop therefore
+   cascades into many lost frames, which is why `malformed` grows faster than
+   `overflow` at large payloads.
+
+Relevant code: `adapters/zephyr/uart_dma/src/uart_dma.c` (`UART_RX_BUF_REQUEST`,
+`UART_RX_BUF_RELEASED`, `UART_RX_DISABLED`, `service`, `supply_buffer`),
+`src/rx_ring_bipbuf.c` (`wl_rx_ring_dma_claim`, `wl_rx_ring_dma_publish`,
+`wl_rx_ring_dma_finish`), and `src/protocol.c` (`wl_process_rx_stream` overflow
+recovery).
+
+### Evidence
+
+Fixture: UART0 TX GPIO16 to UART1 RX GPIO18, 3 Mbaud 8-N-1; ring 4096, maximum
+claim 4096, idle timeout 200 us; 200 warm-up plus 2000 measured frames per
+profile. `received` counts payload-verified frames; `overflow` and `malformed`
+are the link RX counters.
+
+| payload | IRQ received | IRQ overflow / malformed | DMA received | DMA overflow | DMA malformed |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 2200 | 0 / 0 | 2162 | 28 | 1 |
+| 20 | 2200 | 0 / 0 | 2162 | 57 | 2 |
+| 64 | 2200 | 0 / 0 | 2172 | 85 | 2 |
+| 120 | 2200 | 0 / 0 | 2149 | 134 | 5 |
+| 256 | 2200 | 0 / 0 | 2057 | 287 | 18 |
+| 1024 | 2200 | 0 / 0 | 409 | 503 | 1593 |
+| 2048 | 2200 | 0 / 0 | 789 | 1601 | 1906 |
+
+The UART IRQ ingress completes every profile at line rate (about 300 kB/s
+here). The DMA ingress loses frames from the first full claim onward and
+degrades with payload size. `WIRELINK_BENCH_DMA_CHUNK=2048` with a 4096-byte
+ring, and `WIRELINK_BENCH_RING=8192` with a 4096-byte claim, both still fail, so
+changing the two sizes is not a fix.
+
+For a failing profile the last verified frame can fall inside the warm-up
+window, leaving the latency percentiles at zero. A `received` count below the
+frame count is the failure signal; zero latency in that case is an artifact.
+
+### Scope
+
+Affected: the Zephyr async-UART DMA RX adapter in finite-timeout mode on the
+ESP32-S3, whenever the peer exceeds one claim without an idle gap.
+
+Not affected: UART interrupt ingress; the one-frame full-duplex TX validation;
+USB CDC ingress; any link whose peer leaves an idle gap larger than the
+configured timeout between frames.
+
+### Reproduction
+
+```sh
+west build -b esp32s3_devkitc/esp32s3/procpu \
+  /path/to/wirelink/benchmarks/zephyr/rx_backend -d build/rx-stream -- \
+  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink \
+  -DWIRELINK_BENCH_INGRESS=DMA -DWIRELINK_BENCH_STREAM=ON
+west flash -d build/rx-stream --esp-device /dev/ttyACM0
+python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 \
+  --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
+```
+
+Use `-DWIRELINK_BENCH_INGRESS=IRQ` for the passing control, and
+`-DWIRELINK_BENCH_STREAM_FRAMES=50 -DWIRELINK_BENCH_PAYLOAD_START=<i>
+-DWIRELINK_BENCH_PAYLOAD_END=<j>` for a short run.
+
+### Constraints on the fix
+
+- Do not drop a byte between a released claim and the next claim, including
+  while the peer keeps sending.
+- Keep RX consuming while the consumer lags; do not require an empty ring to
+  re-arm.
+- Present the consumer a gapless byte stream, so a frame that spans two claims
+  decodes as if it were contiguous.
+- Preserve the finite-timeout contract and the stop-and-wait latency numbers; a
+  peer that leaves an idle gap must keep its current behavior and cost.
+- Keep the fix verifiable with the stream workload above: `received == frames`
+  with zero `overflow` and `malformed` is the pass condition.
+
 ## Regression procedure
 
 Correctness is a gate: no corrupted delivery, invalid lease, unexpected drop,
