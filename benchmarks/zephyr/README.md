@@ -84,8 +84,11 @@ python benchmarks/zephyr/capture_serial.py \
 
 The port is `/dev/ttyACM*` on Linux, `/dev/cu.usbmodem*` on macOS and `COM*` on
 Windows. The script needs `pyserial` and reopens the port if USB re-enumerates
-during reset. Without the script, `cat /dev/ttyACM0 > after.log` works on Linux;
-stop it after the pass marker.
+during reset. It creates `--out` exclusively and fails if the file already
+exists, so a stale log is never appended to, and it exits `2` when the
+`--until` marker never appears — an incomplete capture cannot look like a
+successful run (exit codes follow [SPEC.md](../SPEC.md)). Without the script,
+`cat /dev/ttyACM0 > after.log` works on Linux; stop it after the pass marker.
 
 Keep the raw log, ELF, SHA-256 and `.config`. Compare firmware logs with the
 matching host benchmark's `compare.py`, and never compare firmware numbers with

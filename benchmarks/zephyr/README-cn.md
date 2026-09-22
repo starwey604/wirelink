@@ -76,7 +76,10 @@ python benchmarks/zephyr/capture_serial.py \
 
 Linux 端口名是 `/dev/ttyACM*`，macOS 是 `/dev/cu.usbmodem*`，Windows 是 `COM*`。
 脚本需要 `pyserial`，并在复位导致 USB 重新枚举时自动重开端口。
-不用脚本时，Linux 上 `cat /dev/ttyACM0 > after.log` 也可以；看到 pass marker 后停止。
+脚本以独占方式创建 `--out`，文件已存在则直接失败，绝不把旧日志追加进新采集；
+若 `--until` marker 始终未出现则以退出码 `2` 结束——不完整的采集不会伪装成成功
+（退出码遵循 [SPEC.md](SPEC-cn.md)）。不用脚本时，Linux 上
+`cat /dev/ttyACM0 > after.log` 也可以；看到 pass marker 后停止。
 
 保留原始日志、ELF、SHA-256 和 `.config`。固件日志用对应主机基准的 `compare.py` 比较，
 不要把固件数字与主机数字互比。`native_sim` 和 QEMU 仍是正确性门槛，不是计时时钟。
