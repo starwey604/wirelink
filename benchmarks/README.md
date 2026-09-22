@@ -42,6 +42,8 @@ python3 benchmarks/bench.py list      # suites and presets
 python3 benchmarks/bench.py doctor    # required tools for a preset (exit 2 if one is missing)
 python3 benchmarks/bench.py run --preset smoke   # build, execute, collect into out/<run-id>/
 python3 benchmarks/bench.py report out/<run-id>  # normalize raw/ into normalized.json (idempotent)
+python3 benchmarks/bench.py pair --suite footprint --before out/a --after out/b  # exit 0/1/2
+python3 benchmarks/bench.py pair --preset smoke --base origin/main --candidate . # build+alternate+compare
 ```
 
 `doctor` gates against `--preset smoke` by default: Python 3.11+, CMake ≥
@@ -49,8 +51,12 @@ python3 benchmarks/bench.py report out/<run-id>  # normalize raw/ into normalize
 Benchmark (`--preset quick`/`--preset full`). A run directory is created
 exclusively and never overwritten: it holds `manifest.json` plus the
 authoritative `raw/`, and `report` rebuilds the derived `normalized.json`
-from `raw/` alone. The per-suite guides below stay authoritative for manual
-runs.
+from `raw/` alone. `pair` writes `comparison.json`, `summary.md` and
+`junit.xml` (into the `--after` directory, or into `--out` for orchestrated
+runs) with the three-state exit code; `--base`/`--candidate` builds both
+sides in isolated git worktrees and alternates them (A/B/B/A by default),
+while `--before`/`--after` re-compares existing runs without re-measuring.
+The per-suite guides below stay authoritative for manual runs.
 
 How to reproduce each result is documented here. Published, machine-specific
 numbers live on the

@@ -19,17 +19,21 @@ Benchmark 保持 opt-in，永远不是正确性门。本文件增加的是：让
 python3 benchmarks/bench.py doctor      # 工具链/依赖/串口检查
 python3 benchmarks/bench.py list        # 套件与预设
 python3 benchmarks/bench.py run --preset <name> [--out DIR]
-python3 benchmarks/bench.py pair --preset <name> --base REV --candidate REV [--out DIR]
-python3 benchmarks/bench.py report --in DIR
+python3 benchmarks/bench.py pair --preset <name> --base REV --candidate REV [--order ab|abba]
+python3 benchmarks/bench.py pair --preset <name> --before DIR --after DIR
+python3 benchmarks/bench.py report RUN_DIR
 python3 benchmarks/bench.py calibrate --preset <name> --runs N
 python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
 ```
 
 - `run`：按预设配置 CMake、构建、执行并归一化。
-- `pair`：在隔离的源码/构建目录中以 A/B/B/A 交替顺序运行 base 与
-  candidate，然后比较。
-- `report`：仅凭 `raw/` 重新生成 `normalized.json`、`comparison.json`、
-  `summary.md`、`junit.xml`，不重新测量（幂等）。
+- `pair`：用各套件自己的 comparator 比较两次运行，产出
+  `comparison.json`、`summary.md` 与 `junit.xml`。给 `--base`/`--candidate`
+  时在隔离源码树中构建两侧并交替执行（默认 A/B/B/A，同一指标取两个
+  bracket 中更差的状态）；给 `--before`/`--after` 时仅重新比较既有运行
+  目录、不重新测量（幂等，输出写入 `--after` 目录）。
+- `report`：仅凭 `raw/` 重新生成 `normalized.json`，不重新测量（幂等）；
+  比较类输出由 `pair` 重新生成。
 - `calibrate`：在同一 testbed 上重复运行同一 baseline，输出阈值推导所
   须的 median/MAD 噪声带。
 - `hil`：构建、烧录、复位、采集、校验固件套件。
@@ -195,6 +199,6 @@ out/<run-id>/
 
 上述契约分阶段落地：先逐套件落地退出码、
 `--json-out`/`--markdown-out` 与 gate；`bench.py` 与 `presets.toml`
-已提供共享注册表与 `list`/`doctor`/`run`/`report`，`pair`、`calibrate`
+已提供共享注册表与 `list`/`doctor`/`run`/`report`/`pair`，`calibrate`
 与 CI 分层随后落地。在某个套件完成转换之前，其 `compare.py` 仍可直接使用，
 其原生输出仍是 `raw/` 中的权威数据。

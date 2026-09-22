@@ -20,17 +20,22 @@ dependencies; `tomllib` reads the preset file):
 python3 benchmarks/bench.py doctor      # toolchain/deps/serial-port checks
 python3 benchmarks/bench.py list        # suites and presets
 python3 benchmarks/bench.py run --preset <name> [--out DIR]
-python3 benchmarks/bench.py pair --preset <name> --base REV --candidate REV [--out DIR]
-python3 benchmarks/bench.py report --in DIR
+python3 benchmarks/bench.py pair --preset <name> --base REV --candidate REV [--order ab|abba]
+python3 benchmarks/bench.py pair --preset <name> --before DIR --after DIR
+python3 benchmarks/bench.py report RUN_DIR
 python3 benchmarks/bench.py calibrate --preset <name> --runs N
 python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
 ```
 
 - `run` configures CMake from the preset, builds, executes, and normalizes.
-- `pair` runs base and candidate in isolated source/build directories in
-  alternating A/B/B/A order, then compares.
-- `report` re-derives `normalized.json`, `comparison.json`, `summary.md`, and
-  `junit.xml` from `raw/` without re-measuring (idempotent).
+- `pair` compares two runs with each suite's own comparator and writes
+  `comparison.json`, `summary.md`, and `junit.xml`. With `--base`/`--candidate`
+  it builds both sides in isolated source trees and alternates them (default
+  A/B/B/A, keeping the worse status per metric across brackets); with
+  `--before`/`--after` it re-compares existing run directories without
+  re-measuring (idempotent, outputs land in the `--after` directory).
+- `report` re-derives `normalized.json` from `raw/` without re-measuring
+  (idempotent); the comparison outputs are re-derived by `pair`.
 - `calibrate` repeats one baseline on one testbed and emits the median/MAD
   noise band that threshold values must be derived from.
 - `hil` builds, flashes, resets, captures, and validates firmware suites.
@@ -206,7 +211,7 @@ Notes:
 
 The contract above is staged: exit codes, `--json-out`/`--markdown-out`, and
 gates land suite by suite first; `bench.py` and `presets.toml` now provide
-the shared registry with `list`/`doctor`/`run`/`report`, and `pair`,
-`calibrate`, and the CI layers follow. Until a suite is converted, its
+the shared registry with `list`/`doctor`/`run`/`report`/`pair`, and
+`calibrate` and the CI layers follow. Until a suite is converted, its
 `compare.py` keeps working directly and its native output stays
 authoritative in `raw/`.

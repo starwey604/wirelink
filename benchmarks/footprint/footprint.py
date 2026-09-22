@@ -177,10 +177,32 @@ def measure_elf(path, size_tool):
     return totals, sections
 
 
+def recorded_flags(flags, root):
+    """Compile flags for the report, with paths under the tree root made
+    relative.
+
+    A relocated checkout (`bench.py pair --base` creates a git worktree)
+    must record the same toolchain identity as the original tree; absolute
+    include paths would read as a toolchain mismatch and make the pair
+    incomparable.
+    """
+    prefix = str(root)
+    recorded = []
+    for flag in flags:
+        for cut in ("-I" + prefix, prefix):
+            if flag.startswith(cut) and flag != cut:
+                recorded.append(flag[:len(cut) - len(prefix)]
+                                + flag[len(cut):].lstrip("/"))
+                break
+        else:
+            recorded.append(flag)
+    return recorded
+
+
 def build_report(args):
     compiler = {
         "cc": args.cc,
-        "flags": list(args.cflags),
+        "flags": recorded_flags(args.cflags, args.root),
     }
     report = {
         "schema": SCHEMA,

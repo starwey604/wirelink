@@ -16,10 +16,11 @@
 # is injected by bench.py when a suite requires it.
 #
 # Placeholders: {python} interpreter, {out} output directory, {bin} build
-# directory, {before}/{after} pair inputs. `stdout` captures process stdout
-# into out/<file> instead of a runner-provided file. `stamp` lists the
-# workload sources recorded with benchmarks/stamp.py for kind = gb suites
-# (the api runner stamps its own report).
+# directory. `stdout` captures process stdout into out/<file> instead of a
+# runner-provided file. `stamp` lists the workload sources recorded with
+# benchmarks/stamp.py for kind = gb suites (the api runner stamps its own
+# report). `compare` names the suite comparator that `bench.py pair` drives
+# in-process, passing the before/after raw reports as positional inputs.
 
 [suites.owner_pass]
 kind = "model"

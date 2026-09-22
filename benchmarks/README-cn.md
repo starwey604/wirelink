@@ -35,13 +35,19 @@ python3 benchmarks/bench.py list      # 列出套件与预设
 python3 benchmarks/bench.py doctor    # 检查预设所需工具（缺必需项则退出 2）
 python3 benchmarks/bench.py run --preset smoke   # 构建、执行并收集到 out/<run-id>/
 python3 benchmarks/bench.py report out/<run-id>  # 把 raw/ 归一化为 normalized.json（幂等）
+python3 benchmarks/bench.py pair --suite footprint --before out/a --after out/b  # 三态退出 0/1/2
+python3 benchmarks/bench.py pair --preset smoke --base origin/main --candidate . # 构建+交替+比较
 ```
 
 `doctor` 默认按 `--preset smoke` 判定必需项：Python 3.11+、CMake ≥ 3.21、
 C 编译器、`size` 和 WLC。timing 套件还需要 Google Benchmark
 （`--preset quick`/`--preset full`）。运行目录独占创建、绝不覆盖：其中
 `manifest.json` 与权威的 `raw/`，`report` 只从 `raw/` 重建派生的
-`normalized.json`。手工运行仍以下方各套件指南为准。
+`normalized.json`。`pair` 写出 `comparison.json`、`summary.md` 与
+`junit.xml`（直比模式写入 `--after` 目录，编排模式写入 `--out`），退出码
+为三态；`--base`/`--candidate` 在隔离 git worktree 中构建两侧并交替执行
+（默认 A/B/B/A），`--before`/`--after` 则不重新测量、仅重比较既有运行。
+手工运行仍以下方各套件指南为准。
 
 这里说明的是怎么复现。机器相关的实测数字发布在
 [文档站](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)，

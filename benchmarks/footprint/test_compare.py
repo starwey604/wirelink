@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 import copy
 import unittest
+from pathlib import Path
 
 import compare
+import footprint
 
 
 def report(**overrides):
@@ -76,6 +78,17 @@ class CompareTest(unittest.TestCase):
     def test_schema_is_enforced(self):
         with self.assertRaises(ValueError):
             compare.load(__file__)
+
+    def test_recorded_flags_make_tree_paths_relative(self):
+        # Isolated pair worktrees must record the same toolchain identity.
+        self.assertEqual(
+            ["-Os", "-I", "include", "-Isrc"],
+            footprint.recorded_flags(
+                ["-Os", "-I", "/tree/include", "-I/tree/src"], Path("/tree")))
+        self.assertEqual(
+            ["-O2", "-I", "/elsewhere/include"],
+            footprint.recorded_flags(
+                ["-O2", "-I", "/elsewhere/include"], Path("/tree")))
 
 
 if __name__ == "__main__":

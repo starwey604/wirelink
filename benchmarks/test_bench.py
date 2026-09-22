@@ -158,5 +158,163 @@ class Commands(unittest.TestCase):
                 json.loads((run / "normalized.json").read_text()))
 
 
+class Pair(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def make_run(self, name, *, testbed="unit", footprint=None,
+                 owner_pass=None):
+        from report import manifest
+        run = self.root / name
+        (run / "raw").mkdir(parents=True)
+        if footprint is not None:
+            raw = run / "raw" / "footprint"
+            raw.mkdir()
+            (raw / "footprint.json").write_text(json.dumps(footprint),
+                                                encoding="utf-8")
+        if owner_pass is not None:
+            raw = run / "raw" / "owner_pass"
+            raw.mkdir()
+            (raw / "owner_pass.jsonl").write_text(owner_pass,
+                                                  encoding="utf-8")
+        manifest.write_manifest(run / "manifest.json",
+                                manifest.manifest(suite="smoke",
+                                                  testbed=testbed))
+        return run
+
+    def run_pair(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = bench.main(["pair", *map(str, argv)])
+        return code, out.getvalue()
+
+    def test_gate_argv_maps_preset_thresholds_to_suite_flags(self):
+        if bench.tomllib is None:
+            self.skipTest("tomllib needs Python 3.11+")
+        data = bench.load_presets()
+        quick = data["presets"]["quick"]["gate"]
+        framing = data["suites"]["framing"]
+        self.assertEqual(["--gate", "warn", "--max-regression-percent", "10.0",
+                          "--max-regression-ns", "5.0"],
+                         bench._gate_argv(framing, quick))
+        smoke = data["presets"]["smoke"]["gate"]
+        self.assertEqual(["--gate", "auto"],
+                         bench._gate_argv(data["suites"]["footprint"], smoke))
+        mixed = data["suites"]["mixed_traffic"]
+        self.assertEqual(["--gate", "fail", "--max-regression-ms", "8.0"],
+                         bench._gate_argv(
+                             mixed, {"mode": "fail", "ms": 8.0}))
+
+    def test_pair_identical_runs_pass(self):
+        from report.test_normalize import footprint_report
+        before = self.make_run("before", footprint=footprint_report())
+        after = self.make_run("after", footprint=footprint_report())
+        code, _ = self.run_pair("--suite", "footprint", "--before", before,
+                                "--after", after)
+        self.assertEqual(0, code)
+        document = json.loads((after / "comparison.json").read_text())
+        self.assertEqual("wirelink-benchmark-comparison-v1",
+                         document["schema"])
+        self.assertEqual(0, document["exit_code"])
+        self.assertTrue((after / "summary.md").is_file())
+        self.assertTrue((after / "junit.xml").is_file())
+
+    def test_pair_exact_change_is_a_regression(self):
+        from report.test_normalize import footprint_report
+        before_report = footprint_report()
+        after_report = footprint_report()
+        after_report["types"]["wl_ctx_t"] = 900  # exact: any change fails
+        before = self.make_run("before", footprint=before_report)
+        after = self.make_run("after", footprint=after_report)
+        code, _ = self.run_pair("--suite", "footprint", "--before", before,
+                                "--after", after)
+        self.assertEqual(1, code)
+        document = json.loads((after / "comparison.json").read_text())
+        self.assertEqual(1, document["exit_code"])
+        self.assertGreaterEqual(document["verdict"]["fail"], 1)
+
+    def test_pair_relative_threshold_gates_section_growth(self):
+        from report.test_normalize import footprint_report
+        # quick profile: warn only — a large change annotates but never blocks.
+        small = footprint_report()
+        large = footprint_report()
+        large["totals"]["text"] = 200
+        before = self.make_run("before", footprint=small)
+        after = self.make_run("after", footprint=large)
+        code, _ = self.run_pair("--suite", "footprint", "--preset", "quick",
+                                "--before", before, "--after", after)
+        self.assertEqual(0, code, "quick is warn-only until calibrated")
+        document = json.loads((after / "comparison.json").read_text())
+        self.assertGreaterEqual(document["verdict"]["warn"], 1)
+
+    def test_pair_testbed_mismatch_is_incomparable(self):
+        from report.test_normalize import footprint_report
+        before = self.make_run("before", testbed="runner-a",
+                               footprint=footprint_report())
+        after = self.make_run("after", testbed="runner-b",
+                              footprint=footprint_report())
+        code, text = self.run_pair("--suite", "footprint", "--before", before,
+                                   "--after", after)
+        self.assertEqual(2, code)
+        document = json.loads((after / "comparison.json").read_text())
+        self.assertEqual(2, document["exit_code"])
+        self.assertTrue(document["reasons"])
+        self.assertIn("not comparable", text)
+
+    def test_pair_missing_raw_is_incomparable(self):
+        from report.test_normalize import footprint_report
+        before = self.make_run("before", footprint=footprint_report())
+        after = self.make_run("after")  # raw/footprint absent
+        code, _ = self.run_pair("--suite", "footprint", "--before", before,
+                                "--after", after)
+        self.assertEqual(2, code)
+        document = json.loads((after / "comparison.json").read_text())
+        self.assertTrue(any("missing raw report" in reason
+                            for reason in document["reasons"]))
+
+    def test_pair_owner_pass_compares_exact_contract_fields(self):
+        before = self.make_run(
+            "before",
+            owner_pass='{"case":"rx_burst","budget":0,"delivered":8,'
+                       '"received":8,"max_per_pass":3}\n')
+        after_same = self.make_run(
+            "after_same",
+            owner_pass='{"case":"rx_burst","budget":0,"delivered":8,'
+                       '"received":8,"max_per_pass":9}\n')  # racy counter ignored
+        code, _ = self.run_pair("--suite", "owner_pass", "--before", before,
+                                "--after", after_same)
+        self.assertEqual(0, code, "max_per_pass is racy and must not gate")
+        after_changed = self.make_run(
+            "after_changed",
+            owner_pass='{"case":"rx_burst","budget":0,"delivered":7,'
+                       '"received":7,"max_per_pass":3}\n')
+        code, _ = self.run_pair("--suite", "owner_pass", "--before", before,
+                                "--after", after_changed)
+        self.assertEqual(1, code, "a delivered-count change is a finding")
+
+    def test_pair_argument_validation_exits_two(self):
+        for argv in (["pair", "--before", "x"],
+                     ["pair", "--candidate", "."],
+                     ["pair", "--before", "x", "--after", "y",
+                      "--base", "HEAD"],
+                     ["pair", "--suite", "ghost", "--before", "x",
+                      "--after", "y"]):
+            with self.subTest(argv=argv):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as caught:
+                        bench.main(argv)
+                self.assertEqual(caught.exception.code, 2)
+
+    def test_merge_conservative_keeps_the_worse_bracket(self):
+        rows = [
+            {"suite": "s", "case": "c", "metric": "m", "status": "pass"},
+            {"suite": "s", "case": "c", "metric": "m", "status": "fail"},
+        ]
+        self.assertEqual("fail", bench._merge_conservative(rows)[0]["status"])
+        self.assertEqual(1, len(bench._merge_conservative(rows)))
+
+
 if __name__ == "__main__":
     unittest.main()

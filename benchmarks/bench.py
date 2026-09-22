@@ -11,8 +11,10 @@ three-state contract: 0 = fine, 1 = regression (gate surfaces only), 2 =
 invalid environment or input — never a performance conclusion.
 """
 import argparse
+import contextlib
 import glob
 import hashlib
+import io
 import json
 import os
 import platform
@@ -20,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -332,6 +335,284 @@ def cmd_report(args, _data):
     return 0
 
 
+# --- pair: three-state comparison of two runs -------------------------------
+
+_STATUS_RANK = {"pass": 0, "warn": 1, "fail": 2, "incomparable": 3}
+_SEVERITY = {"auto": "fail", "fail": "fail", "warn": "warn", "off": "info"}
+
+
+def _severity_for(gate_table):
+    return _SEVERITY[gate_table.get("mode", "auto")]
+
+
+def _raw_name(name, suite):
+    """Authoritative raw file: stdout capture or the runner's --json output."""
+    return suite.get("stdout") or f"{name}.json"
+
+
+def _gate_argv(suite, gate_table):
+    """Preset gate table -> the suite comparator's uniform gate flags."""
+    argv = ["--gate", gate_table.get("mode", "auto")]
+    if "percent" in gate_table:
+        argv += ["--max-regression-percent", str(gate_table["percent"])]
+    flag = suite.get("gate_absolute_flag")
+    if flag and flag.rsplit("-", 1)[-1] in gate_table:
+        # --max-regression-ns <- ns, --max-regression-ms <- ms,
+        # --max-growth-bytes <- bytes; absent keys mean "not calibrated yet".
+        argv += [flag, str(gate_table[flag.rsplit("-", 1)[-1]])]
+    return argv
+
+
+def _rev_label(identity):
+    revision = identity.get("revision") or ""
+    return revision[:9] if revision else "unknown"
+
+
+def _merge_conservative(rows):
+    """One row per metric: A/B/B/A compares each metric twice; keep the worse
+    status so a regression visible in either bracket is not averaged away."""
+    merged = {}
+    for row in rows:
+        key = (row.get("suite"), row.get("case"), row.get("metric"))
+        kept = merged.get(key)
+        if kept is None or _STATUS_RANK[row["status"]] > _STATUS_RANK[kept["status"]]:
+            merged[key] = row
+    return list(merged.values())
+
+
+def _compare_native(name, suite, before, after, gate_table, out_json):
+    """Run one suite comparator in-process; returns (exit code, crash reason).
+    Its own tested invariants (workload hash, context, case sets) apply."""
+    from report import normalize
+    module = normalize._suite_module(name)
+    argv = [str(before), str(after), "--json-out", str(out_json),
+            *_gate_argv(suite, gate_table)]
+    captured = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(captured):
+            rc = module.main(argv)
+    except SystemExit as error:
+        rc = error.code if isinstance(error.code, int) else 2
+    except Exception as error:  # comparator crash = invalid evidence
+        return 2, f"{name}: comparator crashed: {error}"
+    rc = 0 if rc is None else int(rc)
+    if rc not in (0, 1, 2):
+        return 2, f"{name}: comparator exited {rc}"
+    if rc == 2 and captured.getvalue().strip():
+        print(f"bench: {name} comparator: "
+              f"{captured.getvalue().strip().splitlines()[-1]}")
+    return rc, None
+
+
+def _compare_owner_pass(before, after, severity):
+    """owner_pass has no comparator: its deterministic contract fields are
+    compared as exact measurements from both sides' raw evidence."""
+    from report import normalize, schema
+    docs = []
+    for run_dir in (before, after):
+        identity = json.loads((run_dir / "manifest.json").read_text(
+            encoding="utf-8"))
+        rows = normalize.normalize("owner_pass", run_dir / "raw" / "owner_pass")
+        docs.append(schema.document(identity.get("testbed"),
+                                    identity.get("revision"),
+                                    identity.get("environment") or {}, rows))
+    return schema.compare(docs[0], docs[1], severity=severity)
+
+
+def _compare_runs(before, after, suites, gate_table):
+    """All gate rows plus reasons across one (before, after) bracket."""
+    from report import gate
+    rows, reasons = [], []
+    severity = _severity_for(gate_table)
+    with tempfile.TemporaryDirectory(prefix="bench-pair-") as tmp:
+        work = Path(tmp)
+        for name, suite in suites:
+            raw = _raw_name(name, suite)
+            left = before / "raw" / name / raw
+            right = after / "raw" / name / raw
+            if not left.is_file() or not right.is_file():
+                missing = "before" if not left.is_file() else "after"
+                reason = f"{name}: missing raw report on the {missing} side"
+                reasons.append(reason)
+                rows.append(gate.incomparable(name, "-", "-", "", reason))
+                continue
+            if not suite.get("compare"):  # owner_pass: normalized exact gate
+                try:
+                    suite_rows, suite_reasons = _compare_owner_pass(
+                        before, after, severity)
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    reason = f"{name}: {error}"
+                    reasons.append(reason)
+                    rows.append(gate.incomparable(name, "-", "-", "", reason))
+                    continue
+                rows.extend(suite_rows)
+                reasons.extend(suite_reasons)
+                continue
+            out_json = work / f"{name}.json"
+            rc, crash = _compare_native(name, suite, left, right, gate_table,
+                                        out_json)
+            if crash or not out_json.is_file():
+                reason = crash or (f"{name}: comparator wrote no output "
+                                   f"(exit {rc})")
+                reasons.append(reason)
+                rows.append(gate.incomparable(name, "-", "-", "", reason))
+                continue
+            payload = json.loads(out_json.read_text(encoding="utf-8"))
+            rows.extend(payload.get("results", []))
+    return rows, list(dict.fromkeys(reasons))
+
+
+def _worktree(path, rev):
+    result = subprocess.run(["git", "worktree", "add", "--detach", str(path),
+                             rev], cwd=REPO, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RunFailure(f"git worktree add {rev}: "
+                         f"{result.stderr.strip() or result.stdout.strip()}")
+    return path
+
+
+def _worktree_drop(path):
+    subprocess.run(["git", "worktree", "remove", "--force", str(path)],
+                   cwd=REPO, capture_output=True)
+
+
+def _invoke_run(tree, dest, args):
+    """One isolated `bench.py run` inside a source tree (base or candidate)."""
+    if not (tree / "benchmarks" / "bench.py").is_file():
+        raise RunFailure(f"{tree} has no benchmarks/bench.py — the revision "
+                         "predates the unified benchmark entry point")
+    argv = [sys.executable, str(tree / "benchmarks" / "bench.py"), "run",
+            "--out", str(dest)]
+    if args.suite:
+        for name in args.suite:
+            argv += ["--suite", name]
+    else:
+        argv += ["--preset", args.preset]
+    if args.jobs:
+        argv += ["--jobs", str(args.jobs)]
+    code = subprocess.run(argv, cwd=tree).returncode
+    if code != 0:
+        raise RunFailure(f"run in {tree} exited {code} ({dest})")
+    return dest
+
+
+def _pair_orchestrated(args, suites, label, gate_table):
+    """Build base/candidate in isolated trees, alternate, then compare."""
+    out = args.out or REPO / "out" / f"pair-{run_id()}"
+    try:
+        out.mkdir(parents=True)
+    except FileExistsError:
+        print(f"bench: refusing to overwrite existing output directory {out}")
+        return 2
+    (out / "runs").mkdir()
+    order = ([("base", 1), ("candidate", 1)] if args.order == "ab" else
+             [("base", 1), ("candidate", 1), ("candidate", 2), ("base", 2)])
+    trees, run_dirs = [], {}
+    rows, reasons = [], []
+    try:
+        base_tree = _worktree(out / "src-base", args.base)
+        trees.append(base_tree)
+        candidate = args.candidate or "."
+        cand_tree = (REPO if candidate == "."
+                     else _worktree(out / "src-candidate", candidate))
+        if cand_tree is not REPO:
+            trees.append(cand_tree)
+        for side, attempt in order:
+            tree = base_tree if side == "base" else cand_tree
+            dest = out / "runs" / f"{side}{attempt}"
+            print(f"bench: pair {args.order}: {side} attempt {attempt}")
+            _invoke_run(tree, dest, args)
+            run_dirs[(side, attempt)] = dest
+        brackets = ([(("base", 1), ("candidate", 1))] if args.order == "ab"
+                    else [(("base", 1), ("candidate", 1)),
+                          (("base", 2), ("candidate", 2))])
+        for base_key, cand_key in brackets:
+            bracket_rows, bracket_reasons = _compare_runs(
+                run_dirs[base_key], run_dirs[cand_key], suites, gate_table)
+            rows.extend(bracket_rows)
+            reasons.extend(bracket_reasons)
+    except RunFailure as error:
+        print(f"bench: {error}")
+        return 2
+    finally:
+        for tree in trees:
+            _worktree_drop(tree)
+    rows = _merge_conservative(rows)
+    reasons = list(dict.fromkeys(reasons))
+    before_manifest = json.loads(
+        (run_dirs[("base", 1)] / "manifest.json").read_text(encoding="utf-8"))
+    after_manifest = json.loads(
+        (run_dirs[("candidate", 1)] / "manifest.json").read_text(
+            encoding="utf-8"))
+    return _emit_pair(out, rows, reasons, label,
+                      before=_rev_label(before_manifest),
+                      after=_rev_label(after_manifest),
+                      testbed=after_manifest.get("testbed", ""))
+
+
+def _emit_pair(out, rows, reasons, label, *, before, after, testbed):
+    from report import emit, gate
+    export = argparse.Namespace(
+        json_out=str(out / "comparison.json"),
+        markdown_out=str(out / "summary.md"),
+        junit_out=str(out / "junit.xml"))
+    code = emit(export, rows, reasons=reasons,
+                title=f"Wirelink benchmark comparison ({label})",
+                before=before, after=after, suite=testbed)
+    counts = gate.verdict(rows)
+    print(f"bench: {out / 'comparison.json'}: pass={counts['pass']} "
+          f"warn={counts['warn']} fail={counts['fail']} "
+          f"incomparable={counts['incomparable']}")
+    for reason in reasons:
+        print(f"bench: not comparable: {reason}")
+    print(f"bench: summary: {out / 'summary.md'}  junit: {out / 'junit.xml'}")
+    return code
+
+
+def cmd_pair(args, data, parser):
+    if args.preset not in data["presets"]:
+        parser.error(f"unknown preset: {args.preset}; known: "
+                     f"{', '.join(sorted(data['presets']))}")
+    if (args.before is None) != (args.after is None):
+        parser.error("--before and --after must be given together")
+    if args.base and args.before:
+        parser.error("--before/--after and --base/--candidate are exclusive")
+    if args.candidate and not args.base:
+        parser.error("--candidate requires --base")
+    if not args.base and not args.before:
+        parser.error("pair needs --before/--after (existing runs) or "
+                     "--base/--candidate (revision comparison)")
+    suites, label = _select_suites(args, data, parser)
+    gate_table = data["presets"][args.preset].get("gate", {"mode": "auto"})
+    if args.base:
+        return _pair_orchestrated(args, suites, label, gate_table)
+
+    from report import gate
+    manifests = {}
+    for run_dir in (args.before, args.after):
+        path = run_dir / "manifest.json"
+        if not path.is_file():
+            print(f"bench: {run_dir}: not a run directory "
+                  "(manifest.json is required)")
+            return 2
+        manifests[run_dir] = json.loads(path.read_text(encoding="utf-8"))
+    testbed = manifests[args.after].get("testbed", "")
+    if manifests[args.before].get("testbed") != testbed:
+        reason = (f"testbed: {manifests[args.before].get('testbed')} "
+                  f"!= {testbed}")
+        rows = [gate.incomparable(name, "-", "-", "", reason)
+                for name, _ in suites]
+        reasons = [reason]
+    else:
+        rows, reasons = _compare_runs(args.before, args.after, suites,
+                                      gate_table)
+    out = args.out or args.after  # SPEC: pair outputs live in the run dir
+    out.mkdir(parents=True, exist_ok=True)
+    return _emit_pair(out, _merge_conservative(rows), list(dict.fromkeys(reasons)),
+                      label, before=_rev_label(manifests[args.before]),
+                      after=_rev_label(manifests[args.after]), testbed=testbed)
+
+
 def cmd_list(_args, data):
     suites, presets = data["suites"], data["presets"]
     print("Suites:")
@@ -493,6 +774,33 @@ def main(argv=None):
         "report", help="normalize raw/ into normalized.json (idempotent)")
     report.add_argument("run", type=Path, metavar="RUN_DIR",
                         help="run directory containing manifest.json and raw/")
+    pair = commands.add_parser(
+        "pair", help="compare two runs: exit 0 pass, 1 regression, "
+                     "2 invalid/incomparable")
+    pair.add_argument("--preset", default="smoke",
+                      help="suites and gate profile (default: smoke)")
+    pair.add_argument("--suite", action="append", default=None, metavar="NAME",
+                      help="limit to this suite (repeatable; the gate profile "
+                           "still comes from --preset)")
+    pair.add_argument("--before", type=Path, default=None,
+                      help="existing base run directory")
+    pair.add_argument("--after", type=Path, default=None,
+                      help="existing candidate run directory (comparison "
+                           "outputs land here unless --out is given)")
+    pair.add_argument("--base", default=None, metavar="REV",
+                      help="git revision to build the base side from in an "
+                           "isolated worktree")
+    pair.add_argument("--candidate", default=None, metavar="REV",
+                      help="git revision for the candidate side "
+                           "(default: the working tree)")
+    pair.add_argument("--order", choices=("ab", "abba"), default="abba",
+                      help="alternation for --base: abba brackets the "
+                           "candidate between two base runs (default)")
+    pair.add_argument("--out", type=Path, default=None,
+                      help="output directory (orchestrated mode default: "
+                           "out/pair-<run-id>)")
+    pair.add_argument("--jobs", type=int, default=None,
+                      help="parallel build jobs for orchestrated runs")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         data = load_presets()
@@ -504,6 +812,8 @@ def main(argv=None):
         return cmd_list(args, data)
     if args.command == "report":
         return cmd_report(args, data)
+    if args.command == "pair":
+        return cmd_pair(args, data, parser)
     if args.command == "doctor":
         if args.preset not in data["presets"]:
             parser.error(f"unknown preset: {args.preset}; "
