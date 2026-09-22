@@ -369,11 +369,9 @@ static void uart_dma_callback(const struct device *dev,
     {
       k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
 
-      if (adapter->buffer_request_pending != 0U) {
-        k_spin_unlock(&adapter->rx_lock, key);
-        mark_abort(adapter);
-        break;
-      }
+      /* A driver may issue a fresh request after promoting its look-ahead
+       * buffer even when the previous request could not be answered. Both
+       * events represent the same one-slot demand, so coalesce them. */
       adapter->buffer_request_pending = 1U;
       k_spin_unlock(&adapter->rx_lock, key);
     }
@@ -412,6 +410,13 @@ static void uart_dma_callback(const struct device *dev,
     }
     break;
   case UART_RX_DISABLED:
+    {
+      k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
+
+      /* uart_rx_buf_rsp() can only answer a request while RX is enabled. */
+      adapter->buffer_request_pending = 0U;
+      k_spin_unlock(&adapter->rx_lock, key);
+    }
     if (atomic_get(&adapter->stopping) != 0) {
       atomic_set(&adapter->expected_disabled, 0);
     } else if (atomic_get(&adapter->abort_pending) == 0 &&

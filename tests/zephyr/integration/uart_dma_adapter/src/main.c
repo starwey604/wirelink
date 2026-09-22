@@ -547,6 +547,15 @@ ZTEST(wirelink_uart_dma_adapter,
     offset += sizeof(fixture.rx_dma_buffers[0]);
   }
   zassert_is_null(fake_data.rx_next_buf);
+  {
+    struct uart_event requested = {.type = UART_RX_BUF_REQUEST};
+
+    /* Advancing to another current buffer may repeat an unanswered request.
+     * It is the same one-slot demand, not an adapter protocol violation. */
+    fake_data.callback(&fake_uart, &requested, fake_data.callback_data);
+    wl_zephyr_uart_dma_get_stats(&fixture.adapter, &stats);
+    zassert_equal(stats.errors, 0U);
+  }
 
   received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
   zassert_true(received > 0U);

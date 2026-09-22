@@ -62,6 +62,9 @@
 #ifndef BENCH_STREAM_TIMEOUT_MS
 #define BENCH_STREAM_TIMEOUT_MS 120000U
 #endif
+#ifndef BENCH_STREAM_TX_BUDGET
+#define BENCH_STREAM_TX_BUDGET 256U
+#endif
 #ifndef BENCH_PAYLOAD_START_INDEX
 #define BENCH_PAYLOAD_START_INDEX 0U
 #endif
@@ -357,6 +360,7 @@ static int validate_uart_dma_tx(void) {
 }
 #endif
 
+#if !defined(WL_BENCH_STREAM)
 static int uart_tx_frame(const uint8_t *data, size_t length) {
   int64_t deadline = k_uptime_get() + BENCH_FRAME_TIMEOUT_MS;
   size_t offset = 0U;
@@ -388,6 +392,7 @@ static int uart_tx_frame(const uint8_t *data, size_t length) {
   }
   return 0;
 }
+#endif
 
 #if defined(WL_BENCH_INGRESS_IRQ)
 static void uart_irq_ingress(const struct device *dev, void *user_data) {
@@ -693,8 +698,12 @@ static int run_stream_profile(size_t payload_len) {
   last_progress_ms = k_uptime_get();
 
   while ((sent < total || received < total) && k_uptime_get() < deadline) {
+    size_t tx_bytes_this_pass = 0U;
+
     /* Keep the TX FIFO as full as it accepts, then service RX. Never wait for
-     * TX idle: the goal is a continuously busy RX line. */
+     * TX idle: the goal is a continuously busy RX line. Bound each producer
+     * pass so short frames cannot monopolize the owner loop merely because
+     * encoding time lets the FIFO accept another whole frame. */
     while (sent < total) {
       size_t chunk;
       int wrote;
@@ -713,6 +722,7 @@ static int run_stream_profile(size_t payload_len) {
         break;
       }
       tx_offset += (size_t)wrote;
+      tx_bytes_this_pass += (size_t)wrote;
       if (tx_offset < tx_wire_len) {
         break; /* TX FIFO full mid-frame */
       }
@@ -726,6 +736,9 @@ static int run_stream_profile(size_t payload_len) {
       }
       tx_active = 0;
       ++sent;
+      if (tx_bytes_this_pass >= BENCH_STREAM_TX_BUDGET) {
+        break;
+      }
     }
 
     /* Drain every frame the consumer can deliver before yielding again. */

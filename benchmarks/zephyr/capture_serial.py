@@ -18,6 +18,9 @@ def main():
                         help="Serial device, for example /dev/ttyACM0 or COM5")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument("--reset", action="store_true",
+                        help="Hard-reset an ESP USB Serial/JTAG target after "
+                             "opening")
     parser.add_argument("--until", default="",
                         help="Stop after this substring appears (for example result=pass)")
     parser.add_argument("--seconds", type=float, default=0.0,
@@ -33,10 +36,20 @@ def main():
     deadline = time.monotonic() + args.seconds if args.seconds > 0 else None
     marker = args.until.encode()
     seen = bytearray()
+    reset_pending = args.reset
     while True:
         try:
             with serial.Serial(args.port, args.baud, timeout=0.2) as port, \
                     args.out.open("ab") as log:
+                if reset_pending:
+                    # On Espressif USB Serial/JTAG, RTS drives active-low EN
+                    # and DTR drives active-low GPIO0. Keep GPIO0 deasserted so
+                    # the target boots the application instead of the loader.
+                    port.dtr = False
+                    port.rts = True
+                    time.sleep(0.1)
+                    port.rts = False
+                    reset_pending = False
                 while True:
                     chunk = port.read(4096)
                     if chunk:
