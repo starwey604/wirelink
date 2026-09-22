@@ -316,5 +316,69 @@ class Pair(unittest.TestCase):
         self.assertEqual(1, len(bench._merge_conservative(rows)))
 
 
+class Calibrate(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def test_calibrate_requires_at_least_two_runs(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                bench.main(["calibrate", "--runs", "1"])
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_calibrate_refuses_to_overwrite(self):
+        out = self.root / "existing"
+        out.mkdir()
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            code = bench.main(["calibrate", "--suite", "footprint",
+                               "--runs", "2", "--out", str(out)])
+        self.assertEqual(code, 2)
+        self.assertIn("refusing to overwrite", captured.getvalue())
+
+    def test_calibrate_derives_median_and_mad(self):
+        from report.test_normalize import footprint_report
+        original = bench._run_suite
+
+        def fake(name, suite, raw, out, args):
+            # One deterministic run per directory, drifting by 1 byte each.
+            report = footprint_report()
+            report["totals"]["text"] = 100 + int(out.name)
+            (raw / "footprint.json").write_text(json.dumps(report),
+                                                encoding="utf-8")
+
+        bench._run_suite = fake
+        self.addCleanup(setattr, bench, "_run_suite", original)
+        out = self.root / "cal"
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            code = bench.main(["calibrate", "--suite", "footprint",
+                               "--runs", "3", "--out", str(out)])
+        self.assertEqual(code, 0, captured.getvalue())
+        document = json.loads((out / "calibration.json").read_text())
+        self.assertEqual("wirelink-benchmark-calibration-v1",
+                         document["schema"])
+        self.assertEqual(3, document["runs"])
+        self.assertEqual("footprint", document["preset"])
+        self.assertTrue((out / "runs" / "01" / "manifest.json").is_file())
+
+        def find(suite, case, metric):
+            return next(item for item in document["metrics"]
+                        if (item["suite"], item["case"], item["metric"])
+                        == (suite, case, metric))
+
+        text = find("footprint", "total", "text")
+        self.assertEqual([101.0, 102.0, 103.0], text["samples"])
+        self.assertEqual(102, text["median"])
+        self.assertEqual(1, text["mad"])
+        self.assertEqual(5, text["noise_floor"])
+        rodata = find("footprint", "total", "rodata")
+        self.assertEqual((20, 0, 0),
+                         (rodata["median"], rodata["mad"],
+                          rodata["noise_floor"]))
+
+
 if __name__ == "__main__":
     unittest.main()

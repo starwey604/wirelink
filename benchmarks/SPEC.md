@@ -211,7 +211,7 @@ Notes:
 
 The contract above is staged: exit codes, `--json-out`/`--markdown-out`, and
 gates land suite by suite first; `bench.py` and `presets.toml` now provide
-the shared registry with `list`/`doctor`/`run`/`report`/`pair`, and
-`calibrate` and the CI layers follow. Until a suite is converted, its
+the shared registry with `list`/`doctor`/`run`/`report`/`pair`/`calibrate`,
+and the CI layers follow. Until a suite is converted, its
 `compare.py` keeps working directly and its native output stays
 authoritative in `raw/`.

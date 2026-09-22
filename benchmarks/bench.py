@@ -20,6 +20,7 @@ import os
 import platform
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -613,6 +614,101 @@ def cmd_pair(args, data, parser):
                       after=_rev_label(manifests[args.after]), testbed=testbed)
 
 
+# --- calibrate: median/MAD noise bands from repeated baselines -------------
+
+def cmd_calibrate(args, data, parser):
+    """Repeat the same suites N times on this machine and derive, per metric,
+    the median/MAD band thresholds must be derived from (5 x MAD floor)."""
+    if args.preset not in data["presets"]:
+        parser.error(f"unknown preset: {args.preset}; known: "
+                     f"{', '.join(sorted(data['presets']))}")
+    if args.runs < 2:
+        parser.error("--runs must be at least 2 to estimate a noise band")
+    suites, label = _select_suites(args, data, parser)
+    from report import manifest, normalize
+    out = args.out or REPO / "out" / f"calibrate-{run_id()}"
+    try:
+        out.mkdir(parents=True)
+    except FileExistsError:
+        print(f"bench: refusing to overwrite existing output directory {out}")
+        return 2
+    (out / "runs").mkdir()
+    testbed = args.testbed or f"local-{platform.system().lower()}-" \
+        f"{platform.machine()}"
+    run_dirs = []
+    for index in range(1, args.runs + 1):
+        run_dir = out / "runs" / f"{index:02d}"
+        (run_dir / "raw").mkdir(parents=True)
+        (run_dir / "artifacts").mkdir()
+        manifest.write_manifest(run_dir / "manifest.json",
+                                manifest.manifest(suite=label,
+                                                  testbed=testbed))
+        print(f"bench: calibrate {label}: run {index}/{args.runs}")
+        try:
+            for name, suite in suites:
+                raw = run_dir / "raw" / name
+                raw.mkdir()
+                _run_suite(name, dict(suite, name=name), raw, run_dir, args)
+        except RunFailure as error:
+            print(f"bench: {name}: {error}")
+            print(f"bench: calibration aborted; partial evidence kept in {out}")
+            return 2
+        run_dirs.append(run_dir)
+
+    values = {}
+    try:
+        for run_dir in run_dirs:
+            for name, _ in suites:
+                for row in normalize.normalize(name, run_dir / "raw" / name):
+                    key = (row["suite"], row["case"], row["metric"])
+                    entry = values.setdefault(
+                        key, {"unit": row["unit"],
+                              "direction": row["direction"], "samples": []})
+                    if (entry["unit"], entry["direction"]) != \
+                            (row["unit"], row["direction"]):
+                        raise ValueError(
+                            f"{key}: unit/direction changed across runs")
+                    entry["samples"].append(row["median"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"bench: calibration invalid: {error}")
+        return 2
+
+    metrics = []
+    for (suite, case, metric), entry in sorted(values.items()):
+        if len(entry["samples"]) != len(run_dirs):
+            print(f"bench: {suite}/{case}/{metric}: only "
+                  f"{len(entry['samples'])}/{len(run_dirs)} runs measured it; "
+                  "a noise band needs every run")
+            return 2
+        center = statistics.median(entry["samples"])
+        mad = statistics.median(abs(value - center)
+                                for value in entry["samples"])
+        metrics.append({"suite": suite, "case": case, "metric": metric,
+                        "unit": entry["unit"], "direction": entry["direction"],
+                        "samples": entry["samples"], "median": center,
+                        "mad": mad, "noise_floor": 5 * mad})
+    document = {"schema": "wirelink-benchmark-calibration-v1",
+                "testbed": testbed, "preset": label, "runs": len(run_dirs),
+                "metrics": metrics}
+    (out / "calibration.json").write_text(
+        json.dumps(document, indent=2, allow_nan=False) + "\n",
+        encoding="utf-8")
+    noisy = [metric for metric in
+             sorted(metrics, key=lambda item: item["noise_floor"],
+                    reverse=True)
+             if metric["noise_floor"] > 0]
+    print(f"bench: {out / 'calibration.json'}: {len(metrics)} metric(s) over "
+          f"{len(run_dirs)} run(s); {len(noisy)} with measurable noise")
+    for metric in noisy[:15]:
+        print(f"bench:   {metric['suite']}/{metric['case']}/"
+              f"{metric['metric']}: median {metric['median']:g} "
+              f"{metric['unit']}, MAD {metric['mad']:g}, "
+              f"5xMAD floor {metric['noise_floor']:g}")
+    print("bench: thresholds must be >= max(product allowance, 5xMAD); "
+          "record sentinel values in presets.toml (see SPEC)")
+    return 0
+
+
 def cmd_list(_args, data):
     suites, presets = data["suites"], data["presets"]
     print("Suites:")
@@ -801,6 +897,26 @@ def main(argv=None):
                            "out/pair-<run-id>)")
     pair.add_argument("--jobs", type=int, default=None,
                       help="parallel build jobs for orchestrated runs")
+    calibrate = commands.add_parser(
+        "calibrate", help="repeat baselines and emit median/MAD noise floors "
+                          "for threshold derivation")
+    calibrate.add_argument("--preset", default="smoke",
+                           help="suites to repeat (default: smoke)")
+    calibrate.add_argument("--suite", action="append", default=None,
+                           metavar="NAME",
+                           help="calibrate exactly this suite (repeatable)")
+    calibrate.add_argument("--runs", type=int, default=10,
+                           help="repetitions on this machine "
+                                "(default: 10, minimum 2)")
+    calibrate.add_argument("--out", type=Path, default=None,
+                           help="output directory "
+                                "(default: out/calibrate-<run-id>)")
+    calibrate.add_argument("--testbed", default=None,
+                           help="testbed id (default: local-<os>-<arch>)")
+    calibrate.add_argument("--jobs", type=int, default=None,
+                           help="parallel build jobs (default: cmake default)")
+    calibrate.add_argument("--skip-build", action="store_true",
+                           help="reuse existing build/bench/<suite> trees")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         data = load_presets()
@@ -814,6 +930,8 @@ def main(argv=None):
         return cmd_report(args, data)
     if args.command == "pair":
         return cmd_pair(args, data, parser)
+    if args.command == "calibrate":
+        return cmd_calibrate(args, data, parser)
     if args.command == "doctor":
         if args.preset not in data["presets"]:
             parser.error(f"unknown preset: {args.preset}; "

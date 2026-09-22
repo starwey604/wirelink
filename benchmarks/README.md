@@ -44,6 +44,7 @@ python3 benchmarks/bench.py run --preset smoke   # build, execute, collect into 
 python3 benchmarks/bench.py report out/<run-id>  # normalize raw/ into normalized.json (idempotent)
 python3 benchmarks/bench.py pair --suite footprint --before out/a --after out/b  # exit 0/1/2
 python3 benchmarks/bench.py pair --preset smoke --base origin/main --candidate . # build+alternate+compare
+python3 benchmarks/bench.py calibrate --suite footprint --runs 10  # median/MAD noise floors
 ```
 
 `doctor` gates against `--preset smoke` by default: Python 3.11+, CMake ≥
@@ -56,7 +57,10 @@ from `raw/` alone. `pair` writes `comparison.json`, `summary.md` and
 runs) with the three-state exit code; `--base`/`--candidate` builds both
 sides in isolated git worktrees and alternates them (A/B/B/A by default),
 while `--before`/`--after` re-compares existing runs without re-measuring.
-The per-suite guides below stay authoritative for manual runs.
+`calibrate` repeats the same suites on one machine and writes
+`calibration.json` (per-metric median, MAD, and the 5×MAD noise floor);
+recorded thresholds must be `max(product allowance, noise floor)`. The
+per-suite guides below stay authoritative for manual runs.
 
 How to reproduce each result is documented here. Published, machine-specific
 numbers live on the

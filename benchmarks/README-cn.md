@@ -37,6 +37,7 @@ python3 benchmarks/bench.py run --preset smoke   # 构建、执行并收集到 o
 python3 benchmarks/bench.py report out/<run-id>  # 把 raw/ 归一化为 normalized.json（幂等）
 python3 benchmarks/bench.py pair --suite footprint --before out/a --after out/b  # 三态退出 0/1/2
 python3 benchmarks/bench.py pair --preset smoke --base origin/main --candidate . # 构建+交替+比较
+python3 benchmarks/bench.py calibrate --suite footprint --runs 10  # median/MAD 噪声带
 ```
 
 `doctor` 默认按 `--preset smoke` 判定必需项：Python 3.11+、CMake ≥ 3.21、
@@ -47,7 +48,9 @@ C 编译器、`size` 和 WLC。timing 套件还需要 Google Benchmark
 `junit.xml`（直比模式写入 `--after` 目录，编排模式写入 `--out`），退出码
 为三态；`--base`/`--candidate` 在隔离 git worktree 中构建两侧并交替执行
 （默认 A/B/B/A），`--before`/`--after` 则不重新测量、仅重比较既有运行。
-手工运行仍以下方各套件指南为准。
+`calibrate` 在一台机器上重复运行同一套件并写出 `calibration.json`
+（每个指标的 median、MAD 与 5×MAD 噪声下限）；记录的阈值必须是
+`max(产品允许值, 噪声下限)`。手工运行仍以下方各套件指南为准。
 
 这里说明的是怎么复现。机器相关的实测数字发布在
 [文档站](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)，
