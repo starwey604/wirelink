@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from report import (add_output_arguments, emit, gate_settings, gate_rows,
-                    incomparable_rows)
+                    incomparable_rows, manifest)
 
 HOST = {(k, p, s) for k in range(12) for p in range(3) for s in range(3)}
 FIRMWARE = {(m, k, p, s) for m in range(3) for k in range(1 if m == 2 else 12)
@@ -49,7 +49,8 @@ def host(data):
     repeats = {tuple(sorted(v)) for v in groups.values()}
     if len(repeats) != 1 or next(iter(repeats)) != tuple(range(len(next(iter(repeats))))):
         raise ValueError("missing repetition")
-    keys = ("host_name", "num_cpus", "caches", "library_version", "library_build_type")
+    keys = ("host_name", "num_cpus", "caches", "library_version",
+            "library_build_type", "benchmark_source_hash")
     return ({"kind": "host", "sizes": sizes, **{k: context.get(k) for k in keys}},
             {k: {"cpu_ns": [v[0] for v in samples.values()], "wall_ns": [v[1] for v in samples.values()]}
              for k, samples in groups.items()})
@@ -102,7 +103,13 @@ def read(path):
 
 
 def compare(a, b):
-    if a[0] != b[0] or a[1].keys() != b[1].keys():
+    left_context, right_context = dict(a[0]), dict(b[0])
+    reason = manifest.source_hash_reason(left_context, right_context)
+    left_context.pop("benchmark_source_hash", None)
+    right_context.pop("benchmark_source_hash", None)
+    if reason:
+        raise ValueError(reason)
+    if left_context != right_context or a[1].keys() != b[1].keys():
         raise ValueError("workload, machine or LTO mismatch")
     for key in sorted(a[1]):
         for metric, values in a[1][key].items():

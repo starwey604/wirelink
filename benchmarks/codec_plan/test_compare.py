@@ -26,6 +26,20 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(compare.compare(compare.firmware(capture(0)), compare.firmware(capture(1))))
 
+    def test_source_hash_mismatch_is_incomparable(self):
+        def report(digest):
+            data = {"context": {"workload": "wirelink-codec-plan-v1",
+                                "benchmark_source_hash": digest},
+                    "benchmarks": [{"name": f"k{k}/p{p}/s{s}", "cpu_time": 100,
+                                    "real_time": 101, "time_unit": "ns",
+                                    "encoded_bytes": 5}
+                                   for k, p, s in compare.HOST]}
+            return compare.host(data)
+        with self.assertRaisesRegex(ValueError, "source hash"):
+            list(compare.compare(report("a" * 64), report("b" * 64)))
+        self.assertEqual(
+            len(list(compare.compare(report("a" * 64), report("a" * 64)))), 216)
+
     def test_host_complete_and_missing(self):
         data = {"context": {"workload": "wirelink-codec-plan-v1"}, "benchmarks": [
             {"name": f"k{k}/p{p}/s{s}", "cpu_time": 100, "real_time": 101,

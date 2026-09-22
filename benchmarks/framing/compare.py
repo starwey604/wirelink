@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from report import (add_output_arguments, emit, gate_settings, gate_rows,
-                    incomparable_rows)
+                    incomparable_rows, manifest)
 
 MODES = ("spare", "exact", "overlap", "send", "claim", "busy3", "retry3")
 UNITS = {"cpu_ns": "ns", "wall_ns": "ns", "cycles": "cycles"}
@@ -51,7 +51,8 @@ def host(report):
     counts = {tuple(sorted(samples)) for samples in groups.values()}
     if len(counts) != 1 or next(iter(counts)) != tuple(range(len(next(iter(counts))))):
         raise ValueError("incomplete repetitions")
-    keys = ("workload", "host_name", "num_cpus", "caches", "library_version", "library_build_type")
+    keys = ("workload", "host_name", "num_cpus", "caches", "library_version",
+            "library_build_type", "benchmark_source_hash")
     return ({"kind": "host", **{key: context.get(key) for key in keys}},
             {name: {"cpu_ns": [v[0] for v in samples.values()],
                     "wall_ns": [v[1] for v in samples.values()]} for name, samples in groups.items()})
@@ -104,7 +105,13 @@ def read(path):
 
 
 def compare(left, right):
-    if left[0] != right[0]:
+    left_context, right_context = dict(left[0]), dict(right[0])
+    reason = manifest.source_hash_reason(left_context, right_context)
+    left_context.pop("benchmark_source_hash", None)
+    right_context.pop("benchmark_source_hash", None)
+    if reason:
+        raise ValueError(reason)
+    if left_context != right_context:
         raise ValueError("context mismatch; do not compare different workloads/machines")
     if left[1].keys() != right[1].keys():
         raise ValueError("measurement set changed")

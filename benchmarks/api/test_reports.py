@@ -49,5 +49,16 @@ class Reports(unittest.TestCase):
             compare(before, after)
 
 
+    def test_source_hash_mismatch_is_incomparable(self):
+        before, after = report(), report()
+        before["context"]["benchmark_source_hash"] = "a" * 64
+        after["context"]["benchmark_source_hash"] = "b" * 64
+        with self.assertRaisesRegex(ValueError, "source hash"):
+            compare(before, after)
+        self.assertTrue(compare(before, after, allow_context_mismatch=True))
+        del after["context"]["benchmark_source_hash"]
+        self.assertTrue(compare(before, after))
+
+
 if __name__ == "__main__":
     unittest.main()

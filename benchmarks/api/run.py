@@ -9,11 +9,14 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests/tutorials"))
+from report import manifest
 from udp_processes import Process, endpoint_ports
 
 VARIANTS = ["s1_c4_reliable", "s12_c1_reliable", "s12_c4_reliable",
             "s64_c4_reliable", "s12_c4_unreliable"]
+WORKLOAD_SOURCES = ("micro.cpp", "udp.cpp")
 
 
 def binary(directory, name):
@@ -23,23 +26,6 @@ def binary(directory, name):
             if path.is_file():
                 return path.resolve()
     raise FileNotFoundError(name)
-
-
-def build_context(directory):
-    keys = {"CMAKE_BUILD_TYPE", "CMAKE_C_COMPILER", "CMAKE_CXX_COMPILER",
-            "CMAKE_C_FLAGS", "CMAKE_C_FLAGS_RELEASE", "CMAKE_CXX_FLAGS",
-            "CMAKE_CXX_FLAGS_RELEASE", "CMAKE_INTERPROCEDURAL_OPTIMIZATION",
-            "WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR", "WIRELINK_WLC_CODEGEN_CONTRACT_MINOR"}
-    for parent in [directory.resolve(), *directory.resolve().parents]:
-        cache = parent / "CMakeCache.txt"
-        if cache.is_file():
-            values = {}
-            for line in cache.read_text(encoding="utf-8").splitlines():
-                key = line.split(":", 1)[0]
-                if key in keys and "=" in line:
-                    values[key] = line.split("=", 1)[1]
-            return values
-    return {}  # Standalone copied executables have no discoverable build cache.
 
 
 def udp_run(executable, samples, warmup, size):
@@ -90,10 +76,14 @@ def main():
         parser.error("cannot skip both workloads")
     if not 0 < args.min_time <= 60 or args.samples > 1000000 or args.warmup > 1000000:
         parser.error("invalid timing/sample bounds")
+    sources = [Path(__file__).with_name(name) for name in WORKLOAD_SOURCES]
     report = {"format": "wirelink-performance-v1", "context": {
         "system": platform.system(), "machine": platform.machine(), "host": platform.node(),
         "samples": args.samples, "warmup": args.warmup,
-        "build": build_context(args.bin_dir),
+        "build": manifest.cmake_cache(args.bin_dir),
+        "revision": manifest.revision(),
+        "environment": manifest.environment(build_dir=args.bin_dir),
+        "benchmark_source_hash": manifest.source_hash(sources),
         "micro_repetitions": args.repetitions, "micro_min_time_s": args.min_time,
         "udp_rounds": args.udp_rounds,
     }, "artifacts": {}, "micro": {}, "udp": []}

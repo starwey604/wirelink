@@ -33,9 +33,18 @@ Use identical compilers/flags, an idle host and A/B/B/A run order; do not compil
 or run other tests concurrently with timing. Compare with:
 
 ```sh
+python3 benchmarks/stamp.py before.json benchmarks/codec_plan/workload.c \
+  benchmarks/codec_plan/workload.h benchmarks/codec_plan/micro.cpp
+python3 benchmarks/stamp.py after.json benchmarks/codec_plan/workload.c \
+  benchmarks/codec_plan/workload.h benchmarks/codec_plan/micro.cpp
 python3 benchmarks/codec_plan/compare.py before.json after.json
 python3 benchmarks/codec_plan/test_compare.py
 ```
+
+Stamp every capture immediately after it is written and **before** editing
+workload sources: `benchmark_source_hash` records the benchmark code behind
+the report, and the comparison treats mismatched workload hashes as
+incomparable (exit 2), never as a regression.
 
 Preserve compiler, codec, executable and raw-report hashes. The parser rejects
 partial matrices, duplicate repetitions, errors, changed encoded lengths and

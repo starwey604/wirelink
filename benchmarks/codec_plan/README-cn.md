@@ -26,9 +26,17 @@ Google Benchmark 1.9+ 也可用 `find_package(benchmark)` 提供。
 使用相同编译器/参数、空闲主机和 A/B/B/A 顺序；计时期间不要编译或运行其他测试。对比：
 
 ```sh
+python3 benchmarks/stamp.py before.json benchmarks/codec_plan/workload.c \
+  benchmarks/codec_plan/workload.h benchmarks/codec_plan/micro.cpp
+python3 benchmarks/stamp.py after.json benchmarks/codec_plan/workload.c \
+  benchmarks/codec_plan/workload.h benchmarks/codec_plan/micro.cpp
 python3 benchmarks/codec_plan/compare.py before.json after.json
 python3 benchmarks/codec_plan/test_compare.py
 ```
+
+每次采集写盘后**立即** stamp，且必须在修改 workload 源码之前：
+`benchmark_source_hash` 记录的是报告背后的基准代码；对比对 workload 哈希
+不一致的两份报告判定为 incomparable（退出码 2），不会当成回归。
 
 保留编译器、codec、可执行文件和原始报告的哈希。解析器拒绝不完整矩阵、重复重复、错误、
 编码长度变化和机器/负载不一致。编译器/参数需要另外做来源核验。

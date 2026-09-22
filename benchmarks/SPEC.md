@@ -76,6 +76,13 @@ out/<run-id>/
 from `raw/` alone via `bench.py report`; a report may never hide or mutate
 raw data.
 
+`manifest.json` uses schema `wirelink-benchmark-manifest-v1` and, like the
+rest of the directory, is created exclusively. Google Benchmark JSON captured
+directly by a suite records its workload identity with `benchmarks/stamp.py`
+(`context.benchmark_source_hash`); every native comparator applies the same
+both-sides rule as the normalized layer below, so differing hashes yield
+`incomparable`, never a regression verdict.
+
 ## Result schema: wirelink-benchmark-v2
 
 `normalized.json` is the single logical model every suite is converted into.

@@ -32,9 +32,18 @@ compiler/version, CMake cache/flags, machine and source diff alongside the JSON.
 Do not rebuild the baseline directory after editing the sources.
 
 ```sh
+python3 benchmarks/stamp.py before.json benchmarks/framing/workload.c \
+  benchmarks/framing/workload.h benchmarks/framing/micro.cpp
+python3 benchmarks/stamp.py after.json benchmarks/framing/workload.c \
+  benchmarks/framing/workload.h benchmarks/framing/micro.cpp
 python3 benchmarks/framing/compare.py before.json after.json
 python3 benchmarks/framing/test_compare.py
 ```
+
+Stamp each capture immediately after it is written and **before** editing
+workload sources: `benchmark_source_hash` records the benchmark code that
+produced that report, and the comparison treats reports stamped from
+different workload sources as incomparable (exit 2), never as a regression.
 
 The comparison rejects failed workloads, missing/duplicate repetitions, changed
 sink counts, context size or measurement sets. It reports median CPU and wall

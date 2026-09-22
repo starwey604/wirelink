@@ -18,8 +18,15 @@ ctest --test-dir build/rpc-validation --output-on-failure
 build/rpc-validation/benchmarks/rpc_validation/wirelink_rpc_validation_benchmark \
   --benchmark_min_time=0.05s --benchmark_repetitions=7 \
   --benchmark_out=after.json --benchmark_out_format=json
+python3 benchmarks/stamp.py after.json benchmarks/rpc_validation/workload.c \
+  benchmarks/rpc_validation/workload.h benchmarks/rpc_validation/micro.cpp
 python3 benchmarks/rpc_validation/compare.py before.json after.json
 ```
+
+`before.json` 在它自己的采集处用同样方式 stamp；每次采集写盘后**立即** stamp，
+且必须在修改 workload 源码之前：`benchmark_source_hash` 记录的是报告背后的
+基准代码；对比对 workload 哈希不一致的两份报告判定为 incomparable
+（退出码 2），不会当成回归。
 
 使用空闲主机、相同编译器/选项和各自冻结的二进制。跑 A/B/B/A；计时期间不要构建或运行其他基准。
 CPU 时间和墙时分别报告。Smoke 只查正确性，不查速度；共享 CI 不设固定计时门槛。

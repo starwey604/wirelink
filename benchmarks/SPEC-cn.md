@@ -72,6 +72,12 @@ out/<run-id>/
 `raw/` 是权威数据。归一化与报告必须能仅凭 `raw/` 通过
 `bench.py report` 复现；报告不得隐藏或篡改原始数据。
 
+`manifest.json` 使用 schema `wirelink-benchmark-manifest-v1`，与目录其余部分
+一样只创建不覆盖。各套件直接采集的 Google Benchmark JSON 通过
+`benchmarks/stamp.py` 记录负载身份（`context.benchmark_source_hash`）；
+所有原生 comparator 与归一化层适用同一条双侧规则：哈希不同即
+`incomparable`，绝不给出回归结论。
+
 ## 结果 schema：wirelink-benchmark-v2
 
 `normalized.json` 是所有套件转换成的唯一逻辑模型。套件原生格式保留在

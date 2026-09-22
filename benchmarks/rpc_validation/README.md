@@ -21,8 +21,16 @@ ctest --test-dir build/rpc-validation --output-on-failure
 build/rpc-validation/benchmarks/rpc_validation/wirelink_rpc_validation_benchmark \
   --benchmark_min_time=0.05s --benchmark_repetitions=7 \
   --benchmark_out=after.json --benchmark_out_format=json
+python3 benchmarks/stamp.py after.json benchmarks/rpc_validation/workload.c \
+  benchmarks/rpc_validation/workload.h benchmarks/rpc_validation/micro.cpp
 python3 benchmarks/rpc_validation/compare.py before.json after.json
 ```
+
+Stamp `before.json` the same way at its own capture, and stamp every
+capture immediately and **before** editing workload sources:
+`benchmark_source_hash` records the benchmark code behind the report, and
+the comparison treats mismatched workload hashes as incomparable (exit 2),
+never as a regression.
 
 Use an idle host, identical compiler/options and separate frozen binaries. Run
 A/B/B/A; do not build or run other benchmarks during timing. CPU time and wall

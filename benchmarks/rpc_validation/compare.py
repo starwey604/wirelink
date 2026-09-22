@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from report import (add_output_arguments, emit, gate_settings, gate_rows,
-                    incomparable_rows)
+                    incomparable_rows, manifest)
 
 STAGES = ("decode", "canonical", "convert", "pipeline", "owned_decode")
 GROUPS = {(k, s, b) for k in range(3) for s in range(5)
@@ -54,7 +54,8 @@ def host(report):
     repeats = {tuple(sorted(v)) for v in groups.values()}
     if len(repeats) != 1 or next(iter(repeats)) != tuple(range(len(next(iter(repeats))))):
         raise ValueError("incomplete repetitions")
-    keys = ("workload", "host_name", "num_cpus", "caches", "library_version", "library_build_type")
+    keys = ("workload", "host_name", "num_cpus", "caches", "library_version",
+            "library_build_type", "benchmark_source_hash")
     return ({"kind": "host", "encoded_bytes": sizes, **{k: context.get(k) for k in keys}},
             {k: {"cpu_ns": [v[0] for v in samples.values()],
                  "wall_ns": [v[1] for v in samples.values()]} for k, samples in groups.items()})
@@ -105,7 +106,13 @@ def read(path):
 
 
 def compare(left, right):
-    if left[0] != right[0] or left[1].keys() != right[1].keys():
+    left_context, right_context = dict(left[0]), dict(right[0])
+    reason = manifest.source_hash_reason(left_context, right_context)
+    left_context.pop("benchmark_source_hash", None)
+    right_context.pop("benchmark_source_hash", None)
+    if reason:
+        raise ValueError(reason)
+    if left_context != right_context or left[1].keys() != right[1].keys():
         raise ValueError("workload or machine changed")
     for key in sorted(left[1]):
         for metric, values in left[1][key].items():

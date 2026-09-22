@@ -68,6 +68,16 @@ class Reports(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare.compare(before, after)
 
+    def test_source_hash_mismatch_is_incomparable(self):
+        before, after = host_report(), host_report()
+        before["context"]["benchmark_source_hash"] = "a" * 64
+        after["context"]["benchmark_source_hash"] = "b" * 64
+        with self.assertRaisesRegex(ValueError, "source hash"):
+            list(compare.compare(compare.host(before), compare.host(after)))
+        # One-sided or equal stamps stay comparable.
+        del after["context"]["benchmark_source_hash"]
+        list(compare.compare(compare.host(before), compare.host(after)))
+
     def test_firmware_complete_matrix_and_units(self):
         report = compare.firmware(firmware_report())
         self.assertEqual(len(report[1]), 168)

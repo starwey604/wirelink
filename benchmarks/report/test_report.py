@@ -3,12 +3,13 @@
 import json
 import math
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from report import gate, junit, markdown, schema  # noqa: E402
+from report import gate, junit, manifest, markdown, schema  # noqa: E402
 
 
 def row(**overrides):
@@ -201,6 +202,120 @@ class Renderers(unittest.TestCase):
         text = junit.render([row(severity="warn", after=200.0)], suite="s")
         root = ElementTree.fromstring(text)
         self.assertEqual(root.get("failures"), "0")
+
+
+class Manifest(unittest.TestCase):
+    def test_cmake_cache_and_options_from_directory_or_parent(self):
+        with tempfile.TemporaryDirectory() as d:
+            build = Path(d) / "build"
+            subdir = build / "sub"
+            subdir.mkdir(parents=True)
+            (build / "CMakeCache.txt").write_text(
+                "CMAKE_C_COMPILER:FILEPATH=/usr/bin/cc\n"
+                "CMAKE_C_FLAGS:STRING=-O2\n"
+                "CMAKE_BUILD_TYPE:STRING=Release\n"
+                "WIRELINK_BUILD_FRAMING_BENCHMARK:BOOL=ON\n"
+                "WIRELINK_BUILD_FUZZERS:BOOL=OFF\n"
+                "NOT_INTERESTING:STRING=x\n")
+            found = manifest.cmake_cache(subdir)
+            self.assertEqual(found["CMAKE_C_COMPILER"], "/usr/bin/cc")
+            self.assertEqual(found["CMAKE_BUILD_TYPE"], "Release")
+            self.assertNotIn("NOT_INTERESTING", found)
+            self.assertEqual(manifest.cmake_options(subdir),
+                             "WIRELINK_BUILD_FRAMING_BENCHMARK=ON")
+            self.assertEqual(manifest.cmake_cache(Path(d) / "nope"), {})
+
+    def test_revision_and_wlc_are_best_effort(self):
+        revision = manifest.revision()
+        if revision is not None:
+            self.assertRegex(revision, r"^[0-9a-f]{40}(-dirty)?$")
+        contract = manifest.wlc_version()
+        self.assertIsNotNone(contract)
+        self.assertRegex(contract, r"^contract \d+\.\d+$")
+
+    def test_cpu_identity_shape(self):
+        identity = manifest.cpu_identity()
+        self.assertEqual(set(identity), {"cpu", "affinity", "governor"})
+        self.assertIsInstance(identity["affinity"], list)
+        self.assertTrue(identity["governor"])
+
+    def test_source_hash_reason_requires_both_sides(self):
+        self.assertIsNone(manifest.source_hash_reason({}, {}))
+        self.assertIsNone(manifest.source_hash_reason(
+            {"benchmark_source_hash": "a"}, {}))
+        self.assertIsNone(manifest.source_hash_reason(
+            {"benchmark_source_hash": "a"}, {"benchmark_source_hash": "a"}))
+        reason = manifest.source_hash_reason(
+            {"benchmark_source_hash": "a"}, {"benchmark_source_hash": "b"})
+        self.assertIn("source hash", reason)
+
+    def test_environment_and_source_hash(self):
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "workload.c"
+            source.write_text("int x;\n")
+            env = manifest.environment(sources=[source])
+            for key in ("compiler", "flags", "cmake_options", "cpu",
+                        "affinity", "governor", "wlc", "benchmark_source_hash"):
+                self.assertIn(key, env)
+            self.assertEqual(env["compiler"], "")
+            self.assertEqual(env["cmake_options"], "")
+            self.assertEqual(env["benchmark_source_hash"],
+                             schema.workload_hash([source]))
+            self.assertEqual(
+                manifest.environment(extra={"wlc": "custom"})["wlc"], "custom")
+
+    def test_stamp_adds_hash_without_touching_measurements(self):
+        with tempfile.TemporaryDirectory() as d:
+            report = Path(d) / "before.json"
+            source = Path(d) / "workload.c"
+            source.write_text("int workload;\n")
+            report.write_text(json.dumps(
+                {"context": {"workload": "wirelink-framing-v1"},
+                 "benchmarks": [{"name": "a", "cpu_time": 1}]}))
+            digest = manifest.stamp(report, [source])
+            stored = json.loads(report.read_text())
+            self.assertEqual(stored["context"]["benchmark_source_hash"], digest)
+            self.assertEqual(stored["benchmarks"], [{"name": "a", "cpu_time": 1}])
+            source.write_text("int workload; /* changed */\n")
+            self.assertNotEqual(manifest.stamp(report, [source]), digest)
+            with self.assertRaises(ValueError):
+                manifest.stamp(report, [])
+
+    def test_manifest_document_and_exclusive_write(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "run" / "manifest.json"
+            document = manifest.manifest(suite="framing", testbed="unit")
+            self.assertEqual(document["schema"], manifest.MANIFEST_SCHEMA)
+            self.assertEqual(document["suite"], "framing")
+            self.assertIn("revision", document)
+            manifest.write_manifest(out, document)
+            self.assertEqual(json.loads(out.read_text())["testbed"], "unit")
+            with self.assertRaises(FileExistsError):
+                manifest.write_manifest(out, document)
+            with self.assertRaises(ValueError):
+                manifest.manifest(suite="", testbed="unit")
+
+    def test_main_cli_stamp_and_manifest(self):
+        import contextlib
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            report = Path(d) / "before.json"
+            source = Path(d) / "workload.c"
+            source.write_text("int workload;\n")
+            report.write_text(json.dumps({"context": {}, "benchmarks": []}))
+            out = Path(d) / "manifest.json"
+            sink = io.StringIO()
+            with contextlib.redirect_stdout(sink):
+                self.assertEqual(
+                    manifest.main(["stamp", str(report), str(source)]), 0)
+                self.assertEqual(
+                    manifest.main(["manifest", str(out), "--suite", "api",
+                                   "--testbed", "unit"]), 0)
+            self.assertIn("benchmark_source_hash",
+                          json.loads(report.read_text())["context"])
+            self.assertTrue(out.is_file())
+            with self.assertRaises(SystemExit):
+                manifest.main(["stamp", str(report)])  # no sources
 
 
 if __name__ == "__main__":

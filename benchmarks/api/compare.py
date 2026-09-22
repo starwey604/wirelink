@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from report import (add_output_arguments, emit, gate_settings, gate_rows,
-                    incomparable_rows)
+                    incomparable_rows, manifest)
 
 # Micro CPU time is the only gated metric: the gate is opt-in, never a
 # universal SLA. UDP percentiles and byte counts are reported, not gated.
@@ -57,6 +57,11 @@ def measurements(report):
 
 def compare(before, after, allow_context_mismatch=False):
     if not allow_context_mismatch:
+        # Reports stamped from different workload sources are incomparable,
+        # never regressing (SPEC benchmark_source_hash rule).
+        reason = manifest.source_hash_reason(before["context"], after["context"])
+        if reason:
+            raise ValueError(reason)
         for key in ["system", "machine", "host", "samples", "warmup"]:
             if before["context"][key] != after["context"][key]:
                 raise ValueError(f"context mismatch: {key}")

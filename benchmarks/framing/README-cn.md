@@ -26,9 +26,17 @@ build/framing/benchmarks/framing/wirelink_framing_benchmark \
 改完源码后不要重建基线目录。
 
 ```sh
+python3 benchmarks/stamp.py before.json benchmarks/framing/workload.c \
+  benchmarks/framing/workload.h benchmarks/framing/micro.cpp
+python3 benchmarks/stamp.py after.json benchmarks/framing/workload.c \
+  benchmarks/framing/workload.h benchmarks/framing/micro.cpp
 python3 benchmarks/framing/compare.py before.json after.json
 python3 benchmarks/framing/test_compare.py
 ```
+
+每次采集写盘后**立即** stamp，且必须在修改 workload 源码之前：
+`benchmark_source_hash` 记录的是产生该报告的基准代码；对比对 workload 源码
+哈希不同的两份报告判定为 incomparable（退出码 2），不会当成回归。
 
 对比会拒绝失败的负载、缺失/重复的重复、变化的 sink 数、context 大小或测量集合。
 报告每操作的中位 CPU 和 wall 纳秒。编译器/flags 需另外检查；JSON 不含完整构建身份。

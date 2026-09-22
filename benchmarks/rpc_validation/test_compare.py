@@ -45,6 +45,16 @@ class CompareTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 compare.host(bad)
 
+    def test_source_hash_mismatch_is_incomparable(self):
+        left, right = report(), copy.deepcopy(report())
+        left["context"]["benchmark_source_hash"] = "a" * 64
+        right["context"]["benchmark_source_hash"] = "b" * 64
+        with self.assertRaisesRegex(ValueError, "source hash"):
+            list(compare.compare(compare.host(left), compare.host(right)))
+        # One-sided or equal stamps stay comparable.
+        del right["context"]["benchmark_source_hash"]
+        list(compare.compare(compare.host(left), compare.host(right)))
+
     def test_different_context_or_sizes(self):
         left = report()
         for field, value in (("host_name", "different"), ("workload", "wrong")):

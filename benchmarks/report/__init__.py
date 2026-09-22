@@ -9,9 +9,9 @@ flags, one threshold model, and the SPEC three-state exit code (0 pass,
 import argparse
 import math
 
-from . import gate, junit, markdown, schema  # noqa: F401
+from . import gate, junit, markdown, schema, manifest  # noqa: F401
 
-__all__ = ["gate", "junit", "markdown", "schema", "GATE_MODES",
+__all__ = ["gate", "junit", "markdown", "schema", "manifest", "GATE_MODES",
            "add_output_arguments", "gate_settings", "gate_rows",
            "incomparable_rows", "emit"]
 
