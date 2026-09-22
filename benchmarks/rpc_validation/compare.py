@@ -5,10 +5,17 @@ import json
 import math
 from pathlib import Path
 import statistics
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from report import (add_output_arguments, emit, gate_settings, gate_rows,
+                    incomparable_rows)
 
 STAGES = ("decode", "canonical", "convert", "pipeline", "owned_decode")
 GROUPS = {(k, s, b) for k in range(3) for s in range(5)
           for b in ((0, 16, 32) if k == 0 else (0, 16, 32, 256, 512))}
+UNITS = {"cpu_ns": "ns", "wall_ns": "ns", "cycles": "cycles"}
+GATED = {"cpu_ns"}
 
 
 def name(key):
@@ -109,19 +116,43 @@ def compare(left, right):
             yield key, metric, before, after, 100 * (after / before - 1)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", type=Path)
     parser.add_argument("after", type=Path)
-    args = parser.parse_args()
+    add_output_arguments(parser, absolute_option="--max-regression-ns",
+                         absolute_help="absolute gate threshold in ns; a "
+                                       "timing metric fails only when both "
+                                       "thresholds are exceeded")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    rel, absolute, severity = gate_settings(args)
     try:
-        rows = list(compare(read(args.before), read(args.after)))
+        left, right = read(args.before), read(args.after)
     except (ValueError, KeyError, TypeError, OSError) as error:
-        parser.error(str(error))
-    print("Median per operation; negative is faster. Verify compiler/flags separately.")
-    for key, metric, before, after, change in rows:
-        print(f"{key:26s} {metric:8s} {before:12.2f} -> {after:12.2f} {change:+7.2f}%")
+        parser.error(str(error))  # invalid data: exit 2, no verdict
+    try:
+        pairs = list(compare(left, right))
+        reasons = []
+    except ValueError as error:
+        pairs, reasons = [], [str(error)]
+    if reasons:
+        rows = incomparable_rows(((name, metric) for name, metrics in left[1].items()
+                                  for metric in metrics),
+                                 reasons[0], suite="rpc_validation",
+                                 units=UNITS, severity=severity)
+    else:
+        rows = gate_rows(((name, metric, before, after)
+                          for name, metric, before, after, _ in pairs),
+                         suite="rpc_validation", units=UNITS,
+                         gated=GATED, rel=rel, absolute=absolute,
+                         severity=severity)
+        print("Median per operation; negative is faster. Verify compiler/flags separately.")
+        for key, metric, before, after, change in pairs:
+            print(f"{key:26s} {metric:8s} {before:12.2f} -> {after:12.2f} {change:+7.2f}%")
+    return emit(args, rows, reasons=reasons, suite="rpc_validation",
+                title="Wirelink RPC validation benchmark comparison",
+                before=str(args.before), after=str(args.after))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

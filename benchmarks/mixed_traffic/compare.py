@@ -4,6 +4,10 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from report import add_output_arguments, emit, gate_settings, gate_rows
 
 SCENARIOS = (
     "telemetry_only", "rpc_clean", "single_ack", "drop_ack", "backpressure",
@@ -13,6 +17,10 @@ EXPECTED = {(name, envelope, receiver)
             for name in SCENARIOS for envelope in range(3) for receiver in range(2)}
 COUNTS = ("accepted", "received", "max_age_ms", "max_arrival_age_ms", "max_gap_ms",
           "rpc_completed", "max_rpc_ms", "ack_drops", "busy")
+# Per-scenario maxima across envelopes and directions; deterministic
+# simulated-clock protocol time, so only the relative bound applies.
+SUMMARY_METRICS = ("max_age_ms", "max_gap_ms", "max_rpc_ms")
+UNITS = {metric: "ms" for metric in SUMMARY_METRICS}
 
 
 def validate(rows):
@@ -57,15 +65,39 @@ def summary(rows, name, metric):
     return max(row[metric] for key, row in rows.items() if key[0] == name)
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", type=Path)
     parser.add_argument("after", type=Path)
-    args = parser.parse_args()
-    before, after = load(args.before), load(args.after)
+    add_output_arguments(parser, absolute_option="--max-regression-ms",
+                         absolute_help="absolute gate threshold in simulated "
+                                       "ms; fails only when both thresholds "
+                                       "are exceeded")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    rel, absolute, severity = gate_settings(args)
+
+    try:
+        before, after = load(args.before), load(args.after)
+    except (ValueError, KeyError, TypeError, OSError) as error:
+        parser.error(str(error))  # invalid data: exit 2, no verdict
+    # validate() already pinned the workload identity (format, clock and
+    # duration) on both sides, so these two captures are comparable.
+    pairs = [(scenario, metric, summary(before, scenario, metric),
+              summary(after, scenario, metric))
+             for scenario in SCENARIOS for metric in SUMMARY_METRICS]
+    rows = gate_rows(pairs, suite="mixed_traffic", units=UNITS,
+                     gated=set(SUMMARY_METRICS), rel=rel, absolute=absolute,
+                     severity=severity)
     print("Simulated milliseconds; maxima across three envelopes and both directions.")
     print("scenario                         max age         max gap         max RPC")
     for scenario in SCENARIOS:
-        pairs = [f"{summary(before, scenario, metric)} -> {summary(after, scenario, metric)}"
-                 for metric in ("max_age_ms", "max_gap_ms", "max_rpc_ms")]
-        print(f"{scenario:32s} {pairs[0]:15s} {pairs[1]:15s} {pairs[2]}")
+        values = [f"{summary(before, scenario, metric)} -> {summary(after, scenario, metric)}"
+                  for metric in SUMMARY_METRICS]
+        print(f"{scenario:32s} {values[0]:15s} {values[1]:15s} {values[2]}")
+    return emit(args, rows, suite="mixed_traffic",
+                title="Wirelink mixed-traffic benchmark comparison",
+                before=str(args.before), after=str(args.after))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

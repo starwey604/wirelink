@@ -1,46 +1,110 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Shared benchmark comparison helpers; see benchmarks/SPEC.md."""
+"""Shared benchmark comparison helpers; see benchmarks/SPEC.md.
+
+Every benchmarks/*/compare.py exposes the same surface through
+``add_output_arguments`` + ``gate_settings`` + ``emit``: uniform output
+flags, one threshold model, and the SPEC three-state exit code (0 pass,
+1 regression with severity fail, 2 invalid/incomparable).
+"""
+import argparse
+import math
+
 from . import gate, junit, markdown, schema  # noqa: F401
 
-__all__ = ["gate", "junit", "markdown", "schema",
-           "add_output_arguments", "gate_settings", "emit"]
+__all__ = ["gate", "junit", "markdown", "schema", "GATE_MODES",
+           "add_output_arguments", "gate_settings", "gate_rows",
+           "incomparable_rows", "emit"]
+
+GATE_MODES = ("auto", "warn", "fail", "off")
 
 
-def add_output_arguments(parser):
-    """The uniform --json-out/--markdown-out/--junit-out/--gate surface that
-    every benchmarks/*/compare.py exposes."""
-    parser.add_argument("--json-out", type=str, default=None,
+def _threshold(value):
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"threshold must be a number: {value!r}")
+    if not math.isfinite(number) or number < 0:
+        raise argparse.ArgumentTypeError(
+            f"threshold must be finite and nonnegative: {value!r}")
+    return number
+
+
+def add_output_arguments(parser, *, absolute_option=None,
+                         absolute_help="absolute gate threshold in the "
+                                       "metric's own unit"):
+    """Add the uniform comparison surface to a compare.py parser.
+
+    ``--gate auto`` (default) blocks only when a threshold is given, so
+    existing invocations without flags keep reporting; ``warn`` annotates
+    regressions without failing; ``fail`` states blocking intent;
+    ``off`` ignores thresholds entirely. Invalid data always exits 2.
+    ``absolute_option`` adds the suite's absolute floor (e.g.
+    ``--max-regression-ns`` for timing, ``--max-growth-bytes`` for size);
+    it is applied only to metrics whose unit matches.
+    """
+    parser.add_argument("--json-out", default=None,
                         help="write comparison.json (machine readable)")
-    parser.add_argument("--markdown-out", type=str, default=None,
+    parser.add_argument("--markdown-out", default=None,
                         help="write summary.md for a step summary or PR comment")
-    parser.add_argument("--junit-out", type=str, default=None,
+    parser.add_argument("--junit-out", default=None,
                         help="write junit.xml so CI reports regressions")
-    parser.add_argument("--gate", choices=("off", "warn", "fail"), default="off",
-                        help="off: report only; warn: regressions are annotated "
-                             "but exit 0; fail: regressions exit 1")
-    parser.add_argument("--max-regression-percent", type=float, default=None,
-                        help="relative gate threshold (percent)")
-    parser.add_argument("--max-regression-ns", type=float, default=None,
-                        help="absolute gate threshold; a timing metric fails "
-                             "only when both thresholds are exceeded")
+    parser.add_argument("--gate", choices=GATE_MODES, default="auto",
+                        help="auto: block only when a threshold is given; "
+                             "warn: annotate regressions; fail: block; "
+                             "off: report only (default: auto)")
+    parser.add_argument("--max-regression-percent", type=_threshold, default=None,
+                        help="relative gate threshold (percent); applied to "
+                             "gated metrics only")
+    if absolute_option:
+        parser.add_argument(absolute_option, dest="max_regression_abs",
+                            type=_threshold, default=None,
+                            help=absolute_help)
 
 
 def gate_settings(args):
     """Map the uniform CLI flags to gate.evaluate() inputs.
 
-    Returns (rel, absolute, severity). With --gate off no threshold is
-    applied, so rows stay report-only; --gate warn annotates regressions
-    without failing; --gate fail makes them blocking. Invalid data (exit 2)
-    is unaffected by this choice.
+    Returns ``(rel, absolute, severity)``. ``rel`` is a fraction, not a
+    percent. With ``--gate off`` or no threshold, timing rows stay
+    report-only; ``exact`` metrics (storage contract, public struct sizes)
+    still find any change. Invalid data is unaffected by this choice.
     """
-    severity = {"off": "info", "warn": "warn", "fail": "fail"}[args.gate]
-    if args.gate == "off" or (args.max_regression_percent is None
-                              and args.max_regression_ns is None):
-        return None, None, severity
-    rel = None
-    if args.max_regression_percent is not None:
-        rel = args.max_regression_percent / 100.0
-    return rel, args.max_regression_ns, severity
+    if args.gate == "off":
+        return None, None, "info"
+    severity = {"auto": "fail", "warn": "warn", "fail": "fail"}[args.gate]
+    rel = (None if args.max_regression_percent is None
+           else args.max_regression_percent / 100.0)
+    return rel, getattr(args, "max_regression_abs", None), severity
+
+
+def gate_rows(pairs, *, suite, units, gated=(), rel=None, absolute=None,
+              severity="fail", directions=None):
+    """Build gate rows from (case, metric, before, after) tuples.
+
+    Only metrics in ``gated`` receive thresholds, and ``absolute`` is
+    applied only when the metric's unit matches, so a ns floor never leaks
+    onto a cycles or bytes metric. Metrics not listed in ``directions``
+    default to ``lower`` is better.
+    """
+    gated = set(gated)
+    directions = directions or {}
+    rows = []
+    for case, metric, before, after in pairs:
+        rows.append(gate.evaluate(
+            before, after, suite=suite, case=str(case), metric=metric,
+            unit=units.get(metric, ""), direction=directions.get(metric, "lower"),
+            rel=(rel if metric in gated else None),
+            absolute=(absolute if metric in gated
+                      and units.get(metric) == "ns" else None),
+            severity=severity))
+    return rows
+
+
+def incomparable_rows(items, reason, *, suite, units, severity="fail"):
+    """Rows for two valid reports that must not be compared, from (case, metric)."""
+    return [gate.incomparable(suite, case, metric, units.get(metric, ""),
+                              reason, severity=severity)
+            for case, metric in items]
 
 
 def emit(args, rows, *, reasons=(), title="Wirelink benchmark comparison",

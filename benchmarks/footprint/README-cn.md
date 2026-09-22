@@ -44,13 +44,15 @@ python benchmarks/footprint/footprint.py --elf build/rx/zephyr/zephyr.elf \
 ```sh
 python benchmarks/footprint/compare.py before.json after.json
 python benchmarks/footprint/compare.py before.json after.json \
-  --max-growth-percent 5
+  --max-regression-percent 5 --max-growth-bytes 64
 ```
 
 对比会按分组给出字节增量：区段总量、每个模块或 ELF 区段、存储契约、公开结构
-大小。新出现或消失的模块报告为 `new`。增长阈值是专用 runner 的可选门禁，不是
-默认值：编译器和 C 库更新本来就会让代码大小浮动几个百分点，所以始终用相同的
-编译器、flag 和模式对比。`--elf` 与 `objects` 报告不能互相比较。
+大小。区段与模块行是越低越好；公开结构大小与存储契约为精确匹配，任何变化都会
+作为 finding 报告。新出现或消失的模块报告为 `new`。增长阈值是专用 runner 的可选
+门禁，不是默认值：编译器和 C 库更新本来就会让代码大小浮动几个百分点，所以始终用
+相同的编译器、flag 和模式对比。`--elf` 与 `objects` 报告不能互相比较；mode 或工具链
+不匹配时以退出码 2（`incomparable`）结束，而不是给出大小结论。
 
 ## 报告内容
 

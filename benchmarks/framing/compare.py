@@ -6,8 +6,15 @@ import json
 import math
 from pathlib import Path
 import statistics
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from report import (add_output_arguments, emit, gate_settings, gate_rows,
+                    incomparable_rows)
 
 MODES = ("spare", "exact", "overlap", "send", "claim", "busy3", "retry3")
+UNITS = {"cpu_ns": "ns", "wall_ns": "ns", "cycles": "cycles"}
+GATED = {"cpu_ns"}
 
 
 def positive(value):
@@ -114,27 +121,43 @@ def compare(left, right):
     return rows
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("before", type=Path)
     parser.add_argument("after", type=Path)
-    parser.add_argument("--max-regression-percent", type=float,
-                        help="opt-in CPU-time gate; only for a controlled dedicated runner")
-    args = parser.parse_args()
-    if args.max_regression_percent is not None and (
-            not math.isfinite(args.max_regression_percent) or args.max_regression_percent < 0):
-        parser.error("threshold must be finite and nonnegative")
+    add_output_arguments(parser, absolute_option="--max-regression-ns",
+                         absolute_help="absolute gate threshold in ns; a "
+                                       "timing metric fails only when both "
+                                       "thresholds are exceeded")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    rel, absolute, severity = gate_settings(args)
     try:
-        rows = compare(read(args.before), read(args.after))
+        left, right = read(args.before), read(args.after)
     except (ValueError, KeyError, TypeError, OSError) as error:
-        parser.error(str(error))
-    print("Median per operation; negative change is faster. Same compiler/flags must be verified separately.")
-    failed = False
-    for name, metric, before, after, change in rows:
-        print(f"{name:32s} {metric:8s} {before:12.2f} -> {after:12.2f} {change:+7.2f}%")
-        if metric == "cpu_ns" and args.max_regression_percent is not None:
-            failed |= change > args.max_regression_percent
-    return int(failed)
+        parser.error(str(error))  # invalid data: exit 2, no verdict
+    try:
+        pairs = list(compare(left, right))
+        reasons = []
+    except ValueError as error:
+        # Both sides parsed, but they are not comparable (workload, machine
+        # or matrix changed): report incomparable, never a regression.
+        pairs, reasons = [], [str(error)]
+    if reasons:
+        items = [(name, metric) for name, metrics in left[1].items()
+                 for metric in metrics]
+        rows = incomparable_rows(items, reasons[0], suite="framing",
+                                 units=UNITS, severity=severity)
+    else:
+        rows = gate_rows(((name, metric, before, after)
+                          for name, metric, before, after, _ in pairs),
+                         suite="framing", units=UNITS, gated=GATED, rel=rel,
+                         absolute=absolute, severity=severity)
+        print("Median per operation; negative change is faster. Same compiler/flags must be verified separately.")
+        for name, metric, before, after, change in pairs:
+            print(f"{name:32s} {metric:8s} {before:12.2f} -> {after:12.2f} {change:+7.2f}%")
+    return emit(args, rows, reasons=reasons, suite="framing",
+                title="Wirelink framing benchmark comparison",
+                before=str(args.before), after=str(args.after))
 
 
 if __name__ == "__main__":

@@ -47,16 +47,19 @@ firmware; build the image with `west` first.
 ```sh
 python benchmarks/footprint/compare.py before.json after.json
 python benchmarks/footprint/compare.py before.json after.json \
-  --max-growth-percent 5
+  --max-regression-percent 5 --max-growth-bytes 64
 ```
 
 The comparison reports per-group byte deltas for the section totals, every
-module or ELF section, the storage contract and the public struct sizes. A
-module that appears or disappears is reported as `new`. The growth limit is an
+module or ELF section, the storage contract and the public struct sizes.
+Section and module rows are lower-is-better; public struct sizes and the
+storage contract are exact, so any change is reported as a finding.
+A module that appears or disappears is reported as `new`. The growth limit is an
 optional gate for a dedicated runner, not a default: compiler and C-library
 updates legitimately move code size by a few percent, so always compare the same
 compiler, flags and mode. `--elf` and `objects` reports are not comparable to
-each other.
+each other, and a mode or toolchain mismatch yields exit 2 (`incomparable`)
+instead of a size verdict.
 
 ## Report contents
 

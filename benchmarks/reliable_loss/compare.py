@@ -14,6 +14,9 @@ import sys
 from collections import namedtuple
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from report import add_output_arguments, emit, gate, gate_settings
+
 SCHEMA = "wirelink-reliable-loss-v1"
 CONFIG_KEYS = ("payload", "delay_ms", "ack_timeout_ms", "max_retries",
                "samples", "warmup", "seed", "duplicate_ppm", "reorder_ppm",
@@ -24,6 +27,12 @@ LOWER_IS_BETTER = ("failed", "mean_ms", "p95_ms", "p99_ms", "max_ms",
 HIGHER_IS_BETTER = ("completed", "goodput_bytes_per_s")
 
 Row = namedtuple("Row", "loss item direction before after")
+
+UNITS = {item: ("ms" if item.endswith("_ms") else
+                "bytes/s" if item == "goodput_bytes_per_s" else "count")
+         for item in LOWER_IS_BETTER + HIGHER_IS_BETTER}
+DIRECTIONS = {item: ("lower" if item in LOWER_IS_BETTER else "higher")
+              for item in LOWER_IS_BETTER + HIGHER_IS_BETTER}
 
 
 def load(path):
@@ -85,19 +94,44 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("before")
     parser.add_argument("after")
-    parser.add_argument("--max-regression-percent", type=float, default=None)
+    add_output_arguments(parser)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    rel, absolute, severity = gate_settings(args)
+    # Absolute floors are meaningless here: this is a deterministic
+    # simulated-clock benchmark, so only the relative bound applies.
+    absolute = None
 
-    rows = compare(load(args.before), load(args.after))
-    print(format_rows(rows))
-    hits = exceeding(rows, args.max_regression_percent)
-    if hits:
-        print("\nregressions above %.1f%%:" % args.max_regression_percent)
-        for row in hits:
-            print("  %s %s: %g -> %g" % (row.loss, row.item, row.before,
-                                         row.after))
-        return 1
-    return 0
+    try:
+        before, after = load(args.before), load(args.after)
+    except (ValueError, KeyError, TypeError, OSError) as error:
+        parser.error(str(error))  # invalid data: exit 2, no verdict
+    try:
+        compared = compare(before, after)
+        reasons = []
+    except ValueError as error:
+        compared, reasons = [], [str(error)]
+    if reasons:
+        rows = [gate.incomparable("reliable_loss", case["loss_ppm"], metric,
+                                  UNITS[metric], reasons[0], severity=severity)
+                for case in before["cases"]
+                for metric in LOWER_IS_BETTER + HIGHER_IS_BETTER]
+    else:
+        rows = []
+        for row in compared:
+            rows.append(gate.evaluate(
+                row.before, row.after, suite="reliable_loss", case=row.loss,
+                metric=row.item, unit=UNITS[row.item], direction=row.direction,
+                rel=rel, absolute=None, severity=severity))
+        print(format_rows(compared))
+        hits = exceeding(compared, args.max_regression_percent)
+        if hits:
+            print("\nregressions above %.1f%%:" % args.max_regression_percent)
+            for row in hits:
+                print("  %s %s: %g -> %g" % (row.loss, row.item, row.before,
+                                             row.after))
+    return emit(args, rows, reasons=reasons, suite="reliable_loss",
+                title="Wirelink reliable-loss benchmark comparison",
+                before=str(args.before), after=str(args.after))
 
 
 if __name__ == "__main__":

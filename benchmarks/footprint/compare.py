@@ -4,9 +4,10 @@
 Both inputs must come from ``footprint.py`` with the same schema, mode and
 toolchain identity. The comparison reports byte deltas for the section totals,
 each module or ELF section, the storage contract and the public struct sizes.
-``--max-growth-percent`` is an optional gate for a dedicated runner; it is not a
-default, because compiler and standard-library changes legitimately move code
-size by a few percent.
+``--max-regression-percent`` (optionally paired with ``--max-growth-bytes``)
+is an optional gate for a dedicated runner; it is not a default, because
+compiler and standard-library changes legitimately move code size by a few
+percent.
 """
 
 import argparse
@@ -15,9 +16,18 @@ import sys
 from collections import namedtuple
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from report import add_output_arguments, emit, gate, gate_settings
+
 SCHEMA = "wirelink-footprint-v1"
 SECTIONS = ("text", "rodata", "data", "bss", "debug", "other")
 STORAGE_METRICS = ("tx_payload", "tx_unit", "control", "rx_fifo", "rx_fallback")
+UNITS = {name: "bytes" for name in SECTIONS}
+UNITS.update({metric: "bytes" for metric in STORAGE_METRICS})
+# Section/module rows are lower-is-better; public struct sizes are exact:
+# any change alters every consumer's ABI. The storage contract is the most
+# important thing this benchmark tracks, so it is exact too.
+EXACT_GROUPS = {"type"}
 
 Row = namedtuple("Row", "group item before after")
 
@@ -106,24 +116,39 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("before")
     parser.add_argument("after")
-    parser.add_argument("--max-growth-percent", type=float, default=None)
+    add_output_arguments(parser, absolute_option="--max-growth-bytes",
+                         absolute_help="absolute gate threshold in bytes; "
+                                       "size fails only when both thresholds "
+                                       "are exceeded")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    rel, absolute, severity = gate_settings(args)
 
-    before = load(args.before)
-    after = load(args.after)
-    if before.get("mode") != after.get("mode"):
-        raise SystemExit("mode mismatch: %s vs %s" % (before.get("mode"),
-                                                      after.get("mode")))
-    rows = compare(before, after)
-    print(format_rows(rows))
-    hits = exceeding(rows, args.max_growth_percent)
-    if hits:
-        print("\ngrowth above %.1f%%:" % args.max_growth_percent)
-        for row in hits:
-            print("  %s %s: %d -> %d" % (row.group, row.item, row.before,
-                                         row.after))
-        return 1
-    return 0
+    try:
+        before, after = load(args.before), load(args.after)
+    except (ValueError, OSError) as error:
+        parser.error(str(error))  # invalid data: exit 2, no verdict
+    if before.get("mode") != after.get("mode") or before.get("compiler") != after.get("compiler"):
+        reason = "mode or toolchain mismatch; size reports are not comparable"
+        keys = {(row.group, row.item) for row in compare(before, after)}
+        rows = [gate.incomparable("footprint", group, item, "bytes", reason,
+                                  severity=severity)
+                for group, item in sorted(keys)]
+        return emit(args, rows, reasons=[reason], suite="footprint",
+                    title="Wirelink footprint comparison",
+                    before=str(args.before), after=str(args.after))
+    rows = []
+    for row in compare(before, after):
+        exact = row.group in EXACT_GROUPS or row.group.startswith("storage ")
+        rows.append(gate.evaluate(
+            row.before, row.after, suite="footprint", case=row.group,
+            metric=row.item, unit=UNITS.get(row.item, "bytes"),
+            direction="exact" if exact else "lower",
+            rel=None if exact else rel, absolute=None if exact else absolute,
+            severity=severity))
+    print(format_rows(compare(before, after)))
+    return emit(args, rows, suite="footprint",
+                title="Wirelink footprint comparison",
+                before=str(args.before), after=str(args.after))
 
 
 if __name__ == "__main__":

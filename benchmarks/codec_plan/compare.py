@@ -5,10 +5,17 @@ import json
 import math
 from pathlib import Path
 import statistics
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from report import (add_output_arguments, emit, gate_settings, gate_rows,
+                    incomparable_rows)
 
 HOST = {(k, p, s) for k in range(12) for p in range(3) for s in range(3)}
 FIRMWARE = {(m, k, p, s) for m in range(3) for k in range(1 if m == 2 else 12)
       for p in range(3) for s in range(3)}
+UNITS = {"cpu_ns": "ns", "wall_ns": "ns", "cycles": "cycles"}
+GATED = {"cpu_ns"}
 
 
 def positive(value):
@@ -106,19 +113,42 @@ def compare(a, b):
             yield key, metric, x, y, 100 * (y / x - 1)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("before")
-    parser.add_argument("after")
-    args = parser.parse_args()
+    parser.add_argument("before", type=Path)
+    parser.add_argument("after", type=Path)
+    add_output_arguments(parser, absolute_option="--max-regression-ns",
+                         absolute_help="absolute gate threshold in ns; a "
+                                       "timing metric fails only when both "
+                                       "thresholds are exceeded")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    rel, absolute, severity = gate_settings(args)
     try:
-        rows = list(compare(read(args.before), read(args.after)))
+        left, right = read(args.before), read(args.after)
     except (KeyError, TypeError, ValueError, OSError) as e:
-        parser.error(str(e))
-    print("Median per operation; negative is faster. Verify compiler/flags separately.")
-    for name, metric, before, after, change in rows:
-        print(f"{name:22s} {metric:8s} {before:12.2f} -> {after:12.2f} {change:+7.2f}%")
+        parser.error(str(e))  # invalid data: exit 2, no verdict
+    try:
+        pairs = list(compare(left, right))
+        reasons = []
+    except ValueError as e:
+        pairs, reasons = [], [str(e)]
+    if reasons:
+        rows = incomparable_rows(((name, metric) for name, metrics in left[1].items()
+                                  for metric in metrics),
+                                 reasons[0], suite="codec_plan", units=UNITS,
+                                 severity=severity)
+    else:
+        rows = gate_rows(((name, metric, before, after)
+                          for name, metric, before, after, _ in pairs),
+                         suite="codec_plan", units=UNITS, gated=GATED,
+                         rel=rel, absolute=absolute, severity=severity)
+        print("Median per operation; negative is faster. Verify compiler/flags separately.")
+        for name, metric, before, after, change in pairs:
+            print(f"{name:22s} {metric:8s} {before:12.2f} -> {after:12.2f} {change:+7.2f}%")
+    return emit(args, rows, reasons=reasons, suite="codec_plan",
+                title="Wirelink codec-plan benchmark comparison",
+                before=str(args.before), after=str(args.after))
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
