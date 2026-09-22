@@ -283,13 +283,12 @@ ZTEST(wirelink_rx_spsc, test_reserve_short_commit_and_double_reserve) {
   wl_event_release(&fixture.ctx, &event);
 }
 
-ZTEST(wirelink_rx_spsc, test_dma_claims_publish_in_order_and_decode) {
+ZTEST(wirelink_rx_spsc, test_dma_claim_is_exclusive_and_decodes) {
   struct rx_fixture fixture;
   uint8_t wire[TEST_RX_STORAGE];
   const uint8_t payload[] = {0xABU, 0x00U, 0xCDU};
   wl_rx_dma_claim_t first = {0};
   wl_rx_dma_claim_t second = {0};
-  wl_rx_dma_claim_t third = {0};
   wl_event_t event = {0};
   size_t wire_len;
   const size_t first_length = 7U;
@@ -300,17 +299,15 @@ ZTEST(wirelink_rx_spsc, test_dma_claims_publish_in_order_and_decode) {
   zassert_true(wire_len > first_length);
   zassert_ok(wl_rx_dma_claim(&fixture.ctx, first_length, &first));
   zassert_equal(first.span.length, first_length);
-  zassert_ok(wl_rx_dma_claim(&fixture.ctx, wire_len - first_length, &second));
-  zassert_equal(wl_rx_dma_claim(&fixture.ctx, 1U, &third),
+  zassert_equal(wl_rx_dma_claim(&fixture.ctx, wire_len - first_length, &second),
                 WL_ERR_WOULD_BLOCK);
 
   memcpy(first.span.data, wire, first_length);
-  memcpy(second.span.data, wire + first_length, wire_len - first_length);
   zassert_ok(wl_rx_dma_publish(&fixture.ctx, &first, 0U, 3U));
-  zassert_equal(wl_rx_dma_publish(&fixture.ctx, &second, 0U, 1U),
-                WL_ERR_INVALID_STATE);
   zassert_ok(wl_rx_dma_publish(&fixture.ctx, &first, 3U, first_length - 3U));
   zassert_ok(wl_rx_dma_finish(&fixture.ctx, &first));
+  zassert_ok(wl_rx_dma_claim(&fixture.ctx, wire_len - first_length, &second));
+  memcpy(second.span.data, wire + first_length, wire_len - first_length);
   zassert_ok(
       wl_rx_dma_publish(&fixture.ctx, &second, 0U, wire_len - first_length));
   zassert_ok(wl_rx_dma_finish(&fixture.ctx, &second));
@@ -373,11 +370,11 @@ ZTEST(wirelink_rx_spsc, test_dma_finish_reclaims_short_final_claim) {
   wl_event_release(&fixture.ctx, &event);
 
   zassert_ok(wl_rx_dma_claim(&fixture.ctx, 8U, &claim));
-  zassert_ok(wl_rx_dma_claim(&fixture.ctx, 8U, &successor));
+  zassert_equal(wl_rx_dma_claim(&fixture.ctx, 8U, &successor),
+                WL_ERR_WOULD_BLOCK);
   memset(claim.span.data, 0xA5, 4U);
   zassert_ok(wl_rx_dma_publish(&fixture.ctx, &claim, 0U, 4U));
-  zassert_equal(wl_rx_dma_finish(&fixture.ctx, &claim), WL_ERR_INVALID_STATE);
-  zassert_ok(wl_rx_dma_abort(&fixture.ctx));
+  zassert_ok(wl_rx_dma_finish(&fixture.ctx, &claim));
 }
 
 ZTEST(wirelink_rx_spsc, test_dma_short_claim_can_restart_from_empty_ring) {

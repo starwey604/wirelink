@@ -15,7 +15,7 @@ enum { WL_SINK_SENT = 0, WL_SINK_STARTED, WL_SINK_BUSY, WL_SINK_FAILED };
 typedef wl_sink_result_t (*wl_sink_fn)(void *user_data, wl_io_token_t token,
                                       const uint8_t *data, size_t len);
 
-#define WL_RX_DMA_MAX_CLAIMS 2U
+#define WL_RX_DMA_MAX_CLAIMS 1U
 #define WL_RX_UNIT_QUEUE_MAX_SLOTS 8U
 
 typedef struct wl_rx_dma_claim {
