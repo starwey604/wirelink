@@ -16,6 +16,7 @@
 #define MAX_PAYLOAD 256U
 #define UNIT_STORAGE 320U
 #define RX_RING_STORAGE 640U
+#define RX_DMA_BUFFER_SIZE 256U
 
 static wl_ctx_t link;
 static wl_zephyr_uart_dma_t uart_adapter;
@@ -24,6 +25,7 @@ static uint8_t tx_unit[UNIT_STORAGE];
 static uint8_t control_unit[64];
 static uint8_t rx_fifo[RX_RING_STORAGE];
 static uint8_t rx_fallback[UNIT_STORAGE];
+static uint8_t rx_dma_buffers[2][RX_DMA_BUFFER_SIZE];
 
 int main(void) {
   const struct device *uart = DEVICE_DT_GET(LINK_UART_NODE);
@@ -51,7 +53,10 @@ int main(void) {
   const wl_zephyr_uart_dma_config_t adapter_config = {
       .uart = uart,
       .link = &link,
-      .maximum_chunk = 256U,
+      .rx_buffers = {
+          {rx_dma_buffers[0], sizeof(rx_dma_buffers[0])},
+          {rx_dma_buffers[1], sizeof(rx_dma_buffers[1])},
+      },
       .timeout_us = 1000,
       .tx_timeout_us = SYS_FOREVER_US,
       .wait_for_tx_idle = true,

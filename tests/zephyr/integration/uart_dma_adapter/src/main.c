@@ -8,6 +8,7 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 
 #include "wirelink/frame.h"
@@ -23,6 +24,8 @@ struct fake_uart_data {
   void *callback_data;
   uint8_t *rx_buf;
   size_t rx_len;
+  uint8_t *rx_next_buf;
+  size_t rx_next_len;
   const uint8_t *tx_buf;
   size_t tx_len;
   int next_tx_result;
@@ -31,6 +34,8 @@ struct fake_uart_data {
   bool tx_idle;
   size_t callback_sets;
   size_t rx_enables;
+  size_t rx_buf_responses;
+  size_t rx_disabled_events;
   size_t rx_disables;
   size_t tx_calls;
   size_t tx_aborts;
@@ -106,10 +111,15 @@ static int fake_rx_enable(const struct device *dev, uint8_t *buf, size_t len,
 }
 
 static int fake_rx_buf_rsp(const struct device *dev, uint8_t *buf, size_t len) {
-  ARG_UNUSED(dev);
-  ARG_UNUSED(buf);
-  ARG_UNUSED(len);
-  return -EBUSY;
+  struct fake_uart_data *data = dev->data;
+
+  if (!data->rx_enabled || data->rx_next_buf != NULL) {
+    return -EBUSY;
+  }
+  data->rx_next_buf = buf;
+  data->rx_next_len = len;
+  data->rx_buf_responses++;
+  return 0;
 }
 
 static int fake_rx_disable(const struct device *dev) {
@@ -146,6 +156,7 @@ struct fixture {
   uint8_t control_unit[TEST_STORAGE_SIZE];
   uint8_t rx_fifo[TEST_STORAGE_SIZE];
   uint8_t rx_fallback[TEST_STORAGE_SIZE];
+  uint8_t rx_dma_buffers[2][32];
 };
 
 static void init_fixture(struct fixture *fixture) {
@@ -187,7 +198,10 @@ static void init_fixture(struct fixture *fixture) {
   adapter_config = (wl_zephyr_uart_dma_config_t){
       .uart = &fake_uart,
       .link = &fixture->link,
-      .maximum_chunk = fixture->storage.rx_fifo_size,
+      .rx_buffers = {
+          {fixture->rx_dma_buffers[0], sizeof(fixture->rx_dma_buffers[0])},
+          {fixture->rx_dma_buffers[1], sizeof(fixture->rx_dma_buffers[1])},
+      },
       .timeout_us = 100,
       .tx_timeout_us = SYS_FOREVER_US,
       .wait_for_tx_idle = true,
@@ -239,22 +253,80 @@ static void emit_rx_ready(size_t offset, size_t length) {
   fake_data.callback(&fake_uart, &event, fake_data.callback_data);
 }
 
-static void emit_rx_released(void) {
-  struct uart_event event = {
-      .type = UART_RX_BUF_RELEASED,
-      .data.rx_buf = {.buf = fake_data.rx_buf},
-  };
-
-  fake_data.callback(&fake_uart, &event, fake_data.callback_data);
-}
-
 static void emit_rx_disabled(void) {
   struct uart_event event = {.type = UART_RX_DISABLED};
 
   fake_data.rx_enabled = false;
   fake_data.rx_buf = NULL;
   fake_data.rx_len = 0U;
+  fake_data.rx_next_buf = NULL;
+  fake_data.rx_next_len = 0U;
+  fake_data.rx_disabled_events++;
   fake_data.callback(&fake_uart, &event, fake_data.callback_data);
+}
+
+static void release_current_and_advance(void) {
+  struct uart_event released = {
+      .type = UART_RX_BUF_RELEASED,
+      .data.rx_buf = {.buf = fake_data.rx_buf},
+  };
+  struct uart_event requested = {.type = UART_RX_BUF_REQUEST};
+
+  fake_data.callback(&fake_uart, &released, fake_data.callback_data);
+  fake_data.rx_buf = fake_data.rx_next_buf;
+  fake_data.rx_len = fake_data.rx_next_len;
+  fake_data.rx_next_buf = NULL;
+  fake_data.rx_next_len = 0U;
+  if (fake_data.rx_buf != NULL) {
+    fake_data.callback(&fake_uart, &requested, fake_data.callback_data);
+  } else {
+    emit_rx_disabled();
+  }
+}
+
+static void release_all_and_disable(void) {
+  struct uart_event released = {.type = UART_RX_BUF_RELEASED};
+
+  if (fake_data.rx_buf != NULL) {
+    released.data.rx_buf.buf = fake_data.rx_buf;
+    fake_data.callback(&fake_uart, &released, fake_data.callback_data);
+  }
+  if (fake_data.rx_next_buf != NULL) {
+    released.data.rx_buf.buf = fake_data.rx_next_buf;
+    fake_data.callback(&fake_uart, &released, fake_data.callback_data);
+  }
+  emit_rx_disabled();
+}
+
+static void receive_and_release(const uint8_t *data, size_t length) {
+  zassert_not_null(fake_data.rx_buf);
+  zassert_true(length <= fake_data.rx_len);
+  memcpy(fake_data.rx_buf, data, length);
+  emit_rx_ready(0U, length);
+  release_current_and_advance();
+}
+
+static size_t drain_rx_events(struct fixture *fixture,
+                              const uint8_t *expected_payload,
+                              size_t expected_length, wl_time_ms_t *now) {
+  size_t count = 0U;
+
+  for (;;) {
+    wl_event_t event = {0};
+    int ret = wl_poll(&fixture->link, (*now)++, &event);
+
+    if (ret == WL_ERR_NO_DATA) {
+      return count;
+    }
+    zassert_ok(ret);
+    if (event.type == WL_EVT_UNRELIABLE_RX ||
+        event.type == WL_EVT_RELIABLE_RX) {
+      zassert_equal(event.payload_len, expected_length);
+      zassert_mem_equal(event.payload, expected_payload, expected_length);
+      ++count;
+    }
+    wl_event_release(&fixture->link, &event);
+  }
 }
 
 static size_t encode_rx_frame(const struct fixture *fixture,
@@ -386,8 +458,7 @@ ZTEST(wirelink_uart_dma_adapter, test_rx_release_restarts_and_decodes) {
   zassert_true(wire_len <= fake_data.rx_len);
   memcpy(fake_data.rx_buf, wire, wire_len);
   emit_rx_ready(0U, wire_len);
-  emit_rx_released();
-  emit_rx_disabled();
+  release_current_and_advance();
 
   zassert_ok(wl_poll(&fixture.link, 1U, &event));
   zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
@@ -395,7 +466,111 @@ ZTEST(wirelink_uart_dma_adapter, test_rx_release_restarts_and_decodes) {
   wl_event_release(&fixture.link, &event);
   zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
   zassert_true(fake_data.rx_enabled);
-  zassert_equal(fake_data.rx_enables, 2U);
+  zassert_equal(fake_data.rx_enables, 1U);
+  zassert_true(fake_data.rx_next_buf != NULL);
+}
+
+ZTEST(wirelink_uart_dma_adapter,
+      test_rx_short_ping_pong_preserves_continuous_stream) {
+  struct fixture fixture;
+  const uint8_t payload[] = {0x21U, 0x00U, 0x43U, 0x65U, 0x87U};
+  uint8_t frame[TEST_STORAGE_SIZE];
+  uint8_t stream[TEST_STORAGE_SIZE * 4U];
+  const size_t frame_count = 12U;
+  const size_t chunk_size = 7U;
+  wl_rx_counters_t counters = {0};
+  wl_zephyr_uart_dma_stats_t stats = {0};
+  wl_time_ms_t now = 1U;
+  size_t frame_len;
+  size_t stream_len;
+  size_t received = 0U;
+
+  init_fixture(&fixture);
+  frame_len = encode_rx_frame(&fixture, payload, sizeof(payload), frame,
+                              sizeof(frame));
+  stream_len = frame_len * frame_count;
+  zassert_true(stream_len <= sizeof(stream));
+  for (size_t i = 0U; i < frame_count; ++i) {
+    memcpy(stream + i * frame_len, frame, frame_len);
+  }
+
+  for (size_t offset = 0U; offset < stream_len;) {
+    size_t length = MIN(chunk_size, stream_len - offset);
+
+    receive_and_release(stream + offset, length);
+    offset += length;
+    received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
+    zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  }
+  received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
+
+  zassert_equal(received, frame_count);
+  zassert_equal(fake_data.rx_enables, 1U);
+  zassert_equal(fake_data.rx_disabled_events, 0U);
+  zassert_true(fake_data.rx_buf_responses > frame_count);
+  zassert_ok(wl_rx_get_counters(&fixture.link, &counters));
+  zassert_equal(counters.overflow, 0U);
+  zassert_equal(counters.malformed, 0U);
+  wl_zephyr_uart_dma_get_stats(&fixture.adapter, &stats);
+  zassert_equal(stats.errors, 0U);
+}
+
+ZTEST(wirelink_uart_dma_adapter,
+      test_rx_staging_survives_temporary_ring_backpressure) {
+  struct fixture fixture;
+  uint8_t payload[32];
+  uint8_t frame[TEST_STORAGE_SIZE];
+  uint8_t stream[TEST_STORAGE_SIZE * 2U];
+  const size_t frame_count = 3U;
+  wl_rx_counters_t counters = {0};
+  wl_zephyr_uart_dma_stats_t stats = {0};
+  wl_time_ms_t now = 1U;
+  size_t frame_len;
+  size_t stream_len;
+  size_t offset = 0U;
+  size_t received = 0U;
+
+  memset(payload, 0x5AU, sizeof(payload));
+  init_fixture(&fixture);
+  frame_len = encode_rx_frame(&fixture, payload, sizeof(payload), frame,
+                              sizeof(frame));
+  stream_len = frame_len * frame_count;
+  zassert_true(stream_len <= sizeof(stream));
+  for (size_t i = 0U; i < frame_count; ++i) {
+    memcpy(stream + i * frame_len, frame, frame_len);
+  }
+
+  /* Fill three DMA buffers without polling. The third publication reaches the
+   * one-frame RX ring limit and remains retained in its released staging slot. */
+  for (size_t i = 0U; i < 3U; ++i) {
+    receive_and_release(stream + offset, sizeof(fixture.rx_dma_buffers[0]));
+    offset += sizeof(fixture.rx_dma_buffers[0]);
+  }
+  zassert_is_null(fake_data.rx_next_buf);
+
+  received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
+  zassert_true(received > 0U);
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_not_null(fake_data.rx_next_buf,
+                   "released staging slot must be resupplied after drain");
+
+  while (offset < stream_len) {
+    size_t length = MIN(sizeof(fixture.rx_dma_buffers[0]), stream_len - offset);
+
+    receive_and_release(stream + offset, length);
+    offset += length;
+    received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
+    zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  }
+  received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
+
+  zassert_equal(received, frame_count);
+  zassert_equal(fake_data.rx_disabled_events, 0U);
+  zassert_ok(wl_rx_get_counters(&fixture.link, &counters));
+  zassert_equal(counters.overflow, 0U);
+  zassert_equal(counters.malformed, 0U);
+  wl_zephyr_uart_dma_get_stats(&fixture.adapter, &stats);
+  zassert_equal(stats.errors, 0U);
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_stop_waits_for_driver_and_can_restart) {
@@ -413,8 +588,7 @@ ZTEST(wirelink_uart_dma_adapter, test_stop_waits_for_driver_and_can_restart) {
                 WL_ERR_WOULD_BLOCK);
 
   emit_tx_event(UART_TX_ABORTED, 0U);
-  emit_rx_released();
-  emit_rx_disabled();
+  release_all_and_disable();
   zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
   wl_zephyr_uart_dma_get_stats(&fixture.adapter, &stats);
   zassert_equal(stats.started, 0U);

@@ -48,7 +48,7 @@
 #define BENCH_UART_TIMEOUT_US 200
 #endif
 #ifndef BENCH_DMA_MAX_CHUNK
-#define BENCH_DMA_MAX_CHUNK BENCH_RX_USABLE
+#define BENCH_DMA_MAX_CHUNK 256U
 #endif
 /* Continuous-stream mode sends every frame back to back without waiting for
  * the previous frame to be delivered, so it exercises the re-arm path under
@@ -77,6 +77,9 @@ static uint8_t tx_unit[WL_FRAME_MAX_COBS_LEN];
 static uint8_t control_unit[128U];
 static uint8_t rx_fifo[BENCH_RX_USABLE] __aligned(64);
 static uint8_t rx_fallback[BENCH_FALLBACK_SIZE] __aligned(64);
+#if defined(WL_BENCH_INGRESS_DMA)
+static uint8_t rx_dma_buffers[2][BENCH_DMA_MAX_CHUNK] __aligned(64);
+#endif
 static uint8_t primitive_bytes[256U];
 
 #if !defined(WL_BENCH_INGRESS_USB)
@@ -424,7 +427,10 @@ static int init_uart_ingress(void) {
   wl_zephyr_uart_dma_config_t dma_config = {
       .uart = rx_uart,
       .link = &link_ctx,
-      .maximum_chunk = BENCH_DMA_MAX_CHUNK,
+      .rx_buffers = {
+          {rx_dma_buffers[0], sizeof(rx_dma_buffers[0])},
+          {rx_dma_buffers[1], sizeof(rx_dma_buffers[1])},
+      },
       .timeout_us = BENCH_UART_TIMEOUT_US,
       .tx_timeout_us = SYS_FOREVER_US,
       .wait_for_tx_idle = true,
@@ -488,17 +494,7 @@ static int ensure_dma_running(void) {
     }
     wl_zephyr_uart_dma_get_stats(&dma_adapter, &stats);
     if (stats.running != 0U) {
-      if (BENCH_UART_TIMEOUT_US == SYS_FOREVER_US) {
-        return 0;
-      }
-      for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
-        if (dma_adapter.slots[i].claim.token != 0U &&
-            dma_adapter.slots[i].received == 0U &&
-            dma_adapter.slots[i].published == 0U &&
-            !atomic_test_bit(&dma_adapter.released_slots, (int)i)) {
-          return 0;
-        }
-      }
+      return 0;
     }
     k_busy_wait(10U);
   }
@@ -529,10 +525,7 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
     if (ret != WL_OK && ret != WL_ERR_NO_DATA) {
       return -EIO;
     }
-    /* Do not restart RX here: re-arming before the pending event is released
-     * leaves the ring non-empty, so the next claim is shorter than the frame
-     * and the frame is split across buffers. The release path below restarts
-     * RX once the consumer has advanced. */
+    /* RX staging remains armed independently of the borrowed Wirelink event. */
     k_yield();
   }
 #if defined(WL_BENCH_INGRESS_DMA)
@@ -547,20 +540,14 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
            (unsigned int)payload_len, counters.malformed,
            counters.bad_integrity, counters.overflow, stats.errors,
            stats.running, stats.paused, stats.published_bytes,
-           dma_adapter.slots[0].claim.token != 0U ? 1U : 0U,
+           dma_adapter.slots[0].order != 0U ? 1U : 0U,
            (unsigned int)dma_adapter.slots[0].received,
-           (unsigned int)dma_adapter.slots[0].published,
-           dma_adapter.slots[0].claim.token != 0U &&
-                   !atomic_test_bit(&dma_adapter.released_slots, 0)
-               ? 1U
-               : 0U,
-           dma_adapter.slots[1].claim.token != 0U ? 1U : 0U,
+           (unsigned int)dma_adapter.slots[0].forwarded,
+           dma_adapter.slots[0].driver_owned,
+           dma_adapter.slots[1].order != 0U ? 1U : 0U,
            (unsigned int)dma_adapter.slots[1].received,
-           (unsigned int)dma_adapter.slots[1].published,
-           dma_adapter.slots[1].claim.token != 0U &&
-                   !atomic_test_bit(&dma_adapter.released_slots, 1)
-               ? 1U
-               : 0U);
+           (unsigned int)dma_adapter.slots[1].forwarded,
+           dma_adapter.slots[1].driver_owned);
   }
 #endif
   return -ETIMEDOUT;

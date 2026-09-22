@@ -14,12 +14,31 @@ enum {
   TX_COMPLETION_ABORTED,
 };
 
+enum { RX_SLOT_COUNT = 2U };
+
+static bool spans_overlap(const wl_span_t *left, const wl_span_t *right) {
+  const uintptr_t left_address = (uintptr_t)left->data;
+  const uintptr_t right_address = (uintptr_t)right->data;
+
+  return left_address <= right_address
+             ? right_address - left_address < left->length
+             : left_address - right_address < right->length;
+}
+
+static void reset_slot(wl_zephyr_uart_dma_slot_t *slot) {
+  slot->received = 0U;
+  slot->forwarded = 0U;
+  slot->order = 0U;
+  slot->driver_owned = 0U;
+  slot->released = 0U;
+}
+
 static wl_zephyr_uart_dma_slot_t *find_slot(wl_zephyr_uart_dma_t *adapter,
                                             uint8_t *data) {
-  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
     wl_zephyr_uart_dma_slot_t *slot = &adapter->slots[i];
 
-    if (slot->claim.token != 0U && slot->claim.span.data == data) {
+    if (slot->order != 0U && slot->buffer.data == data) {
       return slot;
     }
   }
@@ -28,8 +47,8 @@ static wl_zephyr_uart_dma_slot_t *find_slot(wl_zephyr_uart_dma_t *adapter,
 
 static wl_zephyr_uart_dma_slot_t *
 find_free_slot(wl_zephyr_uart_dma_t *adapter) {
-  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
-    if (adapter->slots[i].claim.token == 0U) {
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    if (adapter->slots[i].order == 0U) {
       return &adapter->slots[i];
     }
   }
@@ -37,9 +56,8 @@ find_free_slot(wl_zephyr_uart_dma_t *adapter) {
 }
 
 static bool driver_owns_any_slot(const wl_zephyr_uart_dma_t *adapter) {
-  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
-    if (adapter->slots[i].claim.token != 0U &&
-        !atomic_test_bit(&adapter->released_slots, (int)i)) {
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    if (adapter->slots[i].driver_owned != 0U) {
       return true;
     }
   }
@@ -47,89 +65,12 @@ static bool driver_owns_any_slot(const wl_zephyr_uart_dma_t *adapter) {
 }
 
 static bool any_slot_is_active(const wl_zephyr_uart_dma_t *adapter) {
-  for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
-    if (adapter->slots[i].claim.token != 0U) {
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    if (adapter->slots[i].order != 0U) {
       return true;
     }
   }
   return false;
-}
-
-static int publish_received_prefix(wl_zephyr_uart_dma_t *adapter,
-                                   wl_zephyr_uart_dma_slot_t *slot,
-                                   bool measure_cycles) {
-  size_t received = slot->received;
-  size_t published = slot->published;
-  size_t new_length;
-  uint32_t started = 0U;
-  int ret;
-
-  if (received <= published) {
-    return WL_OK;
-  }
-  new_length = received - published;
-  if (measure_cycles && adapter->config.cycle_counter != NULL) {
-    started =
-        adapter->config.cycle_counter(adapter->config.cycle_counter_user_data);
-  }
-  if (adapter->config.complete_from_dma != NULL) {
-    adapter->config.complete_from_dma(adapter->config.cache_user_data,
-                                      slot->claim.span.data + published,
-                                      new_length);
-  }
-  ret = wl_rx_dma_publish(adapter->config.link, &slot->claim, published,
-                          new_length);
-  if (ret != WL_OK) {
-    return ret == WL_ERR_INVALID_STATE ? WL_ERR_WOULD_BLOCK : ret;
-  }
-  slot->published = received;
-  atomic_add(&adapter->published_bytes, (atomic_val_t)new_length);
-  if (measure_cycles && adapter->config.cycle_counter != NULL) {
-    atomic_add(&adapter->producer_cycles,
-               (atomic_val_t)(adapter->config.cycle_counter(
-                                  adapter->config.cycle_counter_user_data) -
-                              started));
-  }
-  return WL_OK;
-}
-
-/* Some UART drivers invoke callbacks in an ISR; finish in consumer context. */
-static int finish_released_slots(wl_zephyr_uart_dma_t *adapter) {
-  bool progressed;
-
-  do {
-    progressed = false;
-    for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
-      wl_zephyr_uart_dma_slot_t *slot = &adapter->slots[i];
-
-      int ret;
-
-      /* released_slots is the ISR-to-consumer ownership handoff. Do not read
-       * the non-atomic slot progress fields while the driver still owns it. */
-      if (!atomic_test_bit(&adapter->released_slots, (int)i)) {
-        continue;
-      }
-      ret = publish_received_prefix(adapter, slot, false);
-      if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
-        return ret;
-      }
-      if (ret == WL_ERR_WOULD_BLOCK) {
-        continue;
-      }
-      ret = wl_rx_dma_finish(adapter->config.link, &slot->claim);
-      if (ret == WL_OK) {
-        atomic_clear_bit(&adapter->released_slots, (int)i);
-        memset(slot, 0, sizeof(*slot));
-        progressed = true;
-        break;
-      }
-      if (ret != WL_ERR_INVALID_STATE && ret != WL_ERR_WOULD_BLOCK) {
-        return ret;
-      }
-    }
-  } while (progressed);
-
-  return WL_OK;
 }
 
 static void mark_abort(wl_zephyr_uart_dma_t *adapter) {
@@ -137,37 +78,124 @@ static void mark_abort(wl_zephyr_uart_dma_t *adapter) {
   atomic_inc(&adapter->errors);
 }
 
-static int supply_buffer(wl_zephyr_uart_dma_t *adapter, bool first) {
-  wl_zephyr_uart_dma_slot_t *slot = find_free_slot(adapter);
-  size_t slot_index;
-  int ret;
+static wl_zephyr_uart_dma_slot_t *oldest_pending_slot(
+    wl_zephyr_uart_dma_t *adapter) {
+  wl_zephyr_uart_dma_slot_t *oldest = NULL;
 
-  if (slot == NULL) {
-    return WL_ERR_WOULD_BLOCK;
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    wl_zephyr_uart_dma_slot_t *slot = &adapter->slots[i];
+
+    if (slot->order != 0U && slot->forwarded < slot->received &&
+        (oldest == NULL || slot->order < oldest->order)) {
+      oldest = slot;
+    }
   }
-  slot_index = (size_t)(slot - adapter->slots);
-  ret = wl_rx_dma_claim(adapter->config.link, adapter->config.maximum_chunk,
-                        &slot->claim);
-  if (ret != WL_OK) {
-    return ret;
+  return oldest;
+}
+
+static void retire_forwarded_slots(wl_zephyr_uart_dma_t *adapter) {
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    wl_zephyr_uart_dma_slot_t *slot = &adapter->slots[i];
+
+    if (slot->order != 0U && slot->released != 0U &&
+        slot->forwarded == slot->received) {
+      reset_slot(slot);
+    }
+  }
+}
+
+/* rx_lock makes callback and owner service one logical SPSC producer. Bytes
+ * remain in a released staging slot when the ring is full; that is
+ * backpressure, not an overflow, until the UART actually has to stop. */
+static int drain_ready_slots_locked(wl_zephyr_uart_dma_t *adapter) {
+  for (;;) {
+    wl_zephyr_uart_dma_slot_t *slot;
+    wl_span_t span = {0};
+    size_t length;
+    int ret;
+
+    retire_forwarded_slots(adapter);
+    slot = oldest_pending_slot(adapter);
+    if (slot == NULL) {
+      return WL_OK;
+    }
+    ret = wl_rx_reserve(adapter->config.link, &span);
+    if (ret != WL_OK) {
+      return ret;
+    }
+    if (span.length == 0U) {
+      (void)wl_rx_commit(adapter->config.link, 0U);
+      return WL_ERR_WOULD_BLOCK;
+    }
+    length = slot->received - slot->forwarded;
+    if (length > span.length) {
+      length = span.length;
+    }
+    memcpy(span.data, slot->buffer.data + slot->forwarded, length);
+    ret = wl_rx_commit(adapter->config.link, length);
+    if (ret != WL_OK) {
+      return ret;
+    }
+    slot->forwarded += length;
+    atomic_add(&adapter->published_bytes, (atomic_val_t)length);
+  }
+}
+
+static wl_zephyr_uart_dma_slot_t *arm_free_slot_locked(
+    wl_zephyr_uart_dma_t *adapter) {
+  wl_zephyr_uart_dma_slot_t *slot;
+
+  retire_forwarded_slots(adapter);
+  slot = find_free_slot(adapter);
+  if (slot == NULL) {
+    return NULL;
+  }
+  if (++adapter->rx_next_order == 0U) {
+    ++adapter->rx_next_order;
   }
   slot->received = 0U;
-  slot->published = 0U;
+  slot->forwarded = 0U;
+  slot->order = adapter->rx_next_order;
+  slot->driver_owned = 1U;
+  slot->released = 0U;
+  return slot;
+}
+
+static int submit_requested_buffer(wl_zephyr_uart_dma_t *adapter) {
+  wl_zephyr_uart_dma_slot_t *slot;
+  k_spinlock_key_t key;
+  int ret;
+
+  key = k_spin_lock(&adapter->rx_lock);
+  if (adapter->buffer_request_pending == 0U ||
+      atomic_get(&adapter->stopping) != 0 ||
+      atomic_get(&adapter->abort_pending) != 0) {
+    k_spin_unlock(&adapter->rx_lock, key);
+    return WL_OK;
+  }
+  slot = arm_free_slot_locked(adapter);
+  if (slot == NULL) {
+    atomic_set(&adapter->paused, 1);
+    k_spin_unlock(&adapter->rx_lock, key);
+    return WL_ERR_WOULD_BLOCK;
+  }
+  adapter->buffer_request_pending = 0U;
+  k_spin_unlock(&adapter->rx_lock, key);
+
   if (adapter->config.prepare_for_dma != NULL) {
     adapter->config.prepare_for_dma(adapter->config.cache_user_data,
-                                    slot->claim.span.data,
-                                    slot->claim.span.length);
+                                    slot->buffer.data, slot->buffer.length);
   }
-  ret = first ? uart_rx_enable(adapter->config.uart, slot->claim.span.data,
-                               slot->claim.span.length,
-                               adapter->config.timeout_us)
-              : uart_rx_buf_rsp(adapter->config.uart, slot->claim.span.data,
-                                slot->claim.span.length);
+  ret = uart_rx_buf_rsp(adapter->config.uart, slot->buffer.data,
+                        slot->buffer.length);
   if (ret != 0) {
-    atomic_set_bit(&adapter->released_slots, (int)slot_index);
+    key = k_spin_lock(&adapter->rx_lock);
+    reset_slot(slot);
+    k_spin_unlock(&adapter->rx_lock, key);
     mark_abort(adapter);
-    return ret;
+    return WL_ERR_IO;
   }
+  atomic_set(&adapter->paused, 0);
   return WL_OK;
 }
 
@@ -282,22 +310,54 @@ static void uart_dma_callback(const struct device *dev,
   case UART_RX_RDY: {
     wl_zephyr_uart_dma_slot_t *slot = find_slot(adapter, event->data.rx.buf);
     size_t end;
+    size_t cache_offset;
+    size_t cache_length;
+    uint32_t started = 0U;
+    k_spinlock_key_t key;
     int ret;
 
     atomic_inc(&adapter->rx_ready_events);
-    if (slot == NULL || event->data.rx.offset > slot->claim.span.length ||
-        event->data.rx.len > slot->claim.span.length - event->data.rx.offset) {
+    if (adapter->config.cycle_counter != NULL) {
+      started =
+          adapter->config.cycle_counter(adapter->config.cycle_counter_user_data);
+    }
+    if (slot == NULL || event->data.rx.offset > slot->buffer.length ||
+        event->data.rx.len > slot->buffer.length - event->data.rx.offset) {
       mark_abort(adapter);
       break;
     }
     end = event->data.rx.offset + event->data.rx.len;
-    if (end > slot->received) {
-      slot->received = end;
-      ret = publish_received_prefix(adapter, slot, true);
-      if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
-        mark_abort(adapter);
-      }
+    key = k_spin_lock(&adapter->rx_lock);
+    if (event->data.rx.offset > slot->received) {
+      k_spin_unlock(&adapter->rx_lock, key);
+      mark_abort(adapter);
+      break;
     }
+    if (end > slot->received) {
+      cache_offset = slot->received;
+      cache_length = end - cache_offset;
+      if (adapter->config.complete_from_dma != NULL) {
+        adapter->config.complete_from_dma(adapter->config.cache_user_data,
+                                          slot->buffer.data + cache_offset,
+                                          cache_length);
+      }
+      slot->received = end;
+      ret = drain_ready_slots_locked(adapter);
+    } else {
+      ret = WL_OK;
+    }
+    k_spin_unlock(&adapter->rx_lock, key);
+    if (adapter->config.cycle_counter != NULL) {
+      atomic_add(&adapter->producer_cycles,
+                 (atomic_val_t)(adapter->config.cycle_counter(
+                                    adapter->config.cycle_counter_user_data) -
+                                started));
+    }
+    if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
+      mark_abort(adapter);
+      break;
+    }
+    (void)submit_requested_buffer(adapter);
     break;
   }
   case UART_RX_BUF_REQUEST:
@@ -306,14 +366,18 @@ static void uart_dma_callback(const struct device *dev,
       atomic_set(&adapter->expected_disabled, 1);
       break;
     }
-    /* Finite-timeout drivers may release a short buffer. Keep that mode to
-     * one MTU-sized claim so the unwritten tail can be reclaimed safely. */
-    if (adapter->config.timeout_us != SYS_FOREVER_US) {
-      atomic_set(&adapter->expected_disabled, 1);
-      atomic_set(&adapter->paused, 1);
-      break;
+    {
+      k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
+
+      if (adapter->buffer_request_pending != 0U) {
+        k_spin_unlock(&adapter->rx_lock, key);
+        mark_abort(adapter);
+        break;
+      }
+      adapter->buffer_request_pending = 1U;
+      k_spin_unlock(&adapter->rx_lock, key);
     }
-    if (supply_buffer(adapter, false) != WL_OK) {
+    if (submit_requested_buffer(adapter) != WL_OK) {
       atomic_set(&adapter->expected_disabled, 1);
       atomic_set(&adapter->paused, 1);
     }
@@ -326,7 +390,20 @@ static void uart_dma_callback(const struct device *dev,
       mark_abort(adapter);
       break;
     }
-    atomic_set_bit(&adapter->released_slots, (int)(slot - adapter->slots));
+    {
+      k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
+      int ret;
+
+      slot->driver_owned = 0U;
+      slot->released = 1U;
+      ret = drain_ready_slots_locked(adapter);
+      k_spin_unlock(&adapter->rx_lock, key);
+      if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
+        mark_abort(adapter);
+        break;
+      }
+    }
+    (void)submit_requested_buffer(adapter);
     break;
   }
   case UART_RX_STOPPED:
@@ -335,16 +412,17 @@ static void uart_dma_callback(const struct device *dev,
     }
     break;
   case UART_RX_DISABLED:
-    atomic_set(&adapter->running, 0);
     if (atomic_get(&adapter->stopping) != 0) {
       atomic_set(&adapter->expected_disabled, 0);
-      break;
-    }
-    if (atomic_get(&adapter->abort_pending) == 0 &&
-        (atomic_get(&adapter->paused) == 0 ||
-         !atomic_cas(&adapter->expected_disabled, 1, 0))) {
+    } else if (atomic_get(&adapter->abort_pending) == 0 &&
+               (atomic_get(&adapter->paused) == 0 ||
+                !atomic_cas(&adapter->expected_disabled, 1, 0))) {
       mark_abort(adapter);
+    } else if (atomic_get(&adapter->paused) != 0) {
+      adapter->gap_pending = 1U;
     }
+    /* Publish this last: service may touch slot progress once running is zero. */
+    atomic_set(&adapter->running, 0);
     break;
   default:
     break;
@@ -356,7 +434,11 @@ int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
   int ret;
 
   if (adapter == NULL || config == NULL || config->uart == NULL ||
-      config->link == NULL || config->maximum_chunk == 0U ||
+      config->link == NULL || config->rx_buffers[0].data == NULL ||
+      config->rx_buffers[0].length == 0U ||
+      config->rx_buffers[1].data == NULL ||
+      config->rx_buffers[1].length == 0U ||
+      spans_overlap(&config->rx_buffers[0], &config->rx_buffers[1]) ||
       (config->timeout_us < 0 && config->timeout_us != SYS_FOREVER_US) ||
       (config->tx_timeout_us < 0 && config->tx_timeout_us != SYS_FOREVER_US) ||
       !device_is_ready(config->uart)) {
@@ -364,6 +446,8 @@ int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
   }
   memset(adapter, 0, sizeof(*adapter));
   adapter->config = *config;
+  adapter->slots[0].buffer = config->rx_buffers[0];
+  adapter->slots[1].buffer = config->rx_buffers[1];
   ret = uart_callback_set(config->uart, uart_dma_callback, adapter);
   if (ret != 0) {
     return WL_ERR_NOT_SUPPORTED;
@@ -372,6 +456,8 @@ int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
 }
 
 static int start_rx(wl_zephyr_uart_dma_t *adapter) {
+  wl_zephyr_uart_dma_slot_t *slot;
+  k_spinlock_key_t key;
   int ret;
 
   if (atomic_get(&adapter->running) != 0 || any_slot_is_active(adapter)) {
@@ -380,13 +466,32 @@ static int start_rx(wl_zephyr_uart_dma_t *adapter) {
   /* uart_rx_enable() may synchronously request its look-ahead buffer. */
   atomic_set(&adapter->paused, 0);
   atomic_set(&adapter->expected_disabled, 0);
+  adapter->gap_pending = 0U;
+  key = k_spin_lock(&adapter->rx_lock);
+  slot = arm_free_slot_locked(adapter);
+  k_spin_unlock(&adapter->rx_lock, key);
+  if (slot == NULL) {
+    return WL_ERR_BUSY;
+  }
+  if (adapter->config.prepare_for_dma != NULL) {
+    adapter->config.prepare_for_dma(adapter->config.cache_user_data,
+                                    slot->buffer.data, slot->buffer.length);
+  }
   atomic_set(&adapter->running, 1);
-  ret = supply_buffer(adapter, true);
-  if (ret != WL_OK) {
+  ret = uart_rx_enable(adapter->config.uart, slot->buffer.data,
+                       slot->buffer.length, adapter->config.timeout_us);
+  if (ret != 0) {
     atomic_set(&adapter->running, 0);
     atomic_set(&adapter->paused, 1);
+    key = k_spin_lock(&adapter->rx_lock);
+    for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+      reset_slot(&adapter->slots[i]);
+    }
+    adapter->buffer_request_pending = 0U;
+    k_spin_unlock(&adapter->rx_lock, key);
+    return WL_ERR_IO;
   }
-  return ret;
+  return WL_OK;
 }
 
 int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
@@ -421,15 +526,26 @@ int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
   atomic_set(&adapter->stopping, 1);
   atomic_set(&adapter->paused, 0);
   atomic_set(&adapter->expected_disabled, 1);
+  {
+    k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
+
+    adapter->buffer_request_pending = 0U;
+    k_spin_unlock(&adapter->rx_lock, key);
+  }
   if (atomic_get(&adapter->running) != 0) {
     ret = uart_rx_disable(adapter->config.uart);
     if (ret == -EFAULT) {
+      k_spinlock_key_t key;
+
       atomic_set(&adapter->running, 0);
-      for (size_t i = 0U; i < WL_RX_DMA_MAX_CLAIMS; ++i) {
-        if (adapter->slots[i].claim.token != 0U) {
-          atomic_set_bit(&adapter->released_slots, (int)i);
+      key = k_spin_lock(&adapter->rx_lock);
+      for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+        if (adapter->slots[i].order != 0U) {
+          adapter->slots[i].driver_owned = 0U;
+          adapter->slots[i].released = 1U;
         }
       }
+      k_spin_unlock(&adapter->rx_lock, key);
     } else if (ret != 0) {
       atomic_inc(&adapter->errors);
       return WL_ERR_IO;
@@ -450,6 +566,7 @@ int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
 }
 
 int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
+  k_spinlock_key_t key;
   int ret;
 
   if (adapter == NULL || adapter->config.link == NULL) {
@@ -460,24 +577,55 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
     return ret;
   }
   if (atomic_get(&adapter->abort_pending) != 0) {
+    if (atomic_get(&adapter->running) != 0) {
+      if (atomic_cas(&adapter->abort_disable_requested, 0, 1)) {
+        ret = uart_rx_disable(adapter->config.uart);
+        if (ret == -EFAULT) {
+          atomic_set(&adapter->running, 0);
+          key = k_spin_lock(&adapter->rx_lock);
+          for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+            if (adapter->slots[i].order != 0U) {
+              adapter->slots[i].driver_owned = 0U;
+              adapter->slots[i].released = 1U;
+            }
+          }
+          k_spin_unlock(&adapter->rx_lock, key);
+        } else if (ret != 0) {
+          atomic_inc(&adapter->errors);
+          return WL_ERR_IO;
+        }
+      }
+      return WL_ERR_WOULD_BLOCK;
+    }
     if (driver_owns_any_slot(adapter)) {
       return WL_ERR_WOULD_BLOCK;
     }
-    if (wl_rx_dma_abort(adapter->config.link) != WL_OK) {
-      return WL_ERR_INVALID_STATE;
+    key = k_spin_lock(&adapter->rx_lock);
+    for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+      reset_slot(&adapter->slots[i]);
     }
-    memset(adapter->slots, 0, sizeof(adapter->slots));
-    atomic_set(&adapter->released_slots, 0);
+    adapter->buffer_request_pending = 0U;
+    k_spin_unlock(&adapter->rx_lock, key);
+    wl_rx_note_overflow(adapter->config.link);
     atomic_set(&adapter->abort_pending, 0);
+    atomic_set(&adapter->abort_disable_requested, 0);
     atomic_set(&adapter->expected_disabled, 0);
     atomic_set(&adapter->paused, 1);
     atomic_set(&adapter->recovery_barrier, 1);
     return WL_ERR_WOULD_BLOCK;
   }
-  ret = finish_released_slots(adapter);
-  if (ret != WL_OK) {
+  key = k_spin_lock(&adapter->rx_lock);
+  ret = drain_ready_slots_locked(adapter);
+  k_spin_unlock(&adapter->rx_lock, key);
+  if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
     mark_abort(adapter);
     return WL_ERR_INVALID_STATE;
+  }
+  if (ret == WL_OK && atomic_get(&adapter->running) != 0) {
+    ret = submit_requested_buffer(adapter);
+    if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
+      return ret;
+    }
   }
   if (atomic_get(&adapter->recovery_barrier) != 0) {
     atomic_set(&adapter->recovery_barrier, 0);
@@ -496,15 +644,13 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
   }
   if (atomic_get(&adapter->started) != 0 &&
       atomic_get(&adapter->running) == 0 && atomic_get(&adapter->paused) != 0) {
-    /* RX_DISABLED is the release handoff barrier. Reap again after observing
-     * it so a callback racing the first pass cannot leave a short predecessor
-     * active while start() allocates a successor. */
-    ret = finish_released_slots(adapter);
-    if (ret != WL_OK) {
-      mark_abort(adapter);
-      return WL_ERR_INVALID_STATE;
-    }
     if (any_slot_is_active(adapter)) {
+      return WL_ERR_WOULD_BLOCK;
+    }
+    if (adapter->gap_pending != 0U) {
+      adapter->gap_pending = 0U;
+      wl_rx_note_overflow(adapter->config.link);
+      atomic_set(&adapter->recovery_barrier, 1);
       return WL_ERR_WOULD_BLOCK;
     }
     return start_rx(adapter);

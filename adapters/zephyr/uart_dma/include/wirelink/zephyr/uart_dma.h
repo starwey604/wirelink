@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include <zephyr/device.h>
+#include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/port.h"
@@ -23,7 +24,9 @@ typedef uint32_t (*wl_zephyr_uart_dma_cycle_count_fn)(void *user_data);
 typedef struct {
   const struct device *uart;
   wl_ctx_t *link;
-  size_t maximum_chunk;
+  /* Two disjoint caller-owned, DMA-capable buffers. The async UART alternates
+   * between them; completed bytes are copied into the Wirelink RX ring. */
+  wl_span_t rx_buffers[2];
   int32_t timeout_us;
   int32_t tx_timeout_us;
   /* Work around DMA drivers whose TX_DONE precedes physical line idle. */
@@ -37,14 +40,17 @@ typedef struct {
 } wl_zephyr_uart_dma_config_t;
 
 typedef struct {
-  wl_rx_dma_claim_t claim;
+  wl_span_t buffer;
   size_t received;
-  size_t published;
+  size_t forwarded;
+  uint64_t order;
+  uint8_t driver_owned;
+  uint8_t released;
 } wl_zephyr_uart_dma_slot_t;
 
 typedef struct {
   wl_zephyr_uart_dma_config_t config;
-  wl_zephyr_uart_dma_slot_t slots[WL_RX_DMA_MAX_CLAIMS];
+  wl_zephyr_uart_dma_slot_t slots[2];
   wl_io_token_t tx_token;
   const uint8_t *tx_data;
   size_t tx_length;
@@ -53,12 +59,16 @@ typedef struct {
   atomic_t running;
   atomic_t paused;
   atomic_t abort_pending;
+  atomic_t abort_disable_requested;
   atomic_t recovery_barrier;
   atomic_t expected_disabled;
   atomic_t tx_active;
   atomic_t tx_completion;
-  /* Callback-to-service ownership handoff, one bit per slot. */
-  atomic_t released_slots;
+  /* Serializes callback and owner-side copies into the SPSC RX producer. */
+  struct k_spinlock rx_lock;
+  uint64_t rx_next_order;
+  uint8_t buffer_request_pending;
+  uint8_t gap_pending;
   atomic_t buffer_requests;
   atomic_t rx_ready_events;
   atomic_t published_bytes;
@@ -95,7 +105,7 @@ typedef struct {
 int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
                             const wl_zephyr_uart_dma_config_t *config);
 
-/* Start a direct-to-Wirelink DMA receive stream. */
+/* Start a staged DMA receive stream into the Wirelink RX ring. */
 int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter);
 
 /*

@@ -13,7 +13,7 @@ set(WIRELINK_BENCH_STREAM OFF CACHE BOOL
 set(WIRELINK_BENCH_RING "" CACHE STRING
     "Override the usable RX ring size (BENCH_RX_USABLE) in bytes")
 set(WIRELINK_BENCH_DMA_CHUNK "" CACHE STRING
-    "Override the maximum direct DMA claim (BENCH_DMA_MAX_CHUNK) in bytes")
+    "Override each UART DMA staging buffer size (BENCH_DMA_MAX_CHUNK) in bytes")
 set(WIRELINK_BENCH_STREAM_FRAMES "" CACHE STRING
     "Measured frames per stream profile (BENCH_STREAM_FRAMES)")
 set(WIRELINK_BENCH_PAYLOAD_START "" CACHE STRING
