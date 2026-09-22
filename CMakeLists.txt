@@ -264,6 +264,12 @@ if(WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK)
   add_subdirectory(benchmarks/reliable_loss)
 endif()
 
+# Pure-Python comparison library and its tests; not an opt-in benchmark
+# target, so it is registered whenever testing is enabled.
+if(BUILD_TESTING)
+  add_subdirectory(benchmarks/report)
+endif()
+
 if(WIRELINK_BUILD_FUZZERS)
   if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "WIRELINK_BUILD_FUZZERS requires Clang")
