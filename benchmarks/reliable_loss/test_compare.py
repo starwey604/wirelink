@@ -19,7 +19,9 @@ def case(loss_ppm, **overrides):
 
 def report(cases=None, **config):
     settings = {"payload": 64, "delay_ms": 1, "ack_timeout_ms": 20,
-                "max_retries": 20, "samples": 2000, "warmup": 32, "seed": 1}
+                "max_retries": 20, "samples": 2000, "warmup": 32, "seed": 1,
+                "duplicate_ppm": 0, "reorder_ppm": 0, "reorder_extra_ms": 10,
+                "burst_start_ppm": 0, "burst_length": 4, "burst_drop_ppm": 0}
     settings.update(config)
     return {"schema": compare.SCHEMA, "config": settings,
             "cases": cases if cases is not None else [case(0), case(500000)]}
@@ -55,6 +57,11 @@ class CompareTest(unittest.TestCase):
     def test_config_mismatch_is_rejected(self):
         with self.assertRaises(ValueError):
             compare.compare(report(seed=1), report(seed=2))
+
+    def test_channel_config_mismatch_is_rejected(self):
+        with self.assertRaises(ValueError):
+            compare.compare(report(duplicate_ppm=0),
+                            report(duplicate_ppm=500000))
 
     def test_loss_set_mismatch_is_rejected(self):
         with self.assertRaises(ValueError):

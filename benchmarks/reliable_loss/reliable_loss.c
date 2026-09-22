@@ -46,10 +46,19 @@ typedef struct {
   uint8_t active[CHANNEL_CAPACITY];
   uint64_t rng;
   uint32_t loss_ppm;
+  uint32_t duplicate_ppm;
+  uint32_t reorder_ppm;
+  uint32_t reorder_extra_ms;
+  uint32_t burst_start_ppm;
+  uint32_t burst_length;
+  uint32_t burst_drop_ppm;
   uint32_t delay_ms;
   uint32_t now_ms;
+  uint8_t in_burst;
   uint64_t enqueued;
   uint64_t dropped;
+  uint64_t duplicated_units;
+  uint64_t reordered_units;
   uint64_t feed_errors;
 } channel_t;
 
@@ -61,6 +70,12 @@ typedef struct {
   size_t samples;
   size_t warmup;
   uint64_t seed;
+  uint32_t duplicate_ppm;
+  uint32_t reorder_ppm;
+  uint32_t reorder_extra_ms;
+  uint32_t burst_start_ppm;
+  uint32_t burst_length;
+  uint32_t burst_drop_ppm;
   uint32_t losses_ppm[MAX_LOSS_CASES];
   size_t loss_count;
   const char *json_path;
@@ -79,6 +94,8 @@ typedef struct {
   uint64_t data_drops;
   uint64_t ack_drops;
   uint32_t duplicate_rx;
+  uint64_t duplicated_units;
+  uint64_t reordered_units;
   double goodput_bytes_per_s;
 } case_result_t;
 
@@ -110,28 +127,67 @@ static int rng_drop(uint64_t *state, uint32_t loss_ppm) {
   return rng_next(state) % UINT64_C(1000000) < (uint64_t)loss_ppm;
 }
 
-static wl_sink_result_t channel_sink(void *user_data, wl_io_token_t token,
-                                     const uint8_t *data, size_t length) {
-  channel_t *channel = user_data;
-
-  (void)token;
-  channel->enqueued++;
-  if (length > WL_FRAME_MAX_COBS_LEN ||
-      rng_drop(&channel->rng, channel->loss_ppm)) {
-    channel->dropped++;
-    return WL_SINK_SENT;
+/* Decide whether a unit is lost. A two-state (good/bad) channel models
+ * correlated, bursty loss: in the bad state units drop with `burst_drop_ppm`
+ * and the state ends after about `burst_length` units. With
+ * `burst_start_ppm == 0` the channel stays good and only independent loss
+ * applies, so the default RNG stream is unchanged. */
+static int channel_drop(channel_t *channel) {
+  if (channel->in_burst != 0U) {
+    if (channel->burst_length != 0U &&
+        rng_next(&channel->rng) % channel->burst_length == 0U) {
+      channel->in_burst = 0U;
+      return rng_drop(&channel->rng, channel->loss_ppm);
+    }
+    return rng_drop(&channel->rng, channel->burst_drop_ppm);
   }
+  if (rng_drop(&channel->rng, channel->burst_start_ppm)) {
+    channel->in_burst = 1U;
+    return rng_drop(&channel->rng, channel->burst_drop_ppm);
+  }
+  return rng_drop(&channel->rng, channel->loss_ppm);
+}
+
+/* Returns 0 when the channel is full, which behaves like a dropped datagram. */
+static int channel_enqueue(channel_t *channel, const uint8_t *data,
+                           size_t length, uint32_t extra_delay_ms) {
   for (size_t i = 0U; i < CHANNEL_CAPACITY; ++i) {
     if (channel->active[i] == 0U) {
       memcpy(channel->data[i], data, length);
       channel->length[i] = length;
-      channel->deliver_at[i] = channel->now_ms + channel->delay_ms;
+      channel->deliver_at[i] = channel->now_ms + channel->delay_ms + extra_delay_ms;
       channel->active[i] = 1U;
-      return WL_SINK_SENT;
+      return 1;
     }
   }
-  /* A full channel behaves like a dropped datagram, not a protocol stall. */
-  channel->dropped++;
+  return 0;
+}
+
+static wl_sink_result_t channel_sink(void *user_data, wl_io_token_t token,
+                                     const uint8_t *data, size_t length) {
+  channel_t *channel = user_data;
+  uint32_t extra_delay_ms = 0U;
+
+  (void)token;
+  channel->enqueued++;
+  if (length > WL_FRAME_MAX_COBS_LEN || channel_drop(channel)) {
+    channel->dropped++;
+    return WL_SINK_SENT;
+  }
+  /* A reordered unit arrives after the units emitted right after it. */
+  if (rng_drop(&channel->rng, channel->reorder_ppm)) {
+    extra_delay_ms = channel->reorder_extra_ms;
+    channel->reordered_units++;
+  }
+  if (channel_enqueue(channel, data, length, extra_delay_ms) == 0) {
+    channel->dropped++;
+    return WL_SINK_SENT;
+  }
+  if (rng_drop(&channel->rng, channel->duplicate_ppm)) {
+    if (channel_enqueue(channel, data, length, extra_delay_ms) != 0) {
+      channel->duplicated_units++;
+    }
+  }
   return WL_SINK_SENT;
 }
 
@@ -268,6 +324,18 @@ static int run_case(const options_t *options, uint32_t loss_ppm, uint64_t seed,
   to_client.loss_ppm = loss_ppm;
   to_server.delay_ms = options->delay_ms;
   to_client.delay_ms = options->delay_ms;
+  to_server.duplicate_ppm = options->duplicate_ppm;
+  to_client.duplicate_ppm = options->duplicate_ppm;
+  to_server.reorder_ppm = options->reorder_ppm;
+  to_client.reorder_ppm = options->reorder_ppm;
+  to_server.reorder_extra_ms = options->reorder_extra_ms;
+  to_client.reorder_extra_ms = options->reorder_extra_ms;
+  to_server.burst_start_ppm = options->burst_start_ppm;
+  to_client.burst_start_ppm = options->burst_start_ppm;
+  to_server.burst_length = options->burst_length;
+  to_client.burst_length = options->burst_length;
+  to_server.burst_drop_ppm = options->burst_drop_ppm;
+  to_client.burst_drop_ppm = options->burst_drop_ppm;
 
   link_init(&client, UINT64_C(0xC11E17), options);
   link_init(&server, UINT64_C(0x5E27E2), options);
@@ -345,6 +413,8 @@ static int run_case(const options_t *options, uint32_t loss_ppm, uint64_t seed,
   result->failed = failed;
   result->data_drops = to_server.dropped;
   result->ack_drops = to_client.dropped;
+  result->duplicated_units = to_server.duplicated_units + to_client.duplicated_units;
+  result->reordered_units = to_server.reordered_units + to_client.reordered_units;
   (void)wl_rx_get_counters(&server.ctx, &counters);
   result->duplicate_rx = counters.duplicate;
 
@@ -398,20 +468,26 @@ static void parse_loss_list(options_t *options, const char *text) {
 
 static void print_csv_header(void) {
   puts("wirelink_reliable_loss_v1,payload,delay_ms,ack_timeout_ms,max_retries,"
-       "loss_ppm,samples,completed,failed,mean_ms,p50_ms,p95_ms,p99_ms,max_ms,"
-       "attempts_per_success,data_drops,ack_drops,duplicate_rx,"
-       "goodput_bytes_per_s");
+       "loss_ppm,duplicate_ppm,reorder_ppm,reorder_extra_ms,burst_start_ppm,"
+       "burst_length,burst_drop_ppm,samples,completed,failed,mean_ms,p50_ms,"
+       "p95_ms,p99_ms,max_ms,attempts_per_success,data_drops,ack_drops,"
+       "duplicate_rx,duplicated_units,reordered_units,goodput_bytes_per_s");
 }
 
 static void print_csv(const options_t *options, const case_result_t *result) {
-  printf("wirelink_reliable_loss_v1,%zu,%u,%u,%u,%u,%zu,%zu,%zu,%.3f,%u,%u,%u,"
-         "%u,%.4f,%" PRIu64 ",%" PRIu64 ",%u,%.1f\n",
+  printf("wirelink_reliable_loss_v1,%zu,%u,%u,%u,%u,%u,%u,%u,%u,%u,%u,%zu,%zu,"
+         "%zu,%.3f,%u,%u,%u,%u,%.4f,%" PRIu64 ",%" PRIu64 ",%u,%" PRIu64
+         ",%" PRIu64 ",%.1f\n",
          options->payload, options->delay_ms, options->ack_timeout_ms,
-         (unsigned int)options->max_retries, result->loss_ppm, options->samples,
+         (unsigned int)options->max_retries, result->loss_ppm,
+         options->duplicate_ppm, options->reorder_ppm,
+         options->reorder_extra_ms, options->burst_start_ppm,
+         options->burst_length, options->burst_drop_ppm, options->samples,
          result->completed, result->failed, result->mean_ms, result->p50_ms,
          result->p95_ms, result->p99_ms, result->max_ms,
          result->attempts_per_success, result->data_drops, result->ack_drops,
-         result->duplicate_rx, result->goodput_bytes_per_s);
+         result->duplicate_rx, result->duplicated_units, result->reordered_units,
+         result->goodput_bytes_per_s);
 }
 
 static void print_json(const options_t *options, const case_result_t *results,
@@ -429,10 +505,15 @@ static void print_json(const options_t *options, const case_result_t *results,
           "{\n  \"schema\": \"wirelink-reliable-loss-v1\",\n"
           "  \"config\": {\"payload\": %zu, \"delay_ms\": %u, "
           "\"ack_timeout_ms\": %u, \"max_retries\": %u, \"samples\": %zu, "
-          "\"warmup\": %zu, \"seed\": %" PRIu64 "},\n  \"cases\": [\n",
+          "\"warmup\": %zu, \"seed\": %" PRIu64 ", \"duplicate_ppm\": %u, "
+          "\"reorder_ppm\": %u, \"reorder_extra_ms\": %u, "
+          "\"burst_start_ppm\": %u, \"burst_length\": %u, "
+          "\"burst_drop_ppm\": %u},\n  \"cases\": [\n",
           options->payload, options->delay_ms, options->ack_timeout_ms,
           (unsigned int)options->max_retries, options->samples, options->warmup,
-          options->seed);
+          options->seed, options->duplicate_ppm, options->reorder_ppm,
+          options->reorder_extra_ms, options->burst_start_ppm,
+          options->burst_length, options->burst_drop_ppm);
   for (size_t i = 0U; i < count; ++i) {
     const case_result_t *r = &results[i];
 
@@ -441,11 +522,13 @@ static void print_json(const options_t *options, const case_result_t *results,
             "\"mean_ms\": %.3f, \"p50_ms\": %u, \"p95_ms\": %u, "
             "\"p99_ms\": %u, \"max_ms\": %u, \"attempts_per_success\": %.4f, "
             "\"data_drops\": %" PRIu64 ", \"ack_drops\": %" PRIu64 ", "
-            "\"duplicate_rx\": %u, \"goodput_bytes_per_s\": %.1f}%s\n",
+            "\"duplicate_rx\": %u, \"duplicated_units\": %" PRIu64 ", "
+            "\"reordered_units\": %" PRIu64 ", \"goodput_bytes_per_s\": %.1f}%s\n",
             r->loss_ppm, r->completed, r->failed, r->mean_ms, r->p50_ms,
             r->p95_ms, r->p99_ms, r->max_ms, r->attempts_per_success,
-            r->data_drops, r->ack_drops, r->duplicate_rx,
-            r->goodput_bytes_per_s, i + 1U < count ? "," : "");
+            r->data_drops, r->ack_drops, r->duplicate_rx, r->duplicated_units,
+            r->reordered_units, r->goodput_bytes_per_s,
+            i + 1U < count ? "," : "");
   }
   fputs("  ]\n}\n", out);
   if (options->json_path != NULL) {
@@ -468,7 +551,10 @@ static void usage(const char *program) {
   fprintf(stderr,
           "usage: %s [--samples N] [--warmup N] [--payload N] [--delay-ms N]\n"
           "          [--ack-timeout-ms N] [--max-retries N] [--seed N]\n"
-          "          [--loss 0,1,5,10,25,50] [--json PATH]\n",
+          "          [--loss 0,1,5,10,25,50] [--json PATH]\n"
+          "          [--duplicate-percent P] [--reorder-percent P]\n"
+          "          [--reorder-extra-ms N] [--burst-start-percent P]\n"
+          "          [--burst-length N] [--burst-drop-percent P]\n",
           program);
 }
 
@@ -481,6 +567,12 @@ int main(int argc, char **argv) {
       .samples = 2000U,
       .warmup = 32U,
       .seed = UINT64_C(0x574C524C),
+      .duplicate_ppm = 0U,
+      .reorder_ppm = 0U,
+      .reorder_extra_ms = 10U,
+      .burst_start_ppm = 0U,
+      .burst_length = 4U,
+      .burst_drop_ppm = 0U,
       .loss_count = 0U,
       .json_path = NULL,
   };
@@ -514,6 +606,18 @@ int main(int argc, char **argv) {
       options.seed = strtoull(value, NULL, 10);
     } else if (strcmp(arg, "--loss") == 0) {
       parse_loss_list(&options, value);
+    } else if (strcmp(arg, "--duplicate-percent") == 0) {
+      options.duplicate_ppm = parse_percent_ppm(value);
+    } else if (strcmp(arg, "--reorder-percent") == 0) {
+      options.reorder_ppm = parse_percent_ppm(value);
+    } else if (strcmp(arg, "--reorder-extra-ms") == 0) {
+      options.reorder_extra_ms = parse_u32(value, "reorder-extra-ms");
+    } else if (strcmp(arg, "--burst-start-percent") == 0) {
+      options.burst_start_ppm = parse_percent_ppm(value);
+    } else if (strcmp(arg, "--burst-length") == 0) {
+      options.burst_length = parse_u32(value, "burst-length");
+    } else if (strcmp(arg, "--burst-drop-percent") == 0) {
+      options.burst_drop_ppm = parse_percent_ppm(value);
     } else if (strcmp(arg, "--json") == 0) {
       options.json_path = value;
     } else {
@@ -526,6 +630,10 @@ int main(int argc, char **argv) {
       options.payload > WL_FRAME_MAX_PAYLOAD || options.ack_timeout_ms == 0U ||
       options.loss_count == 0U) {
     usage(argv[0]);
+    return 2;
+  }
+  if (options.burst_start_ppm != 0U && options.burst_length == 0U) {
+    fputs("--burst-length must be at least 1 when bursts are enabled\n", stderr);
     return 2;
   }
 

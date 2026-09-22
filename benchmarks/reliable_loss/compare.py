@@ -16,7 +16,9 @@ from pathlib import Path
 
 SCHEMA = "wirelink-reliable-loss-v1"
 CONFIG_KEYS = ("payload", "delay_ms", "ack_timeout_ms", "max_retries",
-               "samples", "warmup", "seed")
+               "samples", "warmup", "seed", "duplicate_ppm", "reorder_ppm",
+               "reorder_extra_ms", "burst_start_ppm", "burst_length",
+               "burst_drop_ppm")
 LOWER_IS_BETTER = ("failed", "mean_ms", "p95_ms", "p99_ms", "max_ms",
                    "attempts_per_success")
 HIGHER_IS_BETTER = ("completed", "goodput_bytes_per_s")

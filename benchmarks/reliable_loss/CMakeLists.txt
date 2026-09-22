@@ -16,6 +16,12 @@ if(BUILD_TESTING)
       --json "${CMAKE_CURRENT_BINARY_DIR}/reliable_loss.json")
   set_tests_properties(reliable_loss_smoke PROPERTIES
     LABELS "benchmark;smoke" TIMEOUT 60)
+  add_test(NAME reliable_loss_modes
+    COMMAND wirelink_reliable_loss --samples 200 --loss 0,10
+      --duplicate-percent 20 --reorder-percent 10 --reorder-extra-ms 10
+      --burst-start-percent 1 --burst-length 3 --burst-drop-percent 80)
+  set_tests_properties(reliable_loss_modes PROPERTIES
+    LABELS "benchmark;smoke" TIMEOUT 60)
   add_test(NAME reliable_loss_reports
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_compare.py")
   set_tests_properties(reliable_loss_reports PROPERTIES LABELS "benchmark;smoke")
