@@ -30,6 +30,23 @@ The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the
 same workloads on the ESP32-S3 DevKitC and must use the same frozen generated
 artifacts on both sides.
 
+## Unified entry
+
+[`bench.py`](bench.py) reads the suite registry and presets in
+[`presets.toml`](presets.toml) (deterministic `smoke`, sentinel `quick`,
+diagnostic `full`); `run`, `pair`, `report` and `calibrate` land on top of it
+per [SPEC](SPEC.md). Two commands are available now:
+
+```sh
+python3 benchmarks/bench.py list     # suites and presets
+python3 benchmarks/bench.py doctor   # required tools for a preset (exit 2 if one is missing)
+```
+
+`doctor` gates against `--preset smoke` by default: Python 3.11+, CMake ≥
+3.21, a C compiler, `size` and WLC. Timing suites additionally need Google
+Benchmark (`--preset quick`/`--preset full`). The per-suite guides below stay
+authoritative for manual runs.
+
 How to reproduce each result is documented here. Published, machine-specific
 numbers live on the
 [documentation site](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)

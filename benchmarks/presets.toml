@@ -1,0 +1,168 @@
+# Suite registry and run presets for benchmarks/bench.py; see benchmarks/SPEC.md.
+#
+# kind:     size    – static code/storage size (footprint.py): exact and
+#                     lower-is-better byte metrics, never wall-clock timing
+#           model   – deterministic model with a simulated clock or counters
+#           gb      – Google Benchmark host timing; comparable only when both
+#                     reports are stamped with the same workload sources
+# build:    none        – self-contained tool; no build tree
+#           top         – configured from the top-level CMakeLists with the
+#                         cmake_options below
+#           standalone  – `cmake -S <source>` for the suite's own project
+#
+# requires feeds `bench.py doctor`. build != none additionally implies cmake
+# and a C compiler; kind = size implies a C compiler and a GNU/LLVM `size`.
+# Google Benchmark source supplied through WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR
+# is injected by bench.py when a suite requires it.
+#
+# Placeholders: {python} interpreter, {out} output directory, {bin} build
+# directory, {before}/{after} pair inputs. `stdout` captures process stdout
+# into out/<file> instead of a runner-provided file. `stamp` lists the
+# workload sources recorded with benchmarks/stamp.py for kind = gb suites
+# (the api runner stamps its own report).
+
+[suites.owner_pass]
+kind = "model"
+build = "top"
+description = "Executor owner-pass accounting by counting, not timing"
+cmake_options = [
+  "WIRELINK_BUILD_HOST_RUNTIME=ON",
+  "WIRELINK_HOST_ACTIVITY=ON",
+  "WIRELINK_BUILD_OWNER_PASS_TESTS=ON",
+]
+binary = "benchmarks/owner_pass/wirelink_owner_pass"
+run = ["{bin}/benchmarks/owner_pass/wirelink_owner_pass"]
+stdout = "owner_pass.jsonl"
+# Assert-based: the process exit code is the gate; there is no comparator.
+
+[suites.reliable_loss]
+kind = "model"
+build = "top"
+description = "Reliable-path convergence under loss on a simulated clock"
+cmake_options = ["WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK=ON"]
+binary = "benchmarks/reliable_loss/wirelink_reliable_loss"
+run = [
+  "{bin}/benchmarks/reliable_loss/wirelink_reliable_loss",
+  "--samples", "2000", "--loss", "0,1,5,10,25,50",
+  "--json", "{out}/reliable_loss.json",
+]
+compare = ["{python}", "benchmarks/reliable_loss/compare.py"]
+
+[suites.mixed_traffic]
+kind = "model"
+build = "standalone"
+description = "Telemetry age and RPC completion under ACK loss and backpressure"
+source = "benchmarks/mixed_traffic"
+binary = "wirelink_mixed_traffic"
+requires = ["wlc"]
+run = ["{bin}/wirelink_mixed_traffic", "--report"]
+stdout = "mixed_traffic.jsonl"
+compare = ["{python}", "benchmarks/mixed_traffic/compare.py"]
+gate_absolute_flag = "--max-regression-ms"
+
+[suites.footprint]
+kind = "size"
+build = "none"
+description = "Static code size per module and the caller storage contract"
+run = ["{python}", "benchmarks/footprint/footprint.py", "--json", "{out}/footprint.json"]
+compare = ["{python}", "benchmarks/footprint/compare.py"]
+gate_absolute_flag = "--max-growth-bytes"
+
+[suites.framing]
+kind = "gb"
+build = "top"
+description = "Single-pass COBS and encoded-retry reuse (host timing)"
+cmake_options = ["WIRELINK_BUILD_FRAMING_BENCHMARK=ON"]
+binary = "benchmarks/framing/wirelink_framing_benchmark"
+requires = ["google-benchmark"]
+run = [
+  "{bin}/benchmarks/framing/wirelink_framing_benchmark",
+  "--benchmark_filter=^(spare|exact|overlap|send|claim|busy3|retry3)/e[01]/i[02]/p[012]/b(32|120|512|2048)$",
+  "--benchmark_min_time=0.01s", "--benchmark_repetitions=5",
+  "--benchmark_enable_random_interleaving=true",
+  "--benchmark_out={out}/framing.json", "--benchmark_out_format=json",
+]
+stamp = [
+  "benchmarks/framing/workload.c",
+  "benchmarks/framing/workload.h",
+  "benchmarks/framing/micro.cpp",
+]
+compare = ["{python}", "benchmarks/framing/compare.py"]
+gate_absolute_flag = "--max-regression-ns"
+
+[suites.codec_plan]
+kind = "gb"
+build = "standalone"
+description = "Field lookup and packed-array codec entry cost (host timing)"
+source = "benchmarks/codec_plan"
+binary = "wirelink_codec_plan_benchmark"
+requires = ["wlc", "google-benchmark"]
+codegen = { schema = "benchmarks/codec_plan/plan.wl", out = "codec" }
+cmake_options = ["CODEC_PLAN_CODEC_DIR={bin}/codec"]
+run = [
+  "{bin}/wirelink_codec_plan_benchmark",
+  "--benchmark_min_time=0.03s", "--benchmark_repetitions=7",
+  "--benchmark_out={out}/codec_plan.json", "--benchmark_out_format=json",
+]
+stamp = [
+  "benchmarks/codec_plan/workload.c",
+  "benchmarks/codec_plan/workload.h",
+  "benchmarks/codec_plan/micro.cpp",
+]
+compare = ["{python}", "benchmarks/codec_plan/compare.py"]
+gate_absolute_flag = "--max-regression-ns"
+
+[suites.rpc_validation]
+kind = "gb"
+build = "top"
+description = "Decode, canonical fingerprint and owned-conversion cost (host timing)"
+cmake_options = ["WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK=ON"]
+binary = "benchmarks/rpc_validation/wirelink_rpc_validation_benchmark"
+requires = ["wlc", "google-benchmark"]
+run = [
+  "{bin}/benchmarks/rpc_validation/wirelink_rpc_validation_benchmark",
+  "--benchmark_min_time=0.05s", "--benchmark_repetitions=7",
+  "--benchmark_out={out}/rpc_validation.json", "--benchmark_out_format=json",
+]
+stamp = [
+  "benchmarks/rpc_validation/workload.c",
+  "benchmarks/rpc_validation/workload.h",
+  "benchmarks/rpc_validation/micro.cpp",
+]
+compare = ["{python}", "benchmarks/rpc_validation/compare.py"]
+gate_absolute_flag = "--max-regression-ns"
+
+[suites.api]
+kind = "gb"
+build = "top"
+description = "Generated-endpoint CPU and memory, loopback RPC, two-process UDP"
+cmake_options = ["WIRELINK_BUILD_API_BENCHMARKS=ON", "WIRELINK_BUILD_PLATFORM=ON"]
+requires = ["wlc", "google-benchmark"]
+run = [
+  "{python}", "benchmarks/api/run.py",
+  "--bin-dir", "{bin}", "--out", "{out}/api.json",
+]
+compare = ["{python}", "benchmarks/api/compare.py"]
+gate_absolute_flag = "--max-regression-ns"
+
+# Timing suites stay warn-only in quick until `bench.py calibrate` has seeded
+# thresholds on the dedicated runner (SPEC CI layering); smoke is the
+# deterministic PR baseline. Gate fields: mode auto|warn|fail|off plus
+# optional percent/ns/ms/bytes thresholds.
+[presets.smoke]
+description = "Deterministic PR baseline: counts, models and static size"
+suites = ["owner_pass", "reliable_loss", "mixed_traffic", "footprint"]
+gate = { mode = "auto" }
+
+[presets.quick]
+description = "Sentinel host timing on one idle machine; warn-only until calibrated"
+suites = ["framing", "codec_plan", "rpc_validation"]
+gate = { mode = "warn", percent = 10.0, ns = 5.0 }
+
+[presets.full]
+description = "Every host suite including API UDP distributions; diagnostic"
+suites = [
+  "owner_pass", "reliable_loss", "mixed_traffic", "footprint",
+  "framing", "codec_plan", "rpc_validation", "api",
+]
+gate = { mode = "off" }

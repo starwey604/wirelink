@@ -24,6 +24,21 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 `benchmarks/zephyr/` 下的[固件变体](zephyr/README-cn.md)在 ESP32-S3 DevKitC 上跑同一批负载，
 两侧必须使用同一份冻结生成产物。
 
+## 统一入口
+
+[`bench.py`](bench.py) 读取 [`presets.toml`](presets.toml) 里的套件注册表与预设
+（确定性 `smoke`、哨兵 `quick`、诊断 `full`）；`run`、`pair`、`report`、
+`calibrate` 按 [SPEC](SPEC-cn.md) 后续落地。目前可用两个命令：
+
+```sh
+python3 benchmarks/bench.py list     # 列出套件与预设
+python3 benchmarks/bench.py doctor   # 检查预设所需工具（缺必需项则退出 2）
+```
+
+`doctor` 默认按 `--preset smoke` 判定必需项：Python 3.11+、CMake ≥ 3.21、
+C 编译器、`size` 和 WLC。timing 套件还需要 Google Benchmark
+（`--preset quick`/`--preset full`）。手工运行仍以下方各套件指南为准。
+
 这里说明的是怎么复现。机器相关的实测数字发布在
 [文档站](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)，
 由人工在实测后更新，不按次提交进仓库。
