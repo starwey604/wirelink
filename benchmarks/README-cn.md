@@ -18,6 +18,7 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 | [bulk](../docs/bulk-performance-cn.md) | 顺序 bulk 状态机与配对 raw sink 的对照 | 主机 |
 | [fifo](../docs/fifo-performance.md) | 有序 SPSC FIFO runtime | 主机 |
 | [footprint](footprint/README-cn.md) | 各模块静态代码大小与调用方存储契约 | 主机 |
+| [reliable_loss](reliable_loss/README-cn.md) | 丢包下可靠路径的收敛、尝试次数与失败数 | 主机 |
 | [zephyr/rx_backend](zephyr/rx_backend/README-cn.md) | RX ring backend 行为 | ESP32-S3 |
 
 `benchmarks/zephyr/` 下的[固件变体](zephyr/README-cn.md)在 ESP32-S3 DevKitC 上跑同一批负载，

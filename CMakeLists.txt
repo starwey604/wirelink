@@ -116,6 +116,8 @@ option(WIRELINK_BUILD_EXECUTOR_BENCHMARK
   "Build multithreaded executor contention benchmarks (enables API benchmarks)" OFF)
 option(WIRELINK_BUILD_OWNER_PASS_TESTS
   "Build deterministic owner-pass accounting workloads (requires host activity counters)" OFF)
+option(WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK
+  "Build the deterministic reliable-path packet-loss benchmark" OFF)
 option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
   "Build the optional standalone-Asio UDP adapter" OFF)
 option(WIRELINK_BUILD_HOST_RUNTIME
@@ -256,6 +258,10 @@ if(WIRELINK_BUILD_API_BENCHMARKS)
 endif()
 if(WIRELINK_BUILD_OWNER_PASS_TESTS)
   add_subdirectory(benchmarks/owner_pass)
+endif()
+
+if(WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK)
+  add_subdirectory(benchmarks/reliable_loss)
 endif()
 
 if(WIRELINK_BUILD_FUZZERS)

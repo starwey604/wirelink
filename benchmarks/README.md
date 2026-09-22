@@ -23,6 +23,7 @@ in the test matrix exist for correctness, not for timing.
 | [bulk](../docs/bulk-performance.md) | The sequential bulk state machine against a matched raw sink | Host |
 | [fifo](../docs/fifo-performance.md) | The ordered SPSC FIFO runtime | Host |
 | [footprint](footprint/README.md) | Static code size per module and the caller storage contract | Host |
+| [reliable_loss](reliable_loss/README.md) | Reliable-path convergence, attempts and failures under packet loss | Host |
 | [zephyr/rx_backend](zephyr/rx_backend/README.md) | RX ring backend behavior | ESP32-S3 |
 
 The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the
