@@ -450,6 +450,30 @@ byte-at-a-time ingestion, and corrupted-unit rejection without hardware.
 device and covers deferred TX completion, BUSY retry, abort/retry, finite RX
 restart, and asynchronous stop across the native/QEMU platform matrix.
 
+## Benchmark policy
+
+`benchmarks/` measures performance; it never proves correctness. Benchmark
+targets, their CTest `benchmark` labels, and their numbers are not
+correctness gates and not performance guarantees: published figures are
+machine-specific trends, refreshed after a real measurement.
+
+A separate, explicitly layered *performance regression gate* may fail a
+change, and that distinction is deliberate:
+
+- Correctness gates live in the test layers above (Twister/Ztest, CTest,
+  fuzz, conformance). They run on every change and always block.
+- Performance regression gates compare two revisions of the same workload on
+  the same testbed, use per-metric direction plus relative *and* absolute
+  thresholds, and block only where the CI layer declares them blocking
+  (deterministic suites on PRs, timing suites on dedicated runners or
+  release). A benchmark that cannot produce trustworthy numbers must fail as
+  *invalid*, not as a regression.
+
+The normative contract for result schemas, exit codes, output layout,
+thresholds, and CI layering is [`benchmarks/SPEC.md`](../benchmarks/SPEC.md).
+Benchmark options stay opt-in (`WIRELINK_BUILD_*_BENCHMARK=OFF` by default);
+gating does not turn benchmark executables into tests.
+
 ## Continuous integration
 
 GitHub Actions builds the C11 core, Astrial serial adapter, optional
