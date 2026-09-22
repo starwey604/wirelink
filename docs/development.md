@@ -256,39 +256,37 @@ producer must not call it from an ISR or DMA callback.
 
 `wl_rx_dma_claim()`, `wl_rx_dma_publish()`, `wl_rx_dma_finish()`, and
 `wl_rx_dma_abort()` are a platform-independent producer lifecycle for a DMA
-engine that writes directly into the RX ring. At most two claims may be active;
-they are published and finished strictly in allocation order. A partial publish
-only exposes a completed prefix. A last, partially published claim may then be
-finished, returning its unwritten tail to the ring; this supports DMA engines
-that release their current buffer on an idle timeout. A partially published
-claim with a queued successor cannot finish, because removing its tail would
-leave a logical hole in the contiguous ring.
+engine that writes directly into the RX ring. Exactly one claim may be active.
+A partial publish only exposes a completed prefix, and finishing the claim
+returns its unwritten tail immediately. Keeping this lifecycle single-claim
+avoids representing holes in the byte stream; adapters that need hardware
+look-ahead buffers own those buffers outside the ring.
 
 The platform adapter, not the core, owns DMA descriptors, cache maintenance,
 interrupt registration, and restart policy. It must stop DMA access to every
 claim before calling `wl_rx_dma_abort()`. Abort records overflow, and the main
 loop must run `wl_poll()` once to discard the incomplete COBS window before
-the adapter resumes ingress. This contract maps to Zephyr UART async RX, Linux
-DMA/serial drivers, and bare-metal completion ISRs without putting their types
-or scheduling assumptions in the core.
+the adapter resumes ingress. This contract maps to single-transfer USB and DMA
+controllers without putting their types or scheduling assumptions in the core.
 
 `adapters/zephyr/uart_dma/` is the first mapping and is a unified full-duplex
 owner of Zephyr's asynchronous UART callback. Enable it with
 `CONFIG_WIRELINK_ZEPHYR_UART_DMA=y`. Initialization registers the UART's sole
 async callback and installs its `uart_tx()` sink on the Wirelink context, so a
-second IRQ or async adapter must not use that UART concurrently. The callback
-publishes only new `UART_RX_RDY` bytes and records TX completion in an atomic
-mailbox; protocol TX completion, retry, ACK submission, RX reclamation, and
-recovery remain in the single-consumer `service()` call.
+second IRQ or async adapter must not use that UART concurrently. Initialization
+also requires two disjoint, caller-owned DMA-capable RX buffers. The adapter
+queues them as hardware ping-pong buffers for both finite and infinite timeout
+modes, then copies each completed prefix into the Wirelink ring in receive
+order. A short first buffer therefore never leaves a hole before its successor.
 
-With `SYS_FOREVER_US` RX timeout the adapter answers `UART_RX_BUF_REQUEST` with
-a second direct ring claim for sustained throughput. With a finite timeout it
-deliberately runs one DMA buffer at a time, so an idle-released short buffer can
-be finished without creating a hole; `service()` re-arms RX after
-`UART_RX_DISABLED`. The release bit is the atomic ownership handoff from the
-driver callback to `service()`; slot progress fields are not read by the
-consumer until that handoff. `WL_ERR_WOULD_BLOCK` from `service()` is transient
-and means the main loop should retry on a later iteration.
+The callback and owner-side `service()` share one spinlock around staging-to-
+ring publication, preserving the core ring's single-producer contract. If the
+ring is temporarily full, unread bytes remain in the released staging slot and
+the outstanding `UART_RX_BUF_REQUEST` is answered after the consumer releases
+space. Repeated requests are coalesced. Only an actual `UART_RX_DISABLED` gap
+records overflow and invokes the COBS recovery barrier. `WL_ERR_WOULD_BLOCK`
+from `service()` is transient and means the main loop should retry on a later
+iteration.
 
 The lifecycle is `init()` once, `start()`, then `wl_poll()`/event handling and
 `service()` from the same main-loop context. `stop()` rejects new TX immediately

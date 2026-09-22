@@ -65,11 +65,11 @@ zero dropped bytes and no terminal ingress error:
 
 Relative to the historical LwRB image, BipBuffer used 43.8% fewer producer
 cycles per byte in IRQ ingress and 54.8% fewer in the current DMA ingress.
-The DMA numbers do **not** represent the current direct-DMA architecture. That
+The DMA numbers do **not** represent the current staged-DMA architecture. That
 historical benchmark waited to commit and re-arm each 64-byte-or-shorter
-transfer. Wirelink now supports two ordered direct claims, and the Zephyr
-adapter can map them to ping-pong buffers without changing the SPSC buffer
-choice.
+transfer. The Zephyr adapter now owns two ping-pong DMA buffers and copies
+completed prefixes into the SPSC ring; the core direct-DMA API remains a
+single-claim path for controllers that do not require look-ahead buffers.
 
 The primitive profiles below used 10,000 warm-up operations and 100,000
 measured operations. `reserve/commit` omits the simulated producer's writes;
@@ -184,16 +184,15 @@ performance baseline: its purpose is to prove that TX completion, physical
 idle deferral, and subsequent RX DMA release/re-arm coexist on the same
 adapter instance.
 
-## ESP32-S3 continuous/burst RX failure — 2026-09-22
+## ESP32-S3 continuous/burst RX failure and fix — 2026-09-22
 
 The stop-and-wait rounds above keep the line idle between frames and never
 reach the buffer-full path. A continuous-stream workload added to
-`benchmarks/zephyr/rx_backend` (`WIRELINK_BENCH_STREAM=ON`) now reproduces a
-frame loss on the finite-timeout UART DMA ingress. This section records the
-trigger, mechanism and evidence so the fix can be planned against them; the loss
-is a defect, not a tuning result.
+`benchmarks/zephyr/rx_backend` (`WIRELINK_BENCH_STREAM=ON`) reproduced frame
+loss on the former finite-timeout UART DMA ingress. This section records the
+original trigger, mechanism, evidence, and the staged-buffer fix.
 
-### Trigger
+### Original trigger
 
 On the Zephyr async-UART DMA RX adapter in finite-timeout mode, a peer that
 sends more bytes than one direct claim (default 4096) without an idle gap of at
@@ -208,7 +207,7 @@ burst. The failure is not specific to a 100%-duty line. A nominal 1 kHz
 six-joint profile (about 130 wire bytes, with roughly 600 us of idle between
 1 ms frames) stays below the threshold and is unaffected.
 
-### Mechanism
+### Original mechanism
 
 The finite-timeout adapter holds exactly one direct claim at a time and
 deliberately does not supply a successor: `UART_RX_BUF_REQUEST` pauses when
@@ -236,8 +235,9 @@ deliberately does not supply a successor: `UART_RX_BUF_REQUEST` pauses when
    cascades into many lost frames, which is why `malformed` grows faster than
    `overflow` at large payloads.
 
-Relevant code: `adapters/zephyr/uart_dma/src/uart_dma.c` (`UART_RX_BUF_REQUEST`,
-`UART_RX_BUF_RELEASED`, `UART_RX_DISABLED`, `service`, `supply_buffer`),
+Relevant code in the failing design: `adapters/zephyr/uart_dma/src/uart_dma.c`
+(`UART_RX_BUF_REQUEST`, `UART_RX_BUF_RELEASED`, `UART_RX_DISABLED`, `service`,
+`supply_buffer`),
 `src/rx_ring_bipbuf.c` (`wl_rx_ring_dma_claim`, `wl_rx_ring_dma_publish`,
 `wl_rx_ring_dma_finish`), and `src/protocol.c` (`wl_process_rx_stream` overflow
 recovery).
@@ -283,11 +283,10 @@ configured timeout between frames.
 ```sh
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/rx_backend -d build/rx-stream -- \
-  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink \
   -DWIRELINK_BENCH_INGRESS=DMA -DWIRELINK_BENCH_STREAM=ON
 west flash -d build/rx-stream --esp-device /dev/ttyACM0
 python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 \
-  --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
+  --reset --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
 ```
 
 Use `-DWIRELINK_BENCH_INGRESS=IRQ` for the passing control, and
@@ -306,6 +305,42 @@ Use `-DWIRELINK_BENCH_INGRESS=IRQ` for the passing control, and
   peer that leaves an idle gap must keep its current behavior and cost.
 - Keep the fix verifiable with the stream workload above: `received == frames`
   with zero `overflow` and `malformed` is the pass condition.
+
+### Resolution and acceptance
+
+The Zephyr adapter now owns two disjoint caller-provided staging buffers and
+always queues the second buffer when the driver requests it. `UART_RX_RDY`
+prefixes are copied into the core ring in receive order. Released staging bytes
+remain retained during temporary ring backpressure, and `service()` answers the
+coalesced outstanding buffer request as soon as space is available. The core no
+longer needs ordered multi-claim state and permits only one direct-DMA claim.
+
+The stream generator also bounds each TX-owner pass to 256 bytes. It still
+keeps the UART FIFO busy, but a short frame can no longer monopolize the main
+loop merely because encoding time lets the FIFO accept another complete frame;
+RX polling and adapter service therefore run concurrently as the workload
+description requires.
+
+Acceptance fixture: ESP32-S3 revision 0.2, Zephyr
+`v4.4.0-16126-g933fe1291d22`, 240 MHz, UART0 GPIO16 to UART1 GPIO18, 3 Mbaud,
+4096-byte ring, two 256-byte staging buffers, 200 us timeout, and 200 warm-up
+plus 2000 measured frames per profile.
+
+| payload | frames | received | dropped | overflow | malformed | bad integrity | adapter errors |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+| 20 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+| 64 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+| 120 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+| 256 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+| 1024 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+| 2048 | 2200 | 2200 | 0 | 0 | 0 | 0 | 0 |
+
+The final benchmark status was `wirelink_rx_bench_v1,error,...,0`; the startup
+full-duplex UART DMA TX validation also passed. A separate stop-and-wait run
+with 100 warm-up and 1000 measured frames per profile completed all seven
+profiles with zero dropped bytes, zero adapter errors, and final status zero,
+covering finite-timeout short releases as well as continuous buffer turnover.
 
 ## Regression procedure
 

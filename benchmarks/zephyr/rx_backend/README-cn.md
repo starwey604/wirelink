@@ -42,11 +42,10 @@ feed 微基准），把 ring 本身与 ingress 分开测量。连续流在 `USB`
 ```sh
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/rx_backend -d build/rx-hw -- \
-  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink \
   -DWIRELINK_BENCH_INGRESS=DMA -DWIRELINK_BENCH_STREAM=ON
 west flash -d build/rx-hw --esp-device /dev/ttyACM0
 python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 \
-  --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
+  --reset --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
 ```
 
 console 是板载 USB Serial/JTAG（Linux 上是 `/dev/ttyACM0`）。UART bridge 是另
@@ -58,7 +57,7 @@ console 是板载 USB Serial/JTAG（Linux 上是 `/dev/ttyACM0`）。UART bridge
 | --- | --- |
 | `WIRELINK_BENCH_STREAM=ON` | 改用连续流负载 |
 | `WIRELINK_BENCH_RING=N` | 覆盖可用 RX ring 大小（默认 4096） |
-| `WIRELINK_BENCH_DMA_CHUNK=N` | 覆盖最大 direct DMA claim（默认等于 ring） |
+| `WIRELINK_BENCH_DMA_CHUNK=N` | 覆盖每个 UART DMA staging buffer 的大小（默认 256） |
 | `WIRELINK_BENCH_STREAM_FRAMES=N` | 每个连续流 profile 的测量帧数（默认 2000） |
 | `WIRELINK_BENCH_PAYLOAD_START=I` | 首个 payload profile 下标（默认 0：16 B） |
 | `WIRELINK_BENCH_PAYLOAD_END=I` | 最后一个 payload profile 的后一位（默认全部） |
@@ -95,7 +94,7 @@ fallback 大小。随后是表头，再按所选负载每个 payload 一行。
 - 夹具不接其它线；不要接 UART0 RX 或 UART1 TX。
 
 改动 RX 路径前先冻结 ELF、`.config` 和 SHA-256，candidate 在另一个目录构建，
-并保持相同的 payload 集合、ring 与 claim 大小、UART 夹具。
+并保持相同的 payload 集合、ring 与 staging buffer 大小、UART 夹具。
 
 ## 不测什么
 
@@ -108,12 +107,10 @@ fallback 大小。随后是表头，再按所选负载每个 payload 一行。
 
 ## 连续流现状
 
-连续流会暴露停止等待看不到的路径。触发条件不是“线路 100% 占空”：只要对端
-在没有任何 ≥ 配置超时的空闲间隙的情况下，连续发送超过一个 direct claim
-（默认 4096 字节），finite-timeout 的 UART DMA ingress 就会丢帧。`IRQ`
-ingress 能完成所有 payload；`DMA` ingress 从第一个满 claim 起就开始丢帧，并
-随 payload 增大而恶化。`received` 小于帧数就应视为失败，不是噪声。该负载被
-保留，用于验证后续的连续/突发修复；`received == frames` 且 `overflow`、
-`malformed` 均为 0 是通过条件。机制、证据和修复约束见
-[../../../docs/rx-performance.md](../../../docs/rx-performance.md) 的
-continuous/burst RX failure 一节。
+连续流会暴露停止等待看不到的路径。旧的 direct-ring 实现在 finite-timeout
+buffer 被释放且没有后继 buffer 时会丢字节。UART adapter 现在改用两个由调用
+方提供的 staging buffer。2026-09-22 的 ESP32-S3 验收中，七个 payload profile
+均达到 `received == 2200`，且 `dropped`、`overflow`、`malformed`、
+`bad_integrity`、`adapter_errors` 全为 0；这些条件继续作为回归门槛。原始证据、
+设计与验收表见 [../../../docs/rx-performance.md](../../../docs/rx-performance.md)
+的 continuous/burst RX failure and fix 一节。

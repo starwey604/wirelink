@@ -49,11 +49,10 @@ mode.
 ```sh
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/rx_backend -d build/rx-hw -- \
-  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink \
   -DWIRELINK_BENCH_INGRESS=DMA -DWIRELINK_BENCH_STREAM=ON
 west flash -d build/rx-hw --esp-device /dev/ttyACM0
 python benchmarks/zephyr/capture_serial.py --port /dev/ttyACM0 \
-  --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
+  --reset --out stream.log --until "wirelink_rx_bench_v1,error" --seconds 180
 ```
 
 The console is the on-board USB Serial/JTAG device (`/dev/ttyACM0` on Linux).
@@ -66,7 +65,7 @@ CMake options, all optional:
 | --- | --- |
 | `WIRELINK_BENCH_STREAM=ON` | Continuous-stream workload instead of stop-and-wait |
 | `WIRELINK_BENCH_RING=N` | Override the usable RX ring size (default 4096) |
-| `WIRELINK_BENCH_DMA_CHUNK=N` | Override the maximum direct DMA claim (default = ring) |
+| `WIRELINK_BENCH_DMA_CHUNK=N` | Override each UART DMA staging buffer size (default 256) |
 | `WIRELINK_BENCH_STREAM_FRAMES=N` | Measured frames per stream profile (default 2000) |
 | `WIRELINK_BENCH_PAYLOAD_START=I` | First payload profile index (default 0: 16 B) |
 | `WIRELINK_BENCH_PAYLOAD_END=I` | One past the last payload profile index (default all) |
@@ -106,8 +105,8 @@ hardware counter.
 - The camera fixture wires nothing else; do not connect UART0 RX or UART1 TX.
 
 Freeze the ELF, `.config` and SHA-256 before changing the RX path, build the
-candidate in another directory, and compare the same payload set, ring and claim
-sizes, and UART fixture.
+candidate in another directory, and compare the same payload set, ring and
+staging-buffer sizes, and UART fixture.
 
 ## What it does not measure
 
@@ -124,13 +123,11 @@ sizes, and UART fixture.
 ## Continuous-stream status
 
 Continuous streaming exposes a path the stop-and-wait workload cannot see. The
-trigger is not a 100%-duty line: any peer that sends more than one direct claim
-(default 4096 bytes) without an idle gap of at least the configured timeout
-loses frames on the finite-timeout UART DMA ingress. `IRQ` ingress completes
-every payload, while `DMA` ingress starts losing at the first full claim and
-degrades with payload size. Treat a `received` count below the frame count as a
-failure, not as noise. The workload is retained so the continuous/burst fix can
-be verified against it; `received == frames` with zero `overflow` and
-`malformed` is the pass condition. See the continuous/burst RX failure section
-in [../../../docs/rx-performance.md](../../../docs/rx-performance.md) for the
-mechanism, evidence and fix constraints.
+former direct-ring implementation lost bytes whenever a finite-timeout receive
+buffer was released without a queued successor. The UART adapter now uses two
+caller-owned staging buffers, and the 2026-09-22 ESP32-S3 acceptance run passed
+all seven payload profiles with `received == 2200` and zero `dropped`,
+`overflow`, `malformed`, `bad_integrity`, and `adapter_errors`. Keep those
+conditions as the regression gate. See the continuous/burst RX failure and fix
+section in [../../../docs/rx-performance.md](../../../docs/rx-performance.md)
+for the original evidence, design, and acceptance table.
