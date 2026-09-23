@@ -28,12 +28,14 @@ def _validate(name, value, allowed):
 
 
 def _worse_relative(before, after, direction):
-    """Relative change toward the worse side; inf when growing from zero."""
+    """Relative change toward the worse side, including zero baselines."""
     delta = after - before
     if direction == "higher":
         delta = -delta
     if before == 0:
-        return 0.0 if delta == 0 else math.inf
+        if delta == 0:
+            return 0.0
+        return math.inf if delta > 0 else -math.inf
     return delta / abs(before)
 
 

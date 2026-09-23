@@ -158,7 +158,9 @@ gate_absolute_flag = "--max-regression-ns"
 [presets.smoke]
 description = "Deterministic PR baseline: counts, models and static size"
 suites = ["owner_pass", "reliable_loss", "mixed_traffic", "footprint"]
-gate = { mode = "auto" }
+# Fixed inputs and simulated clocks have no sampling noise: any directional
+# regression is a finding, while an improvement remains a pass.
+gate = { mode = "auto", percent = 0.0 }
 
 [presets.quick]
 description = "Sentinel host timing on one idle machine; warn-only until calibrated"

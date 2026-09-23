@@ -56,6 +56,11 @@ class Gate(unittest.TestCase):
         # delta_rel is signed as after vs before, independent of direction.
         self.assertAlmostEqual(bad["delta_rel"], -0.20)
 
+    def test_higher_direction_improving_from_zero_passes(self):
+        result = row(direction="higher", before=0.0, after=1.0,
+                     rel=0.0, absolute=None)
+        self.assertEqual("pass", result["status"])
+
     def test_exact_flags_any_change(self):
         self.assertEqual(row(direction="exact", rel=None, absolute=None)["status"],
                          "pass")

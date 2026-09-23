@@ -194,6 +194,8 @@ out/<run-id>/
   没有专用硬件的常规 CI 中 timing 套件保持仅告警：只做 dry-run 验证。
 - PR deterministic 与 quick timing 只在 Ubuntu 运行，不乘到
   Linux/macOS/Windows 主机矩阵。
+- 初始 `smoke` 预设对确定性指标采用方向性零退化容忍：任何变差都会
+  阻塞，而改善仍然通过。
 - HIL 运行在带 hardware map 的 self-hosted runner 上，永不 gate 普通 PR。
 
 ## 落地状态

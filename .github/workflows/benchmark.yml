@@ -67,7 +67,8 @@ jobs:
           fi
           echo "sha=${base}" >> "$GITHUB_OUTPUT"
 
-      # Byte-exact suites: one A/B bracket is enough (no drift to cancel).
+      # Deterministic suites use a zero directional regression tolerance: one
+      # A/B bracket is enough because there is no sampling drift to cancel.
       # Exit contract: 0 pass, 1 regression (blocks), 2 invalid (blocks).
       - name: Deterministic gate (base vs candidate)
         run: |

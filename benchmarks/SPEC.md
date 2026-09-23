@@ -205,6 +205,8 @@ Notes:
   hardware keeps timing suites warn-only: only dry-run/validate them.
 - The PR deterministic and quick-timing jobs run on Ubuntu only; they are not
   multiplied across the Linux/macOS/Windows host matrix.
+- The initial `smoke` preset gives deterministic metrics a zero directional
+  regression tolerance: any worsening blocks, while an improvement passes.
 - HIL runs on a self-hosted runner with a hardware map and never gates an
   ordinary PR.
 

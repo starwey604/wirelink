@@ -215,7 +215,7 @@ class Pair(unittest.TestCase):
                           "--max-regression-ns", "5.0"],
                          bench._gate_argv(framing, quick))
         smoke = data["presets"]["smoke"]["gate"]
-        self.assertEqual(["--gate", "auto"],
+        self.assertEqual(["--gate", "auto", "--max-regression-percent", "0.0"],
                          bench._gate_argv(data["suites"]["footprint"], smoke))
         mixed = data["suites"]["mixed_traffic"]
         self.assertEqual(["--gate", "fail", "--max-regression-ms", "8.0"],
