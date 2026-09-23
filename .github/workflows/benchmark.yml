@@ -1,16 +1,14 @@
 name: Benchmarks
 
 # Performance and footprint gating; see benchmarks/SPEC.md for the contract.
-# Layering: `deterministic` blocks a PR, `quick-timing` warns only until its
-# thresholds are calibrated (max(product allowance, 5xMAD), SPEC "Gates").
+# This workflow is intentionally manual during early development. Release
+# candidates compare against the previous tag; ordinary pushes and PRs do not
+# spend hosted-runner time on performance measurements.
 # Ubuntu only by design: results are not comparable across OSes or hosts, so
 # these jobs are never multiplied over the Linux/macOS/Windows host matrix.
 # Nightly full-GB and HIL layers are staged separately (never gate a PR).
 
 on:
-  push:
-    branches: ["**"]
-  pull_request:
   workflow_dispatch:
 
 permissions:
