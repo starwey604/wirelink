@@ -113,7 +113,7 @@ jobs:
         run: |
           set +e
           python3 benchmarks/bench.py pair --preset smoke --order ab \
-            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --base "${{ steps.base.outputs.sha }}" --candidate "${{ github.sha }}" \
             --out out/smoke
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           exit 0
@@ -125,7 +125,7 @@ jobs:
         run: |
           set +e
           python3 benchmarks/bench.py pair --preset quick \
-            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --base "${{ steps.base.outputs.sha }}" --candidate "${{ github.sha }}" \
             --out out/quick
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           exit 0
@@ -140,7 +140,7 @@ jobs:
         run: |
           set +e
           python3 benchmarks/bench.py pair --preset full --suite api \
-            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --base "${{ steps.base.outputs.sha }}" --candidate "${{ github.sha }}" \
             --out out/api
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           exit 0
