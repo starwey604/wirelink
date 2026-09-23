@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from report import gate, junit, manifest, markdown, schema  # noqa: E402
+from report import gate, gate_rows, junit, manifest, markdown, schema  # noqa: E402
 
 
 def row(**overrides):
@@ -37,6 +37,17 @@ class Gate(unittest.TestCase):
         result = row(absolute=None, before=1.0, after=1.5)
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["threshold"]["abs"], None)
+
+    def test_gate_rows_applies_absolute_threshold_in_callers_unit(self):
+        common = dict(suite="mixed_traffic", units={"latency": "ms"},
+                      gated={"latency"}, rel=0.10, absolute=20.0)
+        below_floor = gate_rows([("case", "latency", 100.0, 111.0)],
+                                **common)[0]
+        above_both = gate_rows([("case", "latency", 100.0, 121.0)],
+                               **common)[0]
+        self.assertEqual(20.0, below_floor["threshold"]["abs"])
+        self.assertEqual(("pass", "fail"),
+                         (below_floor["status"], above_both["status"]))
 
     def test_higher_direction(self):
         good = row(direction="higher", before=100.0, after=90.0)

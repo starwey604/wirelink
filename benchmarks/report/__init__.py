@@ -81,10 +81,10 @@ def gate_rows(pairs, *, suite, units, gated=(), rel=None, absolute=None,
               severity="fail", directions=None):
     """Build gate rows from (case, metric, before, after) tuples.
 
-    Only metrics in ``gated`` receive thresholds, and ``absolute`` is
-    applied only when the metric's unit matches, so a ns floor never leaks
-    onto a cycles or bytes metric. Metrics not listed in ``directions``
-    default to ``lower`` is better.
+    Only metrics in ``gated`` receive thresholds. The caller owns the unit of
+    ``absolute`` and must restrict ``gated`` to metrics using that unit, so a
+    timing floor never leaks onto cycles or bytes. Metrics not listed in
+    ``directions`` default to ``lower`` is better.
     """
     gated = set(gated)
     directions = directions or {}
@@ -94,8 +94,7 @@ def gate_rows(pairs, *, suite, units, gated=(), rel=None, absolute=None,
             before, after, suite=suite, case=str(case), metric=metric,
             unit=units.get(metric, ""), direction=directions.get(metric, "lower"),
             rel=(rel if metric in gated else None),
-            absolute=(absolute if metric in gated
-                      and units.get(metric) == "ns" else None),
+            absolute=(absolute if metric in gated else None),
             severity=severity))
     return rows
 
