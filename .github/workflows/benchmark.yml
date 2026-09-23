@@ -1,116 +1,44 @@
 name: Benchmarks
 
-# Performance and footprint gating; see benchmarks/SPEC.md for the contract.
-# This workflow is intentionally manual during early development. Release
-# candidates compare against the previous tag; ordinary pushes and PRs do not
-# spend hosted-runner time on performance measurements.
-# Ubuntu only by design: results are not comparable across OSes or hosts, so
-# these jobs are never multiplied over the Linux/macOS/Windows host matrix.
-# Nightly full-GB and HIL layers are staged separately (never gate a PR).
+# Intentionally manual during early development: ordinary pushes and PRs do
+# not spend hosted-runner time on performance measurements. For a release
+# candidate, dispatch `release` before creating the tag and compare it with the
+# previous release tag (explicit `base`, or the newest reachable older tag).
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: Benchmark coverage to run
+        type: choice
+        options:
+          - release
+          - smoke
+          - quick
+        default: release
+      base:
+        description: Base revision/tag (blank selects the newest reachable older tag)
+        type: string
+        required: false
 
 permissions:
   contents: read
-  checks: write # junit test reports; fork PRs downgrade gracefully
+  checks: write
 
 concurrency:
-  group: benchmark-${{ github.workflow }}-${{ github.ref }}
+  group: benchmark-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deterministic:
-    name: PR deterministic (smoke gate)
+  benchmark:
+    name: Manual ${{ inputs.profile }} benchmark
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - name: Check out Wirelink
         uses: actions/checkout@v5
         with:
-          fetch-depth: 0 # pair --base needs the base revision locally
-
-      # Published WLC source pin; keep in sync with
-      # cmake/WirelinkWlcBootstrap.cmake (WIRELINK_WLC_SOURCE_REVISION), the
-      # same pin host.yml and zephyr.yml build from.
-      - name: Check out matching standalone WLC
-        uses: actions/checkout@v5
-        with:
-          repository: starwey604/wlc
-          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
-          path: .tools/wlc
-
-      - name: Build matching WLC
-        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
-
-      - name: Export toolchain
-        run: |
-          echo "WIRELINK_WLC_EXECUTABLE=${GITHUB_WORKSPACE}/.tools/wlc/target/release/wlc" >> "$GITHUB_ENV"
-
-      - name: Comparator and report parser tests
-        run: |
-          for t in benchmarks/test_*.py benchmarks/*/test_*.py; do
-            [ -e "$t" ] || continue
-            echo "::group::${t}"
-            (cd "$(dirname "$t")" && python3 "$(basename "$t")")
-            echo "::endgroup::"
-          done
-
-      - name: Resolve base revision
-        id: base
-        run: |
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            base="$(git rev-parse HEAD~1)"
-          fi
-          echo "sha=${base}" >> "$GITHUB_OUTPUT"
-
-      # Deterministic suites use a zero directional regression tolerance: one
-      # A/B bracket is enough because there is no sampling drift to cancel.
-      # Exit contract: 0 pass, 1 regression (blocks), 2 invalid (blocks).
-      - name: Deterministic gate (base vs candidate)
-        run: |
-          python3 benchmarks/bench.py pair --preset smoke --order ab \
-            --base "${{ steps.base.outputs.sha }}" --candidate . \
-            --out out/deterministic
-
-      - name: Publish summary
-        if: always()
-        run: |
-          if [ -f out/deterministic/summary.md ]; then
-            cat out/deterministic/summary.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Publish junit report
-        if: always()
-        continue-on-error: true # never let reporting break the gate
-        uses: mikepenz/action-junit-report@v5
-        with:
-          report_paths: out/deterministic/junit.xml
-          check_name: Benchmark deterministic report
-          detailed_summary: true
-
-      - name: Upload evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deterministic-evidence
-          path: out/deterministic/
-          if-no-files-found: warn
-          retention-days: 14
-
-  quick-timing:
-    name: PR quick timing (warn-only)
-    runs-on: ubuntu-latest
-    # Advisory until P4 calibrates sentinels on this runner; regressing rows
-    # surface as warnings in the summary instead of blocking a merge.
-    continue-on-error: true
-    timeout-minutes: 60
-    steps:
-      - name: Check out Wirelink
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0 # pair --base needs the base revision locally
+          fetch-depth: 0
 
       # Published WLC source pin; keep in sync with
       # cmake/WirelinkWlcBootstrap.cmake (WIRELINK_WLC_SOURCE_REVISION).
@@ -124,8 +52,9 @@ jobs:
       - name: Build matching WLC
         run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
-      # Google Benchmark v1.9.0 (peeled commit of the annotated tag).
+      # quick and release use the timing suites; smoke does not need GB.
       - name: Check out Google Benchmark
+        if: inputs.profile != 'smoke'
         uses: actions/checkout@v5
         with:
           repository: google/benchmark
@@ -133,48 +62,132 @@ jobs:
           path: .tools/google-benchmark
 
       - name: Export toolchain
+        shell: bash
         run: |
           echo "WIRELINK_WLC_EXECUTABLE=${GITHUB_WORKSPACE}/.tools/wlc/target/release/wlc" >> "$GITHUB_ENV"
-          echo "WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=${GITHUB_WORKSPACE}/.tools/google-benchmark" >> "$GITHUB_ENV"
+          if [ "${{ inputs.profile }}" != smoke ]; then
+            echo "WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=${GITHUB_WORKSPACE}/.tools/google-benchmark" >> "$GITHUB_ENV"
+          fi
+
+      # These are fast correctness tests for the benchmark tooling, not
+      # performance measurements.
+      - name: Comparator and report parser tests
+        shell: bash
+        run: |
+          for t in benchmarks/test_*.py benchmarks/*/test_*.py; do
+            [ -e "$t" ] || continue
+            echo "::group::${t}"
+            (cd "$(dirname "$t")" && python3 "$(basename "$t")")
+            echo "::endgroup::"
+          done
 
       - name: Resolve base revision
         id: base
+        shell: bash
+        env:
+          REQUESTED_BASE: ${{ inputs.base }}
         run: |
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            base="$(git rev-parse HEAD~1)"
+          base="$REQUESTED_BASE"
+          head="$(git rev-parse HEAD)"
+          if [ -z "$base" ]; then
+            while IFS= read -r tag; do
+              sha="$(git rev-list -n 1 "$tag")"
+              if [ "$sha" != "$head" ] && git merge-base --is-ancestor "$sha" HEAD; then
+                base="$tag"
+                break
+              fi
+            done < <(git tag --sort=-version:refname)
           fi
-          echo "sha=${base}" >> "$GITHUB_OUTPUT"
+          if [ -z "$base" ] || ! git rev-parse --verify "${base}^{commit}" >/dev/null; then
+            echo "No valid baseline. Pass a previous release tag or commit as the base input." >&2
+            exit 2
+          fi
+          sha="$(git rev-parse "${base}^{commit}")"
+          echo "label=$base" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # Timing suites: default A/B/B/A alternation cancels host drift; the
-      # quick preset gates in warn mode (percent > 10 and absolute > 5ns).
-      - name: Timing gate (base vs candidate, A/B/B/A)
+      - name: Deterministic smoke comparison
+        if: inputs.profile == 'smoke' || inputs.profile == 'release'
+        id: smoke
+        shell: bash
         run: |
+          set +e
+          python3 benchmarks/bench.py pair --preset smoke --order ab \
+            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --out out/smoke
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Host timing comparison
+        if: inputs.profile == 'quick' || inputs.profile == 'release'
+        id: quick
+        shell: bash
+        run: |
+          set +e
           python3 benchmarks/bench.py pair --preset quick \
             --base "${{ steps.base.outputs.sha }}" --candidate . \
             --out out/quick
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Publish summary
-        if: always()
+      # release already ran the seven smoke/quick suites. API adds generated
+      # endpoint memory, loopback RPC, and two-process UDP without rerunning
+      # those suites; it remains diagnostic until a stable testbed is adopted.
+      - name: API and UDP diagnostic comparison
+        if: inputs.profile == 'release'
+        id: api
+        shell: bash
         run: |
-          if [ -f out/quick/summary.md ]; then
-            cat out/quick/summary.md >> "$GITHUB_STEP_SUMMARY"
-          fi
+          set +e
+          python3 benchmarks/bench.py pair --preset full --suite api \
+            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --out out/api
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Publish junit report
+      - name: Publish summaries
         if: always()
-        continue-on-error: true # never let reporting break the gate
+        shell: bash
+        run: |
+          echo "Baseline: ${{ steps.base.outputs.label }}" >> "$GITHUB_STEP_SUMMARY"
+          for report in out/*/summary.md; do
+            [ -e "$report" ] || continue
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Publish junit reports
+        if: always()
+        continue-on-error: true
         uses: mikepenz/action-junit-report@v5
         with:
-          report_paths: out/quick/junit.xml
-          check_name: Benchmark quick timing report
+          report_paths: out/*/junit.xml
+          check_name: Manual benchmark report
           detailed_summary: true
 
       - name: Upload evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: quick-timing-evidence
-          path: out/quick/
+          name: benchmark-${{ inputs.profile }}-${{ github.run_id }}
+          path: out/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
+
+      - name: Validate measurements
+        if: always()
+        shell: bash
+        env:
+          SMOKE_RC: ${{ steps.smoke.outputs.rc }}
+          QUICK_RC: ${{ steps.quick.outputs.rc }}
+          API_RC: ${{ steps.api.outputs.rc }}
+        run: |
+          failed=0
+          for result in "$SMOKE_RC" "$QUICK_RC" "$API_RC"; do
+            if [ -n "$result" ] && [ "$result" -ne 0 ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "At least one comparison regressed or produced invalid evidence." >&2
+            exit 1
+          fi
