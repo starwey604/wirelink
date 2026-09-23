@@ -30,8 +30,9 @@ python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
 - `run` configures CMake from the preset, builds, executes, and normalizes.
 - `pair` compares two runs with each suite's own comparator and writes
   `comparison.json`, `summary.md`, and `junit.xml`. With `--base`/`--candidate`
-  it builds both sides in isolated source trees and alternates them (default
-  A/B/B/A, keeping the worse status per metric across brackets); with
+  it uses the candidate's driver and preset to build both sides in isolated
+  source trees, so the base may predate `bench.py`, and alternates them
+  (default A/B/B/A, keeping the worse status per metric across brackets); with
   `--before`/`--after` it re-compares existing run directories without
   re-measuring (idempotent, outputs land in the `--after` directory).
 - `report` re-derives `normalized.json` from `raw/` without re-measuring

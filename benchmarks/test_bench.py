@@ -67,6 +67,13 @@ class Presets(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 bench.load_presets(bad)
 
+    def test_footprint_uses_fixed_driver_against_selected_source(self):
+        if bench.tomllib is None:
+            self.skipTest("tomllib needs Python 3.11+")
+        run = bench.load_presets()["suites"]["footprint"]["run"]
+        self.assertIn("{driver}/benchmarks/footprint/footprint.py", run)
+        self.assertEqual("{source}", run[run.index("--root") + 1])
+
     def test_preset_with_unknown_suite_rejected(self):
         if bench.tomllib is None:
             self.skipTest("tomllib needs Python 3.11+")
@@ -116,6 +123,14 @@ class Commands(unittest.TestCase):
         with contextlib.redirect_stderr(err):
             with self.assertRaises(SystemExit) as caught:
                 bench.main(["run", "--suite", "ghost"])
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_run_rejects_non_checkout_source_tree(self):
+        with tempfile.TemporaryDirectory() as d:
+            with contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as caught:
+                    bench.main(["run", "--suite", "footprint",
+                                "--source-tree", d])
         self.assertEqual(caught.exception.code, 2)
 
     def test_report_requires_a_run_directory(self):
@@ -314,6 +329,27 @@ class Pair(unittest.TestCase):
         ]
         self.assertEqual("fail", bench._merge_conservative(rows)[0]["status"])
         self.assertEqual(1, len(bench._merge_conservative(rows)))
+
+    def test_invoke_run_uses_current_driver_for_legacy_source_tree(self):
+        legacy = self.root / "legacy"
+        legacy.mkdir()
+        destination = self.root / "run"
+        captured = []
+        original = bench.subprocess.run
+
+        def fake(argv, **kwargs):
+            captured.append((argv, kwargs))
+            return bench.subprocess.CompletedProcess(argv, 0)
+
+        bench.subprocess.run = fake
+        self.addCleanup(setattr, bench.subprocess, "run", original)
+        args = bench.argparse.Namespace(suite=["footprint"], preset="smoke",
+                                        jobs=None)
+        bench._invoke_run(legacy, destination, args)
+        argv, kwargs = captured[0]
+        self.assertEqual(str(bench.BENCH / "bench.py"), argv[1])
+        self.assertEqual(["--source-tree", str(legacy)], argv[3:5])
+        self.assertEqual(bench.REPO, kwargs["cwd"])
 
 
 class Calibrate(unittest.TestCase):

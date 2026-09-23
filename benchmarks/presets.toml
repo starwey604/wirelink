@@ -16,11 +16,13 @@
 # is injected by bench.py when a suite requires it.
 #
 # Placeholders: {python} interpreter, {out} output directory, {bin} build
-# directory. `stdout` captures process stdout into out/<file> instead of a
-# runner-provided file. `stamp` lists the workload sources recorded with
-# benchmarks/stamp.py for kind = gb suites (the api runner stamps its own
-# report). `compare` names the suite comparator that `bench.py pair` drives
-# in-process, passing the before/after raw reports as positional inputs.
+# directory, {source} measured Wirelink checkout, and {driver} checkout that
+# supplies bench.py and the preset. `stdout` captures process stdout into
+# out/<file> instead of a runner-provided file. `stamp` lists the workload
+# sources recorded with benchmarks/stamp.py for kind = gb suites (the api
+# runner stamps its own report). `compare` names the suite comparator that
+# `bench.py pair` drives in-process, passing the before/after raw reports as
+# positional inputs.
 
 [suites.owner_pass]
 kind = "model"
@@ -65,7 +67,10 @@ gate_absolute_flag = "--max-regression-ms"
 kind = "size"
 build = "none"
 description = "Static code size per module and the caller storage contract"
-run = ["{python}", "benchmarks/footprint/footprint.py", "--json", "{out}/footprint.json"]
+run = [
+  "{python}", "{driver}/benchmarks/footprint/footprint.py",
+  "--root", "{source}", "--json", "{out}/footprint.json",
+]
 compare = ["{python}", "benchmarks/footprint/compare.py"]
 gate_absolute_flag = "--max-growth-bytes"
 

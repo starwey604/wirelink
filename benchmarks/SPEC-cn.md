@@ -29,7 +29,8 @@ python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
 - `run`：按预设配置 CMake、构建、执行并归一化。
 - `pair`：用各套件自己的 comparator 比较两次运行，产出
   `comparison.json`、`summary.md` 与 `junit.xml`。给 `--base`/`--candidate`
-  时在隔离源码树中构建两侧并交替执行（默认 A/B/B/A，同一指标取两个
+  时使用 candidate 一侧的 driver 与预设在隔离源码树中构建两侧，因此
+  base 可以早于 `bench.py`，并交替执行（默认 A/B/B/A，同一指标取两个
   bracket 中更差的状态）；给 `--before`/`--after` 时仅重新比较既有运行
   目录、不重新测量（幂等，输出写入 `--after` 目录）。
 - `report`：仅凭 `raw/` 重新生成 `normalized.json`，不重新测量（幂等）；

@@ -165,7 +165,7 @@ def source_hash_reason(before, after):
     return None
 
 
-def environment(build_dir=None, sources=(), extra=None):
+def environment(build_dir=None, sources=(), extra=None, repo=None):
     """Assemble the SPEC environment object; missing pieces stay empty."""
     build = cmake_cache(build_dir) if build_dir else {}
     env = {
@@ -174,7 +174,7 @@ def environment(build_dir=None, sources=(), extra=None):
                                         build.get("CMAKE_C_FLAGS_RELEASE")))).strip(),
         "cmake_options": cmake_options(build_dir) if build_dir else "",
         **cpu_identity(),
-        "wlc": wlc_version() or "",
+        "wlc": wlc_version(repo) or "",
     }
     if sources:
         env["benchmark_source_hash"] = source_hash(sources)
@@ -183,14 +183,15 @@ def environment(build_dir=None, sources=(), extra=None):
     return env
 
 
-def manifest(*, suite, testbed, build_dir=None, sources=(), extra=None):
+def manifest(*, suite, testbed, build_dir=None, sources=(), extra=None,
+             repo=None):
     """Build the manifest.json document from SPEC's output layout."""
     if not suite or not testbed:
         raise ValueError("suite and testbed are required")
     return {"schema": MANIFEST_SCHEMA, "suite": suite, "testbed": testbed,
-            "revision": revision(),
+            "revision": revision(repo),
             "environment": environment(build_dir=build_dir, sources=sources,
-                                       extra=extra)}
+                                       extra=extra, repo=repo)}
 
 
 def write_manifest(path, document):

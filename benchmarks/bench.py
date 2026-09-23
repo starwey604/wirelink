@@ -40,7 +40,8 @@ KINDS = ("size", "model", "gb")
 BUILDS = ("none", "top", "standalone")
 DEPS = ("wlc", "google-benchmark", "west", "serial")
 GATE_MODES = ("auto", "warn", "fail", "off")
-PLACEHOLDER_NAMES = ("python", "out", "bin", "before", "after")
+PLACEHOLDER_NAMES = ("python", "out", "bin", "source", "driver", "before",
+                     "after")
 REQUIRED_KEYS = ("kind", "build", "description", "run")
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 
@@ -202,9 +203,9 @@ def _run(argv, cwd=REPO, stdout_path=None, step="command"):
         raise RunFailure(f"{step} exited {code}: {head}")
 
 
-def _build(suite, args):
+def _build(suite, args, source_root=REPO):
     """Configure and build one suite; returns its build directory."""
-    bin_dir = REPO / "build" / "bench" / suite["name"]
+    bin_dir = source_root / "build" / "bench" / suite["name"]
     mapping = {"python": sys.executable, "out": bin_dir, "bin": bin_dir}
     if suite.get("codegen"):
         wlc = os.environ.get("WIRELINK_WLC_EXECUTABLE") or shutil.which("wlc")
@@ -212,9 +213,10 @@ def _build(suite, args):
             raise RunFailure("WLC not found (set WIRELINK_WLC_EXECUTABLE or "
                              "put wlc on PATH)")
         out_dir = bin_dir / suite["codegen"]["out"]
-        _run([wlc, "compile", str(REPO / suite["codegen"]["schema"]),
-              "--out-dir", str(out_dir)], step="wlc compile")
-    source = REPO if suite["build"] == "top" else REPO / suite["source"]
+        _run([wlc, "compile", str(source_root / suite["codegen"]["schema"]),
+              "--out-dir", str(out_dir)], cwd=source_root, step="wlc compile")
+    source = (source_root if suite["build"] == "top"
+              else source_root / suite["source"])
     configure = ["cmake", "-S", str(source), "-B", str(bin_dir),
                  "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
                  *(f"-D{option}"
@@ -229,25 +231,27 @@ def _build(suite, args):
     wlc_env = os.environ.get("WIRELINK_WLC_EXECUTABLE")
     if wlc_env and "wlc" in suite.get("requires", ()):
         configure.append(f"-DWIRELINK_WLC_EXECUTABLE={wlc_env}")
-    _run(configure, step="cmake configure")
+    _run(configure, cwd=source_root, step="cmake configure")
     build = ["cmake", "--build", str(bin_dir), "--parallel"]
     if args.jobs:
         build.append(str(args.jobs))
-    _run(build, step="cmake build")
+    _run(build, cwd=source_root, step="cmake build")
     return bin_dir
 
 
-def _run_suite(name, suite, raw, out, args):
+def _run_suite(name, suite, raw, out, args, source_root=REPO):
     bin_dir = None
     if suite["build"] != "none":
-        bin_dir = _build(suite, args) if not args.skip_build \
-            else REPO / "build" / "bench" / name
-    mapping = {"python": sys.executable, "out": raw, "bin": bin_dir or ""}
+        bin_dir = _build(suite, args, source_root) if not args.skip_build \
+            else source_root / "build" / "bench" / name
+    mapping = {"python": sys.executable, "out": raw, "bin": bin_dir or "",
+               "source": source_root, "driver": REPO}
     stdout_path = raw / suite["stdout"] if suite.get("stdout") else None
-    _run(_resolve(suite["run"], mapping), stdout_path=stdout_path,
+    _run(_resolve(suite["run"], mapping), cwd=source_root,
+         stdout_path=stdout_path,
          step=f"{name} runner")
     if suite.get("stamp"):
-        sources = [REPO / source for source in suite["stamp"]]
+        sources = [source_root / source for source in suite["stamp"]]
         reports = sorted(raw.glob("*.json"))
         if not reports:
             raise RunFailure("no report to stamp")
@@ -271,6 +275,9 @@ def _run_suite(name, suite, raw, out, args):
 def cmd_run(args, data, parser):
     from report import manifest
     suites, label = _select_suites(args, data, parser)
+    source_root = (args.source_tree or REPO).resolve()
+    if not (source_root / "CMakeLists.txt").is_file():
+        parser.error(f"--source-tree is not a Wirelink checkout: {source_root}")
     out = args.out if args.out else REPO / "out" / run_id()
     try:
         out.mkdir(parents=True)
@@ -281,7 +288,8 @@ def cmd_run(args, data, parser):
     (out / "artifacts").mkdir()
     testbed = args.testbed or f"local-{platform.system().lower()}-" \
         f"{platform.machine()}"
-    identity = manifest.manifest(suite=label, testbed=testbed)
+    identity = manifest.manifest(suite=label, testbed=testbed,
+                                 repo=source_root)
     manifest.write_manifest(out / "manifest.json", identity)
     failed = []
     for name, suite in suites:
@@ -289,7 +297,7 @@ def cmd_run(args, data, parser):
         raw.mkdir()
         named = dict(suite, name=name)
         try:
-            _run_suite(name, named, raw, out, args)
+            _run_suite(name, named, raw, out, args, source_root)
         except RunFailure as error:
             print(f"bench: {name}: {error}")
             failed.append(name)
@@ -485,12 +493,14 @@ def _worktree_drop(path):
 
 
 def _invoke_run(tree, dest, args):
-    """One isolated `bench.py run` inside a source tree (base or candidate)."""
-    if not (tree / "benchmarks" / "bench.py").is_file():
-        raise RunFailure(f"{tree} has no benchmarks/bench.py — the revision "
-                         "predates the unified benchmark entry point")
-    argv = [sys.executable, str(tree / "benchmarks" / "bench.py"), "run",
-            "--out", str(dest)]
+    """Run one source tree with this revision's benchmark driver.
+
+    Keeping the driver fixed makes an older baseline comparable even when it
+    predates bench.py, and prevents runner changes from changing between the
+    A and B halves of a pair.
+    """
+    argv = [sys.executable, str(BENCH / "bench.py"), "run",
+            "--source-tree", str(tree), "--out", str(dest)]
     if args.suite:
         for name in args.suite:
             argv += ["--suite", name]
@@ -498,7 +508,7 @@ def _invoke_run(tree, dest, args):
         argv += ["--preset", args.preset]
     if args.jobs:
         argv += ["--jobs", str(args.jobs)]
-    code = subprocess.run(argv, cwd=tree).returncode
+    code = subprocess.run(argv, cwd=REPO).returncode
     if code != 0:
         raise RunFailure(f"run in {tree} exited {code} ({dest})")
     return dest
@@ -870,6 +880,9 @@ def main(argv=None):
     run.add_argument("--out", type=Path, default=None,
                      help="run directory (default: out/<run-id>); never "
                           "overwritten")
+    run.add_argument("--source-tree", type=Path, default=None,
+                     help="Wirelink checkout to build and measure; the runner "
+                          "and preset still come from this checkout")
     run.add_argument("--testbed", default=None,
                      help="testbed id (default: local-<os>-<arch>)")
     run.add_argument("--jobs", type=int, default=None,
