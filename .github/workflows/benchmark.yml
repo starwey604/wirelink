@@ -1,0 +1,181 @@
+name: Benchmarks
+
+# Performance and footprint gating; see benchmarks/SPEC.md for the contract.
+# Layering: `deterministic` blocks a PR, `quick-timing` warns only until its
+# thresholds are calibrated (max(product allowance, 5xMAD), SPEC "Gates").
+# Ubuntu only by design: results are not comparable across OSes or hosts, so
+# these jobs are never multiplied over the Linux/macOS/Windows host matrix.
+# Nightly full-GB and HIL layers are staged separately (never gate a PR).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write # junit test reports; fork PRs downgrade gracefully
+
+concurrency:
+  group: benchmark-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic:
+    name: PR deterministic (smoke gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out Wirelink
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # pair --base needs the base revision locally
+
+      # Published WLC source pin; keep in sync with
+      # cmake/WirelinkWlcBootstrap.cmake (WIRELINK_WLC_SOURCE_REVISION), the
+      # same pin host.yml and zephyr.yml build from.
+      - name: Check out matching standalone WLC
+        uses: actions/checkout@v5
+        with:
+          repository: starwey604/wlc
+          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
+          path: .tools/wlc
+
+      - name: Build matching WLC
+        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
+
+      - name: Export toolchain
+        run: |
+          echo "WIRELINK_WLC_EXECUTABLE=${GITHUB_WORKSPACE}/.tools/wlc/target/release/wlc" >> "$GITHUB_ENV"
+
+      - name: Comparator and report parser tests
+        run: |
+          for t in benchmarks/test_*.py benchmarks/*/test_*.py; do
+            [ -e "$t" ] || continue
+            echo "::group::${t}"
+            (cd "$(dirname "$t")" && python3 "$(basename "$t")")
+            echo "::endgroup::"
+          done
+
+      - name: Resolve base revision
+        id: base
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD~1)"
+          fi
+          echo "sha=${base}" >> "$GITHUB_OUTPUT"
+
+      # Byte-exact suites: one A/B bracket is enough (no drift to cancel).
+      # Exit contract: 0 pass, 1 regression (blocks), 2 invalid (blocks).
+      - name: Deterministic gate (base vs candidate)
+        run: |
+          python3 benchmarks/bench.py pair --preset smoke --order ab \
+            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --out out/deterministic
+
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f out/deterministic/summary.md ]; then
+            cat out/deterministic/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish junit report
+        if: always()
+        continue-on-error: true # never let reporting break the gate
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: out/deterministic/junit.xml
+          check_name: Benchmark deterministic report
+          detailed_summary: true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-evidence
+          path: out/deterministic/
+          if-no-files-found: warn
+          retention-days: 14
+
+  quick-timing:
+    name: PR quick timing (warn-only)
+    runs-on: ubuntu-latest
+    # Advisory until P4 calibrates sentinels on this runner; regressing rows
+    # surface as warnings in the summary instead of blocking a merge.
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - name: Check out Wirelink
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # pair --base needs the base revision locally
+
+      # Published WLC source pin; keep in sync with
+      # cmake/WirelinkWlcBootstrap.cmake (WIRELINK_WLC_SOURCE_REVISION).
+      - name: Check out matching standalone WLC
+        uses: actions/checkout@v5
+        with:
+          repository: starwey604/wlc
+          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
+          path: .tools/wlc
+
+      - name: Build matching WLC
+        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
+
+      # Google Benchmark v1.9.0 (peeled commit of the annotated tag).
+      - name: Check out Google Benchmark
+        uses: actions/checkout@v5
+        with:
+          repository: google/benchmark
+          ref: 12235e24652fc7f809373e7c11a5f73c5763fc4c
+          path: .tools/google-benchmark
+
+      - name: Export toolchain
+        run: |
+          echo "WIRELINK_WLC_EXECUTABLE=${GITHUB_WORKSPACE}/.tools/wlc/target/release/wlc" >> "$GITHUB_ENV"
+          echo "WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=${GITHUB_WORKSPACE}/.tools/google-benchmark" >> "$GITHUB_ENV"
+
+      - name: Resolve base revision
+        id: base
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD~1)"
+          fi
+          echo "sha=${base}" >> "$GITHUB_OUTPUT"
+
+      # Timing suites: default A/B/B/A alternation cancels host drift; the
+      # quick preset gates in warn mode (percent > 10 and absolute > 5ns).
+      - name: Timing gate (base vs candidate, A/B/B/A)
+        run: |
+          python3 benchmarks/bench.py pair --preset quick \
+            --base "${{ steps.base.outputs.sha }}" --candidate . \
+            --out out/quick
+
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f out/quick/summary.md ]; then
+            cat out/quick/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish junit report
+        if: always()
+        continue-on-error: true # never let reporting break the gate
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: out/quick/junit.xml
+          check_name: Benchmark quick timing report
+          detailed_summary: true
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quick-timing-evidence
+          path: out/quick/
+          if-no-files-found: warn
+          retention-days: 14

@@ -50,7 +50,9 @@ C 编译器、`size` 和 WLC。timing 套件还需要 Google Benchmark
 （默认 A/B/B/A），`--before`/`--after` 则不重新测量、仅重比较既有运行。
 `calibrate` 在一台机器上重复运行同一套件并写出 `calibration.json`
 （每个指标的 median、MAD 与 5×MAD 噪声下限）；记录的阈值必须是
-`max(产品允许值, 噪声下限)`。手工运行仍以下方各套件指南为准。
+`max(产品允许值, 噪声下限)`。`.github/workflows/benchmark.yml` 在每次
+push/PR 上运行 `pair`：deterministic smoke 门禁阻塞，quick timing 在
+阈值标定完成前仅告警。手工运行仍以下方各套件指南为准。
 
 这里说明的是怎么复现。机器相关的实测数字发布在
 [文档站](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)，
