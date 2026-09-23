@@ -24,10 +24,10 @@ python3 benchmarks/bench.py pair --preset <name> --base REV --candidate REV [--o
 python3 benchmarks/bench.py pair --preset <name> --before DIR --after DIR
 python3 benchmarks/bench.py report RUN_DIR
 python3 benchmarks/bench.py calibrate --preset <name> --runs N
-python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
 ```
 
-- `run` configures CMake from the preset, builds, executes, and normalizes.
+- `run` configures CMake from the preset, builds, executes, and collects raw
+  evidence. Run `report` to derive `normalized.json`.
 - `pair` compares two runs with each suite's own comparator and writes
   `comparison.json`, `summary.md`, and `junit.xml`. With `--base`/`--candidate`
   it uses the candidate's driver and preset to build both sides in isolated
@@ -39,7 +39,9 @@ python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
   (idempotent); the comparison outputs are re-derived by `pair`.
 - `calibrate` repeats one baseline on one testbed and emits the median/MAD
   noise band that threshold values must be derived from.
-- `hil` builds, flashes, resets, captures, and validates firmware suites.
+
+The unified HIL command remains planned; firmware suites currently use their
+per-suite build, flash, and capture instructions.
 
 Presets are declared in `benchmarks/presets.toml`. Each suite entry names its
 `kind` (`deterministic`, `timing`, `size`), the CMake options it needs, its
@@ -187,36 +189,34 @@ configurations are never compared; the comparison exits `2`. Firmware reports
 additionally record board identity, because two ESP32-S3 boards are two
 testbeds.
 
-## CI layering
+## Automation layering
 
-| Layer | Content | Blocks a PR? |
+| Layer | Content | Automatic? |
 | --- | --- | --- |
-| PR deterministic | compare-parser tests, mixed traffic, reliable loss, owner pass, storage contract, code size | Yes |
-| PR quick timing | selected framing/codec/RPC sentinels, base/head alternating on one runner | Initially warn-only |
-| Nightly host | full Google Benchmark, API UDP, executor, bulk, FIFO | May block on a dedicated runner |
-| Nightly/manual HIL | ESP32-S3 cycles, RX backend, USB/CDC/UART transports | Blocks release, not ordinary PRs |
-| Release | full host + HIL, archiving ELF, map, config, raw data | Yes |
+| Ordinary push/PR | benchmark tool unit tests only; no measurements | Yes |
+| Manual smoke | deterministic models, storage contract, code size | No |
+| Manual quick | selected framing/codec/RPC host timing | No |
+| Pre-tag release | smoke + quick + API/UDP against the previous tag | No |
+| Future HIL | ESP32-S3 cycles, RX backend, USB/CDC/UART transports | No |
 
 Notes:
 
-- Timing layers start as `continue-on-error` annotations and are promoted to
-  blocking only after `calibrate` has been run on the same runner and the
-  sentinel thresholds are in `presets.toml`. Regular CI without dedicated
-  hardware keeps timing suites warn-only: only dry-run/validate them.
-- The PR deterministic and quick-timing jobs run on Ubuntu only; they are not
-  multiplied across the Linux/macOS/Windows host matrix.
+- `.github/workflows/benchmark.yml` has only `workflow_dispatch`; it never
+  consumes runner time for an ordinary push or pull request.
+- Its `release` profile covers all eight registered host suites. Hosted-runner
+  timing is diagnostic; an authoritative release comparison belongs on the
+  same stable machine and toolchain used for its baseline.
 - The initial `smoke` preset gives deterministic metrics a zero directional
-  regression tolerance: any worsening blocks, while an improvement passes.
-- HIL runs on a self-hosted runner with a hardware map and never gates an
-  ordinary PR.
+  regression tolerance: any worsening needs release review, while an
+  improvement passes.
+- Run the comparison before creating the release tag. See
+  [RELEASE.md](RELEASE.md) for the checklist and evidence policy.
 
 ## Adoption status
 
-The contract above is staged: exit codes, `--json-out`/`--markdown-out`, and
-gates land suite by suite first; `bench.py` and `presets.toml` provide the
-shared registry with `list`/`doctor`/`run`/`report`/`pair`/`calibrate`, and
-`.github/workflows/benchmark.yml` runs the PR layers — the deterministic
-smoke gate blocks, quick timing stays advisory until its thresholds are
-calibrated. Nightly and HIL layers follow. Until a suite is converted, its
-`compare.py` keeps working directly and its native output stays
-authoritative in `raw/`.
+The shared registry, three-state comparisons, reports, calibration, and manual
+release workflow are implemented. Automatic push/PR measurements are
+deliberately disabled during early development. A unified HIL command and a
+dedicated stable runner remain future work. Until a suite is converted, its
+`compare.py` keeps working directly and its native output stays authoritative
+in `raw/`.

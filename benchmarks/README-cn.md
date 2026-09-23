@@ -28,7 +28,7 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 
 [`bench.py`](bench.py) 读取 [`presets.toml`](presets.toml) 里的套件注册表与预设
 （确定性 `smoke`、哨兵 `quick`、诊断 `full`）；`pair`、`calibrate` 按
-[SPEC](SPEC-cn.md) 后续落地。目前可用四个命令：
+[SPEC](SPEC-cn.md) 后续落地。目前可用命令如下：
 
 ```sh
 python3 benchmarks/bench.py list      # 列出套件与预设
@@ -50,9 +50,10 @@ C 编译器、`size` 和 WLC。timing 套件还需要 Google Benchmark
 （默认 A/B/B/A），`--before`/`--after` 则不重新测量、仅重比较既有运行。
 `calibrate` 在一台机器上重复运行同一套件并写出 `calibration.json`
 （每个指标的 median、MAD 与 5×MAD 噪声下限）；记录的阈值必须是
-`max(产品允许值, 噪声下限)`。`.github/workflows/benchmark.yml` 在每次
-push/PR 上运行 `pair`：deterministic smoke 门禁阻塞，quick timing 在
-阈值标定完成前仅告警。手工运行仍以下方各套件指南为准。
+`max(产品允许值, 噪声下限)`。普通 push/PR 不运行性能测量；手工
+`benchmark.yml` workflow 提供 `smoke`、`quick` 与打 tag 前的 `release`
+模式。具体流程见[发布 benchmark checklist](RELEASE-cn.md)。手工运行仍以
+下方各套件指南为准。
 
 这里说明的是怎么复现。机器相关的实测数字发布在
 [文档站](https://docs.silkenkite.ink/wirelink/reference/benchmarks/)，

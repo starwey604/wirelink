@@ -23,10 +23,10 @@ python3 benchmarks/bench.py pair --preset <name> --base REV --candidate REV [--o
 python3 benchmarks/bench.py pair --preset <name> --before DIR --after DIR
 python3 benchmarks/bench.py report RUN_DIR
 python3 benchmarks/bench.py calibrate --preset <name> --runs N
-python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
 ```
 
-- `run`：按预设配置 CMake、构建、执行并归一化。
+- `run`：按预设配置 CMake、构建、执行并收集原始证据；随后运行 `report`
+  生成 `normalized.json`。
 - `pair`：用各套件自己的 comparator 比较两次运行，产出
   `comparison.json`、`summary.md` 与 `junit.xml`。给 `--base`/`--candidate`
   时使用 candidate 一侧的 driver 与预设在隔离源码树中构建两侧，因此
@@ -37,7 +37,8 @@ python3 benchmarks/bench.py hil --preset <name> --flash-port P --console-port P
   比较类输出由 `pair` 重新生成。
 - `calibrate`：在同一 testbed 上重复运行同一 baseline，输出阈值推导所
   须的 median/MAD 噪声带。
-- `hil`：构建、烧录、复位、采集、校验固件套件。
+
+统一 HIL 命令仍在规划中；固件套件当前使用各自的构建、烧录与采集说明。
 
 预设声明在 `benchmarks/presets.toml`。每个套件条目声明其 `kind`
 （`deterministic`、`timing`、`size`）、所需 CMake 选项、命令与 gate
@@ -177,33 +178,30 @@ out/<run-id>/
 时钟配置的报告永不互相比较；比较以退出码 `2` 结束。固件报告还须记录板
 卡身份，因为两块 ESP32-S3 是两个 testbed。
 
-## CI 分层
+## 自动化分层
 
-| 层级 | 内容 | 阻塞 PR？ |
+| 层级 | 内容 | 自动运行？ |
 | --- | --- | --- |
-| PR deterministic | compare parser 测试、mixed traffic、reliable loss、owner pass、storage contract、代码尺寸 | 是 |
-| PR quick timing | 精选 framing/codec/RPC sentinel，base/head 同机交替 | 初期仅告警 |
-| Nightly host | 完整 Google Benchmark、API UDP、executor、bulk、FIFO | 专用 runner 上可阻塞 |
-| Nightly/manual HIL | ESP32-S3 cycles、RX backend、USB/CDC/UART transport | 可阻塞 release，不阻塞普通 PR |
-| Release | 完整 host + HIL，归档 ELF、map、config、原始数据 | 是 |
+| 普通 push/PR | 只运行 benchmark 工具单元测试，不做性能测量 | 是 |
+| 手工 smoke | 确定性模型、storage contract、代码尺寸 | 否 |
+| 手工 quick | 精选 framing/codec/RPC 主机计时 | 否 |
+| tag 前 release | 对比上一个 tag，运行 smoke + quick + API/UDP | 否 |
+| 未来 HIL | ESP32-S3 cycles、RX backend、USB/CDC/UART transport | 否 |
 
 说明：
 
-- timing 层先以 `continue-on-error` 注解形式运行，只有在同一 runner 上
-  跑过 `calibrate`、sentinel 阈值进入 `presets.toml` 之后才提升为阻塞。
-  没有专用硬件的常规 CI 中 timing 套件保持仅告警：只做 dry-run 验证。
-- PR deterministic 与 quick timing 只在 Ubuntu 运行，不乘到
-  Linux/macOS/Windows 主机矩阵。
+- `.github/workflows/benchmark.yml` 只支持 `workflow_dispatch`，普通 push
+  和 PR 不消耗性能测量所需的 runner 时间。
+- `release` 模式覆盖当前全部 8 个主机套件。GitHub 托管 runner 的计时只
+  作诊断；权威发布比较应在与基线相同的固定机器和工具链上运行。
 - 初始 `smoke` 预设对确定性指标采用方向性零退化容忍：任何变差都会
-  阻塞，而改善仍然通过。
-- HIL 运行在带 hardware map 的 self-hosted runner 上，永不 gate 普通 PR。
+  要求发布审核，而改善仍然通过。
+- 必须先完成比较再创建发布 tag；checklist 与证据政策见
+  [RELEASE-cn.md](RELEASE-cn.md)。
 
 ## 落地状态
 
-上述契约分阶段落地：先逐套件落地退出码、
-`--json-out`/`--markdown-out` 与 gate；`bench.py` 与 `presets.toml`
-提供共享注册表与 `list`/`doctor`/`run`/`report`/`pair`/`calibrate`；
-`.github/workflows/benchmark.yml` 已运行 PR 分层——deterministic
-smoke 门禁阻塞，quick timing 在阈值标定完成前仅告警。Nightly 与 HIL
-分层随后落地。在某个套件完成转换之前，其 `compare.py` 仍可直接使用，
+共享注册表、三态比较、报告、校准与手工 release workflow 已落地。早期
+开发阶段有意关闭普通 push/PR 性能测量。统一 HIL 命令与固定专用 runner
+仍是后续工作。在某个套件完成转换之前，其 `compare.py` 仍可直接使用，
 其原生输出仍是 `raw/` 中的权威数据。

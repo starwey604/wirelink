@@ -34,8 +34,8 @@ artifacts on both sides.
 
 [`bench.py`](bench.py) reads the suite registry and presets in
 [`presets.toml`](presets.toml) (deterministic `smoke`, sentinel `quick`,
-diagnostic `full`); `pair` and `calibrate` land per [SPEC](SPEC.md). Four
-commands are available now:
+diagnostic `full`); `pair` and `calibrate` land per [SPEC](SPEC.md). The
+available commands are:
 
 ```sh
 python3 benchmarks/bench.py list      # suites and presets
@@ -59,11 +59,11 @@ sides in isolated git worktrees and alternates them (A/B/B/A by default),
 while `--before`/`--after` re-compares existing runs without re-measuring.
 `calibrate` repeats the same suites on one machine and writes
 `calibration.json` (per-metric median, MAD, and the 5×MAD noise floor);
-recorded thresholds must be `max(product allowance, noise floor)`.
-`.github/workflows/benchmark.yml` runs `pair` on every push and PR: the
-deterministic smoke gate blocks, quick timing stays advisory until its
-thresholds are calibrated. The per-suite guides below stay authoritative
-for manual runs.
+recorded thresholds must be `max(product allowance, noise floor)`. Performance
+measurements do not run on ordinary pushes or pull requests. The manual
+`benchmark.yml` workflow offers `smoke`, `quick`, and pre-tag `release`
+profiles; see the [release benchmark checklist](RELEASE.md). The per-suite
+guides below stay authoritative for manual runs.
 
 How to reproduce each result is documented here. Published, machine-specific
 numbers live on the
