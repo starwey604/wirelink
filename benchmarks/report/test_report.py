@@ -163,6 +163,28 @@ class Schema(unittest.TestCase):
             a.write_text("int y;")
             self.assertNotEqual(first, schema.workload_hash([a]))
 
+    def test_workload_hash_is_checkout_independent(self):
+        # The base side of an orchestrated pair runs in a worktree: the
+        # same sources under two different checkout prefixes must hash
+        # identically, or every cross-tree pair reports incomparable.
+        with tempfile.TemporaryDirectory() as one, \
+                tempfile.TemporaryDirectory() as two:
+            digests = []
+            for root in (one, two):
+                Path(root, ".git").mkdir()
+                source = Path(root, "benchmarks", "framing")
+                source.mkdir(parents=True)
+                payload = source / "workload.c"
+                payload.write_text("int wl(void) { return 0; }\n",
+                                   encoding="utf-8")
+                digests.append(schema.workload_hash([payload]))
+            self.assertEqual(digests[0], digests[1])
+            edited = Path(two, "benchmarks", "framing", "workload.c")
+            edited.write_text("int wl(void) { return 1; }\n",
+                              encoding="utf-8")
+            self.assertNotEqual(digests[0],
+                                schema.workload_hash([edited]))
+
     def test_comparison_document_shape(self):
         doc = schema.comparison_document([row()], testbed="t",
                                          before="base", after="head")

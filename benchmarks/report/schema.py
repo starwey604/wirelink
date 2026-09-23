@@ -61,16 +61,34 @@ def load(path):
     return data
 
 
+def checkout_relative(path):
+    """Identity for one source path: relative to its checkout root.
+
+    Absolute paths would break every orchestrated pair: the base side
+    runs in a worktree, where identical sources sit under a different
+    prefix. The nearest ``.git`` marks the root of a main tree, a
+    worktree (``.git`` file) or a CI checkout alike.
+    """
+    resolved = Path(path).resolve()
+    for parent in resolved.parents:
+        if (parent / ".git").exists():
+            return str(resolved.relative_to(parent))
+    return str(resolved)
+
+
 def workload_hash(paths):
     """Stable hash over the workload's own sources.
 
-    Two reports whose benchmark_source_hash differs were produced by
-    different benchmark code and must never be compared: the pair is
+    Each entry contributes its checkout-relative path and its bytes, so
+    the same sources hash the same from a worktree and from the main
+    tree — orchestrated ``pair`` compares exactly that way. Two reports
+    whose benchmark_source_hash differs were produced by different
+    benchmark code and must never be compared: the pair is
     incomparable, not regressing.
     """
     digest = hashlib.sha256()
-    for path in sorted(Path(p) for p in paths):
-        digest.update(str(path).encode("utf-8"))
+    for key, path in sorted((checkout_relative(p), Path(p)) for p in paths):
+        digest.update(key.encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
