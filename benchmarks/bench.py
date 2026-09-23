@@ -217,11 +217,18 @@ def _build(suite, args):
     source = REPO if suite["build"] == "top" else REPO / suite["source"]
     configure = ["cmake", "-S", str(source), "-B", str(bin_dir),
                  "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
-                 *_resolve(suite.get("cmake_options", []), mapping)]
+                 *(f"-D{option}"
+                   for option in _resolve(suite.get("cmake_options", []),
+                                          mapping))]
     if "google-benchmark" in suite.get("requires", ()):
         gb = os.environ.get("WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR")
         if gb:
             configure.append(f"-DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR={gb}")
+    # cmake does not read the environment: forward an explicit WLC so its own
+    # wirelink_wlc_generate_* calls use the same compiler bench.py just used.
+    wlc_env = os.environ.get("WIRELINK_WLC_EXECUTABLE")
+    if wlc_env:
+        configure.append(f"-DWIRELINK_WLC_EXECUTABLE={wlc_env}")
     _run(configure, step="cmake configure")
     build = ["cmake", "--build", str(bin_dir), "--parallel"]
     if args.jobs:
@@ -839,6 +846,9 @@ def cmd_doctor(args, data):
 
 
 def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        # Keep bench.py progress ahead of child-process output when piped.
+        sys.stdout.reconfigure(line_buffering=True)
     parser = argparse.ArgumentParser(
         prog="bench.py",
         description="Unified Wirelink benchmark entry point; see benchmarks/SPEC.md.")

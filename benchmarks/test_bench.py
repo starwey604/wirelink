@@ -380,5 +380,47 @@ class Calibrate(unittest.TestCase):
                           rodata["noise_floor"]))
 
 
+class Build(unittest.TestCase):
+    def test_build_passes_definitions_and_forwards_toolchain_env(self):
+        captured = []
+        original_run = bench._run
+
+        def fake_run(argv, cwd=None, stdout_path=None, step="command"):
+            captured.append((step, list(argv)))
+
+        bench._run = fake_run
+        self.addCleanup(setattr, bench, "_run", original_run)
+        keys = ("WIRELINK_WLC_EXECUTABLE",
+                "WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR")
+        saved = {key: bench.os.environ.get(key) for key in keys}
+
+        def restore():
+            for key, value in saved.items():
+                if value is None:
+                    bench.os.environ.pop(key, None)
+                else:
+                    bench.os.environ[key] = value
+
+        self.addCleanup(restore)
+        bench.os.environ["WIRELINK_WLC_EXECUTABLE"] = "/fake/wlc"
+        bench.os.environ["WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR"] = "/fake/gb"
+        suite = {"name": "demo", "build": "top", "source": "benchmarks/demo",
+                 "cmake_options": ["WIRELINK_BUILD_X=ON"],
+                 "requires": ["google-benchmark"]}
+        bench._build(suite, bench.argparse.Namespace(jobs=None,
+                                                     skip_build=False))
+        self.assertEqual(["cmake configure", "cmake build"],
+                         [step for step, _ in captured])
+        configure = captured[0][1]
+        # Preset options reach cmake as -D definitions, never as bare paths.
+        self.assertIn("-DWIRELINK_BUILD_X=ON", configure)
+        self.assertNotIn("WIRELINK_BUILD_X=ON", configure)
+        self.assertIn("-DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/fake/gb",
+                      configure)
+        self.assertIn("-DWIRELINK_WLC_EXECUTABLE=/fake/wlc", configure)
+        build = captured[1][1]
+        self.assertEqual(["cmake", "--build", build[2]], build[:3])
+
+
 if __name__ == "__main__":
     unittest.main()
