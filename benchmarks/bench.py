@@ -227,7 +227,7 @@ def _build(suite, args):
     # cmake does not read the environment: forward an explicit WLC so its own
     # wirelink_wlc_generate_* calls use the same compiler bench.py just used.
     wlc_env = os.environ.get("WIRELINK_WLC_EXECUTABLE")
-    if wlc_env:
+    if wlc_env and "wlc" in suite.get("requires", ()):
         configure.append(f"-DWIRELINK_WLC_EXECUTABLE={wlc_env}")
     _run(configure, step="cmake configure")
     build = ["cmake", "--build", str(bin_dir), "--parallel"]

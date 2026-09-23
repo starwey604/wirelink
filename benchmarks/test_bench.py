@@ -406,7 +406,7 @@ class Build(unittest.TestCase):
         bench.os.environ["WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR"] = "/fake/gb"
         suite = {"name": "demo", "build": "top", "source": "benchmarks/demo",
                  "cmake_options": ["WIRELINK_BUILD_X=ON"],
-                 "requires": ["google-benchmark"]}
+                 "requires": ["wlc", "google-benchmark"]}
         bench._build(suite, bench.argparse.Namespace(jobs=None,
                                                      skip_build=False))
         self.assertEqual(["cmake configure", "cmake build"],
@@ -420,6 +420,12 @@ class Build(unittest.TestCase):
         self.assertIn("-DWIRELINK_WLC_EXECUTABLE=/fake/wlc", configure)
         build = captured[1][1]
         self.assertEqual(["cmake", "--build", build[2]], build[:3])
+        # Suites without a wlc requirement never see the definition.
+        del suite["requires"]
+        bench._build(suite, bench.argparse.Namespace(jobs=None,
+                                                     skip_build=False))
+        self.assertNotIn("-DWIRELINK_WLC_EXECUTABLE=/fake/wlc",
+                         captured[2][1])
 
 
 if __name__ == "__main__":
