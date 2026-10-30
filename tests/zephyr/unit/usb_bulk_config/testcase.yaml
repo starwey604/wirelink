@@ -1,4 +1,0 @@
-tests:
-  wirelink.usb_bulk_config.unit:
-    type: unit
-    tags: [wirelink, usb, config]

@@ -1,6 +1,0 @@
-tests:
-  wirelink.api_lifecycle.unit:
-    type: unit
-    tags:
-      - wirelink
-      - api

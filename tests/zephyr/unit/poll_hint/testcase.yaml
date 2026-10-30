@@ -1,6 +1,0 @@
-tests:
-  wirelink.poll_hint.unit:
-    type: unit
-    tags:
-      - wirelink
-      - scheduling

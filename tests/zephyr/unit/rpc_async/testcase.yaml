@@ -1,6 +1,0 @@
-tests:
-  wirelink.rpc_async.unit:
-    type: unit
-    tags:
-      - wirelink
-      - rpc

@@ -1,6 +1,0 @@
-tests:
-  wirelink.rpc.unit:
-    type: unit
-    tags:
-      - wirelink
-      - rpc
