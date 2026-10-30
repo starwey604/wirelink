@@ -1,46 +1,38 @@
-# Static RPC, telemetry and bulk services
+# Static RPC, telemetry and application upload
 
-One generated `product_endpoint_t` per peer owns one context, one adapter and
-one dispatch loop. `product.wl` imports independently maintained `arm.wl` and
-`upgrade.wl`; their profiles compose at generation time. No dynamic registry,
-USB channel or wire-frame revision is involved.
+One generated kernel per peer carries Query/Reboot RPCs and ordinary messages.
+`product.wl` imports `arm.wl` and `upgrade.wl`; profiles compose at generation.
+The existing business message structures/IDs and upload phase/status numbers
+remain unchanged. The application messages do not define a standard bulk wire.
 
-Build with a matching WLC:
+Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching WLC 0.13.0, then run
+`wirelink_composed_services` or `ctest -R 'composed_services|import_dependencies'`.
+The same source runs in the Zephyr composed_services sample. It transfers 4096
+bytes through packet loopback, without flash writes, actuators or a real reboot.
 
-```sh
-cmake -S . -B build/composed -DWIRELINK_BUILD_COMPOSED_SERVICES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-cmake --build build/composed
-ctest --test-dir build/composed --output-on-failure
-```
+The application loop implements its own RAM-upload rules: BEGIN establishes the
+object, CHUNK copies at most 256 borrowed bytes, END requests CRC verification
+outside the RX callback, and successful commit occurs once. It injects one sink
+BUSY without consuming bytes and one lost ordinary status. The application retries
+with a finite budget; duplicate chunks must match the already accepted prefix.
+A repeated END confirms the committed object without committing twice. Query
+RPC and ordinary telemetry continue while the transfer progresses. Close aborts
+an incomplete application upload once and produces CLOSED for a pending Query.
 
-The executable transfers 4096 bytes through the real bulk sender/receiver,
-generated borrowed `direct` handlers and loopback transport, while Query RPC
-and telemetry remain active. It injects one sink BUSY (no bytes consumed) and
-one dropped application Status, checks byte-for-byte/CRC completion, waits for
-the reliable Reboot response ACK, and closes during another upload to verify
-exactly-once abort. It never actually reboots, operates actuators or writes flash.
+This is application-specific business logic. The kernel has no bulk sender,
+receiver, reliable DATA/ACK engine, retained LATEST policy, replay cache, peer
+reset hook, response ACK observer or generic service scheduler. Both RPC roles
+remain available. Ordinary TX admission snapshots the message; a BUSY/WOULD_BLOCK
+caller retains responsibility for retry. Physical packet leases remain separate
+from logical RPC completion and are drained at shutdown.
 
-`wl_endpoint_set_services()` binds borrowed static hooks before driving starts.
-The receiver maps typed data into `wl_bulk_receiver_*`; no raw RX ownership
-escapes the generated dispatcher. Each progress hook attempts at most one
-message, defers on backpressure, and supplies a deadline. A peer-session hook
-resets bulk and calls generated `product_runtime_peer_observe()` so a direct
-message can establish the new peer before its next RPC. RPC has first admission
-to the shared reliable TX slot: products must bound RPC and telemetry load
-during upload. Service rotation does not guarantee bandwidth under overload.
+A successful Reboot RPC only confirms the application's short business check;
+it is not a transport ACK, a guarantee that the peer application persisted a
+result, or permission for this demo to reboot hardware. Production retry,
+idempotency, durable progress/status, authorization and safe reboot/flash policy
+belong to the application. No automatic RPC retry or duplicate suppression is
+implied by the upload's explicit duplicate-chunk checks.
 
-`on_response_terminal` only observes link-level ACK/timeout/failure. Record a
-success flag and reboot at a safe point after the endpoint pass returns;
-do not take the observed handle or reboot in the callback. Link ACK does not
-mean the host application has processed the reply. Cached replay may notify
-again, so a product's reboot intent must be idempotent and session-scoped.
-
-The message IDs and `BulkCommand` shape here are an example mapping, not a new
-standardized bulk wire protocol. Preserve existing FCI upgrade payloads when
-applying this architecture to a product. MCUboot slot writing, signature checks,
-test/confirm/revert and reconnect are outside this example.
-
-The same source runs on Zephyr via
-[`samples/zephyr/composed_services`](../../samples/zephyr/composed_services/).
+The import-dependency test edits a copied imported schema, adds a new import
+edge, then edits that new dependency. Actual generated C is rebuilt after both
+changes. It exercises the installed-style current helper and no legacy runtime.

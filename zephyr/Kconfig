@@ -13,10 +13,12 @@ config WIRELINK_PLATFORM
 	select CSPRNG_NEEDED
 	help
 	  Initialization-only platform clock/session providers; no core clock reads.
+config WIRELINK_PACKET_LOOPBACK
+	bool "Single-owner in-process packet loopback"
 config WIRELINK_PACKET_STREAM
 	bool
 config WIRELINK_FRAMING_PRIMITIVES
-	bool
+	bool "Independent COBS and CRC primitives"
 config WIRELINK_STREAM_COBS_CRC16
 	bool "COBS/CRC16 packet connector"
 	select WIRELINK_PACKET_STREAM

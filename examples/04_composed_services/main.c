@@ -1,254 +1,185 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* Deterministic executable specification: one link owner, static composition,
- * real bulk state machines, RAM sink only. No flash writes or actuators. */
-#undef NDEBUG
-#include <assert.h>
-#include <stdio.h>
-#include <string.h>
-#include "product_advanced.h"
-#include "wirelink/bulk.h"
+/* Application-specific RAM upload/status protocol, sharing ordinary kernel TX/RPC.
+ * No flash write, reboot, driver thread or generic service/bulk framework. */
+#include "product_kernel.h"
+#include "loopback_owner.h"
 #include "wirelink/crc.h"
-#include "wirelink/loopback.h"
-#include "../../tests/support/test_environment.h"
-#ifdef __ZEPHYR__
-#include <zephyr/kernel.h>
-#include <zephyr/sys/printk.h>
-#define REPORT(...) printk(__VA_ARGS__)
-#else
-#define REPORT(...) printf(__VA_ARGS__)
-#endif
-
-static product_endpoint_t host, device;
-static wl_loopback_t cable;
-static wl_bulk_receiver_t receiver;
-static wl_bulk_sender_t sender;
+/* Preserve the existing example message phase/status numbers. */
+enum { PHASE_BEGIN = 1, PHASE_CHUNK = 2, PHASE_END = 3, PHASE_ABORT = 4 };
+enum { STATUS_OK, STATUS_BUSY, STATUS_OUT_OF_ORDER, STATUS_CONFLICT,
+       STATUS_INVALID, STATUS_WRITE_FAILED, STATUS_INTEGRITY_FAILED, STATUS_ABORTED };
+static product_kernel_t endpoints[2];
+static example_pair_t pair;
 static uint8_t source[4096], destination[4096];
-static wl_time_ms_t tick;
-static uint64_t persisted;
-static unsigned commits, aborts, queries, reboot_acks, status_drops, busy_writes;
-static bool busy_once = true, drop_status_once = true;
-static wl_time_ms_t now(void *context) { (void)context; return tick; }
-
-static wl_bulk_sink_result_t begin(void *context, const wl_bulk_descriptor_t *object,
-                                  uint64_t *resume) {
-  (void)context;
-  assert(object->total_length == sizeof(destination));
-  persisted = 0U;
-  *resume = 0U;
-  return WL_BULK_SINK_OK;
+static struct {
+  uint32_t id, crc;
+  size_t offset;
+  bool active, committed, finish, status_pending;
+  bulk_status_value_t status;
+} upload;
+static unsigned commits, aborts, queries, telemetries, busy_writes, dropped_status, duplicate_chunks;
+static bool busy_once = true, drop_once = true, query_pending, closing;
+static unsigned closed_queries;
+static uint32_t expected_transfer;
+static bulk_status_value_t received_status;
+static unsigned status_count, reboot_responses;
+static uint32_t last_telemetry;
+static void make_status(uint32_t phase, int32_t code) {
+  upload.status = (bulk_status_value_t){.has_transfer_id = true, .transfer_id = upload.id,
+    .has_phase = true, .phase = phase, .has_code = true, .code = code,
+    .has_next_offset = true, .next_offset = upload.offset, .has_chunk_size = true, .chunk_size = 256};
+  upload.status_pending = true;
 }
-static wl_bulk_sink_result_t write_chunk(void *context, uint32_t id, uint64_t offset,
-                                        const uint8_t *data, size_t length) {
-  (void)context; (void)id;
-  if (busy_once) { busy_once = false; ++busy_writes; return WL_BULK_SINK_BUSY; }
-  assert(offset == persisted && offset + length <= sizeof(destination));
-  memcpy(destination + (size_t)offset, data, length);
-  persisted += length;
-  return WL_BULK_SINK_OK;
-}
-static wl_bulk_sink_result_t finish(void *context, const wl_bulk_descriptor_t *object) {
-  (void)context;
-  assert(persisted == object->total_length);
-  assert(wl_crc32c(destination, sizeof(destination)) == object->object_crc32c);
-  ++commits;
-  return WL_BULK_SINK_OK;
-}
-static void abort_sink(void *context, uint32_t id, int32_t reason) {
-  (void)context; (void)id; (void)reason; ++aborts;
-}
-static int32_t command(void *context, const bulk_command_t *message, wl_delivery_t delivery) {
-  (void)context;
-  assert(delivery == WL_DELIVERY_RELIABLE);
-  switch (message->phase) {
-    case WL_BULK_PHASE_BEGIN: {
-      const wl_bulk_descriptor_t object = {message->transfer_id, message->total_length,
-          message->chunk_size, message->crc32c};
-      return wl_bulk_receiver_on_begin(&receiver, &object, tick);
+static void command(void *user, const bulk_command_t *message) {
+  (void)user;
+  int32_t code = STATUS_OK;
+  if (message->phase == PHASE_BEGIN) {
+    if (message->transfer_id == 0 || message->total_length != sizeof(destination) || message->chunk_size != 256)
+      code = STATUS_INVALID;
+    else if (upload.active && message->transfer_id == upload.id) {
+      if (message->crc32c != upload.crc) code = STATUS_CONFLICT;
+    } else if (upload.active && !upload.committed) code = STATUS_BUSY;
+    else {
+      memset(destination, 0, sizeof(destination));
+      upload.id = message->transfer_id; upload.crc = message->crc32c;
+      upload.offset = 0; upload.active = true; upload.committed = false; upload.finish = false;
     }
-    case WL_BULK_PHASE_CHUNK: {
-      const wl_bulk_chunk_t chunk = {message->transfer_id, message->offset,
-          message->data.data, message->data.length};
-      return wl_bulk_receiver_on_chunk(&receiver, &chunk, tick);
+  } else if (!upload.active || message->transfer_id != upload.id) code = STATUS_CONFLICT;
+  else if (message->phase == PHASE_CHUNK) {
+    const size_t size = message->data.length;
+    if (size == 0 || size > 256 || message->offset > sizeof(destination) ||
+        size > sizeof(destination) - (size_t)message->offset) code = STATUS_INVALID;
+    else if (message->offset < upload.offset) {
+      if (message->offset + size > upload.offset ||
+          memcmp(destination + (size_t)message->offset, message->data.data, size)) code = STATUS_CONFLICT;
+      else ++duplicate_chunks; /* Application idempotency after lost status. */
+    } else if (message->offset != upload.offset || upload.committed) code = STATUS_OUT_OF_ORDER;
+    else if (busy_once) { busy_once = false; ++busy_writes; code = STATUS_BUSY; }
+    else { memcpy(destination + upload.offset, message->data.data, size); upload.offset += size; }
+  } else if (message->phase == PHASE_END) {
+    if (upload.offset != sizeof(destination)) code = STATUS_OUT_OF_ORDER;
+    else if (!upload.committed) { upload.finish = true; return; }
+  } else if (message->phase == PHASE_ABORT) {
+    if (!upload.committed) ++aborts;
+    upload.active = false; upload.finish = false; code = STATUS_ABORTED;
+  } else code = STATUS_INVALID;
+  make_status(message->phase, code);
+}
+static void status(void *user, const bulk_status_t *message) {
+  (void)user;
+  if (message->transfer_id != expected_transfer) return;
+  EXAMPLE_REQUIRE(bulk_status_value_from_view(message, &received_status) == WL_CODEC_OK);
+  ++status_count;
+}
+static void telemetry(void *user, const telemetry_t *message) {
+  (void)user;
+  EXAMPLE_REQUIRE(message->tick >= last_telemetry); last_telemetry = message->tick; ++telemetries;
+}
+static int32_t query(void *user, const query_request_t *request, query_response_value_t *response) {
+  (void)user; (void)request;
+  response->has_received = true; response->received = upload.offset; return 0;
+}
+static void queried(void *user, wl_kernel_result_t result, const query_response_t *response) {
+  (void)user;
+  if (result.outcome != WL_KERNEL_SUCCESS) {
+    fprintf(stderr, "query terminal outcome=%d status=%d tick=%u closing=%u\n",
+      (int)result.outcome, result.status, pair.now, closing ? 1U : 0U);
+    EXAMPLE_REQUIRE(closing && result.outcome == WL_KERNEL_CLOSED);
+    ++closed_queries; query_pending = false; return;
+  }
+  EXAMPLE_REQUIRE(response && response->received <= sizeof(destination));
+  ++queries; query_pending = false;
+}
+static int32_t reboot(void *user, const reboot_request_t *request, reboot_response_value_t *response) {
+  (void)user; (void)request; (void)response;
+  return upload.committed ? 0 : STATUS_BUSY; /* Short business confirmation only. */
+}
+static void rebooted(void *user, wl_kernel_result_t result, const reboot_response_t *response) {
+  (void)user;
+  EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response); ++reboot_responses;
+}
+static void advance(void) {
+  /* Business work is explicit here, outside any borrowed callback. */
+  if (upload.finish) {
+    upload.finish = false;
+    const bool valid = wl_crc32c(destination, sizeof(destination)) == upload.crc;
+    if (valid && !upload.committed) { upload.committed = true; ++commits; }
+    make_status(PHASE_END, valid ? STATUS_OK : STATUS_INTEGRITY_FAILED);
+  }
+  if (upload.status_pending) {
+    if (drop_once && upload.status.phase == PHASE_CHUNK && upload.status.code == STATUS_OK) {
+      drop_once = false; ++dropped_status; upload.status_pending = false;
+    } else {
+      const wl_err_t error = product_kernel_send_bulk_status(&endpoints[1], &upload.status);
+      EXAMPLE_REQUIRE(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
+      if (error == WL_OK) upload.status_pending = false;
     }
-    case WL_BULK_PHASE_END:
-      return wl_bulk_receiver_on_end(&receiver, message->transfer_id,
-          message->total_length, message->crc32c, tick);
-    case WL_BULK_PHASE_ABORT:
-      return wl_bulk_receiver_on_abort(&receiver, message->transfer_id, 0, tick);
-    default: return WL_BULK_ERR_PROTOCOL;
   }
-}
-static int32_t status(void *context, const bulk_status_t *message, wl_delivery_t delivery) {
-  (void)context; (void)delivery;
-  const wl_bulk_status_t value = {message->transfer_id, (wl_bulk_phase_t)message->phase,
-      message->code, message->next_offset, message->chunk_size};
-  return wl_bulk_sender_on_status(&sender, &value, tick);
-}
-static wl_work_result_t receive_step(void *context, wl_ctx_t *link, wl_time_ms_t time) {
-  (void)context; (void)link;
-  assert(wl_bulk_receiver_poll(&receiver, time) == WL_BULK_OK);
-  wl_bulk_receiver_status_view_t view;
-  if (wl_bulk_receiver_status_acquire(&receiver, &view) != WL_BULK_OK) return (wl_work_result_t){0U, 0U};
-  if (drop_status_once && view.status.phase == WL_BULK_PHASE_CHUNK &&
-      view.status.code == WL_BULK_STATUS_OK) {
-    drop_status_once = false; ++status_drops;
-    assert(wl_bulk_receiver_status_release(&receiver, &view) == WL_BULK_OK);
-    return (wl_work_result_t){1U, 0U}; /* Force a real application-status timeout and duplicate chunk. */
+  if (pair.now % 5U == 0) {
+    telemetry_value_t value = {.has_tick = true, .tick = pair.now};
+    const wl_err_t error = product_kernel_send_telemetry(&endpoints[1], &value);
+    EXAMPLE_REQUIRE(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
   }
-  bulk_status_t message;
-  bulk_status_clear(&message);
-  message.has_transfer_id = message.has_phase = message.has_code = true;
-  message.has_next_offset = message.has_chunk_size = true;
-  message.transfer_id = view.status.transfer_id; message.phase = (uint32_t)view.status.phase;
-  message.code = view.status.code; message.next_offset = view.status.next_offset;
-  message.chunk_size = view.status.accepted_chunk_size;
-  product_send_result_t sent = product_endpoint_send_bulk_status(&device, &message);
-  if (sent.domain == PRODUCT_SEND_OK)
-    assert(wl_bulk_receiver_status_release(&receiver, &view) == WL_BULK_OK);
-  else
-    assert(wl_bulk_receiver_status_defer(&receiver, &view) == WL_BULK_OK);
-  return (wl_work_result_t){1U, 0U}; /* Pending physical TX wakes the owner; deadline covers retry. */
-}
-static wl_work_result_t send_step(void *context, wl_ctx_t *link, wl_time_ms_t time) {
-  (void)context; (void)link;
-  assert(wl_bulk_sender_poll(&sender, time) == WL_BULK_OK);
-  wl_bulk_sender_action_t action;
-  if (wl_bulk_sender_action_acquire(&sender, &action) != WL_BULK_OK) return (wl_work_result_t){0U, 0U};
-  bulk_command_t message;
-  bulk_command_clear(&message);
-  message.has_phase = message.has_transfer_id = message.has_total_length = true;
-  message.has_chunk_size = message.has_crc32c = message.has_offset = message.has_data = true;
-  message.phase = (uint32_t)action.phase; message.transfer_id = action.descriptor.transfer_id;
-  message.total_length = action.descriptor.total_length;
-  message.chunk_size = action.descriptor.requested_chunk_size;
-  message.crc32c = action.descriptor.object_crc32c; message.offset = action.offset;
-  if (action.phase == WL_BULK_PHASE_CHUNK) {
-    assert(action.offset + action.length <= sizeof(source));
-    message.data.data = source + (size_t)action.offset; message.data.length = action.length;
+  if (!query_pending && pair.now % 10U == 0) {
+    query_request_value_t request = {0}; wl_kernel_call_handle_t handle;
+    const wl_err_t error = product_kernel_query_start(&endpoints[0], &request, pair.now, 500, queried, NULL, &handle);
+    EXAMPLE_REQUIRE(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
+    if (error == WL_OK) query_pending = true;
   }
-  product_send_result_t sent = product_endpoint_send_bulk_command(&host, &message);
-  if (sent.domain == PRODUCT_SEND_OK)
-    assert(wl_bulk_sender_action_submitted(&sender, &action, time) == WL_BULK_OK);
-  else
-    assert(wl_bulk_sender_action_defer(&sender, &action) == WL_BULK_OK);
-  return (wl_work_result_t){sent.domain == PRODUCT_SEND_OK, 0U};
+  example_pair_step(&pair);
 }
-static uint32_t receive_deadline(const void *context, wl_time_ms_t time) {
-  (void)context; wl_bulk_deadline_hint_t hint;
-  assert(wl_bulk_receiver_get_deadline_hint(&receiver, time, &hint) == WL_BULK_OK);
-  return hint.next_deadline_ms;
+static bulk_status_value_t exchange(uint32_t phase, uint32_t id, size_t offset, size_t length) {
+  expected_transfer = id;
+  for (unsigned attempt = 0; attempt < 4; ++attempt) {
+    bulk_command_value_t value = {.has_phase = true, .phase = phase,
+      .has_transfer_id = true, .transfer_id = id, .has_total_length = true, .total_length = sizeof(source),
+      .has_chunk_size = true, .chunk_size = 256, .has_crc32c = true, .crc32c = wl_crc32c(source, sizeof(source)),
+      .has_offset = true, .offset = offset, .has_data = true, .data = {.length = length}};
+    EXAMPLE_REQUIRE(length <= sizeof(value.data.data) && offset + length <= sizeof(source));
+    memcpy(value.data.data, source + offset, length);
+    unsigned before = status_count;
+    wl_err_t error;
+    unsigned queued = 0;
+    do { EXAMPLE_REQUIRE(++queued < 100); error = product_kernel_send_bulk_command(&endpoints[0], &value); if (error == WL_ERR_WOULD_BLOCK) advance(); }
+    while (error == WL_ERR_WOULD_BLOCK);
+    EXAMPLE_REQUIRE(error == WL_OK); memset(&value, 0, sizeof(value));
+    for (unsigned pass = 0; pass < 40 && status_count == before; ++pass) advance();
+    if (status_count != before) {
+      EXAMPLE_REQUIRE(received_status.transfer_id == id && received_status.phase == phase);
+      if (received_status.code != STATUS_BUSY) return received_status;
+    }
+    /* Application retry, with duplicate checks above; the kernel never retries. */
+  }
+  EXAMPLE_REQUIRE(false);
+  return (bulk_status_value_t){0};
 }
-static uint32_t send_deadline(const void *context, wl_time_ms_t time) {
-  (void)context; wl_bulk_deadline_hint_t hint;
-  assert(wl_bulk_sender_get_deadline_hint(&sender, time, &hint) == WL_BULK_OK);
-  return hint.next_deadline_ms;
-}
-static void peer_session(void *context, wl_ctx_t *link, uint64_t previous,
-                         uint64_t session, wl_time_ms_t time) {
-  (void)context; (void)time;
-  /* The generated RPC runtime exposes the same observation for non-RPC RX.
-   * A new session's first message may be BulkCommand, not an RPC request. */
-  wl_rpc_peer_observation_t observation;
-  assert(product_runtime_peer_observe(link, product_endpoint_runtime(&device),
-      session, &observation) == WL_RPC_OK);
-  if (previous != 0U) assert(wl_bulk_receiver_reset(&receiver) == WL_BULK_OK);
-}
-static void close_receiver(void *context, wl_ctx_t *link) {
-  (void)context; (void)link;
-  assert(wl_bulk_receiver_reset(&receiver) == WL_BULK_OK);
-}
-static int32_t query(void *context, const query_request_value_t *request,
-                     query_response_value_t *response) {
-  (void)context; (void)request;
-  ++queries; response->has_received = true; response->received = persisted;
-  return 0;
-}
-static int32_t reboot(void *context, const reboot_request_value_t *request,
-                      reboot_response_value_t *response) {
-  (void)context; (void)request; (void)response;
-  assert(commits == 1U);
-  return 0; /* Never actually reboot in this test. */
-}
-static void response_terminal(void *context, const wl_rpc_request_identity_t *identity,
-                              int32_t application_status, const wl_event_t *event) {
-  (void)context;
-  if (identity->request_message_id == REBOOT_REQUEST_MESSAGE_ID &&
-      application_status == 0 && event->type == WL_EVT_TX_SUCCESS) ++reboot_acks;
-}
-static void pass(void) {
-  ++tick;
-  assert(product_endpoint_step(&host) == WL_OK);
-  assert(product_endpoint_step(&device) == WL_OK);
-}
-
 int main(void) {
-  for (size_t i = 0U; i < sizeof(source); ++i) source[i] = (uint8_t)(i * 17U);
-  const wl_bulk_receiver_config_t receiver_config = {sizeof(destination), 256U, 1U, 200U,
-    {NULL, begin, write_chunk, finish, abort_sink}};
-  const wl_bulk_sender_config_t sender_config = {20U, 3U, 8U};
-  assert(wl_bulk_receiver_init(&receiver, &receiver_config) == WL_BULK_OK);
-  assert(wl_bulk_sender_init(&sender, &sender_config) == WL_BULK_OK);
-  product_endpoint_config_t a, b;
-  assert(product_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){now, NULL}), wl_link_defaults()) == WL_OK);
-  assert(product_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){now, NULL}), wl_link_defaults()) == WL_OK);
-  a.on_bulk_status = status;
-  b.on_bulk_command = command; b.on_query = query; b.on_reboot = reboot;
-  b.on_response_terminal = response_terminal;
-  assert(product_endpoint_init_config(&host, &a) == WL_OK);
-  assert(product_endpoint_init_config(&device, &b) == WL_OK);
-  const wl_endpoint_service_t host_service = {NULL, send_step, send_deadline, NULL, NULL};
-  const wl_endpoint_service_t device_service = {NULL, receive_step, receive_deadline, peer_session, close_receiver};
-  assert(wl_endpoint_set_services(product_endpoint_handle(&host), &host_service, 1U) == WL_OK);
-  assert(wl_endpoint_set_services(product_endpoint_handle(&device), &device_service, 1U) == WL_OK);
-  assert(wl_loopback_connect(&cable, product_endpoint_handle(&host), product_endpoint_handle(&device)) == WL_OK);
-  wl_bulk_descriptor_t object = {1U, sizeof(source), 256U, wl_crc32c(source, sizeof(source))};
-  assert(wl_bulk_sender_start(&sender, &object) == WL_BULK_OK);
-  assert(wl_endpoint_activate_service(product_endpoint_handle(&host), 0U) == WL_OK);
-  query_request_t query_request; query_request_clear(&query_request);
-  product_query_call_t query_call;
-  assert(product_endpoint_query_call(&host, &query_request, 100U, &query_call) == WL_RPC_OK);
-  wl_bulk_sender_result_t bulk_result;
-  unsigned telemetries = 0U;
-  for (unsigned i = 0U; i < 1000U; ++i) {
-    pass();
-    telemetry_t telemetry; telemetry_clear(&telemetry);
-    telemetry.has_tick = true; telemetry.tick = tick;
-    (void)product_endpoint_send_telemetry(&device, &telemetry);
-    if (product_endpoint_read_telemetry(&host, &telemetry) == WL_OK) ++telemetries;
-    assert(wl_bulk_sender_get_result(&sender, &bulk_result) == WL_BULK_OK);
-    if (bulk_result.state == WL_BULK_SENDER_COMPLETED) break;
+  for (size_t i = 0; i < sizeof(source); ++i) source[i] = (uint8_t)(i * 17U + 3U);
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const product_kernel_handlers_t handlers = {.on_rpc_query = query, .on_rpc_reboot = reboot,
+    .on_message_bulk_command = command, .on_message_bulk_status = status, .on_message_telemetry = telemetry};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(product_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+  EXAMPLE_REQUIRE(exchange(PHASE_BEGIN, 1, 0, 0).code == STATUS_OK);
+  for (size_t offset = 0; offset < sizeof(source); offset += 256) {
+    bulk_status_value_t result = exchange(PHASE_CHUNK, 1, offset, 256);
+    EXAMPLE_REQUIRE(result.code == STATUS_OK && result.next_offset == offset + 256);
   }
-  assert(bulk_result.state == WL_BULK_SENDER_COMPLETED);
-  assert(commits == 1U && busy_writes == 1U && status_drops == 1U && telemetries > 0U);
-  assert(memcmp(source, destination, sizeof(source)) == 0);
-  product_query_result_t query_result;
-  assert(product_endpoint_query_inspect(&host, &query_call, &query_result) == WL_RPC_OK);
-  assert(query_result.response_valid && queries == 1U);
-  assert(product_endpoint_query_release(&host, &query_call) == WL_RPC_OK);
-  reboot_request_t reboot_request; reboot_request_clear(&reboot_request);
-  product_reboot_call_t reboot_call;
-  assert(product_endpoint_reboot_call(&host, &reboot_request, 100U, &reboot_call) == WL_RPC_OK);
-  for (unsigned i = 0U; i < 100U && reboot_acks == 0U; ++i) pass();
-  assert(reboot_acks == 1U);
-  product_reboot_result_t reboot_result;
-  for (unsigned i = 0U; i < 100U; ++i) {
-    assert(product_endpoint_reboot_inspect(&host, &reboot_call, &reboot_result) == WL_RPC_OK);
-    if (reboot_result.response_valid) break;
-    pass();
-  }
-  assert(reboot_result.response_valid);
-  assert(product_endpoint_reboot_release(&host, &reboot_call) == WL_RPC_OK);
-  /* Close during a second active upload must abort the sink exactly once. */
-  assert(wl_bulk_sender_reset(&sender) == WL_BULK_OK);
-  ++object.transfer_id;
-  assert(wl_bulk_sender_start(&sender, &object) == WL_BULK_OK);
-  assert(wl_endpoint_activate_service(product_endpoint_handle(&host), 0U) == WL_OK);
-  for (unsigned i = 0U; i < 8U; ++i) pass();
-  assert(product_endpoint_close(&host) == WL_OK);
-  assert(product_endpoint_close(&device) == WL_OK);
-  assert(product_endpoint_close(&device) == WL_OK);
-  assert(aborts == 1U);
-  REPORT("COMPOSED_SERVICES PASS bytes=4096 rpc=%u telemetry=%u busy=%u dropped_status=%u reboot_ack=%u abort=%u\n",
-      queries, telemetries, busy_writes, status_drops, reboot_acks, aborts);
+  EXAMPLE_REQUIRE(exchange(PHASE_END, 1, sizeof(source), 0).code == STATUS_OK);
+  EXAMPLE_REQUIRE(exchange(PHASE_END, 1, sizeof(source), 0).code == STATUS_OK); /* No second commit. */
+  EXAMPLE_REQUIRE(commits == 1 && busy_writes == 1 && dropped_status == 1 && duplicate_chunks == 1);
+  EXAMPLE_REQUIRE(memcmp(source, destination, sizeof(source)) == 0 && queries && telemetries);
+  reboot_request_value_t request = {0}; wl_kernel_call_handle_t handle;
+  EXAMPLE_REQUIRE(product_kernel_reboot_start(&endpoints[0], &request, pair.now, 500, rebooted, NULL, &handle) == WL_OK);
+  for (unsigned pass = 0; pass < 100 && !reboot_responses; ++pass) advance();
+  EXAMPLE_REQUIRE(reboot_responses == 1);
+  EXAMPLE_REQUIRE(exchange(PHASE_BEGIN, 2, 0, 0).code == STATUS_OK);
+  EXAMPLE_REQUIRE(exchange(PHASE_CHUNK, 2, 0, 256).code == STATUS_OK);
+  if (upload.active && !upload.committed) { ++aborts; upload.active = false; }
+  closing = true;
+  example_pair_close(&pair);
+  EXAMPLE_REQUIRE(aborts == 1);
+  printf("COMPOSED_SERVICES PASS bytes=4096 rpc=%u telemetry=%u busy=%u dropped_status=%u duplicate=%u commit=%u close_abort=%u closed_query=%u\n",
+    queries, telemetries, busy_writes, dropped_status, duplicate_chunks, commits, aborts, closed_queries);
   return 0;
 }

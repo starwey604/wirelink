@@ -87,3 +87,9 @@ telemetry、calculator、device-info 均使用正式 WLC v2 endpoint 与一个�
 03 保留设备／算术等原业务类型与 ID，handler 改为 callback-scoped view；两端共用一个 v2 静态声明，保留双 RPC 角色，普通 100 通道 telemetry 纳入容量计算。原 SelfTest 同步短计算保留；删除 reply token／deferred 回调，显式新增例程应用 message 132–134 做 StartSelfTest(job-ID ack) 与普通完成消息。该例程协议扩展没有改 benchmark schema 或内核 wire。任务字段、due、BUSY、ordinary TX 背压均由应用循环负责，不加入框架 service。文档明确 lost status／重试／幂等由业务定义，取消不回滚。
 
 业务／长任务／close 后 owned response 的实际 demo 与“四份应用文件新增 RPC、基础设施不变”的隔离复制构建测试，GCC **2/2**；Clang 块也 **2/2**，其中 demo 使用 ASan/UBSan，隔离扩展用 Clang 严格编译；扩展测试不修改原树。旧双进程测试 runner 迁为当前 demo runner；真实 UDP 合同仍由 SDK／adapter／UDP 示例承担。日志 `device-tutorial-*`。
+
+## 组合应用：上传逻辑回到 owner loop
+
+04 保留 imported schema、message ID／shape 及旧示例 phase/status 数值，普通 BulkCommand/BulkStatus、telemetry 与 Query/Reboot RPC 共用生成 kernel。删除旧 bulk sender/receiver、service rotation、peer reset、reliable ACK／response terminal hook。4096 B RAM 上传由应用处理有界 chunk、一次 BUSY、一次丢 status、有限重试、重复 chunk 校验、外层 CRC／一次 commit、关闭时一次 abort。重复 END 不再 commit；Reboot 仅短业务确认，不是 ACK／实际重启。没有把旧通用状态机重新塞进框架。
+
+初次 demo 仍要求关闭中的 Query 成功，实际新合同返回 CLOSED（outcome=5/status=-33，tick=151）；改为仅在显式 closing 时接受 CLOSED，timeout／其他错误仍失败，日志保留。GCC demo 与真实 import-edge 重建 **2/2**；Clang ASan/UBSan demo 与独立依赖重建也 **2/2**。生成 helper 返回匹配 compiler property，并在 Zephyr 连接正式模块、检查对应 stream Kconfig；模块新增独立 packet loopback 选项，CRC primitives 可显式选择。Zephyr 组合 sample 不再手工编译另一套 core，native_sim／Cortex-M3／RISC-V／x86_64 四平台真实运行 **4/4**。日志 `composed-tutorial-*`、`twister-composed*`。没有刷写板卡或改已封存 K4 证据。

@@ -1,31 +1,22 @@
-# Composed service target test
+# Composed application target test
 
-Runs the [host executable specification](../../../examples/04_composed_services/README.md)
-unchanged on Zephyr. Two endpoints communicate through in-memory loopback;
-this does not validate USB Bulk, actual flash programming or MCUboot swaps.
-Expected console marker: `COMPOSED_SERVICES PASS`.
+Runs the [application upload/RPC specification](../../../examples/04_composed_services/README.md)
+on Zephyr through its default Wirelink module and packet loopback. The source is
+the same C application as the host example: explicit job/upload advancement,
+ordinary message retry/idempotency, Query RPC, telemetry and close/drain. No USB,
+flash programming, MCUboot operation or actual reboot is performed.
 
-## Build and run
-
-From an initialized Zephyr workspace with a matching WLC compiler:
+From an initialized Zephyr workspace with a matching local WLC 0.13.0:
 
 ```sh
 west build -s /path/to/wirelink/samples/zephyr/composed_services -b native_sim \
-  -d /path/to/build/composed-native -- \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+  -d /path/to/build/composed-native -- -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
+west twister -T /path/to/wirelink/samples/zephyr/composed_services \
+  -p native_sim -p qemu_cortex_m3 -p qemu_riscv32 -p qemu_x86_64 \
+  --extra-args WIRELINK_WLC_EXECUTABLE=/path/to/wlc
 ```
 
-Twister runs this on `native_sim` and QEMU.
-
-## ESP32-S3 hardware run
-
-```sh
-west build -b esp32s3_devkitc/esp32s3/procpu \
-  /path/to/wirelink/samples/zephyr/composed_services -d build/composed-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-west flash -d build/composed-hw
-python benchmarks/zephyr/capture_serial.py \
-  --port /dev/ttyACM0 --out composed.log --until "COMPOSED_SERVICES PASS" --seconds 120
-```
-
-The image is inert: it never reboots, operates actuators or writes flash.
+The expected console marker is `COMPOSED_SERVICES PASS`. Select
+`CONFIG_WIRELINK_PACKET_LOOPBACK` and independent CRC primitives explicitly.
+Only the default C kernel is linked; there is no parallel manually compiled
+legacy/prototype engine and no hidden compiler download.
