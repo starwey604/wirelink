@@ -43,6 +43,10 @@ int wl_packet_take_activity(wl_packet_port_t *port) {
   return atomic_exchange_explicit(&port->activity, false, memory_order_acquire);
 }
 
+int wl_packet_activity_pending(const wl_packet_port_t *port) {
+  return atomic_load_explicit(&port->activity, memory_order_acquire);
+}
+
 wl_err_t wl_packet_rx_claim(wl_packet_port_t *port, size_t maximum,
                             wl_packet_claim_t *out) {
   if (port == NULL || out == NULL || maximum == 0U) return WL_ERR_INVALID_ARG;
@@ -143,6 +147,12 @@ wl_err_t wl_packet_rx_release(wl_packet_port_t *port,
 
 int wl_packet_tx_active(const wl_packet_port_t *port) {
   return (atomic_load_explicit(&port->tx_state, memory_order_acquire) & TX_ACTIVE) != 0U;
+}
+
+int wl_packet_tx_ready(const wl_packet_port_t *port) {
+  uint_least32_t state = atomic_load_explicit(&port->tx_state, memory_order_acquire);
+  return (state & TX_ACTIVE) != 0U &&
+      ((state & TX_FLAGS) & ~port->tx_delivered) != 0U;
 }
 
 wl_err_t wl_packet_tx_submit(wl_packet_port_t *port, const uint8_t *data,

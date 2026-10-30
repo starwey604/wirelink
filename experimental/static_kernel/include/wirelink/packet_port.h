@@ -94,9 +94,11 @@ wl_err_t wl_packet_tx_publish(wl_packet_port_t *, wl_packet_token_t, unsigned);
 /* Owner only. Returns each new completion bit once. */
 unsigned wl_packet_tx_take(wl_packet_port_t *, wl_packet_token_t *);
 int wl_packet_tx_active(const wl_packet_port_t *);
+int wl_packet_tx_ready(const wl_packet_port_t *);
 
 void wl_packet_activity(wl_packet_port_t *);
 int wl_packet_take_activity(wl_packet_port_t *);
+int wl_packet_activity_pending(const wl_packet_port_t *);
 void wl_packet_stop(wl_packet_port_t *);
 /* Does not mean the adapter is stopped: it must separately acknowledge that
  * it will no longer access this port before reinitialization. */

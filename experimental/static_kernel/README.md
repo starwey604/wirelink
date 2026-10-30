@@ -46,9 +46,25 @@ The deterministic fixture also runs as the Ztest `type: unit` suite
 100,000 RX/TX units between an I/O thread and an owner, including late duplicate
 completion publication racing the next submit.
 
-Still pending: compact endpoint call/reply ownership, WLC-generated routing,
-product USB adapter integration and the K1 end-to-end matrix. Passing these
-port tests does not establish K1 completion or any performance improvement.
+The shared endpoint kernel now owns one four-call table, four request buffers,
+four reply buffers and one ordinary-message buffer supplied by generated code.
+Requests are snapshotted before admission returns. Terminal callbacks release
+logical slots; leased TX bytes remain reserved until physical drain. A callback
+may submit/cancel calls, but recursive step/close fails. Generation snapshots
+exclude callback-created calls from the current deadline pass.
+
+Reply reservation precedes decoding and handler side effects. BUSY retains the
+encoded reply and sleeps until activity. A full reply pool retains the RX
+borrow. There is no duplicate history: independently admitted duplicate requests
+may execute again. Errors are returned from step and optionally sent to a small
+diagnostic callback. The owner supplies time; deadlines use bounded u32 modular
+arithmetic. Close schedules one terminal outcome per still-waiting call and
+continues draining physical completion before quiescence.
+
+The shared-kernel unit fixture uses a deliberately small test codec; it does
+not establish generated business-codec or USB interoperability. Still pending:
+WLC-generated routing, product USB integration and the K1 end-to-end matrix.
+Passing these tests does not establish K1 completion or performance improvement.
 
 The native/NONE connector now writes the four-byte ordinary DATA prefix in
 place and validates incoming packets without a general frame encoder, selector,
