@@ -7,8 +7,8 @@ config SAMPLE_WIRELINK_USB_CPU_STATS
 	bool "Collect ESP32-S3 USB CPU cycle telemetry"
 	depends on SOC_SERIES_ESP32S3
 	help
-	  Enables cycle counters for Wirelink polling, echo and bulk dispatch,
-	  deterministic object-sink writes, Status sends, USB service windows,
-	  adapter hot paths, and the hooks used by optional local DWC2/USBD
-	  benchmark instrumentation. This is off by default so the normal latency
-	  sample has no additional cycle-telemetry state or update overhead.
+	  Counts the application pass (including one kernel step), adapter callbacks,
+	  sink and service. Optional external driver hooks report zero when absent.
+	  Output is wirelink_usb_kernel_cpu_v2; it is not the old polling observer
+	  or the dedicated K4 benchmark. Atomic cycle sums are explicitly modulo32.
+	  Off by default. No platform driver files are changed by this sample.
