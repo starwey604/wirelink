@@ -1,307 +1,83 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-// Deterministic available-work batches, not timed batching in the executor.
 #include "wirelink/host/executor.hpp"
-#include "wirelink/frame.h"
-#include "wirelink/cobs.h"
 #include <array>
-#include <chrono>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
-#include <mutex>
-#include <thread>
 using wirelink::host::Executor;
-using wirelink::host::ExecutorActivity;
 using namespace std::chrono_literals;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%d: %s\n", __LINE__, #x); std::abort(); } } while (0)
-
-template<class F> static void eventually(F ready) {
-  const auto end = std::chrono::steady_clock::now() + 5s;
-  while (!ready()) {
-    CHECK(std::chrono::steady_clock::now() < end);
-    std::this_thread::sleep_for(50us); // Harness only; no wall-time assertions.
-  }
-}
-struct Workload {
+extern "C" wl_kernel_t *owner_pass_prepare(wl_packet_notify_fn, void *);
+extern "C" void owner_pass_inject(void);
+extern "C" unsigned owner_pass_received(void);
+struct Fixture {
   Executor executor;
-  wl_endpoint_t endpoint{};
-  std::array<uint8_t, 512> payload{}, control{};
-  std::array<uint8_t, 1024> unit{}, fallback{};
-  std::array<uint8_t, 8192> fifo{};
-  std::mutex mutex;
-  std::condition_variable gate;
+  wl_kernel_t *core{};
+  std::mutex gate;
+  std::condition_variable wake;
   bool entered{}, released{};
-  bool asynchronous{}, blocked{}, refill{}, application_followup{}, rpc_required{}, rpc_seen{};
-  bool reply_on_rx{};
-  uint64_t observed_pass{UINT64_MAX};
-  std::atomic<bool> unblock{};
-  unsigned sent{}, received{}, services{}, applications{}, max_per_pass{}, in_pass{};
-  wl_io_token_t token{};
-  const uint8_t *pending{};
-  size_t length{};
-  std::array<bool, 8> seen{};
-
-  static int service(void *p) noexcept {
-    auto& w = *static_cast<Workload *>(p);
-    ++w.services;
-    {
-      std::unique_lock lock(w.mutex);
-      if (!w.released) {
-        w.entered = true; w.gate.notify_one();
-        w.gate.wait(lock, [&] { return w.released; });
-      }
-    }
-    if (w.pending && (!w.blocked || w.unblock.load())) {
-      w.consume(w.pending, w.length);
-      w.pending = nullptr;
-      CHECK(wl_tx_consumed(&w.executor.context(), w.token, WL_OK) == WL_OK);
-      return WL_OK;
-    }
-    return WL_ERR_NO_DATA;
+  std::atomic<unsigned> done{};
+  unsigned since_service{}, maximum{}, services{}, rejected{}, stop_calls{};
+  std::array<unsigned, 32> observed{};
+  static void notify(void *user) { static_cast<Fixture *>(user)->executor.notify(); }
+  static wl_err_t service(void *user, uint32_t) {
+    auto &f = *static_cast<Fixture *>(user);
+    if (f.since_service > f.maximum) f.maximum = f.since_service;
+    f.since_service = 0; ++f.services; return WL_OK;
   }
-  static wl_readiness_t readiness(const void *p, const wl_ctx_t&, wl_time_ms_t) noexcept {
-    const auto& w = *static_cast<const Workload *>(p);
-    wl_readiness_t value = wl_readiness_idle();
-    value.runnable = !w.entered || (w.pending && (!w.blocked || w.unblock.load()));
-    value.blocked = w.pending && !value.runnable;
-    return value;
-  }
-  static wl_readiness_t app_readiness(const void *p, const wl_ctx_t&, wl_time_ms_t) noexcept {
-    const auto& w = *static_cast<const Workload *>(p);
-    return wl_readiness_at(w.applications < (w.application_followup ? 3U : 1U) ? 0U : WL_NO_DEADLINE);
-  }
-  void consume(const uint8_t *data, size_t size) {
-    wl_frame_view_t frame;
-    std::array<uint8_t, 1024> raw;
-    size_t decoded = 0;
-    CHECK(size > 0 && data[size - 1] == 0);
-    CHECK(wl_cobs_decode(data, size - 1, raw.data(), raw.size(), &decoded) == WL_OK);
-    CHECK(wl_frame_decode(raw.data(), decoded, WL_INTEGRITY_NONE, &frame) == WL_OK);
-    CHECK(frame.message_id >= 100 && frame.message_id < 108);
-    CHECK(frame.payload.length == 1 && frame.payload.data[0] == frame.message_id - 100);
-    if (!refill) CHECK(!seen[frame.message_id - 100]);
-    seen[frame.message_id - 100] = true;
-    ++sent;
-    if (refill && sent == 1) rx(1);
-    // A continuously replenished lane must yield to RX/application progress.
-    if (refill && sent > Executor::s_kLatestDispatchBudget) {
-      CHECK(received == 1);
-      if (rpc_required) CHECK(rpc_seen);
-    }
-  }
-  static wl_sink_result_t sink(void *p, wl_io_token_t token, const uint8_t *data, size_t size) {
-    auto& w = *static_cast<Workload *>(p);
-    const auto pass = w.executor.activity().get(ExecutorActivity::passes);
-    if (pass != w.observed_pass) { w.in_pass = 0; w.observed_pass = pass; }
-    ++w.in_pass;
-    if (w.max_per_pass < w.in_pass) w.max_per_pass = w.in_pass;
-    if (w.asynchronous) {
-      CHECK(w.pending == nullptr);
-      w.pending = data; w.length = size; w.token = token;
-      return WL_SINK_STARTED;
-    }
-    w.consume(data, size);
-    if (w.refill) {
-      if (w.sent == 9) w.executor.requestStop();
-      else {
-        const uint8_t value = 0;
-        CHECK(w.executor.submitLatest(100, &value, 1) == WL_OK);
-      }
-    }
-    return WL_SINK_SENT;
-  }
-  static wl_pump_event_disposition_t event(void *p, wl_ctx_t& ctx,
-      const wl_event_t& event, wl_time_ms_t) noexcept {
-    auto& w = *static_cast<Workload *>(p);
-    if (event.type == WL_EVT_UNRELIABLE_RX) {
-      CHECK(event.message_id == 200 && event.payload_len == 1 && event.payload[0] == 42);
-      ++w.received;
-      if (w.reply_on_rx) {
-        const uint8_t value = 0;
-        CHECK(wl_send_unreliable(&ctx, 100, &value, 1) == WL_OK);
-      }
-      wl_event_release(&ctx, &event);
-      return WL_PUMP_EVENT_CONSUMED;
-    }
-    return WL_PUMP_EVENT_UNHANDLED;
-  }
-  static bool application(void *p, wl_ctx_t&, wl_time_ms_t) noexcept {
-    auto& w = *static_cast<Workload *>(p);
-    ++w.applications;
-    return true;
-  }
+  static void stop(void *user) { ++static_cast<Fixture *>(user)->stop_calls; }
   void start() {
-    wl_config_t config{};
-    config.max_payload_len = 512; config.envelope = WL_ENVELOPE_COBS_STREAM;
-    config.integrity = WL_INTEGRITY_NONE; config.session_id = 1;
-    wl_storage_t storage{payload.data(), payload.size(), unit.data(), unit.size(),
-      control.data(), control.size(), fifo.data(), fifo.size(), fallback.data(), fallback.size()};
-    if (rpc_required) {
-      const auto clock = wirelink::host::monotonic_clock();
-      wl_pump_hooks_t hooks{};
-      hooks.adapter_user_data = hooks.application_user_data = this;
-      hooks.application_step = [](void *p, wl_ctx_t *ctx, wl_time_ms_t now) -> uint8_t {
-        return application(p, *ctx, now);
-      };
-      hooks.on_event = [](void *p, wl_ctx_t *ctx, const wl_event_t *e, wl_time_ms_t now) {
-        return event(p, *ctx, *e, now);
-      };
-      hooks.application_readiness = [](const void *p, const wl_ctx_t *ctx, wl_time_ms_t now) { return app_readiness(p, *ctx, now); };
-      CHECK(wl_endpoint_init(&endpoint, &config, &storage, &clock, &hooks) == WL_OK);
-      hooks.service = service;
-      hooks.adapter_readiness = [](const void *p, const wl_ctx_t *ctx, wl_time_ms_t now) { return readiness(p, *ctx, now); };
-      hooks.application_readiness = [](const void *p, const wl_ctx_t *ctx, wl_time_ms_t now) { return app_readiness(p, *ctx, now); };
-      CHECK(wl_endpoint_attach(&endpoint, &hooks) == WL_OK);
-      const wl_endpoint_driver_t driver{&endpoint, &endpoint,
-        [](void *p) { return wl_endpoint_step(static_cast<wl_endpoint_t *>(p), 64); },
-        [](void *p) -> wl_err_t { wl_endpoint_close(static_cast<wl_endpoint_t *>(p)); return WL_OK; }};
-      CHECK(executor.initialize(driver) == WL_OK);
-    } else {
-      CHECK(executor.initialize(config, storage) == WL_OK);
-      wirelink::host::ExecutorHooks hooks{};
-      hooks.m_user_data = this; hooks.m_service = service; hooks.m_on_event = event;
-      hooks.m_application_step = application;
-      hooks.m_adapter_readiness = readiness;
-      hooks.m_application_readiness = app_readiness;
-      CHECK(executor.setHooks(hooks) == WL_OK);
-    }
-    CHECK(executor.setSink(sink, this) == WL_OK);
-    CHECK(executor.start() == WL_OK);
-    std::unique_lock lock(mutex);
-    CHECK(gate.wait_for(lock, 5s, [&] { return entered; }));
+    core = owner_pass_prepare(notify, this);
+    wirelink::host::ExecutorIo io; io.user = this; io.service = service; io.stop = stop;
+    CHECK(executor.initialize(*core, io) == WL_OK && executor.start() == WL_OK);
+    CHECK(executor.post([this](uint32_t) {
+      ++since_service; // The test-only barrier is the first command in a batch.
+      std::unique_lock lock(gate); entered = true; wake.notify_one();
+      wake.wait(lock, [this] { return released; });
+    }) == WL_OK);
+    std::unique_lock lock(gate); CHECK(wake.wait_for(lock, 5s, [this] { return entered; }));
   }
-  void release() {
-    std::lock_guard lock(mutex); released = true; gate.notify_one();
-  }
-  void rx(unsigned count) {
-    std::array<uint8_t, 512> frames{};
-    size_t length = 0;
-    const uint8_t payload = 42;
-    wl_wire_packet_t packet{};
-    packet.type = WL_PACKET_DATA; packet.message_id = 200;
-    packet.payload = &payload; packet.payload_len = 1;
-    for (unsigned i = 0; i < count; ++i) {
-      size_t frame_size = 0;
-      CHECK(wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM, frames.data() + length,
-          frames.size() - length, &frame_size) == WL_OK);
-      length += frame_size;
-    }
-    size_t accepted = 0;
-    CHECK(executor.feedBytes(frames.data(), length, accepted) == WL_OK);
-    CHECK(accepted == length);
-  }
+  void release() { { std::lock_guard lock(gate); released = true; } wake.notify_all(); }
+  ~Fixture() { release(); (void)executor.stop(); }
 };
-static void scenario(const char *name, unsigned tx, unsigned rx, bool async = false,
-    bool blocked = false, bool refill = false) {
-  Workload w;
-  w.asynchronous = async; w.blocked = blocked; w.refill = refill;
-  w.application_followup = std::strcmp(name, "application_followup") == 0;
-  w.rpc_required = std::strcmp(name, "rpc_refill_stop") == 0;
-  w.reply_on_rx = std::strstr(name, "rx_reply") != nullptr;
-  w.start();
-  std::thread caller;
-  if (w.rpc_required) {
-    const auto* proxy = wl_endpoint_rpc_executor(&w.endpoint);
-    CHECK(proxy != nullptr);
-    caller = std::thread([&w, proxy] {
-      const wl_rpc_sync_call_t call{&w,
-        [](void *p, wl_time_ms_t, wl_rpc_sync_notify_fn notify, void *context, wl_rpc_call_t *) -> wl_err_t {
-          auto& w = *static_cast<Workload *>(p);
-          CHECK(w.sent == Executor::s_kLatestDispatchBudget);
-          w.rpc_seen = true;
-          wl_rpc_completion_t result{};
-          result.status = WL_RPC_SUCCESS;
-          notify(context, &result);
-          return WL_OK;
-        }};
-      CHECK(proxy->invoke(proxy->context, &call, 5000).status == WL_RPC_SUCCESS);
-    });
-    eventually([&] { return w.executor.stats().m_rpc_submitted == 1; });
+static void available_burst() {
+  Fixture f; f.start();
+  for (unsigned i = 0; i < Executor::command_capacity; ++i) {
+    CHECK(f.executor.post([&f, i](uint32_t) {
+      CHECK(f.executor.on_owner_thread()); ++f.since_service;
+      f.observed[i] = owner_pass_received();
+      if (f.done.fetch_add(1) + 1 == Executor::command_capacity) {
+        std::lock_guard lock(f.gate); f.wake.notify_one();
+      }
+    }, [&f](wl_err_t) { ++f.rejected; }) == WL_OK);
   }
-  for (unsigned i = 0; i < tx; ++i) {
-    const uint8_t value = static_cast<uint8_t>(i);
-    CHECK(w.executor.submitLatest(uint16_t(100 + i), &value, 1) == WL_OK);
-  }
-  if (rx) w.rx(rx);
-  if (std::strcmp(name, "empty_feed") == 0) {
-    for (unsigned i = 0; i < 64; ++i) {
-      size_t accepted = 123;
-      CHECK(w.executor.feedBytes(nullptr, 0, accepted) == WL_OK && accepted == 0);
-    }
-  }
-  w.release();
-  if (refill) eventually([&] { return w.executor.state() == Executor::State::kStopped; });
-  else {
-    eventually([&] { return w.executor.activity().get(ExecutorActivity::waits) >= 1; });
-    if (blocked) {
-      const auto passes = w.executor.activity().get(ExecutorActivity::passes);
-      std::this_thread::sleep_for(3ms);
-      CHECK(w.executor.activity().get(ExecutorActivity::passes) == passes);
-      w.unblock = true; w.executor.notify();
-      eventually([&] { return w.executor.activity().get(ExecutorActivity::waits) >= 2; });
-    }
-  }
-  w.executor.stop();
-  if (caller.joinable()) caller.join();
-  CHECK(w.sent == (refill ? 9 : tx + unsigned(w.reply_on_rx)) && w.received == (refill ? 1 : rx));
-  CHECK(w.max_per_pass <= Executor::s_kLatestDispatchBudget);
-  const auto stats = w.executor.stats();
-  CHECK(stats.m_latest_failed == 0 && stats.m_poll_errors == 0 && stats.m_service_errors == 0);
-  const auto activity = w.executor.activity();
-  CHECK(activity.enabled);
-  CHECK(activity.get(ExecutorActivity::rpc_empty_collections) == 0);
-  CHECK(w.applications == (w.application_followup ? 3U : 1U));
-  if (w.application_followup) CHECK(w.applications >= 3);
-  if (w.rpc_required) {
-    CHECK(w.rpc_seen);
-    CHECK(activity.get(ExecutorActivity::rpc_jobs) == 1);
-    CHECK(activity.get(ExecutorActivity::rpc_batches) == 1);
-    CHECK(activity.get(ExecutorActivity::rpc_completions) == 1);
-  }
-  if (!async && tx && !refill) {
-    CHECK(activity.get(ExecutorActivity::latest_deferred) == 0);
-    CHECK(activity.get(ExecutorActivity::passes) <=
-        (tx + Executor::s_kLatestDispatchBudget - 1) / Executor::s_kLatestDispatchBudget + 1);
-    CHECK(activity.get(ExecutorActivity::no_reported_work) == 0);
-  }
-  std::printf("{\"case\":\"%s\",\"budget\":%zu,\"delivered\":%u,\"received\":%u,\"max_per_pass\":%u",
-      name, Executor::s_kLatestDispatchBudget, w.sent, w.received, w.max_per_pass);
-  for (unsigned i = 0; i < activity.counts.size(); ++i)
-    std::printf(",\"%s\":%llu", wirelink::host::executor_activity_names[i],
-        static_cast<unsigned long long>(activity.counts[i]));
-  std::puts("}");
+  CHECK(f.executor.post([](uint32_t) {}) == WL_ERR_QUEUE_FULL);
+  owner_pass_inject(); f.release();
+  bool complete;
+  { std::unique_lock lock(f.gate); complete = f.wake.wait_for(lock, 5s,
+      [&f] { return f.done.load() == Executor::command_capacity; }); }
+  CHECK(f.executor.stop() == WL_OK); CHECK(complete);
+  CHECK(f.executor.last_error() == WL_OK && wl_kernel_quiescent(f.core));
+  CHECK(f.rejected == 0 && f.stop_calls == 1 && f.maximum == Executor::command_budget);
+  for (unsigned i = 0; i < Executor::command_budget - 1; ++i) CHECK(f.observed[i] == 0);
+  for (unsigned i = Executor::command_budget - 1; i < Executor::command_capacity; ++i) CHECK(f.observed[i] == 1);
+  std::printf("{\"format\":\"wirelink-owner-kernel-v1\",\"case\":\"kernel_command_burst\",\"budget\":%u,"
+    "\"delivered\":%u,\"received\":%u,\"queue_full\":1,\"maximum_command_batch\":%u,\"services\":%u}\n",
+    Executor::command_budget, f.done.load(), owner_pass_received(), f.maximum, f.services);
 }
-static void overflow_notifies() {
-  Workload w;
-  w.start(); // Owner cannot drain while checking producer publication.
-  size_t accepted = 0;
-  std::array<uint8_t, 8192> bytes{};
-  CHECK(w.executor.feedBytes(bytes.data(), bytes.size(), accepted) == WL_OK);
-  CHECK(accepted == bytes.size());
-  const auto before = w.executor.activity().get(ExecutorActivity::notifications);
-  CHECK(w.executor.feedBytes(bytes.data(), 1, accepted) == WL_ERR_WOULD_BLOCK);
-  CHECK(accepted == 0);
-  CHECK(w.executor.activity().get(ExecutorActivity::notifications) == before + 1);
-  w.release();
-  eventually([&] { return w.executor.activity().get(ExecutorActivity::waits) >= 1; });
-  w.rx(1); // Overflow recovery must leave the endpoint usable.
-  eventually([&] { return w.executor.stats().m_rx_events >= 1; });
-  w.executor.stop();
-  CHECK(w.received == 1);
+static void stop_rejects_queued() {
+  Fixture f; f.start();
+  for (unsigned i = 0; i < Executor::command_capacity; ++i)
+    CHECK(f.executor.post([&f](uint32_t) { ++f.done; }, [&f](wl_err_t error) {
+      CHECK(f.executor.on_owner_thread() && error == WL_ERR_NOT_INITIALIZED); ++f.rejected;
+    }) == WL_OK);
+  f.executor.request_stop();
+  CHECK(f.executor.post([](uint32_t) {}) == WL_ERR_NOT_INITIALIZED);
+  f.release(); CHECK(f.executor.stop() == WL_OK);
+  CHECK(f.done == 0 && f.rejected == Executor::command_capacity && f.stop_calls == 1);
+  CHECK(f.executor.last_error() == WL_OK && wl_kernel_quiescent(f.core));
+  std::printf("{\"format\":\"wirelink-owner-kernel-v1\",\"case\":\"kernel_stop_reject\",\"budget\":%u,"
+    "\"delivered\":0,\"received\":0,\"rejected\":%u,\"stop_calls\":%u}\n",
+    Executor::command_budget, f.rejected, f.stop_calls);
 }
-int main() {
-  scenario("idle", 0, 0);
-  scenario("rx_burst", 0, 8);
-  scenario("latest_one", 1, 0);
-  scenario("latest_burst", 8, 0);
-  scenario("mixed_burst", 8, 8);
-  scenario("async_latest", 8, 0, true);
-  scenario("blocked_latest", 8, 0, true, true);
-  scenario("async_rx_reply", 0, 1, true);
-  scenario("empty_feed", 0, 0);
-  scenario("refill_stop", 1, 0, false, false, true);
-  scenario("application_followup", 0, 0);
-  scenario("rpc_refill_stop", 1, 0, false, false, true);
-  overflow_notifies();
-}
+int main() { available_burst(); stop_rejects_queued(); }

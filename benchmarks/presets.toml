@@ -30,7 +30,6 @@ build = "top"
 description = "Executor owner-pass accounting by counting, not timing"
 cmake_options = [
   "WIRELINK_BUILD_HOST_RUNTIME=ON",
-  "WIRELINK_HOST_ACTIVITY=ON",
   "WIRELINK_BUILD_OWNER_PASS_TESTS=ON",
 ]
 binary = "benchmarks/owner_pass/wirelink_owner_pass"

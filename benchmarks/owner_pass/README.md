@@ -1,53 +1,31 @@
-# Executor owner-pass accounting
+# Kernel owner command/stop model
 
 [中文](README-cn.md).
 
-This is a deterministic scheduling regression, not a CPU benchmark. It requires
-neither WLC, Asio, Google Benchmark nor hardware:
+This is a deterministic scheduling check, not a CPU benchmark. It needs the
+current host component, with no WLC, Asio, Google Benchmark or hardware:
 
 ```sh
 cmake -S . -B build/owner-pass -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_HOST_RUNTIME=ON -DWIRELINK_HOST_ACTIVITY=ON \
-  -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON
-cmake --build build/owner-pass --parallel 2
+  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON
+cmake --build build/owner-pass --parallel
 ctest --test-dir build/owner-pass --output-on-failure
-build/owner-pass/benchmarks/owner_pass/wirelink_owner_pass
 ```
 
-The harness gates the first owner pass to publish an already-ready burst. This
-test-only gate is **not** a timed batching policy in the executor. Tests validate
-payloads, delivery counts, bounded dispatch, RX/RPC fairness, application-requested
-follow-ups, asynchronous TX, backpressure sleep/resume, empty feeds, overflow
-recovery and stop during continuous replenishment. A proxy completion exercises
-the real caller/owner handoff; generated RPC/UDP integration is tested separately.
-The compatibility cases omit the adapter readiness hint deliberately.
+A test-only first command blocks the owner while the caller fills all 32 queue
+slots and observes rejection of a 33rd admission. One producer publishes an RX
+unit through the actual C-owned packet port. After release, the current eight
+command budget gives the kernel a pass: the first seven queued commands see no
+RX handler yet (the barrier consumed one command), and command eight observes
+that handler. Counts prove available-work fairness without a wall-time threshold.
+The second case requests stop while the barrier holds the owner, then proves
+that all 32 queued commands are rejected on the owner, no queued work executes,
+I/O stop runs once and the C kernel is quiescent after join.
 
-Each scenario emits one JSON row after joining the owner. The separate overflow
-check uses assertions. Startup/shutdown notifications count too. Thread start can
-race with the first pass; do not use exact idle-pass counts as a portable gate.
-
-`WIRELINK_HOST_ACTIVITY` defaults OFF. It enables bounded relaxed atomic counters,
-not timestamps or hot-path logging. `Executor::activity()` returns disabled/zero
-when OFF; diagnostics must never control application synchronization. The PUBLIC
-definition is exported with `Wirelink::host`; rebuild all consumers together.
-
-Important distinctions:
-
-- `passes` is outer executor iterations, not endpoint steps or OS context switches.
-- `no_reported_work` means no pump-reported progress, LATEST progress or collected
-  RPC jobs. It can include a necessary idle/readiness check or unreported adapter
-  work; it does **not** establish wasted CPU by itself.
-- `rpc_batches` counts nonempty collections; `rpc_empty_collections` counts stale
-  pending hints that yielded no jobs. `rpc_completions` includes failed/cancelled
-  results as well as success.
-- `latest_attempts` includes deferred/rejected attempts. `latest_sent` means core
-  acceptance, which precedes physical delivery for asynchronous adapters.
-- `notifications` counts calls, not semaphore releases or actual thread switches.
-  `waits` counts wait attempts, which can consume an already-present notification.
-- `continue_*` identifies the branch that requested another pass; reasons need
-  not be mutually exclusive in reality. Snapshots during execution are relaxed,
-  not a coherent multi-counter transaction; compare final joined snapshots.
-
-For CPU and submission-to-sink age, use the separate
-[executor benchmark](../api/EXECUTOR.md) with activity/timing instrumentation
-OFF.
+C owns the kernel/port/atomic storage; C++ only supplies the real executor and
+external test counters. No generic service, RPC table or activity-counter API is
+restored. JSON rows use `wirelink-owner-kernel-v1`. Startup service counts are
+racy diagnostics; queue bounds, delivery and RX progress are exact contracts.
+The old `WIRELINK_HOST_ACTIVITY` knob explicitly errors. The separate core and
+adapter suites cover physical TX/RX ownership; owning RPC wrappers run in the
+Session tests. This command-queue model does not claim end-to-end RPC timing.
