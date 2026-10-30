@@ -280,6 +280,13 @@ static void test_control_and_all_messages(void) {
   CHECK(usb_kernel_send_stream_chunk(&b.endpoint, &stream) == WL_OK);
   run(&b, 0U); CHECK(b.lengths[3] == 1036U);
   deliver(&a, &b, 3U); run(&a, 0U); CHECK(a.chunks == 1U);
+  stream_chunk_t borrowed = {.has_sequence = true, .sequence = UINT32_MAX,
+      .has_data = true, .data = {.data = stream.data.data, .length = 1024U}};
+  CHECK(usb_kernel_send_stream_chunk_view(&b.endpoint, &borrowed) == WL_OK);
+  stream.data.data[0] = 0xffU; /* Input may change after acceptance. */
+  run(&b, 0U);
+  CHECK(b.lengths[4] == b.lengths[3] && !memcmp(b.frames[4], b.frames[3], b.lengths[3]));
+  deliver(&a, &b, 4U); run(&a, 0U); CHECK(a.chunks == 2U);
   progress_value_t observation = {.has_sequence = true, .sequence = UINT32_MAX,
       .has_bytes = true, .bytes = UINT64_MAX, .has_flags = true, .flags = UINT32_MAX};
   CHECK(usb_kernel_send_progress(&a.endpoint, &observation) == WL_OK);
