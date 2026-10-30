@@ -2,8 +2,8 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.8.0",
-    "codegen_contract": {"major": 0, "minor": 8}
+    "version": "0.12.0",
+    "codegen_contract": {"major": 0, "minor": 12}
   },
   "module": "control",
   "identity": {
@@ -11,19 +11,31 @@
     "schema": "0x0048b48181a18d13",
     "binding_profile": "0x3bab7a3869c4d89e"
   },
+  "codec_formats": {
+    "ARM_COMMAND_CODEC_FORMAT": "schema-v1",
+    "ARM_MIT_COMMAND_CODEC_FORMAT": "schema-v1",
+    "BULK_ABORT_CODEC_FORMAT": "schema-v1",
+    "BULK_BEGIN_CODEC_FORMAT": "schema-v1",
+    "BULK_CHUNK_CODEC_FORMAT": "schema-v1",
+    "BULK_END_CODEC_FORMAT": "schema-v1",
+    "BULK_STATUS_CODEC_FORMAT": "schema-v1",
+    "HOME_REQUEST_CODEC_FORMAT": "schema-v1",
+    "HOME_RESPONSE_CODEC_FORMAT": "schema-v1",
+    "JOINT_COMMAND_CODEC_FORMAT": "schema-v1"
+  },
   "bounded_fields": [
     {"message": "BulkChunk", "message_id": 33, "field": "data", "field_number": 3, "kind": "bytes", "max_length": 4096}
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "control.c", "size": 82938, "digest": "0x3357c72abaf7c01f"},
+    {"path": "control.c", "size": 122654, "digest": "0x21ee07758c663e15"},
     {"path": "control.h", "size": 8956, "digest": "0xc9d9d2c601f18839"},
     {"path": "control_advanced.h", "size": 245, "digest": "0x6f75ca278860edaa"},
     {"path": "control_bindings.c", "size": 22521, "digest": "0xa92466477d83b5d5"},
     {"path": "control_bindings.h", "size": 6515, "digest": "0xa44823a2baa0a61a"},
     {"path": "control_endpoint.h", "size": 397, "digest": "0x27ad6da2303b8455"},
-    {"path": "control_runtime.c", "size": 57653, "digest": "0x5beb38c454442161"},
-    {"path": "control_runtime.h", "size": 33094, "digest": "0x2c97210142cdf9ee"},
-    {"path": "control_values.h", "size": 9157, "digest": "0xa1619853bddfc4b7"}
+    {"path": "control_runtime.c", "size": 71189, "digest": "0x7f42fb2d09699b81"},
+    {"path": "control_runtime.h", "size": 34290, "digest": "0x9e44217f2ec42f9e"},
+    {"path": "control_values.h", "size": 9983, "digest": "0xf11b348817546213"}
   ]
 }

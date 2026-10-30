@@ -2,8 +2,10 @@
 #define WIRELINK_GENERATED_CONTROL_RUNTIME_H
 
 #include "control_bindings.h"
+#include <wirelink/port.h>
 #include <wirelink/pump.h>
 #include <wirelink/endpoint.h>
+#include <wirelink/link_defaults.h>
 #include <wirelink/allocator.h>
 #include <wirelink/frame.h>
 #include <wirelink/version.h>
@@ -11,6 +13,12 @@
 #include <wirelink/fifo.h>
 #include <wirelink/latest.h>
 #include <wirelink/rpc.h>
+#if JOINT_COMMAND_CODEC_PROFILE != 1U
+#error "Route codec/profile mismatch; generate codec and runtime with the same binding profile."
+#endif
+#if ARM_MIT_COMMAND_CODEC_PROFILE != 1U
+#error "Route codec/profile mismatch; generate codec and runtime with the same binding profile."
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -22,7 +30,7 @@ extern "C" {
 #define CONTROL_IDENTITY_ALGORITHM "fnv1a64-v1"
 
 #define CONTROL_CODEGEN_CONTRACT_MAJOR 0U
-#define CONTROL_CODEGEN_CONTRACT_MINOR 8U
+#define CONTROL_CODEGEN_CONTRACT_MINOR 12U
 #if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(CONTROL_CODEGEN_CONTRACT_MAJOR, CONTROL_CODEGEN_CONTRACT_MINOR)
 #  error "Generated code requires an incompatible Wirelink core; regenerate with a matching WLC."
 #endif
@@ -134,7 +142,6 @@ typedef struct {
 typedef int32_t (*control_home_rpc_request_handler_fn)(void *user_data, const home_request_t *request, const wl_rpc_server_request_t *server_request, wl_delivery_t delivery);
 typedef struct {
   home_request_t *request_scratch;
-  home_response_t *response_scratch;
   control_home_rpc_request_handler_fn request_handler;
   void *user_data;
 } control_home_rpc_t;
@@ -160,15 +167,25 @@ typedef struct {
   uint16_t responses_deferred;
 } control_runtime_service_result_t;
 
+#include "control_values.h"
+typedef union {
+  home_response_value_t home;
+} control_rpc_result_value_t;
+
 typedef struct {
   uint8_t _reserved;
   wl_fifo_t *joint_command_fifo;
   wl_latest_t *arm_mit_command_latest;
+  control_rpc_result_value_t *rpc_results;
+  size_t rpc_result_count;
+  control_rpc_result_value_t rpc_mapped_scratch;
   wl_rpc_client_t *rpc_client;
   wl_rpc_server_t *rpc_server;
   wl_rpc_peer_t rpc_peer;
   wl_rpc_peer_observation_t rpc_peer_observation;
   wl_tx_handle_t rpc_retiring_tx;
+  uint32_t rpc_response_retry_generation;
+  uint8_t rpc_response_retry_blocked;
   control_runtime_rpc_encode_scratch_t *rpc_encode_scratch;
   control_home_rpc_t home;
 } control_runtime_t;
@@ -193,13 +210,12 @@ typedef struct {
   uint32_t arm_mit_command_latest_initial_generation;
   uint8_t rpc_client_enabled;
   uint16_t rpc_client_slot_count;
-  uint16_t rpc_client_response_capacity;
   uint32_t rpc_client_next_operation_id;
   uint8_t rpc_server_enabled;
   uint16_t rpc_server_pending_slot_count;
+  uint32_t rpc_server_pending_timeout_ms;
   uint16_t rpc_server_cache_slot_count;
   uint16_t rpc_server_response_capacity;
-  uint32_t rpc_server_pending_timeout_ms;
   uint32_t rpc_server_cache_ttl_ms;
   wl_rpc_cache_policy_t rpc_server_cache_policy;
   control_home_rpc_request_handler_fn home_request_handler;
@@ -213,7 +229,7 @@ typedef union {
   arm_mit_command_t arm_mit_command_latest;
   wl_rpc_client_slot_t rpc_client_slot;
   wl_rpc_server_pending_slot_t rpc_server_pending_slot;
-  wl_rpc_server_cache_slot_t rpc_server_cache_slot;
+  wl_rpc_server_cache_slot_t rpc_server_cache_slots;
 } control_runtime_default_storage_alignment_t;
 
 #if defined(__cplusplus)
@@ -228,25 +244,30 @@ typedef union {
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(joint_command_t) + (CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U)) + \
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + ((sizeof(arm_mit_command_t) + (CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U)) * WL_LATEST_SLOT_COUNT)) + \
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_client_slot_t)) + \
-   12U + \
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
    ((CONTROL_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
    12U)
 
-typedef union {
+typedef struct {
+  union {
   control_runtime_default_storage_alignment_t alignment;
   uint8_t bytes[CONTROL_RUNTIME_DEFAULT_STORAGE_CAPACITY];
+  };
+  control_rpc_result_value_t rpc_results[1];
 } control_runtime_default_storage_t;
 
-typedef union { home_request_t request; home_response_t response; } control_runtime_home_decode_detail_t;
+typedef union { home_request_t request; } control_runtime_home_decode_detail_t;
 typedef struct {
   size_t storage_size;
   size_t storage_alignment;
+  size_t rpc_result_count;
 } control_runtime_requirements_t;
 
 typedef struct {
   void *data;
   size_t size;
+  control_rpc_result_value_t *rpc_results;
+  size_t rpc_result_count;
 } control_runtime_storage_t;
 
 typedef struct {
@@ -325,7 +346,8 @@ wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_m
 /* Advance deadlines and submit at most one runtime-owned server response.
  * Link backpressure defers the same cached bytes for a later service call. */
 wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_service_result_t *out_result);
-/* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
+/* Timer-only query. Response availability is in runtime_readiness(). */
+wl_readiness_t control_runtime_readiness(const wl_ctx_t *ctx, const control_runtime_t *runtime, wl_time_ms_t now_ms);
 wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
 
 /* Build pump hooks that dispatch events with the owner's time sample. RPC
@@ -343,9 +365,6 @@ wl_pump_hooks_t control_runtime_pump_hooks(control_runtime_pump_t *pump);
 control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, const home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms);
 /* Nonblocking inspection returns generic metadata for this service. */
 wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client);
-/* Decode a retained response previously returned by client_inspect(). Borrowed
- * response fields remain valid only until client_release(). */
-control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t *client, home_response_t *response);
 wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id);
 
 /* server_request is copied from the request callback and uniquely scopes this
@@ -354,6 +373,9 @@ wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t op
  * submits the cached response bytes. */
 control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, const home_response_t *response, wl_time_ms_t now_ms);
 control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms);
+
+/* Borrow a complete owned value until release/close. Copy *out for independent retention. */
+wl_rpc_err_t control_home_client_response(const control_runtime_t *runtime, uint32_t operation_id, const home_response_value_t **out_response);
 
 /* Default endpoint assembly. Members named private_state are not application
  * API. Zero-initialize once, keep at a stable address, close before reuse.
@@ -401,6 +423,7 @@ typedef struct {
     control_runtime_result_fn on_result;
     void *user_data;
     size_t event_budget;
+    control_rpc_result_value_t rpc_results[1];
 
     uint8_t tx_payload[CONTROL_ENDPOINT_MAX_PAYLOAD];
     uint8_t tx_unit[CONTROL_ENDPOINT_UNIT_CAPACITY];
@@ -421,13 +444,15 @@ typedef struct {
 /* Config descriptors can be temporary; callbacks/user_data must outlive use.
  * Ordinary client capability and registered server handlers are assembled by init. */
 static inline wl_err_t control_endpoint_config_defaults(
-    control_endpoint_config_t *config, wl_environment_t environment) {
+    control_endpoint_config_t *config, wl_environment_t environment,
+    wl_link_defaults_t defaults) {
   int result;
   if (config == NULL) return WL_ERR_INVALID_ARG;
   memset(config, 0, sizeof(*config));
   config->link.max_payload_len = CONTROL_ENDPOINT_MAX_PAYLOAD;
   config->link.envelope = WL_ENVELOPE_NATIVE_PACKET;
-  config->link.integrity = WL_INTEGRITY_CRC32C;
+  result = wl_config_apply_link_defaults(&config->link, defaults);
+  if (result != WL_OK) return result;
   config->environment = environment;
   config->link.ack_timeout_ms = 100U;
   config->link.max_retries = 4U;
@@ -513,6 +538,10 @@ static inline wl_err_t control_endpoint_init_config(
   link_storage.rx_fifo_size = sizeof(endpoint->private_state.rx_fifo);
   storage.data = endpoint->private_state.arena.bytes;
   storage.size = sizeof(endpoint->private_state.arena.bytes);
+#if CONTROL_RUNTIME_HAS_RPC_CLIENT
+  storage.rpc_results = endpoint->private_state.rpc_results;
+  storage.rpc_result_count = sizeof(endpoint->private_state.rpc_results) / sizeof(endpoint->private_state.rpc_results[0]);
+#endif
   result = control_runtime_init(&endpoint->private_state.instance, &runtime_config, &storage);
   if (result != WL_OK) return result;
 
@@ -538,9 +567,10 @@ static inline wl_err_t control_endpoint_init_config(
 }
 
 static inline wl_err_t control_endpoint_init(control_endpoint_t *endpoint,
-                                        wl_environment_t environment) {
+                                        wl_environment_t environment,
+                                        wl_link_defaults_t defaults) {
   control_endpoint_config_t config;
-  int result = control_endpoint_config_defaults(&config, environment);
+  int result = control_endpoint_config_defaults(&config, environment, defaults);
   return result == WL_OK ? control_endpoint_init_config(endpoint, &config) : result;
 }
 
@@ -596,7 +626,6 @@ static inline wl_endpoint_driver_t control_endpoint_driver(control_endpoint_t *e
   driver.context = endpoint;
   driver.step = control_endpoint_driver_step;
   driver.close = control_endpoint_driver_close;
-  driver.readiness_complete = 1U;
   return driver;
 }
 

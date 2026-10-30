@@ -19,7 +19,7 @@ int main(void) {
   device_server_endpoint_config_t config;
   unsigned business_state = 0;
   const wl_clock_t clock = {now, NULL};
-  if (device_server_endpoint_config_defaults(&config, test_environment_id(1, clock)) != WL_OK) return 1;
+  if (device_server_endpoint_config_defaults(&config, test_environment_id(1, clock), wl_link_defaults()) != WL_OK) return 1;
   config.user_data = &business_state;
   config.on_ping = ping;
   if (device_server_endpoint_init_config(&endpoint, &config) != WL_OK) return 2;

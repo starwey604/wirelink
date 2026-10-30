@@ -51,8 +51,8 @@ int main(void) {
   quickstart_add_result_t operation;
   quickstart_add_call_t call;
 
-  CHECK(quickstart_endpoint_config_defaults(&client_config, test_environment_id(0x1001U, (wl_clock_t){0})) == WL_OK);
-  CHECK(quickstart_endpoint_config_defaults(&server_config, test_environment_id(0x2002U, (wl_clock_t){0})) == WL_OK);
+  CHECK(quickstart_endpoint_config_defaults(&client_config, test_environment_id(0x1001U, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
+  CHECK(quickstart_endpoint_config_defaults(&server_config, test_environment_id(0x2002U, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
   CHECK(quickstart_runtime_config_enable_client(&client_config.advanced) == WL_OK);
   CHECK(quickstart_runtime_config_enable_server(&server_config.advanced) == WL_OK);
   client_config.link.ack_timeout_ms = 20U;
@@ -97,7 +97,7 @@ int main(void) {
   }
   CHECK(quickstart_endpoint_add_inspect(&controller, &call, &operation) == WL_RPC_OK);
   CHECK(operation.state == WL_RPC_CLIENT_COMPLETED);
-  CHECK(operation.response_valid && operation.response.sum == 42);
+  CHECK(operation.response_valid && operation.response != NULL && operation.response->sum == 42);
   CHECK(quickstart_endpoint_add_release(&controller, &call) == WL_RPC_OK);
 
   quickstart_endpoint_close(&controller);

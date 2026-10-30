@@ -41,9 +41,13 @@ wl_codec_status_t joint_command_value_encode(const joint_command_value_t *value,
 wl_codec_status_t joint_command_value_decode(const uint8_t *input, size_t length, joint_command_value_t *out);
 
 #define ARM_COMMAND_HAS_VALUE 0
+#define JOINT_COMMAND_CODEC_PROFILE 1U
+#define JOINT_COMMAND_CODEC_FORMAT "schema-v1"
 #define JOINT_COMMAND_MESSAGE_ID 2U
 #define JOINT_COMMAND_HAS_MAX_ENCODED_SIZE 1
 #define JOINT_COMMAND_MAX_ENCODED_SIZE UINT64_C(31)
+#define ARM_COMMAND_CODEC_PROFILE 1U
+#define ARM_COMMAND_CODEC_FORMAT "schema-v1"
 #define ARM_COMMAND_MESSAGE_ID 16U
 #define ARM_COMMAND_HAS_MAX_ENCODED_SIZE 0
 #ifdef __cplusplus

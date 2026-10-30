@@ -8,7 +8,7 @@ int main(void) {
   static calculator_endpoint_t first, second;
   calculator_endpoint_config_t config;
   uint64_t first_id, second_id;
-  CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   CHECK(config.link.session_id == 0U);
   CHECK(calculator_endpoint_init_config(&first, &config) == WL_OK);
   CHECK(calculator_endpoint_init_config(&second, &config) == WL_OK);

@@ -25,8 +25,8 @@ int main(void) {
 
   /* Fixed IDs are only for this isolated simulation. */
   const wl_clock_t clock = {read_clock, NULL};
-  CHECK(temperature_endpoint_init(&device, test_environment_id(1U, clock)) == WL_OK);
-  CHECK(temperature_endpoint_init(&display, test_environment_id(2U, clock)) == WL_OK);
+  CHECK(temperature_endpoint_init(&device, test_environment_id(1U, clock), wl_link_defaults()) == WL_OK);
+  CHECK(temperature_endpoint_init(&display, test_environment_id(2U, clock), wl_link_defaults()) == WL_OK);
   CHECK(wl_loopback_connect(&cable, temperature_endpoint_handle(&device),
                            temperature_endpoint_handle(&display)) == WL_OK);
 

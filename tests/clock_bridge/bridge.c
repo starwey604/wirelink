@@ -57,8 +57,8 @@ void *clock_bridge_create(uint32_t initial_ms, int native_clock) {
   if (!bridge) return NULL;
   bridge->time = initial_ms;
   if (native_clock) bridge->native = clock_bridge_native_clock();
-  if (calculator_endpoint_config_defaults(&client, test_environment_id(1U, (wl_clock_t){0})) != WL_OK ||
-      calculator_endpoint_config_defaults(&server, test_environment_id(2U, (wl_clock_t){0})) != WL_OK) goto failed;
+  if (calculator_endpoint_config_defaults(&client, test_environment_id(1U, (wl_clock_t){0}), wl_link_defaults()) != WL_OK ||
+      calculator_endpoint_config_defaults(&server, test_environment_id(2U, (wl_clock_t){0}), wl_link_defaults()) != WL_OK) goto failed;
   client.environment.clock = server.environment.clock = (wl_clock_t){read_clock, bridge};
   client.link.ack_timeout_ms = server.link.ack_timeout_ms = 50U;
   client.link.max_retries = server.link.max_retries = 2U;

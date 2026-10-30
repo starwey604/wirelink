@@ -46,7 +46,9 @@ static wl_sink_result_t send(void *context, wl_io_token_t token,
   transport_t *tx = context;
   wl_frame_view_t view;
   (void)token;
-  if (wl_frame_decode(data, length, WL_INTEGRITY_CRC32C, &view) != WL_OK)
+  wl_config_t link_config;
+  if (wl_get_config(tx->peer, &link_config) != WL_OK ||
+      wl_frame_decode(data, length, link_config.integrity, &view) != WL_OK)
     return WL_SINK_FAILED;
   if (view.type == WL_PACKET_DATA && view.message_id == RESPONSE_MESSAGE_ID) {
     if (length > sizeof(tx->response)) return WL_SINK_FAILED;
@@ -120,7 +122,7 @@ int P(_run)(void) {
   uint8_t stale[96];
   size_t stale_size;
   unsigned reads;
-  CHECK(P(_endpoint_config_defaults)(&config, environment()) == WL_OK);
+  CHECK(P(_endpoint_config_defaults)(&config, environment(), wl_link_defaults()) == WL_OK);
   config.link.ack_timeout_ms = 20U;
   CHECK(source_reads == 0U); /* defaults do not consume an identity */
   mode = 1;

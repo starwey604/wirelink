@@ -71,6 +71,42 @@ static wl_codec_status_t wlc_getv(const uint8_t *in, size_t length, size_t *at,
   }
   return *at == length ? WL_CODEC_ERR_MALFORMED : WL_CODEC_ERR_OVERFLOW;
 }
+static inline size_t wlc_vsize32(uint32_t value) {
+  size_t size = 1U;
+  while (value >= 128U) { value >>= 7U; ++size; }
+  return size;
+}
+static inline void wlc_putv32(uint8_t **cursor, uint32_t value) {
+  while (value >= 128U) {
+    *(*cursor)++ = (uint8_t)(value | 128U);
+    value >>= 7U;
+  }
+  *(*cursor)++ = (uint8_t)value;
+}
+static wl_codec_status_t wlc_getv32(const uint8_t *input, size_t length,
+                                          size_t *at, uint32_t *out) {
+  /* The 64-bit reader defines status precedence for overwide/noncanonical
+   * inputs. Keep that cold path; canonical uint32 needs only five bytes. */
+  size_t start = *at;
+  uint32_t value = 0U;
+  for (unsigned i = 0U; i != 5U && *at != length; ++i) {
+    uint8_t byte = input[(*at)++];
+    if (i == 4U && byte > 15U) break;
+    value |= (uint32_t)(byte & 127U) << (7U * i);
+    if ((byte & 128U) == 0U) {
+      if (i != 0U && byte == 0U) return WL_CODEC_ERR_MALFORMED;
+      *out = value;
+      return WL_CODEC_OK;
+    }
+  }
+  *at = start;
+  uint64_t wide;
+  wl_codec_status_t status = wlc_getv(input, length, at, &wide);
+  if (status != WL_CODEC_OK) return status;
+  if (wide > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+  *out = (uint32_t)wide;
+  return WL_CODEC_OK;
+}
 static bool wlc_utf8(const uint8_t *s, size_t n) {
   size_t i = 0U;
   while (i < n) {
@@ -101,19 +137,13 @@ static inline uint8_t wlc_wire(const wlc_field_t *f) {
 static inline uint64_t wlc_z32(int32_t v) {
   return ((uint32_t)v << 1U) ^ (uint32_t)-(uint32_t)(v < 0);
 }
-static inline uint64_t wlc_z64(int64_t v) {
-  return ((uint64_t)v << 1U) ^ (uint64_t)-(uint64_t)(v < 0);
-}
 static inline int32_t wlc_uz32(uint32_t v) {
   return (int32_t)((v >> 1U) ^ (uint32_t)-(v & 1U));
 }
-static inline int64_t wlc_uz64(uint64_t v) {
-  return (int64_t)((v >> 1U) ^ (uint64_t)-(v & 1U));
-}
-static wl_codec_status_t wlc_measure(const wlc_desc_t *, const void *, size_t *);
+static inline wl_codec_status_t wlc_measure(const wlc_desc_t *, const void *, size_t *);
 static wl_codec_status_t wlc_measure_impl(const wlc_desc_t *, const void *, size_t *, bool);
 static void wlc_clear(const wlc_desc_t *, void *);
-static wl_codec_status_t wlc_decode(const wlc_desc_t *, const uint8_t *, size_t,
+static inline wl_codec_status_t wlc_decode(const wlc_desc_t *, const uint8_t *, size_t,
                                     void *);
 static wl_codec_status_t wlc_emit_fields(const wlc_desc_t *, const void *,
                                          uint8_t **);
@@ -126,6 +156,8 @@ static wl_codec_status_t wlc_packed_bytes(const wlc_field_t *f, size_t *bytes) {
 }
 static wl_codec_status_t wlc_body(const wlc_field_t *f, const void *p,
                                   size_t *n, bool validated) {
+  (void)p;
+  (void)validated;
   *n = 0U;
   switch (f->kind) {
     case WLC_BOOL: {
@@ -134,19 +166,16 @@ static wl_codec_status_t wlc_body(const wlc_field_t *f, const void *p,
       *n = 1U;
       return WL_CODEC_OK;
     }
-    case WLC_U8: *n = wlc_vsize(*(const uint8_t *)p); return WL_CODEC_OK;
-    case WLC_U16: *n = wlc_vsize(*(const uint16_t *)p); return WL_CODEC_OK;
     case WLC_U32: *n = wlc_vsize(*(const uint32_t *)p); return WL_CODEC_OK;
     case WLC_U64: *n = wlc_vsize(*(const uint64_t *)p); return WL_CODEC_OK;
-    case WLC_I8: *n = wlc_vsize(wlc_z32(*(const int8_t *)p)); return WL_CODEC_OK;
-    case WLC_I16: *n = wlc_vsize(wlc_z32(*(const int16_t *)p)); return WL_CODEC_OK;
     case WLC_I32:
-    case WLC_ENUM: *n = wlc_vsize(wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
-    case WLC_I64: *n = wlc_vsize(wlc_z64(*(const int64_t *)p)); return WL_CODEC_OK;
+    case WLC_ENUM:
+      *n = wlc_vsize(wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
     case WLC_F32:
-    case WLC_FLOAT32: *n = 4U; return WL_CODEC_OK;
+    case WLC_FLOAT32:
+      *n = 4U; return WL_CODEC_OK;
     case WLC_F64:
-    case WLC_FLOAT64: *n = 8U; return WL_CODEC_OK;
+      *n = 8U; return WL_CODEC_OK;
     case WLC_BYTES: {
       const wl_codec_bytes_t *v = p;
       if (f->max_length != 0U && v->length > (size_t)f->max_length)
@@ -222,7 +251,7 @@ static wl_codec_status_t wlc_measure_impl(const wlc_desc_t *d, const void *value
   *out = n;
   return WL_CODEC_OK;
 }
-static wl_codec_status_t wlc_measure(const wlc_desc_t *d, const void *value, size_t *out) {
+static inline wl_codec_status_t wlc_measure(const wlc_desc_t *d, const void *value, size_t *out) {
   return wlc_measure_impl(d, value, out, false);
 }
 static wl_codec_status_t wlc_measure_validated(const wlc_desc_t *d, const void *value, size_t *out) {
@@ -233,6 +262,7 @@ static void wlc_clear(const wlc_desc_t *d, void *value) {
   for (size_t i = 0U; i < d->count; ++i) {
     const wlc_field_t *f = &d->fields[i];
     void *p = base + f->value;
+    (void)p;
     if (f->card == WLC_REPEATED) {
       *(size_t *)(base + f->count) = 0U;
       continue;
@@ -242,32 +272,25 @@ static void wlc_clear(const wlc_desc_t *d, void *value) {
       memset(p, 0, f->element * f->packed_count);
       continue;
     }
-    if (f->kind == WLC_MESSAGE) { wlc_clear(f->nested, p); continue; }
-    if (f->kind == WLC_STRING) {
-      *(wl_codec_string_t *)p =
-          (wl_codec_string_t){f->string_default, (size_t)f->unsigned_default};
-      continue;
+    switch (f->kind) {
+    case WLC_MESSAGE: wlc_clear(f->nested, p); break;
+    case WLC_STRING:
+      *(wl_codec_string_t *)p = (wl_codec_string_t){f->string_default, (size_t)f->unsigned_default}; break;
+    case WLC_BYTES: *(wl_codec_bytes_t *)p = (wl_codec_bytes_t){NULL, 0U}; break;
+    case WLC_FLOAT32:
+      memset(p, 0, f->element); break;
+    case WLC_BOOL: *(bool *)p = f->unsigned_default != 0U; break;
+    case WLC_I32:
+    case WLC_ENUM:
+      *(int32_t *)p = (int32_t)f->signed_default; break;
+    case WLC_U32:
+    case WLC_F32:
+      *(uint32_t *)p = (uint32_t)f->unsigned_default; break;
+    case WLC_U64:
+    case WLC_F64:
+      *(uint64_t *)p = f->unsigned_default; break;
+    default: break;
     }
-    if (f->kind == WLC_BYTES) {
-      *(wl_codec_bytes_t *)p = (wl_codec_bytes_t){NULL, 0U};
-      continue;
-    }
-    if (f->kind == WLC_FLOAT32 || f->kind == WLC_FLOAT64) {
-      memset(p, 0, f->element);
-      continue;
-    }
-    if (f->kind == WLC_BOOL) *(bool *)p = f->unsigned_default != 0U;
-    else if (f->kind == WLC_I8) *(int8_t *)p = (int8_t)f->signed_default;
-    else if (f->kind == WLC_I16) *(int16_t *)p = (int16_t)f->signed_default;
-    else if (f->kind == WLC_I32 || f->kind == WLC_ENUM)
-      *(int32_t *)p = (int32_t)f->signed_default;
-    else if (f->kind == WLC_I64) *(int64_t *)p = f->signed_default;
-    else if (f->kind == WLC_U8) *(uint8_t *)p = (uint8_t)f->unsigned_default;
-    else if (f->kind == WLC_U16) *(uint16_t *)p = (uint16_t)f->unsigned_default;
-    else if (f->kind == WLC_U32 || f->kind == WLC_F32)
-      *(uint32_t *)p = (uint32_t)f->unsigned_default;
-    else if (f->kind == WLC_U64 || f->kind == WLC_F64)
-      *(uint64_t *)p = f->unsigned_default;
   }
 }
 static inline void wlc_put32(uint8_t **p, uint32_t v) {
@@ -290,39 +313,64 @@ static inline void wlc_put_key(uint8_t **out, const wlc_field_t *f) {
     if (f->key_size > 2U) *(*out)++ = f->key[2];
   }
 }
-
+#if JOINT_COMMAND_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if ARM_COMMAND_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if ARM_MIT_COMMAND_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if HOME_REQUEST_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if HOME_RESPONSE_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if BULK_BEGIN_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if BULK_CHUNK_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if BULK_END_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if BULK_ABORT_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
+#if BULK_STATUS_CODEC_PROFILE != 1U
+#error "Codec source/header profile mismatch; regenerate the matched artifacts."
+#endif
 static wl_codec_status_t wlc_emit_fixed(uint8_t kind, const void *value,
                                         uint8_t **out) {
-  if (kind == WLC_F32) wlc_put32(out, *(const uint32_t *)value);
-  else if (kind == WLC_F64) wlc_put64(out, *(const uint64_t *)value);
-  else if (kind == WLC_FLOAT32) {
-    uint32_t bits32;
-    memcpy(&bits32, value, sizeof(bits32));
-    wlc_put32(out, bits32);
-  } else if (kind == WLC_FLOAT64) {
-    uint64_t bits;
-    memcpy(&bits, value, sizeof(bits));
-    wlc_put64(out, bits);
-  } else return WL_CODEC_ERR_INVALID_VALUE;
+  switch (kind) {
+    case WLC_F32: wlc_put32(out, *(const uint32_t *)value); break;
+    case WLC_F64: wlc_put64(out, *(const uint64_t *)value); break;
+    case WLC_FLOAT32: {
+      uint32_t bits32;
+      memcpy(&bits32, value, sizeof(bits32));
+      wlc_put32(out, bits32); break;
+    }
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
   return WL_CODEC_OK;
 }
 static wl_codec_status_t wlc_emit_value(const wlc_field_t *f, const void *p,
                                         uint8_t **out) {
+  (void)p; (void)out;
   switch (f->kind) {
     case WLC_BOOL: wlc_putv(out, *(const bool *)p); return WL_CODEC_OK;
-    case WLC_U8: wlc_putv(out, *(const uint8_t *)p); return WL_CODEC_OK;
-    case WLC_U16: wlc_putv(out, *(const uint16_t *)p); return WL_CODEC_OK;
     case WLC_U32: wlc_putv(out, *(const uint32_t *)p); return WL_CODEC_OK;
     case WLC_U64: wlc_putv(out, *(const uint64_t *)p); return WL_CODEC_OK;
-    case WLC_I8: wlc_putv(out, wlc_z32(*(const int8_t *)p)); return WL_CODEC_OK;
-    case WLC_I16: wlc_putv(out, wlc_z32(*(const int16_t *)p)); return WL_CODEC_OK;
     case WLC_I32:
-    case WLC_ENUM: wlc_putv(out, wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
-    case WLC_I64: wlc_putv(out, wlc_z64(*(const int64_t *)p)); return WL_CODEC_OK;
+    case WLC_ENUM:
+      wlc_putv(out, wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
     case WLC_F32:
     case WLC_F64:
     case WLC_FLOAT32:
-    case WLC_FLOAT64: return wlc_emit_fixed(f->kind, p, out);
+      return wlc_emit_fixed(f->kind, p, out);
     case WLC_BYTES: {
       const wl_codec_bytes_t *v = p;
       wlc_putv(out, v->length);
@@ -357,18 +405,19 @@ static wl_codec_status_t wlc_emit_packed(const wlc_field_t *f, const void *p,
       memcpy(&bits, (const uint8_t *)p + j * f->element, sizeof(bits));
       wlc_put32(out, bits);
     }
-  } else if (f->kind == WLC_F64 || f->kind == WLC_FLOAT64) {
+    return WL_CODEC_OK;
+  }
+  if (f->kind == WLC_F64 || f->kind == WLC_FLOAT64) {
     for (size_t j = 0U; j < f->packed_count; ++j) {
       uint64_t bits;
       memcpy(&bits, (const uint8_t *)p + j * f->element, sizeof(bits));
       wlc_put64(out, bits);
     }
-  } else {
-    return WL_CODEC_ERR_INVALID_VALUE;
+    return WL_CODEC_OK;
   }
-  return WL_CODEC_OK;
+  return WL_CODEC_ERR_INVALID_VALUE;
 }
-static wl_codec_status_t wlc_emit_fields(const wlc_desc_t *d, const void *value,
+static inline wl_codec_status_t wlc_emit_fields(const wlc_desc_t *d, const void *value,
                                          uint8_t **out) {
   for (size_t i = 0U; i < d->count; ++i) {
     const wlc_field_t *f = &d->fields[i];
@@ -434,68 +483,72 @@ static wl_codec_status_t wlc_read_fixed(uint8_t kind, const uint8_t *in,
   if (n - *at < bytes) return WL_CODEC_ERR_MALFORMED;
   uint64_t bits = 0U;
   for (size_t i = 0U; i < bytes; ++i) bits = (bits << 8U) | in[(*at)++];
-  if (kind == WLC_F32) *(uint32_t *)out = (uint32_t)bits;
-  else if (kind == WLC_F64) *(uint64_t *)out = bits;
-  else if (kind == WLC_FLOAT32) {
-    uint32_t bits32 = (uint32_t)bits;
-    memcpy(out, &bits32, sizeof(bits32));
-  } else if (kind == WLC_FLOAT64) memcpy(out, &bits, sizeof(bits));
-  else return WL_CODEC_ERR_INVALID_VALUE;
+  switch (kind) {
+    case WLC_F32: *(uint32_t *)out = (uint32_t)bits; break;
+    case WLC_F64: *(uint64_t *)out = bits; break;
+    case WLC_FLOAT32: {
+      uint32_t bits32 = (uint32_t)bits;
+      memcpy(out, &bits32, sizeof(bits32)); break;
+    }
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
   return WL_CODEC_OK;
 }
 static wl_codec_status_t wlc_read_value(const wlc_field_t *f, const uint8_t *in,
                                         size_t n, size_t *at, void *out) {
-  uint64_t v;
-  wl_codec_status_t s;
-  if (f->kind == WLC_F32 || f->kind == WLC_F64 ||
-      f->kind == WLC_FLOAT32 || f->kind == WLC_FLOAT64)
-    return wlc_read_fixed(f->kind, in, n, at, out);
-  if (f->kind == WLC_BYTES || f->kind == WLC_STRING || f->kind == WLC_MESSAGE) {
-    if ((s = wlc_getv(in, n, at, &v)) != WL_CODEC_OK) return s;
-    if ((f->kind == WLC_BYTES || f->kind == WLC_STRING) &&
-        f->max_length != 0U && v > (uint64_t)f->max_length)
-      return WL_CODEC_ERR_INVALID_VALUE;
-    if (v > n - *at) return WL_CODEC_ERR_MALFORMED;
-    size_t bytes = (size_t)v;
-    if (f->kind == WLC_BYTES)
-      *(wl_codec_bytes_t *)out = (wl_codec_bytes_t){in + *at, bytes};
-    else if (f->kind == WLC_STRING) {
-      if (!wlc_utf8(in + *at, bytes)) return WL_CODEC_ERR_UTF8;
-      *(wl_codec_string_t *)out =
-          (wl_codec_string_t){(const char *)(in + *at), bytes};
-    } else {
-      s = wlc_decode(f->nested, in + *at, bytes, out);
+  (void)in; (void)n; (void)at; (void)out;
+  switch (f->kind) {
+    case WLC_F32:
+    case WLC_F64:
+    case WLC_FLOAT32:
+      return wlc_read_fixed(f->kind, in, n, at, out);
+    case WLC_BYTES:
+    case WLC_STRING:
+    case WLC_MESSAGE:
+      {
+      uint64_t v;
+      wl_codec_status_t s = wlc_getv(in, n, at, &v);
       if (s != WL_CODEC_OK) return s;
+      if ((f->kind == WLC_BYTES || f->kind == WLC_STRING) &&
+          f->max_length != 0U && v > (uint64_t)f->max_length)
+        return WL_CODEC_ERR_INVALID_VALUE;
+      if (v > n - *at) return WL_CODEC_ERR_MALFORMED;
+      size_t bytes = (size_t)v;
+      if (f->kind == WLC_BYTES)
+        *(wl_codec_bytes_t *)out = (wl_codec_bytes_t){in + *at, bytes};
+      if (f->kind == WLC_STRING) {
+        if (!wlc_utf8(in + *at, bytes)) return WL_CODEC_ERR_UTF8;
+        *(wl_codec_string_t *)out = (wl_codec_string_t){(const char *)(in + *at), bytes};
+      }
+      if (f->kind == WLC_MESSAGE) {
+        s = wlc_decode(f->nested, in + *at, bytes, out);
+        if (s != WL_CODEC_OK) return s;
+      }
+      *at += bytes;
+      return WL_CODEC_OK;
     }
-    *at += bytes;
-    return WL_CODEC_OK;
+    default: break;
   }
-  if ((s = wlc_getv(in, n, at, &v)) != WL_CODEC_OK) return s;
-  if (f->kind == WLC_BOOL) {
-    if (v > 1U) return WL_CODEC_ERR_INVALID_VALUE;
-    *(bool *)out = v != 0U;
-  } else if (f->kind == WLC_U8) {
-    if (v > UINT8_MAX) return WL_CODEC_ERR_OVERFLOW;
-    *(uint8_t *)out = (uint8_t)v;
-  } else if (f->kind == WLC_U16) {
-    if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
-    *(uint16_t *)out = (uint16_t)v;
-  } else if (f->kind == WLC_U32) {
-    if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-    *(uint32_t *)out = (uint32_t)v;
-  } else if (f->kind == WLC_U64) *(uint64_t *)out = v;
-  else if (f->kind == WLC_I8) {
-    if (v > UINT8_MAX) return WL_CODEC_ERR_OVERFLOW;
-    *(int8_t *)out = (int8_t)wlc_uz32((uint32_t)v);
-  } else if (f->kind == WLC_I16) {
-    if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
-    *(int16_t *)out = (int16_t)wlc_uz32((uint32_t)v);
-  } else if (f->kind == WLC_I32 || f->kind == WLC_ENUM) {
-    if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-    *(int32_t *)out = wlc_uz32((uint32_t)v);
-  } else if (f->kind == WLC_I64) *(int64_t *)out = wlc_uz64(v);
-  else return WL_CODEC_ERR_INVALID_VALUE;
+  uint64_t v;
+  wl_codec_status_t s = wlc_getv(in, n, at, &v);
+  if (s != WL_CODEC_OK) return s;
+  switch (f->kind) {
+    case WLC_BOOL:
+      if (v > 1U) return WL_CODEC_ERR_INVALID_VALUE;
+      *(bool *)out = v != 0U; break;
+    case WLC_U32:
+      if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+      *(uint32_t *)out = (uint32_t)v; break;
+    case WLC_U64: *(uint64_t *)out = v; break;
+    case WLC_I32:
+    case WLC_ENUM:
+
+      if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+      *(int32_t *)out = wlc_uz32((uint32_t)v); break;
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
   return WL_CODEC_OK;
+  return WL_CODEC_ERR_INVALID_VALUE;
 }
 static wl_codec_status_t wlc_read_packed(const wlc_field_t *f,
                                          const uint8_t *in, size_t n,
@@ -516,16 +569,17 @@ static wl_codec_status_t wlc_read_packed(const wlc_field_t *f,
       memcpy((uint8_t *)out + j * f->element, &bits, sizeof(bits));
       *at += 4U;
     }
-  } else if (f->kind == WLC_F64 || f->kind == WLC_FLOAT64) {
+    return WL_CODEC_OK;
+  }
+  if (f->kind == WLC_F64 || f->kind == WLC_FLOAT64) {
     for (size_t j = 0U; j < f->packed_count; ++j) {
       uint64_t bits = 0U;
       for (size_t i = 0U; i < 8U; ++i) bits = (bits << 8U) | in[(*at)++];
       memcpy((uint8_t *)out + j * f->element, &bits, sizeof(bits));
     }
-  } else {
-    return WL_CODEC_ERR_INVALID_VALUE;
+    return WL_CODEC_OK;
   }
-  return WL_CODEC_OK;
+  return WL_CODEC_ERR_INVALID_VALUE;
 }
 static const wlc_field_t *wlc_find_field(const wlc_desc_t *d, uint16_t number) {
   if (d->lookup == WLC_LOOKUP_DENSE) {
@@ -547,7 +601,7 @@ static const wlc_field_t *wlc_find_field(const wlc_desc_t *d, uint16_t number) {
     if (d->fields[i].number == number) return &d->fields[i];
   return NULL;
 }
-static wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *in,
+static inline wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *in,
                                     size_t n, void *out) {
   if (d == NULL || out == NULL || (n != 0U && in == NULL))
     return WL_CODEC_ERR_INVALID_VALUE;
@@ -582,11 +636,11 @@ static wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *in,
       *(bool *)(base + f->has) = true;
       continue;
     }
-    void *p;
+    void *p = base + f->value;
     if (f->card == WLC_OPTIONAL) {
       if (*(bool *)(base + f->has)) return WL_CODEC_ERR_DUPLICATE_FIELD;
-      p = base + f->value;
-    } else {
+    }
+    else {
       size_t count = *(size_t *)(base + f->count);
       if (count >= *(size_t *)(base + f->capacity)) return WL_CODEC_ERR_CAPACITY;
       void *storage = *(void **)(base + f->value);
@@ -612,8 +666,8 @@ typedef struct {
   size_t length;
   wl_codec_status_t status;
 } wlc_hash_state_t;
-static wl_codec_status_t wlc_hash_emit_fields(const wlc_desc_t *, const void *, wlc_hash_state_t *);
-static inline void wlc_hash_copy_span(wlc_hash_state_t *out, const void *data, size_t length) {
+static inline wl_codec_status_t wlc_hash_emit_fields(const wlc_desc_t *, const void *, wlc_hash_state_t *);
+static void wlc_hash_copy_span(wlc_hash_state_t *out, const void *data, size_t length) {
   const uint8_t *bytes = data;
   if (out->status != WL_CODEC_OK) return;
   out->status = wlc_add(&out->length, length);
@@ -626,6 +680,11 @@ static inline void wlc_hash_copy_span(wlc_hash_state_t *out, const void *data, s
 static inline void wlc_hash_putv(wlc_hash_state_t *out, uint64_t value) {
   uint8_t bytes[10], *cursor = bytes;
   wlc_putv(&cursor, value);
+  wlc_hash_copy_span(out, bytes, (size_t)(cursor - bytes));
+}
+static inline void wlc_hash_putv32(wlc_hash_state_t *out, uint32_t value) {
+  uint8_t bytes[5], *cursor = bytes;
+  wlc_putv32(&cursor, value);
   wlc_hash_copy_span(out, bytes, (size_t)(cursor - bytes));
 }
 static inline void wlc_hash_put_key(wlc_hash_state_t *out, const wlc_field_t *f) {
@@ -641,39 +700,34 @@ static inline void wlc_hash_put64(wlc_hash_state_t *out, uint64_t value) {
   wlc_put64(&cursor, value);
   wlc_hash_copy_span(out, bytes, sizeof(bytes));
 }
-
 static wl_codec_status_t wlc_hash_emit_fixed(uint8_t kind, const void *value,
                                         wlc_hash_state_t *out) {
-  if (kind == WLC_F32) wlc_hash_put32(out, *(const uint32_t *)value);
-  else if (kind == WLC_F64) wlc_hash_put64(out, *(const uint64_t *)value);
-  else if (kind == WLC_FLOAT32) {
-    uint32_t bits32;
-    memcpy(&bits32, value, sizeof(bits32));
-    wlc_hash_put32(out, bits32);
-  } else if (kind == WLC_FLOAT64) {
-    uint64_t bits;
-    memcpy(&bits, value, sizeof(bits));
-    wlc_hash_put64(out, bits);
-  } else return WL_CODEC_ERR_INVALID_VALUE;
+  switch (kind) {
+    case WLC_F32: wlc_hash_put32(out, *(const uint32_t *)value); break;
+    case WLC_F64: wlc_hash_put64(out, *(const uint64_t *)value); break;
+    case WLC_FLOAT32: {
+      uint32_t bits32;
+      memcpy(&bits32, value, sizeof(bits32));
+      wlc_hash_put32(out, bits32); break;
+    }
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
   return WL_CODEC_OK;
 }
 static wl_codec_status_t wlc_hash_emit_value(const wlc_field_t *f, const void *p,
                                         wlc_hash_state_t *out) {
+  (void)p; (void)out;
   switch (f->kind) {
     case WLC_BOOL: wlc_hash_putv(out, *(const bool *)p); return WL_CODEC_OK;
-    case WLC_U8: wlc_hash_putv(out, *(const uint8_t *)p); return WL_CODEC_OK;
-    case WLC_U16: wlc_hash_putv(out, *(const uint16_t *)p); return WL_CODEC_OK;
     case WLC_U32: wlc_hash_putv(out, *(const uint32_t *)p); return WL_CODEC_OK;
     case WLC_U64: wlc_hash_putv(out, *(const uint64_t *)p); return WL_CODEC_OK;
-    case WLC_I8: wlc_hash_putv(out, wlc_z32(*(const int8_t *)p)); return WL_CODEC_OK;
-    case WLC_I16: wlc_hash_putv(out, wlc_z32(*(const int16_t *)p)); return WL_CODEC_OK;
     case WLC_I32:
-    case WLC_ENUM: wlc_hash_putv(out, wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
-    case WLC_I64: wlc_hash_putv(out, wlc_z64(*(const int64_t *)p)); return WL_CODEC_OK;
+    case WLC_ENUM:
+      wlc_hash_putv(out, wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
     case WLC_F32:
     case WLC_F64:
     case WLC_FLOAT32:
-    case WLC_FLOAT64: return wlc_hash_emit_fixed(f->kind, p, out);
+      return wlc_hash_emit_fixed(f->kind, p, out);
     case WLC_BYTES: {
       const wl_codec_bytes_t *v = p;
       wlc_hash_putv(out, v->length);
@@ -708,18 +762,19 @@ static wl_codec_status_t wlc_hash_emit_packed(const wlc_field_t *f, const void *
       memcpy(&bits, (const uint8_t *)p + j * f->element, sizeof(bits));
       wlc_hash_put32(out, bits);
     }
-  } else if (f->kind == WLC_F64 || f->kind == WLC_FLOAT64) {
+    return WL_CODEC_OK;
+  }
+  if (f->kind == WLC_F64 || f->kind == WLC_FLOAT64) {
     for (size_t j = 0U; j < f->packed_count; ++j) {
       uint64_t bits;
       memcpy(&bits, (const uint8_t *)p + j * f->element, sizeof(bits));
       wlc_hash_put64(out, bits);
     }
-  } else {
-    return WL_CODEC_ERR_INVALID_VALUE;
+    return WL_CODEC_OK;
   }
-  return WL_CODEC_OK;
+  return WL_CODEC_ERR_INVALID_VALUE;
 }
-static wl_codec_status_t wlc_hash_emit_fields(const wlc_desc_t *d, const void *value,
+static inline wl_codec_status_t wlc_hash_emit_fields(const wlc_desc_t *d, const void *value,
                                          wlc_hash_state_t *out) {
   for (size_t i = 0U; i < d->count; ++i) {
     const wlc_field_t *f = &d->fields[i];
@@ -831,6 +886,7 @@ static const wlc_field_t bulk_status_fields[] = {
 };
 static const wlc_desc_t bulk_status_desc = { bulk_status_fields, sizeof(bulk_status_fields) / sizeof(bulk_status_fields[0]), WLC_LOOKUP_LINEAR };
 
+static inline wl_codec_status_t joint_command_wlc_detail_measure(const joint_command_t *value, size_t *size) { return wlc_measure(&joint_command_desc, value, size); }
 void joint_command_clear(joint_command_t *value) { if (value != NULL) wlc_clear(&joint_command_desc, value); }
 size_t joint_command_encoded_size(const joint_command_t *value) { size_t size; return wlc_measure(&joint_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t joint_command_encode(const joint_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&joint_command_desc, value, out, cap, length); }
@@ -848,6 +904,7 @@ wl_codec_status_t joint_command_wlc_detail_fingerprint(const joint_command_t *va
   return WL_CODEC_OK;
 }
 
+static inline wl_codec_status_t arm_command_wlc_detail_measure(const arm_command_t *value, size_t *size) { return wlc_measure(&arm_command_desc, value, size); }
 void arm_command_clear(arm_command_t *value) { if (value != NULL) wlc_clear(&arm_command_desc, value); }
 size_t arm_command_encoded_size(const arm_command_t *value) { size_t size; return wlc_measure(&arm_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t arm_command_encode(const arm_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&arm_command_desc, value, out, cap, length); }
@@ -865,6 +922,7 @@ wl_codec_status_t arm_command_wlc_detail_fingerprint(const arm_command_t *value,
   return WL_CODEC_OK;
 }
 
+static inline wl_codec_status_t arm_mit_command_wlc_detail_measure(const arm_mit_command_t *value, size_t *size) { return wlc_measure(&arm_mit_command_desc, value, size); }
 void arm_mit_command_clear(arm_mit_command_t *value) { if (value != NULL) wlc_clear(&arm_mit_command_desc, value); }
 size_t arm_mit_command_encoded_size(const arm_mit_command_t *value) { size_t size; return wlc_measure(&arm_mit_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t arm_mit_command_encode(const arm_mit_command_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&arm_mit_command_desc, value, out, cap, length); }
@@ -882,23 +940,124 @@ wl_codec_status_t arm_mit_command_wlc_detail_fingerprint(const arm_mit_command_t
   return WL_CODEC_OK;
 }
 
-void home_request_clear(home_request_t *value) { if (value != NULL) wlc_clear(&home_request_desc, value); }
-size_t home_request_encoded_size(const home_request_t *value) { size_t size; return wlc_measure(&home_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t home_request_encode(const home_request_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&home_request_desc, value, out, cap, length); }
-wl_codec_status_t home_request_decode(const uint8_t *input, size_t length, home_request_t *out) { return wlc_decode(&home_request_desc, input, length, out); }
+/* Schema-specialized scalars; ordinary Schema-v1 TLV bytes. */
+static inline wl_codec_status_t wlc_scalar_shape_0_wlc_detail_measure(const void *value, size_t *size) {
+  if (value == NULL || size == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  *size = ((*(const bool *)((const uint8_t *)value + offsetof(home_request_t, has_operation_id))) ? (1U + wlc_vsize32((*(const uint32_t *)((const uint8_t *)value + offsetof(home_request_t, operation_id))))) : 0U) + ((*(const bool *)((const uint8_t *)value + offsetof(home_request_t, has_joint_mask))) ? (1U + wlc_vsize32((*(const uint32_t *)((const uint8_t *)value + offsetof(home_request_t, joint_mask))))) : 0U);
+  return WL_CODEC_OK;
+}
 
-/* Generator-private: value must be the unmodified result of successful decode.
- * hash supplies the caller domain seed; codec has no RPC identity policy. */
-wl_codec_status_t home_request_wlc_detail_fingerprint(const home_request_t *value, uint64_t *hash, size_t *length) {
-  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
-  wl_codec_status_t status = wlc_hash_emit_fields(&home_request_desc, value, &state);
+static void wlc_scalar_shape_0_clear(void *value) {
+  if (value == NULL) return;
+  (*(bool *)((uint8_t *)value + offsetof(home_request_t, has_operation_id))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(home_request_t, operation_id))) = UINT32_C(0);
+  (*(bool *)((uint8_t *)value + offsetof(home_request_t, has_joint_mask))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(home_request_t, joint_mask))) = UINT32_C(0);
+}
+
+static size_t wlc_scalar_shape_0_encoded_size(const void *value) {
+  size_t size;
+  return wlc_scalar_shape_0_wlc_detail_measure(value, &size) == WL_CODEC_OK ? size : SIZE_MAX;
+}
+
+static wl_codec_status_t wlc_scalar_shape_0_encode(const void *value, uint8_t *out, size_t capacity, size_t *length) {
+  size_t size;
+  wl_codec_status_t status = wlc_scalar_shape_0_wlc_detail_measure(value, &size);
   if (status != WL_CODEC_OK) return status;
-  if (state.status != WL_CODEC_OK) return state.status;
+  if (length == NULL || (size != 0U && out == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  if (capacity < size) return WL_CODEC_ERR_CAPACITY;
+  uint8_t *cursor = out;
+  if ((*(const bool *)((const uint8_t *)value + offsetof(home_request_t, has_operation_id)))) {
+    *cursor++ = 8U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(home_request_t, operation_id)));
+    wlc_putv32(&cursor, bits);
+  }
+  if ((*(const bool *)((const uint8_t *)value + offsetof(home_request_t, has_joint_mask)))) {
+    *cursor++ = 16U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(home_request_t, joint_mask)));
+    wlc_putv32(&cursor, bits);
+  }
+  *length = size;
+  return WL_CODEC_OK;
+}
+
+static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t length, void *out) {
+  if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  wlc_scalar_shape_0_clear(out);
+  for (size_t at = 0U; at < length;) {
+    uint32_t key;
+    wl_codec_status_t status;
+    if (input[at] < 128U) key = input[at++];
+    else {
+      uint64_t wide;
+      status = wlc_getv(input, length, &at, &wide);
+      if (status != WL_CODEC_OK) return status;
+      if (wide > UINT32_C(0x7ffff)) return WL_CODEC_ERR_MALFORMED;
+      key = (uint32_t)wide;
+    }
+    uint32_t number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (number == 0U || number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    switch ((uint16_t)number) {
+      case 1U: {
+        if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(home_request_t, has_operation_id)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        uint32_t bits;
+        status = wlc_getv32(input, length, &at, &bits);
+        if (status != WL_CODEC_OK) return status;
+        (*(uint32_t *)((uint8_t *)out + offsetof(home_request_t, operation_id))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(home_request_t, has_operation_id))) = true;
+        break;
+      }
+      case 2U: {
+        if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(home_request_t, has_joint_mask)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        uint32_t bits;
+        status = wlc_getv32(input, length, &at, &bits);
+        if (status != WL_CODEC_OK) return status;
+        (*(uint32_t *)((uint8_t *)out + offsetof(home_request_t, joint_mask))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(home_request_t, has_joint_mask))) = true;
+        break;
+      }
+      default:
+        status = wlc_skip(wire, input, length, &at);
+        if (status != WL_CODEC_OK) return status;
+        break;
+    }
+  }
+  return WL_CODEC_OK;
+}
+
+/* Generator-private: unmodified successful decode, caller supplies domain seed.
+ * Reuse the direct encoder, then one byte loop; no per-field FNV expansion. */
+static wl_codec_status_t wlc_scalar_shape_0_wlc_detail_fingerprint(const void *value, uint64_t *hash, size_t *length) {
+  uint8_t bytes[12];
+  size_t size;
+  wl_codec_status_t status = wlc_scalar_shape_0_encode(value, bytes, sizeof(bytes), &size);
+  if (status != WL_CODEC_OK) return status;
+  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
+  wlc_hash_copy_span(&state, bytes, size);
   *hash = state.hash;
   *length = state.length;
   return WL_CODEC_OK;
 }
 
+static inline wl_codec_status_t home_request_wlc_detail_measure(const home_request_t *value, size_t *size) {
+  (void)home_request_desc;
+  return wlc_scalar_shape_0_wlc_detail_measure(value, size);
+}
+void home_request_clear(home_request_t *value) { wlc_scalar_shape_0_clear(value); }
+size_t home_request_encoded_size(const home_request_t *value) { return wlc_scalar_shape_0_encoded_size(value); }
+wl_codec_status_t home_request_encode(const home_request_t *value, uint8_t *out, size_t capacity, size_t *length) { return wlc_scalar_shape_0_encode(value, out, capacity, length); }
+wl_codec_status_t home_request_decode(const uint8_t *input, size_t length, home_request_t *out) { return wlc_scalar_shape_0_decode(input, length, out); }
+
+wl_codec_status_t home_request_wlc_detail_fingerprint(const home_request_t *value, uint64_t *hash, size_t *length) { return wlc_scalar_shape_0_wlc_detail_fingerprint(value, hash, length); }
+static inline wl_codec_status_t home_request_wlc_detail_decode_fields(const uint8_t *input, size_t length, void *out) { return wlc_scalar_shape_0_decode(input, length, out); }
+static inline size_t home_request_wlc_detail_encoded_size_fields(const void *value) { return wlc_scalar_shape_0_encoded_size(value); }
+static inline wl_codec_status_t home_request_wlc_detail_encode_fields(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wlc_scalar_shape_0_encode(value, out, capacity, length); }
+static inline wl_codec_status_t home_response_wlc_detail_measure(const home_response_t *value, size_t *size) { return wlc_measure(&home_response_desc, value, size); }
 void home_response_clear(home_response_t *value) { if (value != NULL) wlc_clear(&home_response_desc, value); }
 size_t home_response_encoded_size(const home_response_t *value) { size_t size; return wlc_measure(&home_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t home_response_encode(const home_response_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&home_response_desc, value, out, cap, length); }
@@ -916,23 +1075,158 @@ wl_codec_status_t home_response_wlc_detail_fingerprint(const home_response_t *va
   return WL_CODEC_OK;
 }
 
-void bulk_begin_clear(bulk_begin_t *value) { if (value != NULL) wlc_clear(&bulk_begin_desc, value); }
-size_t bulk_begin_encoded_size(const bulk_begin_t *value) { size_t size; return wlc_measure(&bulk_begin_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t bulk_begin_encode(const bulk_begin_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_begin_desc, value, out, cap, length); }
-wl_codec_status_t bulk_begin_decode(const uint8_t *input, size_t length, bulk_begin_t *out) { return wlc_decode(&bulk_begin_desc, input, length, out); }
+/* Schema-specialized scalars; ordinary Schema-v1 TLV bytes. */
+static inline wl_codec_status_t wlc_scalar_shape_1_wlc_detail_measure(const void *value, size_t *size) {
+  if (value == NULL || size == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  *size = ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_transfer_id))) ? 5U : 0U) + ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_total_length))) ? 9U : 0U) + ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_requested_chunk_size))) ? 5U : 0U) + ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_object_crc32c))) ? 5U : 0U);
+  return WL_CODEC_OK;
+}
 
-/* Generator-private: value must be the unmodified result of successful decode.
- * hash supplies the caller domain seed; codec has no RPC identity policy. */
-wl_codec_status_t bulk_begin_wlc_detail_fingerprint(const bulk_begin_t *value, uint64_t *hash, size_t *length) {
-  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
-  wl_codec_status_t status = wlc_hash_emit_fields(&bulk_begin_desc, value, &state);
+static void wlc_scalar_shape_1_clear(void *value) {
+  if (value == NULL) return;
+  (*(bool *)((uint8_t *)value + offsetof(bulk_begin_t, has_transfer_id))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(bulk_begin_t, transfer_id))) = UINT32_C(0);
+  (*(bool *)((uint8_t *)value + offsetof(bulk_begin_t, has_total_length))) = false;
+  (*(uint64_t *)((uint8_t *)value + offsetof(bulk_begin_t, total_length))) = UINT64_C(0);
+  (*(bool *)((uint8_t *)value + offsetof(bulk_begin_t, has_requested_chunk_size))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(bulk_begin_t, requested_chunk_size))) = UINT32_C(0);
+  (*(bool *)((uint8_t *)value + offsetof(bulk_begin_t, has_object_crc32c))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(bulk_begin_t, object_crc32c))) = UINT32_C(0);
+}
+
+static size_t wlc_scalar_shape_1_encoded_size(const void *value) {
+  size_t size;
+  return wlc_scalar_shape_1_wlc_detail_measure(value, &size) == WL_CODEC_OK ? size : SIZE_MAX;
+}
+
+static wl_codec_status_t wlc_scalar_shape_1_encode(const void *value, uint8_t *out, size_t capacity, size_t *length) {
+  size_t size;
+  wl_codec_status_t status = wlc_scalar_shape_1_wlc_detail_measure(value, &size);
   if (status != WL_CODEC_OK) return status;
-  if (state.status != WL_CODEC_OK) return state.status;
+  if (length == NULL || (size != 0U && out == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  if (capacity < size) return WL_CODEC_ERR_CAPACITY;
+  uint8_t *cursor = out;
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_transfer_id)))) {
+    *cursor++ = 13U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(bulk_begin_t, transfer_id)));
+    wlc_put32(&cursor, bits);
+  }
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_total_length)))) {
+    *cursor++ = 17U;
+    uint64_t bits = (*(const uint64_t *)((const uint8_t *)value + offsetof(bulk_begin_t, total_length)));
+    wlc_put64(&cursor, bits);
+  }
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_requested_chunk_size)))) {
+    *cursor++ = 29U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(bulk_begin_t, requested_chunk_size)));
+    wlc_put32(&cursor, bits);
+  }
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_begin_t, has_object_crc32c)))) {
+    *cursor++ = 37U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(bulk_begin_t, object_crc32c)));
+    wlc_put32(&cursor, bits);
+  }
+  *length = size;
+  return WL_CODEC_OK;
+}
+
+static wl_codec_status_t wlc_scalar_shape_1_decode(const uint8_t *input, size_t length, void *out) {
+  if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  wlc_scalar_shape_1_clear(out);
+  for (size_t at = 0U; at < length;) {
+    uint32_t key;
+    wl_codec_status_t status;
+    if (input[at] < 128U) key = input[at++];
+    else {
+      uint64_t wide;
+      status = wlc_getv(input, length, &at, &wide);
+      if (status != WL_CODEC_OK) return status;
+      if (wide > UINT32_C(0x7ffff)) return WL_CODEC_ERR_MALFORMED;
+      key = (uint32_t)wide;
+    }
+    uint32_t number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (number == 0U || number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    switch ((uint16_t)number) {
+      case 1U: {
+        if (wire != 5U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_transfer_id)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 4U) return WL_CODEC_ERR_MALFORMED;
+        uint32_t bits = ((uint32_t)input[at + 0U] << 24U) | ((uint32_t)input[at + 1U] << 16U) | ((uint32_t)input[at + 2U] << 8U) | ((uint32_t)input[at + 3U] << 0U);
+        (*(uint32_t *)((uint8_t *)out + offsetof(bulk_begin_t, transfer_id))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_transfer_id))) = true;
+        at += 4U;
+        break;
+      }
+      case 2U: {
+        if (wire != 1U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_total_length)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 8U) return WL_CODEC_ERR_MALFORMED;
+        uint64_t bits = ((uint64_t)input[at + 0U] << 56U) | ((uint64_t)input[at + 1U] << 48U) | ((uint64_t)input[at + 2U] << 40U) | ((uint64_t)input[at + 3U] << 32U) | ((uint64_t)input[at + 4U] << 24U) | ((uint64_t)input[at + 5U] << 16U) | ((uint64_t)input[at + 6U] << 8U) | ((uint64_t)input[at + 7U] << 0U);
+        (*(uint64_t *)((uint8_t *)out + offsetof(bulk_begin_t, total_length))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_total_length))) = true;
+        at += 8U;
+        break;
+      }
+      case 3U: {
+        if (wire != 5U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_requested_chunk_size)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 4U) return WL_CODEC_ERR_MALFORMED;
+        uint32_t bits = ((uint32_t)input[at + 0U] << 24U) | ((uint32_t)input[at + 1U] << 16U) | ((uint32_t)input[at + 2U] << 8U) | ((uint32_t)input[at + 3U] << 0U);
+        (*(uint32_t *)((uint8_t *)out + offsetof(bulk_begin_t, requested_chunk_size))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_requested_chunk_size))) = true;
+        at += 4U;
+        break;
+      }
+      case 4U: {
+        if (wire != 5U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_object_crc32c)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 4U) return WL_CODEC_ERR_MALFORMED;
+        uint32_t bits = ((uint32_t)input[at + 0U] << 24U) | ((uint32_t)input[at + 1U] << 16U) | ((uint32_t)input[at + 2U] << 8U) | ((uint32_t)input[at + 3U] << 0U);
+        (*(uint32_t *)((uint8_t *)out + offsetof(bulk_begin_t, object_crc32c))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_begin_t, has_object_crc32c))) = true;
+        at += 4U;
+        break;
+      }
+      default:
+        status = wlc_skip(wire, input, length, &at);
+        if (status != WL_CODEC_OK) return status;
+        break;
+    }
+  }
+  return WL_CODEC_OK;
+}
+
+/* Generator-private: unmodified successful decode, caller supplies domain seed.
+ * Reuse the direct encoder, then one byte loop; no per-field FNV expansion. */
+static wl_codec_status_t wlc_scalar_shape_1_wlc_detail_fingerprint(const void *value, uint64_t *hash, size_t *length) {
+  uint8_t bytes[24];
+  size_t size;
+  wl_codec_status_t status = wlc_scalar_shape_1_encode(value, bytes, sizeof(bytes), &size);
+  if (status != WL_CODEC_OK) return status;
+  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
+  wlc_hash_copy_span(&state, bytes, size);
   *hash = state.hash;
   *length = state.length;
   return WL_CODEC_OK;
 }
 
+static inline wl_codec_status_t bulk_begin_wlc_detail_measure(const bulk_begin_t *value, size_t *size) {
+  (void)bulk_begin_desc;
+  return wlc_scalar_shape_1_wlc_detail_measure(value, size);
+}
+void bulk_begin_clear(bulk_begin_t *value) { wlc_scalar_shape_1_clear(value); }
+size_t bulk_begin_encoded_size(const bulk_begin_t *value) { return wlc_scalar_shape_1_encoded_size(value); }
+wl_codec_status_t bulk_begin_encode(const bulk_begin_t *value, uint8_t *out, size_t capacity, size_t *length) { return wlc_scalar_shape_1_encode(value, out, capacity, length); }
+wl_codec_status_t bulk_begin_decode(const uint8_t *input, size_t length, bulk_begin_t *out) { return wlc_scalar_shape_1_decode(input, length, out); }
+
+wl_codec_status_t bulk_begin_wlc_detail_fingerprint(const bulk_begin_t *value, uint64_t *hash, size_t *length) { return wlc_scalar_shape_1_wlc_detail_fingerprint(value, hash, length); }
+static inline wl_codec_status_t bulk_begin_wlc_detail_decode_fields(const uint8_t *input, size_t length, void *out) { return wlc_scalar_shape_1_decode(input, length, out); }
+static inline size_t bulk_begin_wlc_detail_encoded_size_fields(const void *value) { return wlc_scalar_shape_1_encoded_size(value); }
+static inline wl_codec_status_t bulk_begin_wlc_detail_encode_fields(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wlc_scalar_shape_1_encode(value, out, capacity, length); }
+static inline wl_codec_status_t bulk_chunk_wlc_detail_measure(const bulk_chunk_t *value, size_t *size) { return wlc_measure(&bulk_chunk_desc, value, size); }
 void bulk_chunk_clear(bulk_chunk_t *value) { if (value != NULL) wlc_clear(&bulk_chunk_desc, value); }
 size_t bulk_chunk_encoded_size(const bulk_chunk_t *value) { size_t size; return wlc_measure(&bulk_chunk_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t bulk_chunk_encode(const bulk_chunk_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_chunk_desc, value, out, cap, length); }
@@ -950,23 +1244,141 @@ wl_codec_status_t bulk_chunk_wlc_detail_fingerprint(const bulk_chunk_t *value, u
   return WL_CODEC_OK;
 }
 
-void bulk_end_clear(bulk_end_t *value) { if (value != NULL) wlc_clear(&bulk_end_desc, value); }
-size_t bulk_end_encoded_size(const bulk_end_t *value) { size_t size; return wlc_measure(&bulk_end_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t bulk_end_encode(const bulk_end_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_end_desc, value, out, cap, length); }
-wl_codec_status_t bulk_end_decode(const uint8_t *input, size_t length, bulk_end_t *out) { return wlc_decode(&bulk_end_desc, input, length, out); }
+/* Schema-specialized scalars; ordinary Schema-v1 TLV bytes. */
+static inline wl_codec_status_t wlc_scalar_shape_2_wlc_detail_measure(const void *value, size_t *size) {
+  if (value == NULL || size == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  *size = ((*(const bool *)((const uint8_t *)value + offsetof(bulk_end_t, has_transfer_id))) ? 5U : 0U) + ((*(const bool *)((const uint8_t *)value + offsetof(bulk_end_t, has_total_length))) ? 9U : 0U) + ((*(const bool *)((const uint8_t *)value + offsetof(bulk_end_t, has_object_crc32c))) ? 5U : 0U);
+  return WL_CODEC_OK;
+}
 
-/* Generator-private: value must be the unmodified result of successful decode.
- * hash supplies the caller domain seed; codec has no RPC identity policy. */
-wl_codec_status_t bulk_end_wlc_detail_fingerprint(const bulk_end_t *value, uint64_t *hash, size_t *length) {
-  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
-  wl_codec_status_t status = wlc_hash_emit_fields(&bulk_end_desc, value, &state);
+static void wlc_scalar_shape_2_clear(void *value) {
+  if (value == NULL) return;
+  (*(bool *)((uint8_t *)value + offsetof(bulk_end_t, has_transfer_id))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(bulk_end_t, transfer_id))) = UINT32_C(0);
+  (*(bool *)((uint8_t *)value + offsetof(bulk_end_t, has_total_length))) = false;
+  (*(uint64_t *)((uint8_t *)value + offsetof(bulk_end_t, total_length))) = UINT64_C(0);
+  (*(bool *)((uint8_t *)value + offsetof(bulk_end_t, has_object_crc32c))) = false;
+  (*(uint32_t *)((uint8_t *)value + offsetof(bulk_end_t, object_crc32c))) = UINT32_C(0);
+}
+
+static size_t wlc_scalar_shape_2_encoded_size(const void *value) {
+  size_t size;
+  return wlc_scalar_shape_2_wlc_detail_measure(value, &size) == WL_CODEC_OK ? size : SIZE_MAX;
+}
+
+static wl_codec_status_t wlc_scalar_shape_2_encode(const void *value, uint8_t *out, size_t capacity, size_t *length) {
+  size_t size;
+  wl_codec_status_t status = wlc_scalar_shape_2_wlc_detail_measure(value, &size);
   if (status != WL_CODEC_OK) return status;
-  if (state.status != WL_CODEC_OK) return state.status;
+  if (length == NULL || (size != 0U && out == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  if (capacity < size) return WL_CODEC_ERR_CAPACITY;
+  uint8_t *cursor = out;
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_end_t, has_transfer_id)))) {
+    *cursor++ = 13U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(bulk_end_t, transfer_id)));
+    wlc_put32(&cursor, bits);
+  }
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_end_t, has_total_length)))) {
+    *cursor++ = 17U;
+    uint64_t bits = (*(const uint64_t *)((const uint8_t *)value + offsetof(bulk_end_t, total_length)));
+    wlc_put64(&cursor, bits);
+  }
+  if ((*(const bool *)((const uint8_t *)value + offsetof(bulk_end_t, has_object_crc32c)))) {
+    *cursor++ = 29U;
+    uint32_t bits = (*(const uint32_t *)((const uint8_t *)value + offsetof(bulk_end_t, object_crc32c)));
+    wlc_put32(&cursor, bits);
+  }
+  *length = size;
+  return WL_CODEC_OK;
+}
+
+static wl_codec_status_t wlc_scalar_shape_2_decode(const uint8_t *input, size_t length, void *out) {
+  if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  wlc_scalar_shape_2_clear(out);
+  for (size_t at = 0U; at < length;) {
+    uint32_t key;
+    wl_codec_status_t status;
+    if (input[at] < 128U) key = input[at++];
+    else {
+      uint64_t wide;
+      status = wlc_getv(input, length, &at, &wide);
+      if (status != WL_CODEC_OK) return status;
+      if (wide > UINT32_C(0x7ffff)) return WL_CODEC_ERR_MALFORMED;
+      key = (uint32_t)wide;
+    }
+    uint32_t number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (number == 0U || number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    switch ((uint16_t)number) {
+      case 1U: {
+        if (wire != 5U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_end_t, has_transfer_id)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 4U) return WL_CODEC_ERR_MALFORMED;
+        uint32_t bits = ((uint32_t)input[at + 0U] << 24U) | ((uint32_t)input[at + 1U] << 16U) | ((uint32_t)input[at + 2U] << 8U) | ((uint32_t)input[at + 3U] << 0U);
+        (*(uint32_t *)((uint8_t *)out + offsetof(bulk_end_t, transfer_id))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_end_t, has_transfer_id))) = true;
+        at += 4U;
+        break;
+      }
+      case 2U: {
+        if (wire != 1U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_end_t, has_total_length)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 8U) return WL_CODEC_ERR_MALFORMED;
+        uint64_t bits = ((uint64_t)input[at + 0U] << 56U) | ((uint64_t)input[at + 1U] << 48U) | ((uint64_t)input[at + 2U] << 40U) | ((uint64_t)input[at + 3U] << 32U) | ((uint64_t)input[at + 4U] << 24U) | ((uint64_t)input[at + 5U] << 16U) | ((uint64_t)input[at + 6U] << 8U) | ((uint64_t)input[at + 7U] << 0U);
+        (*(uint64_t *)((uint8_t *)out + offsetof(bulk_end_t, total_length))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_end_t, has_total_length))) = true;
+        at += 8U;
+        break;
+      }
+      case 3U: {
+        if (wire != 5U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(bulk_end_t, has_object_crc32c)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if (length - at < 4U) return WL_CODEC_ERR_MALFORMED;
+        uint32_t bits = ((uint32_t)input[at + 0U] << 24U) | ((uint32_t)input[at + 1U] << 16U) | ((uint32_t)input[at + 2U] << 8U) | ((uint32_t)input[at + 3U] << 0U);
+        (*(uint32_t *)((uint8_t *)out + offsetof(bulk_end_t, object_crc32c))) = bits;
+        (*(bool *)((uint8_t *)out + offsetof(bulk_end_t, has_object_crc32c))) = true;
+        at += 4U;
+        break;
+      }
+      default:
+        status = wlc_skip(wire, input, length, &at);
+        if (status != WL_CODEC_OK) return status;
+        break;
+    }
+  }
+  return WL_CODEC_OK;
+}
+
+/* Generator-private: unmodified successful decode, caller supplies domain seed.
+ * Reuse the direct encoder, then one byte loop; no per-field FNV expansion. */
+static wl_codec_status_t wlc_scalar_shape_2_wlc_detail_fingerprint(const void *value, uint64_t *hash, size_t *length) {
+  uint8_t bytes[19];
+  size_t size;
+  wl_codec_status_t status = wlc_scalar_shape_2_encode(value, bytes, sizeof(bytes), &size);
+  if (status != WL_CODEC_OK) return status;
+  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
+  wlc_hash_copy_span(&state, bytes, size);
   *hash = state.hash;
   *length = state.length;
   return WL_CODEC_OK;
 }
 
+static inline wl_codec_status_t bulk_end_wlc_detail_measure(const bulk_end_t *value, size_t *size) {
+  (void)bulk_end_desc;
+  return wlc_scalar_shape_2_wlc_detail_measure(value, size);
+}
+void bulk_end_clear(bulk_end_t *value) { wlc_scalar_shape_2_clear(value); }
+size_t bulk_end_encoded_size(const bulk_end_t *value) { return wlc_scalar_shape_2_encoded_size(value); }
+wl_codec_status_t bulk_end_encode(const bulk_end_t *value, uint8_t *out, size_t capacity, size_t *length) { return wlc_scalar_shape_2_encode(value, out, capacity, length); }
+wl_codec_status_t bulk_end_decode(const uint8_t *input, size_t length, bulk_end_t *out) { return wlc_scalar_shape_2_decode(input, length, out); }
+
+wl_codec_status_t bulk_end_wlc_detail_fingerprint(const bulk_end_t *value, uint64_t *hash, size_t *length) { return wlc_scalar_shape_2_wlc_detail_fingerprint(value, hash, length); }
+static inline wl_codec_status_t bulk_end_wlc_detail_decode_fields(const uint8_t *input, size_t length, void *out) { return wlc_scalar_shape_2_decode(input, length, out); }
+static inline size_t bulk_end_wlc_detail_encoded_size_fields(const void *value) { return wlc_scalar_shape_2_encoded_size(value); }
+static inline wl_codec_status_t bulk_end_wlc_detail_encode_fields(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wlc_scalar_shape_2_encode(value, out, capacity, length); }
+static inline wl_codec_status_t bulk_abort_wlc_detail_measure(const bulk_abort_t *value, size_t *size) { return wlc_measure(&bulk_abort_desc, value, size); }
 void bulk_abort_clear(bulk_abort_t *value) { if (value != NULL) wlc_clear(&bulk_abort_desc, value); }
 size_t bulk_abort_encoded_size(const bulk_abort_t *value) { size_t size; return wlc_measure(&bulk_abort_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t bulk_abort_encode(const bulk_abort_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_abort_desc, value, out, cap, length); }
@@ -984,6 +1396,7 @@ wl_codec_status_t bulk_abort_wlc_detail_fingerprint(const bulk_abort_t *value, u
   return WL_CODEC_OK;
 }
 
+static inline wl_codec_status_t bulk_status_wlc_detail_measure(const bulk_status_t *value, size_t *size) { return wlc_measure(&bulk_status_desc, value, size); }
 void bulk_status_clear(bulk_status_t *value) { if (value != NULL) wlc_clear(&bulk_status_desc, value); }
 size_t bulk_status_encoded_size(const bulk_status_t *value) { size_t size; return wlc_measure(&bulk_status_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t bulk_status_encode(const bulk_status_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&bulk_status_desc, value, out, cap, length); }
@@ -1001,6 +1414,104 @@ wl_codec_status_t bulk_status_wlc_detail_fingerprint(const bulk_status_t *value,
   return WL_CODEC_OK;
 }
 
+/* A descriptor embeds the ordinary wire plan as its first member. Owned
+ * lengths/data use actual member offsets; no view struct aliases an owned one. */
+typedef struct {
+  wlc_desc_t wire;
+  size_t size;
+  void (*defaults)(void *);
+} wlc_value_desc_t;
+static inline wl_codec_status_t wlc_value_decode(const wlc_desc_t *, const uint8_t *, size_t, void *);
+static void wlc_value_clear(const wlc_desc_t *wire, void *out) {
+  const wlc_value_desc_t *d = (const wlc_value_desc_t *)wire;
+  memset(out, 0, d->size);
+  d->defaults(out);
+}
+static wl_codec_status_t wlc_value_read(const wlc_field_t *f, const uint8_t *in,
+    size_t n, size_t *at, void *out) {
+  if (f->kind == WLC_BYTES || f->kind == WLC_STRING || f->kind == WLC_MESSAGE) {
+    uint64_t length;
+    wl_codec_status_t status = wlc_getv(in, n, at, &length);
+    if (status != WL_CODEC_OK) return status;
+    if ((f->kind == WLC_BYTES || f->kind == WLC_STRING) &&
+        f->max_length != 0U && length > f->max_length) return WL_CODEC_ERR_INVALID_VALUE;
+    if (length > n - *at) return WL_CODEC_ERR_MALFORMED;
+    size_t bytes = (size_t)length;
+    if (f->kind == WLC_MESSAGE) {
+      status = wlc_value_decode(f->nested, in + *at, bytes, out);
+      if (status != WL_CODEC_OK) return status;
+    } else
+    {
+      if (f->kind == WLC_STRING && !wlc_utf8(in + *at, bytes)) return WL_CODEC_ERR_UTF8;
+      uint8_t *data = (uint8_t *)out + f->capacity;
+      *(size_t *)out = bytes;
+      if (f->string_default != NULL) memset(data, 0, (size_t)f->max_length + 1U);
+      if (bytes != 0U) memcpy(data, in + *at, bytes);
+      if (f->kind == WLC_STRING) data[bytes] = 0U;
+    }
+    *at += bytes;
+    return WL_CODEC_OK;
+  }
+  return wlc_read_value(f, in, n, at, out);
+}
+static inline wl_codec_status_t wlc_value_decode(const wlc_desc_t *d, const uint8_t *in,
+                                    size_t n, void *out) {
+  if (d == NULL || out == NULL || (n != 0U && in == NULL))
+    return WL_CODEC_ERR_INVALID_VALUE;
+  wlc_value_clear(d, out);
+  // A hint only: missing, unknown or reordered fields still use exact lookup.
+  // Each recursive decode owns its cursor; empty schemas avoid NULL arithmetic.
+  const wlc_field_t *next = d->fields;
+  const wlc_field_t *end = d->count == 0U ? next : next + d->count;
+  for (size_t at = 0U; at < n;) {
+    uint64_t key;
+    wl_codec_status_t s = wlc_getv(in, n, &at, &key);
+    if (s != WL_CODEC_OK) return s;
+    uint64_t raw_number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (raw_number == 0U || raw_number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    uint16_t number = (uint16_t)raw_number;
+    const wlc_field_t *f = next != end && next->number == number
+                               ? next : wlc_find_field(d, number);
+    if (f == NULL) {
+      if ((s = wlc_skip(wire, in, n, &at)) != WL_CODEC_OK) return s;
+      continue;
+    }
+    if (wire != wlc_wire(f)) return WL_CODEC_ERR_WIRE_TYPE;
+    next = f->card == WLC_REPEATED ? f : f + 1;
+    uint8_t *base = out;
+    if (f->card == WLC_PACKED) {
+      if (*(bool *)(base + f->has)) return WL_CODEC_ERR_DUPLICATE_FIELD;
+      if ((s = wlc_read_packed(f, in, n, &at, base + f->value)) != WL_CODEC_OK)
+        return s;
+      *(bool *)(base + f->has) = true;
+      continue;
+    }
+    void *p = base + f->value;
+    if (f->card == WLC_OPTIONAL) {
+      if (*(bool *)(base + f->has)) return WL_CODEC_ERR_DUPLICATE_FIELD;
+    }
+    if ((s = wlc_value_read(f, in, n, &at, p)) != WL_CODEC_OK) return s;
+    if (f->card == WLC_OPTIONAL) *(bool *)(base + f->has) = true;
+  }
+  for (size_t i = 0U; i < d->count; ++i) {
+    const wlc_field_t *f = &d->fields[i];
+    if (f->required != 0U && !*(const bool *)((uint8_t *)out + f->has))
+      return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  }
+  return WL_CODEC_OK;
+}
+static const wlc_value_desc_t joint_command_value_desc;
+static const wlc_value_desc_t arm_mit_command_value_desc;
+static const wlc_value_desc_t home_request_value_desc;
+static const wlc_value_desc_t home_response_value_desc;
+static const wlc_value_desc_t bulk_begin_value_desc;
+static const wlc_value_desc_t bulk_chunk_value_desc;
+static const wlc_value_desc_t bulk_end_value_desc;
+static const wlc_value_desc_t bulk_abort_value_desc;
+static const wlc_value_desc_t bulk_status_value_desc;
 static void joint_command_value_defaults(joint_command_value_t *out) {
   (void)out;
   out->position_bits = UINT32_C(0);
@@ -1010,6 +1521,21 @@ static void joint_command_value_defaults(joint_command_value_t *out) {
   out->kd_bits = UINT32_C(0);
   out->mode = INT32_C(0);
 }
+
+static void joint_command_value_decode_defaults(void *out) { joint_command_value_defaults(out); }
+
+static const wlc_field_t joint_command_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(joint_command_value_t, position_bits), offsetof(joint_command_value_t, has_position_bits), 0, 0, sizeof(uint32_t), 0U, 0U, { 13U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(joint_command_value_t, velocity_bits), offsetof(joint_command_value_t, has_velocity_bits), 0, 0, sizeof(uint32_t), 0U, 0U, { 21U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(joint_command_value_t, torque_bits), offsetof(joint_command_value_t, has_torque_bits), 0, 0, sizeof(uint32_t), 0U, 0U, { 29U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 4U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(joint_command_value_t, kp_bits), offsetof(joint_command_value_t, has_kp_bits), 0, 0, sizeof(uint32_t), 0U, 0U, { 37U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 5U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(joint_command_value_t, kd_bits), offsetof(joint_command_value_t, has_kd_bits), 0, 0, sizeof(uint32_t), 0U, 0U, { 45U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 6U, WLC_OPTIONAL, WLC_ENUM, 0, 0U, 1U, offsetof(joint_command_value_t, mode), offsetof(joint_command_value_t, has_mode), 0, 0, sizeof(joint_mode_t), 0U, 0U, { 48U, 0U, 0U }, INT32_C(0), 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t joint_command_value_desc = { { joint_command_value_fields, sizeof(joint_command_value_fields) / sizeof(joint_command_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(joint_command_value_t), joint_command_value_decode_defaults };
+
+static wl_codec_status_t joint_command_value_borrow(const joint_command_value_t *, joint_command_t *);
+static inline wl_codec_status_t joint_command_wlc_detail_value_decode(const uint8_t *input, size_t length, joint_command_value_t *out) { return wlc_value_decode(&joint_command_value_desc.wire, input, length, out); }
 
 static void joint_command_value_copy_fields(const joint_command_t *view, joint_command_value_t *out) {
   out->has_position_bits = view->has_position_bits;
@@ -1042,7 +1568,7 @@ wl_codec_status_t joint_command_value_from_view(const joint_command_t *view, joi
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&joint_command_desc, view, &size);
+  status = joint_command_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   joint_command_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1084,7 +1610,7 @@ wl_codec_status_t joint_command_value_to_view(const joint_command_value_t *value
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = joint_command_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&joint_command_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = joint_command_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
@@ -1105,12 +1631,12 @@ wl_codec_status_t joint_command_value_encode(const joint_command_value_t *value,
 }
 
 wl_codec_status_t joint_command_value_decode(const uint8_t *input, size_t length, joint_command_value_t *out) {
-  joint_command_t view;
+  joint_command_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = joint_command_decode(input, length, &view);
+  status = joint_command_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  joint_command_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1120,13 +1646,26 @@ static void arm_mit_command_value_defaults(arm_mit_command_value_t *out) {
   out->dt_s = 0;
 }
 
+static void arm_mit_command_value_decode_defaults(void *out) { arm_mit_command_value_defaults(out); }
+
+static const wlc_field_t arm_mit_command_value_fields[] = {
+  { 1U, WLC_PACKED, WLC_FLOAT32, 0, 2U, 1U, offsetof(arm_mit_command_value_t, controls), offsetof(arm_mit_command_value_t, has_controls), 0, 0, sizeof(float), 30U, 0U, { 10U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_U64, 0, 0U, 1U, offsetof(arm_mit_command_value_t, sequence), offsetof(arm_mit_command_value_t, has_sequence), 0, 0, sizeof(uint64_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_FLOAT32, 0, 5U, 1U, offsetof(arm_mit_command_value_t, dt_s), offsetof(arm_mit_command_value_t, has_dt_s), 0, 0, sizeof(float), 0U, 0U, { 29U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t arm_mit_command_value_desc = { { arm_mit_command_value_fields, sizeof(arm_mit_command_value_fields) / sizeof(arm_mit_command_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(arm_mit_command_value_t), arm_mit_command_value_decode_defaults };
+
+static wl_codec_status_t arm_mit_command_value_borrow(const arm_mit_command_value_t *, arm_mit_command_t *);
+static inline wl_codec_status_t arm_mit_command_wlc_detail_value_decode(const uint8_t *input, size_t length, arm_mit_command_value_t *out) { return wlc_value_decode(&arm_mit_command_value_desc.wire, input, length, out); }
+
 static void arm_mit_command_value_copy_fields(const arm_mit_command_t *view, arm_mit_command_value_t *out) {
   out->has_controls = view->has_controls;
   if (view->has_controls) memcpy(out->controls, view->controls, sizeof(out->controls));
   out->has_sequence = view->has_sequence;
   out->sequence = view->has_sequence ? view->sequence : UINT64_C(0);
   out->has_dt_s = view->has_dt_s;
-  out->dt_s = view->has_dt_s ? view->dt_s : 0;
+  if (view->has_dt_s) memcpy(&out->dt_s, &view->dt_s, sizeof(out->dt_s));
+  else out->dt_s = 0.0;
 }
 
 /* Generator-private: input is an unmodified successful decode, or has been measured. */
@@ -1145,7 +1684,7 @@ wl_codec_status_t arm_mit_command_value_from_view(const arm_mit_command_t *view,
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&arm_mit_command_desc, view, &size);
+  status = arm_mit_command_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   arm_mit_command_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1164,7 +1703,7 @@ static wl_codec_status_t arm_mit_command_value_borrow(const arm_mit_command_valu
   }
   out->has_dt_s = value->has_dt_s;
   if (value->has_dt_s) {
-    out->dt_s = value->dt_s;
+    memcpy(&out->dt_s, &value->dt_s, sizeof(out->dt_s));
   }
   return WL_CODEC_OK;
 }
@@ -1175,7 +1714,7 @@ wl_codec_status_t arm_mit_command_value_to_view(const arm_mit_command_value_t *v
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = arm_mit_command_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&arm_mit_command_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = arm_mit_command_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
@@ -1196,12 +1735,12 @@ wl_codec_status_t arm_mit_command_value_encode(const arm_mit_command_value_t *va
 }
 
 wl_codec_status_t arm_mit_command_value_decode(const uint8_t *input, size_t length, arm_mit_command_value_t *out) {
-  arm_mit_command_t view;
+  arm_mit_command_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = arm_mit_command_decode(input, length, &view);
+  status = arm_mit_command_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  arm_mit_command_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1209,6 +1748,25 @@ static void home_request_value_defaults(home_request_value_t *out) {
   (void)out;
   out->operation_id = UINT32_C(0);
   out->joint_mask = UINT32_C(0);
+}
+
+static void home_request_value_decode_defaults(void *out) { home_request_value_defaults(out); }
+
+static const wlc_field_t home_request_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_U32, 0, 0U, 1U, offsetof(home_request_value_t, operation_id), offsetof(home_request_value_t, has_operation_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_U32, 0, 0U, 1U, offsetof(home_request_value_t, joint_mask), offsetof(home_request_value_t, has_joint_mask), 0, 0, sizeof(uint32_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t home_request_value_desc = { { home_request_value_fields, sizeof(home_request_value_fields) / sizeof(home_request_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(home_request_value_t), home_request_value_decode_defaults };
+
+static wl_codec_status_t home_request_value_borrow(const home_request_value_t *, home_request_t *);
+_Static_assert(offsetof(home_request_t, operation_id) == offsetof(home_request_value_t, operation_id), "Scalar owned layout");
+_Static_assert(offsetof(home_request_t, has_operation_id) == offsetof(home_request_value_t, has_operation_id), "Scalar owned layout");
+_Static_assert(offsetof(home_request_t, joint_mask) == offsetof(home_request_value_t, joint_mask), "Scalar owned layout");
+_Static_assert(offsetof(home_request_t, has_joint_mask) == offsetof(home_request_value_t, has_joint_mask), "Scalar owned layout");
+/* The shared scalar backend initializes each field through its primitive type. */
+static inline wl_codec_status_t home_request_wlc_detail_value_decode(const uint8_t *input, size_t length, home_request_value_t *out) {
+  (void)home_request_value_desc;
+  return home_request_wlc_detail_decode_fields(input, length, out);
 }
 
 static void home_request_value_copy_fields(const home_request_t *view, home_request_value_t *out) {
@@ -1234,7 +1792,7 @@ wl_codec_status_t home_request_value_from_view(const home_request_t *view, home_
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&home_request_desc, view, &size);
+  status = home_request_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   home_request_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1260,33 +1818,24 @@ wl_codec_status_t home_request_value_to_view(const home_request_value_t *value, 
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = home_request_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&home_request_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = home_request_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
 }
 
-size_t home_request_value_encoded_size(const home_request_value_t *value) {
-  home_request_t view;
-  if (value == NULL || home_request_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
-  return home_request_encoded_size(&view);
-}
+size_t home_request_value_encoded_size(const home_request_value_t *value) { return home_request_wlc_detail_encoded_size_fields(value); }
 
-wl_codec_status_t home_request_value_encode(const home_request_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
-  home_request_t view;
-  wl_codec_status_t status;
-  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = home_request_value_borrow(value, &view);
-  return status == WL_CODEC_OK ? home_request_encode(&view, out, capacity, length) : status;
-}
+wl_codec_status_t home_request_value_encode(const home_request_value_t *value, uint8_t *out, size_t capacity, size_t *length) { return home_request_wlc_detail_encode_fields(value, out, capacity, length); }
 
 wl_codec_status_t home_request_value_decode(const uint8_t *input, size_t length, home_request_value_t *out) {
-  home_request_t view;
+  home_request_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = home_request_decode(input, length, &view);
+  memset(&value, 0, sizeof(value));
+  status = home_request_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  home_request_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1295,6 +1844,17 @@ static void home_response_value_defaults(home_response_value_t *out) {
   out->operation_id = UINT32_C(0);
   out->status = 0;
 }
+
+static void home_response_value_decode_defaults(void *out) { home_response_value_defaults(out); }
+
+static const wlc_field_t home_response_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_U32, 0, 0U, 1U, offsetof(home_response_value_t, operation_id), offsetof(home_response_value_t, has_operation_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_ENUM, 0, 0U, 1U, offsetof(home_response_value_t, status), offsetof(home_response_value_t, has_status), 0, 0, sizeof(operation_status_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t home_response_value_desc = { { home_response_value_fields, sizeof(home_response_value_fields) / sizeof(home_response_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(home_response_value_t), home_response_value_decode_defaults };
+
+static wl_codec_status_t home_response_value_borrow(const home_response_value_t *, home_response_t *);
+static inline wl_codec_status_t home_response_wlc_detail_value_decode(const uint8_t *input, size_t length, home_response_value_t *out) { return wlc_value_decode(&home_response_value_desc.wire, input, length, out); }
 
 static void home_response_value_copy_fields(const home_response_t *view, home_response_value_t *out) {
   out->has_operation_id = view->has_operation_id;
@@ -1319,7 +1879,7 @@ wl_codec_status_t home_response_value_from_view(const home_response_t *view, hom
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&home_response_desc, view, &size);
+  status = home_response_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   home_response_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1345,7 +1905,7 @@ wl_codec_status_t home_response_value_to_view(const home_response_value_t *value
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = home_response_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&home_response_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = home_response_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
@@ -1366,12 +1926,12 @@ wl_codec_status_t home_response_value_encode(const home_response_value_t *value,
 }
 
 wl_codec_status_t home_response_value_decode(const uint8_t *input, size_t length, home_response_value_t *out) {
-  home_response_t view;
+  home_response_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = home_response_decode(input, length, &view);
+  status = home_response_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  home_response_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1381,6 +1941,31 @@ static void bulk_begin_value_defaults(bulk_begin_value_t *out) {
   out->total_length = UINT64_C(0);
   out->requested_chunk_size = UINT32_C(0);
   out->object_crc32c = UINT32_C(0);
+}
+
+static void bulk_begin_value_decode_defaults(void *out) { bulk_begin_value_defaults(out); }
+
+static const wlc_field_t bulk_begin_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_begin_value_t, transfer_id), offsetof(bulk_begin_value_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 13U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F64, 0, 1U, 1U, offsetof(bulk_begin_value_t, total_length), offsetof(bulk_begin_value_t, has_total_length), 0, 0, sizeof(uint64_t), 0U, 0U, { 17U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_begin_value_t, requested_chunk_size), offsetof(bulk_begin_value_t, has_requested_chunk_size), 0, 0, sizeof(uint32_t), 0U, 0U, { 29U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 4U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_begin_value_t, object_crc32c), offsetof(bulk_begin_value_t, has_object_crc32c), 0, 0, sizeof(uint32_t), 0U, 0U, { 37U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t bulk_begin_value_desc = { { bulk_begin_value_fields, sizeof(bulk_begin_value_fields) / sizeof(bulk_begin_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(bulk_begin_value_t), bulk_begin_value_decode_defaults };
+
+static wl_codec_status_t bulk_begin_value_borrow(const bulk_begin_value_t *, bulk_begin_t *);
+_Static_assert(offsetof(bulk_begin_t, transfer_id) == offsetof(bulk_begin_value_t, transfer_id), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, has_transfer_id) == offsetof(bulk_begin_value_t, has_transfer_id), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, total_length) == offsetof(bulk_begin_value_t, total_length), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, has_total_length) == offsetof(bulk_begin_value_t, has_total_length), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, requested_chunk_size) == offsetof(bulk_begin_value_t, requested_chunk_size), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, has_requested_chunk_size) == offsetof(bulk_begin_value_t, has_requested_chunk_size), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, object_crc32c) == offsetof(bulk_begin_value_t, object_crc32c), "Scalar owned layout");
+_Static_assert(offsetof(bulk_begin_t, has_object_crc32c) == offsetof(bulk_begin_value_t, has_object_crc32c), "Scalar owned layout");
+/* The shared scalar backend initializes each field through its primitive type. */
+static inline wl_codec_status_t bulk_begin_wlc_detail_value_decode(const uint8_t *input, size_t length, bulk_begin_value_t *out) {
+  (void)bulk_begin_value_desc;
+  return bulk_begin_wlc_detail_decode_fields(input, length, out);
 }
 
 static void bulk_begin_value_copy_fields(const bulk_begin_t *view, bulk_begin_value_t *out) {
@@ -1410,7 +1995,7 @@ wl_codec_status_t bulk_begin_value_from_view(const bulk_begin_t *view, bulk_begi
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&bulk_begin_desc, view, &size);
+  status = bulk_begin_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   bulk_begin_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1444,33 +2029,24 @@ wl_codec_status_t bulk_begin_value_to_view(const bulk_begin_value_t *value, bulk
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = bulk_begin_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_begin_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = bulk_begin_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
 }
 
-size_t bulk_begin_value_encoded_size(const bulk_begin_value_t *value) {
-  bulk_begin_t view;
-  if (value == NULL || bulk_begin_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
-  return bulk_begin_encoded_size(&view);
-}
+size_t bulk_begin_value_encoded_size(const bulk_begin_value_t *value) { return bulk_begin_wlc_detail_encoded_size_fields(value); }
 
-wl_codec_status_t bulk_begin_value_encode(const bulk_begin_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
-  bulk_begin_t view;
-  wl_codec_status_t status;
-  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_begin_value_borrow(value, &view);
-  return status == WL_CODEC_OK ? bulk_begin_encode(&view, out, capacity, length) : status;
-}
+wl_codec_status_t bulk_begin_value_encode(const bulk_begin_value_t *value, uint8_t *out, size_t capacity, size_t *length) { return bulk_begin_wlc_detail_encode_fields(value, out, capacity, length); }
 
 wl_codec_status_t bulk_begin_value_decode(const uint8_t *input, size_t length, bulk_begin_value_t *out) {
-  bulk_begin_t view;
+  bulk_begin_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_begin_decode(input, length, &view);
+  memset(&value, 0, sizeof(value));
+  status = bulk_begin_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  bulk_begin_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1479,6 +2055,18 @@ static void bulk_chunk_value_defaults(bulk_chunk_value_t *out) {
   out->transfer_id = UINT32_C(0);
   out->offset = UINT64_C(0);
 }
+
+static void bulk_chunk_value_decode_defaults(void *out) { bulk_chunk_value_defaults(out); }
+
+static const wlc_field_t bulk_chunk_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_chunk_value_t, transfer_id), offsetof(bulk_chunk_value_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 13U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F64, 0, 1U, 1U, offsetof(bulk_chunk_value_t, offset), offsetof(bulk_chunk_value_t, has_offset), 0, 0, sizeof(uint64_t), 0U, 0U, { 17U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_BYTES, 0, 2U, 1U, offsetof(bulk_chunk_value_t, data), offsetof(bulk_chunk_value_t, has_data), 0, offsetof(bulk_chunk_value_t, data.data) - offsetof(bulk_chunk_value_t, data), sizeof(wl_codec_bytes_t), 0U, 4096U, { 26U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t bulk_chunk_value_desc = { { bulk_chunk_value_fields, sizeof(bulk_chunk_value_fields) / sizeof(bulk_chunk_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(bulk_chunk_value_t), bulk_chunk_value_decode_defaults };
+
+static wl_codec_status_t bulk_chunk_value_borrow(const bulk_chunk_value_t *, bulk_chunk_t *);
+static inline wl_codec_status_t bulk_chunk_wlc_detail_value_decode(const uint8_t *input, size_t length, bulk_chunk_value_t *out) { return wlc_value_decode(&bulk_chunk_value_desc.wire, input, length, out); }
 
 static void bulk_chunk_value_copy_fields(const bulk_chunk_t *view, bulk_chunk_value_t *out) {
   out->has_transfer_id = view->has_transfer_id;
@@ -1509,7 +2097,7 @@ wl_codec_status_t bulk_chunk_value_from_view(const bulk_chunk_t *view, bulk_chun
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&bulk_chunk_desc, view, &size);
+  status = bulk_chunk_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   bulk_chunk_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1541,7 +2129,7 @@ wl_codec_status_t bulk_chunk_value_to_view(const bulk_chunk_value_t *value, bulk
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = bulk_chunk_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_chunk_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = bulk_chunk_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
@@ -1562,12 +2150,12 @@ wl_codec_status_t bulk_chunk_value_encode(const bulk_chunk_value_t *value, uint8
 }
 
 wl_codec_status_t bulk_chunk_value_decode(const uint8_t *input, size_t length, bulk_chunk_value_t *out) {
-  bulk_chunk_t view;
+  bulk_chunk_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_chunk_decode(input, length, &view);
+  status = bulk_chunk_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  bulk_chunk_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1576,6 +2164,28 @@ static void bulk_end_value_defaults(bulk_end_value_t *out) {
   out->transfer_id = UINT32_C(0);
   out->total_length = UINT64_C(0);
   out->object_crc32c = UINT32_C(0);
+}
+
+static void bulk_end_value_decode_defaults(void *out) { bulk_end_value_defaults(out); }
+
+static const wlc_field_t bulk_end_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_end_value_t, transfer_id), offsetof(bulk_end_value_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 13U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_F64, 0, 1U, 1U, offsetof(bulk_end_value_t, total_length), offsetof(bulk_end_value_t, has_total_length), 0, 0, sizeof(uint64_t), 0U, 0U, { 17U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_end_value_t, object_crc32c), offsetof(bulk_end_value_t, has_object_crc32c), 0, 0, sizeof(uint32_t), 0U, 0U, { 29U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t bulk_end_value_desc = { { bulk_end_value_fields, sizeof(bulk_end_value_fields) / sizeof(bulk_end_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(bulk_end_value_t), bulk_end_value_decode_defaults };
+
+static wl_codec_status_t bulk_end_value_borrow(const bulk_end_value_t *, bulk_end_t *);
+_Static_assert(offsetof(bulk_end_t, transfer_id) == offsetof(bulk_end_value_t, transfer_id), "Scalar owned layout");
+_Static_assert(offsetof(bulk_end_t, has_transfer_id) == offsetof(bulk_end_value_t, has_transfer_id), "Scalar owned layout");
+_Static_assert(offsetof(bulk_end_t, total_length) == offsetof(bulk_end_value_t, total_length), "Scalar owned layout");
+_Static_assert(offsetof(bulk_end_t, has_total_length) == offsetof(bulk_end_value_t, has_total_length), "Scalar owned layout");
+_Static_assert(offsetof(bulk_end_t, object_crc32c) == offsetof(bulk_end_value_t, object_crc32c), "Scalar owned layout");
+_Static_assert(offsetof(bulk_end_t, has_object_crc32c) == offsetof(bulk_end_value_t, has_object_crc32c), "Scalar owned layout");
+/* The shared scalar backend initializes each field through its primitive type. */
+static inline wl_codec_status_t bulk_end_wlc_detail_value_decode(const uint8_t *input, size_t length, bulk_end_value_t *out) {
+  (void)bulk_end_value_desc;
+  return bulk_end_wlc_detail_decode_fields(input, length, out);
 }
 
 static void bulk_end_value_copy_fields(const bulk_end_t *view, bulk_end_value_t *out) {
@@ -1603,7 +2213,7 @@ wl_codec_status_t bulk_end_value_from_view(const bulk_end_t *view, bulk_end_valu
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&bulk_end_desc, view, &size);
+  status = bulk_end_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   bulk_end_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1633,33 +2243,24 @@ wl_codec_status_t bulk_end_value_to_view(const bulk_end_value_t *value, bulk_end
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = bulk_end_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_end_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = bulk_end_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
 }
 
-size_t bulk_end_value_encoded_size(const bulk_end_value_t *value) {
-  bulk_end_t view;
-  if (value == NULL || bulk_end_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
-  return bulk_end_encoded_size(&view);
-}
+size_t bulk_end_value_encoded_size(const bulk_end_value_t *value) { return bulk_end_wlc_detail_encoded_size_fields(value); }
 
-wl_codec_status_t bulk_end_value_encode(const bulk_end_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
-  bulk_end_t view;
-  wl_codec_status_t status;
-  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_end_value_borrow(value, &view);
-  return status == WL_CODEC_OK ? bulk_end_encode(&view, out, capacity, length) : status;
-}
+wl_codec_status_t bulk_end_value_encode(const bulk_end_value_t *value, uint8_t *out, size_t capacity, size_t *length) { return bulk_end_wlc_detail_encode_fields(value, out, capacity, length); }
 
 wl_codec_status_t bulk_end_value_decode(const uint8_t *input, size_t length, bulk_end_value_t *out) {
-  bulk_end_t view;
+  bulk_end_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_end_decode(input, length, &view);
+  memset(&value, 0, sizeof(value));
+  status = bulk_end_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  bulk_end_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1668,6 +2269,17 @@ static void bulk_abort_value_defaults(bulk_abort_value_t *out) {
   out->transfer_id = UINT32_C(0);
   out->reason = 0;
 }
+
+static void bulk_abort_value_decode_defaults(void *out) { bulk_abort_value_defaults(out); }
+
+static const wlc_field_t bulk_abort_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_abort_value_t, transfer_id), offsetof(bulk_abort_value_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 13U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_I32, 0, 0U, 1U, offsetof(bulk_abort_value_t, reason), offsetof(bulk_abort_value_t, has_reason), 0, 0, sizeof(int32_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t bulk_abort_value_desc = { { bulk_abort_value_fields, sizeof(bulk_abort_value_fields) / sizeof(bulk_abort_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(bulk_abort_value_t), bulk_abort_value_decode_defaults };
+
+static wl_codec_status_t bulk_abort_value_borrow(const bulk_abort_value_t *, bulk_abort_t *);
+static inline wl_codec_status_t bulk_abort_wlc_detail_value_decode(const uint8_t *input, size_t length, bulk_abort_value_t *out) { return wlc_value_decode(&bulk_abort_value_desc.wire, input, length, out); }
 
 static void bulk_abort_value_copy_fields(const bulk_abort_t *view, bulk_abort_value_t *out) {
   out->has_transfer_id = view->has_transfer_id;
@@ -1692,7 +2304,7 @@ wl_codec_status_t bulk_abort_value_from_view(const bulk_abort_t *view, bulk_abor
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&bulk_abort_desc, view, &size);
+  status = bulk_abort_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   bulk_abort_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1718,7 +2330,7 @@ wl_codec_status_t bulk_abort_value_to_view(const bulk_abort_value_t *value, bulk
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = bulk_abort_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_abort_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = bulk_abort_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
@@ -1739,12 +2351,12 @@ wl_codec_status_t bulk_abort_value_encode(const bulk_abort_value_t *value, uint8
 }
 
 wl_codec_status_t bulk_abort_value_decode(const uint8_t *input, size_t length, bulk_abort_value_t *out) {
-  bulk_abort_t view;
+  bulk_abort_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_abort_decode(input, length, &view);
+  status = bulk_abort_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  bulk_abort_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 
@@ -1756,6 +2368,20 @@ static void bulk_status_value_defaults(bulk_status_value_t *out) {
   out->next_offset = UINT64_C(0);
   out->accepted_chunk_size = UINT32_C(0);
 }
+
+static void bulk_status_value_decode_defaults(void *out) { bulk_status_value_defaults(out); }
+
+static const wlc_field_t bulk_status_value_fields[] = {
+  { 1U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_status_value_t, transfer_id), offsetof(bulk_status_value_t, has_transfer_id), 0, 0, sizeof(uint32_t), 0U, 0U, { 13U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, WLC_OPTIONAL, WLC_ENUM, 0, 0U, 1U, offsetof(bulk_status_value_t, phase), offsetof(bulk_status_value_t, has_phase), 0, 0, sizeof(control_bulk_phase_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 3U, WLC_OPTIONAL, WLC_ENUM, 0, 0U, 1U, offsetof(bulk_status_value_t, code), offsetof(bulk_status_value_t, has_code), 0, 0, sizeof(control_bulk_status_code_t), 0U, 0U, { 24U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 4U, WLC_OPTIONAL, WLC_F64, 0, 1U, 1U, offsetof(bulk_status_value_t, next_offset), offsetof(bulk_status_value_t, has_next_offset), 0, 0, sizeof(uint64_t), 0U, 0U, { 33U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 5U, WLC_OPTIONAL, WLC_F32, 0, 5U, 1U, offsetof(bulk_status_value_t, accepted_chunk_size), offsetof(bulk_status_value_t, has_accepted_chunk_size), 0, 0, sizeof(uint32_t), 0U, 0U, { 45U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const wlc_value_desc_t bulk_status_value_desc = { { bulk_status_value_fields, sizeof(bulk_status_value_fields) / sizeof(bulk_status_value_fields[0]), WLC_LOOKUP_LINEAR }, sizeof(bulk_status_value_t), bulk_status_value_decode_defaults };
+
+static wl_codec_status_t bulk_status_value_borrow(const bulk_status_value_t *, bulk_status_t *);
+static inline wl_codec_status_t bulk_status_wlc_detail_value_decode(const uint8_t *input, size_t length, bulk_status_value_t *out) { return wlc_value_decode(&bulk_status_value_desc.wire, input, length, out); }
 
 static void bulk_status_value_copy_fields(const bulk_status_t *view, bulk_status_value_t *out) {
   out->has_transfer_id = view->has_transfer_id;
@@ -1786,7 +2412,7 @@ wl_codec_status_t bulk_status_value_from_view(const bulk_status_t *view, bulk_st
   size_t size;
   wl_codec_status_t status;
   if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = wlc_measure(&bulk_status_desc, view, &size);
+  status = bulk_status_wlc_detail_measure(view, &size);
   if (status != WL_CODEC_OK) return status;
   bulk_status_wlc_detail_value_copy(view, out);
   return WL_CODEC_OK;
@@ -1824,7 +2450,7 @@ wl_codec_status_t bulk_status_value_to_view(const bulk_status_value_t *value, bu
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = bulk_status_value_borrow(value, &view);
-  if (status == WL_CODEC_OK) status = wlc_measure(&bulk_status_desc, &view, &size);
+  if (status == WL_CODEC_OK) status = bulk_status_wlc_detail_measure(&view, &size);
   if (status != WL_CODEC_OK) return status;
   *out = view;
   return WL_CODEC_OK;
@@ -1845,12 +2471,12 @@ wl_codec_status_t bulk_status_value_encode(const bulk_status_value_t *value, uin
 }
 
 wl_codec_status_t bulk_status_value_decode(const uint8_t *input, size_t length, bulk_status_value_t *out) {
-  bulk_status_t view;
+  bulk_status_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = bulk_status_decode(input, length, &view);
+  status = bulk_status_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
-  bulk_status_wlc_detail_value_copy(&view, out);
+  *out = value;
   return WL_CODEC_OK;
 }
 

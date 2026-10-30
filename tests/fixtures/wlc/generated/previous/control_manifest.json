@@ -2,8 +2,8 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.8.0",
-    "codegen_contract": {"major": 0, "minor": 8}
+    "version": "0.12.0",
+    "codegen_contract": {"major": 0, "minor": 12}
   },
   "module": "control",
   "identity": {
@@ -11,14 +11,18 @@
     "schema": "0x79001df4f6c0df9c",
     "binding_profile": null
   },
+  "codec_formats": {
+    "ARM_COMMAND_CODEC_FORMAT": "schema-v1",
+    "JOINT_COMMAND_CODEC_FORMAT": "schema-v1"
+  },
   "bounded_fields": [
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "control.c", "size": 38474, "digest": "0x2fb68b2a60bb2abf"},
+    {"path": "control.c", "size": 35495, "digest": "0xc764caf77c3d49cc"},
     {"path": "control.h", "size": 1898, "digest": "0x229ce63c8d76d3b9"},
     {"path": "control_bindings.c", "size": 5301, "digest": "0x095fce65e9532039"},
     {"path": "control_bindings.h", "size": 2546, "digest": "0xe922216e83163c09"},
-    {"path": "control_values.h", "size": 1733, "digest": "0x26e3a408ec40b2a1"}
+    {"path": "control_values.h", "size": 1901, "digest": "0x111d521a18598977"}
   ]
 }

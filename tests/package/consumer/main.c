@@ -11,6 +11,8 @@
 #include <wirelink/frame.h>
 #include <wirelink/latest.h>
 #include <wirelink/link.h>
+#include <wirelink/link_defaults.h>
+#include <wirelink/usb_bulk_defaults.h>
 #include <wirelink/loopback.h>
 #include <wirelink/port.h>
 #include <wirelink/profile.h>
@@ -75,10 +77,10 @@ _Static_assert(sizeof(wl_rpc_client_t) == WL_RPC_CLIENT_STORAGE_SIZE &&
                    sizeof(wl_rpc_server_cache_slot_t) ==
                        WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE,
                "public RPC opaque storage size changed");
-_Static_assert(sizeof(wl_poll_hint_t) == 8U &&
-                   _Alignof(wl_poll_hint_t) == _Alignof(uint32_t) &&
-                   offsetof(wl_poll_hint_t, work_pending) == 0U &&
-                   offsetof(wl_poll_hint_t, next_deadline_ms) == 4U,
+_Static_assert(sizeof(wl_readiness_t) == 12U &&
+                   _Alignof(wl_readiness_t) == _Alignof(uint32_t) &&
+                   offsetof(wl_readiness_t, runnable) == 0U &&
+                   offsetof(wl_readiness_t, next_deadline_ms) == 4U,
                "public poll hint ABI changed");
 
 /*
@@ -212,28 +214,36 @@ _Static_assert(sizeof(wl_rx_dma_claim_t) == 24U &&
 #endif
 
 int main(void) {
+  wl_config_t selected_config = {0};
+  if (wl_config_apply_link_defaults(&selected_config, wl_link_defaults()) != WL_OK ||
+      selected_config.integrity != WL_INTEGRITY_CRC16 ||
+      wl_config_apply_link_defaults(&selected_config, wl_usb_bulk_link_defaults()) != WL_OK ||
+      selected_config.integrity != WL_INTEGRITY_NONE) return 1;
   char diagnostic_text[128];
   wl_diag_writer_t diagnostic_writer;
   const wl_rx_counters_t diagnostic_counters = {.malformed = 1U};
   wl_ctx_t context = {0};
   wl_config_t config = {
       .max_payload_len = 32U,
-      .envelope = WL_ENVELOPE_NATIVE_PACKET,
-      .integrity = WL_INTEGRITY_CRC32C,
+      .envelope = WL_PACKAGE_COBS_CRC16 ? WL_ENVELOPE_COBS_STREAM : WL_ENVELOPE_NATIVE_PACKET,
+      .integrity = WL_PACKAGE_COBS_CRC16 ? WL_INTEGRITY_CRC16 : WL_INTEGRITY_CRC32C,
       .session_id = UINT64_C(0x12345678),
       .max_retries = 1U,
       .ack_timeout_ms = 10U,
   };
   wl_config_t observed = {0};
-  wl_poll_hint_t poll_hint = {0};
+  wl_readiness_t poll_hint = {0};
   wl_loopback_t loopback = {0};
   wl_adapter_stats_t loopback_stats = {0};
   wl_storage_requirements_t requirements = {0};
   uint8_t tx_payload[32];
+  uint8_t rx_fifo[128];
   uint8_t tx_unit[WL_FRAME_MAX_RAW_LEN];
   uint8_t control_unit[WL_FRAME_MAX_RAW_LEN];
   uint8_t rx_fallback[WL_FRAME_MAX_RAW_LEN];
   wl_storage_t storage = {
+      .rx_fifo = rx_fifo,
+      .rx_fifo_size = sizeof(rx_fifo),
       .tx_payload = tx_payload,
       .tx_payload_size = sizeof(tx_payload),
       .tx_unit = tx_unit,
@@ -270,24 +280,21 @@ int main(void) {
   wl_fifo_view_t fifo_view = {0};
   wl_rpc_client_t rpc_client = {0};
   wl_rpc_client_slot_t rpc_slots[1] = {0};
-  uint8_t rpc_responses[8] = {0};
   const wl_rpc_client_config_t rpc_config = {
       .slots = rpc_slots,
       .slot_count = 1U,
-      .response_storage = rpc_responses,
-      .response_storage_size = sizeof(rpc_responses),
-      .response_capacity_per_slot = sizeof(rpc_responses),
   };
   uint32_t operation_id = 0U;
 
   if (WIRELINK_PROTOCOL_VERSION != WL_FRAME_VERSION ||
       wl_config_requirements(&config, &requirements) != WL_OK ||
-      requirements.rx_fifo_size != 0U ||
+      (WL_PACKAGE_COBS_CRC16 ? requirements.rx_fifo_size == 0U ||
+           requirements.rx_fifo_size > sizeof(rx_fifo) : requirements.rx_fifo_size != 0U) ||
       wl_init(&context, &config, &storage) != WL_OK ||
       wl_get_config(&context, &observed) != WL_OK ||
-      wl_poll_get_hint(&context, 0U, &poll_hint) != WL_OK ||
-      poll_hint.work_pending != 0U ||
-      poll_hint.next_deadline_ms != WL_POLL_NO_DEADLINE_MS ||
+      wl_link_get_readiness(&context, 0U, &poll_hint) != WL_OK ||
+      poll_hint.runnable != 0U ||
+      poll_hint.next_deadline_ms != WL_NO_DEADLINE ||
       observed.max_payload_len != config.max_payload_len ||
       observed.envelope != config.envelope ||
       observed.integrity != config.integrity ||

@@ -1,7 +1,70 @@
+/* RPC layout is a compilation setting, independent of schema/wire identity.
+ * ELF markers preserve one input section per function. They do not select
+ * a memory region or guarantee ordering. See wlc/docs/rpc-layout.md. */
+#ifndef WLC_RPC_LAYOUT_ENABLE
+#define WLC_RPC_LAYOUT_ENABLE 1
+#define WLC_CONTROL_RPC_LAYOUT_GLOBAL_DEFAULT
+#endif
+#ifndef CONTROL_RPC_LAYOUT_ENABLE
+#define CONTROL_RPC_LAYOUT_ENABLE WLC_RPC_LAYOUT_ENABLE
+#define WLC_CONTROL_RPC_LAYOUT_MODULE_DEFAULT
+#endif
+
+/* Check in the preprocessor too: a C enum may be 1 in a static assertion
+ * but is an unknown identifier (and therefore 0) in the layout #if. */
+#define WLC_CONTROL_RPC_LAYOUT_VALUE_0 1
+#define WLC_CONTROL_RPC_LAYOUT_VALUE_1 1
+#define WLC_CONTROL_RPC_LAYOUT_VALUE_(value) WLC_CONTROL_RPC_LAYOUT_VALUE_##value
+#define WLC_CONTROL_RPC_LAYOUT_VALUE(value) WLC_CONTROL_RPC_LAYOUT_VALUE_(value)
+#if !(WLC_CONTROL_RPC_LAYOUT_VALUE(WLC_RPC_LAYOUT_ENABLE))
+#error "WLC_RPC_LAYOUT_ENABLE must be literal 0 or 1"
+#endif
+#if !(WLC_CONTROL_RPC_LAYOUT_VALUE(CONTROL_RPC_LAYOUT_ENABLE))
+#error "CONTROL_RPC_LAYOUT_ENABLE must be literal 0 or 1"
+#endif
+#undef WLC_CONTROL_RPC_LAYOUT_VALUE
+#undef WLC_CONTROL_RPC_LAYOUT_VALUE_
+#undef WLC_CONTROL_RPC_LAYOUT_VALUE_0
+#undef WLC_CONTROL_RPC_LAYOUT_VALUE_1
+
+#define WLC_CONTROL_RPC_LAYOUT_STRING_(value) #value
+#define WLC_CONTROL_RPC_LAYOUT_STRING(value) WLC_CONTROL_RPC_LAYOUT_STRING_(value)
+#if defined(__cplusplus)
+#define WLC_CONTROL_RPC_LAYOUT_ASSERT static_assert
+#else
+#define WLC_CONTROL_RPC_LAYOUT_ASSERT _Static_assert
+#endif
+/* Check the whole expanded value: token-pasting alone only checks its first
+ * token and can accidentally accept expressions such as 4/2. */
+WLC_CONTROL_RPC_LAYOUT_ASSERT(
+    sizeof(WLC_CONTROL_RPC_LAYOUT_STRING(WLC_RPC_LAYOUT_ENABLE)) == 2 &&
+    (WLC_RPC_LAYOUT_ENABLE == 0 || WLC_RPC_LAYOUT_ENABLE == 1),
+    "WLC_RPC_LAYOUT_ENABLE must be literal 0 or 1");
+WLC_CONTROL_RPC_LAYOUT_ASSERT(
+    sizeof(WLC_CONTROL_RPC_LAYOUT_STRING(CONTROL_RPC_LAYOUT_ENABLE)) == 2 &&
+    (CONTROL_RPC_LAYOUT_ENABLE == 0 || CONTROL_RPC_LAYOUT_ENABLE == 1),
+    "CONTROL_RPC_LAYOUT_ENABLE must be literal 0 or 1");
+#undef WLC_CONTROL_RPC_LAYOUT_ASSERT
+#undef WLC_CONTROL_RPC_LAYOUT_STRING
+#undef WLC_CONTROL_RPC_LAYOUT_STRING_
+
+#if CONTROL_RPC_LAYOUT_ENABLE && defined(__ELF__) && (defined(__GNUC__) || defined(__clang__))
+#define WLC_CONTROL_RPC_LAYOUT_ACTIVE 1
+#ifndef CONTROL_RPC_LAYOUT
+#define CONTROL_RPC_LAYOUT(function) __attribute__((section(".text.wlc.control.rpc." #function)))
+#define WLC_CONTROL_RPC_LAYOUT_DEFAULT
+#endif
+#else
+#define WLC_CONTROL_RPC_LAYOUT_ACTIVE 0
+#endif
+
 #include "control_runtime.h"
 
 #include <string.h>
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_result)
+CONTROL_RPC_LAYOUT_control_runtime_result
+#endif
 static control_runtime_result_t control_runtime_result(const wl_event_t *event) {
   control_runtime_result_t result = {0};
   result.domain = CONTROL_RUNTIME_INVALID_ARGUMENT;
@@ -12,6 +75,11 @@ static control_runtime_result_t control_runtime_result(const wl_event_t *event) 
   return result;
 }
 
+_Static_assert(CONTROL_SCHEMA_IDENTITY == UINT64_C(0x0048B48181A18D13) && CONTROL_BINDING_PROFILE_IDENTITY == UINT64_C(0x3BAB7A3869C4D89E), "Runtime source/header profile mismatch; regenerate the matched artifacts.");
+
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_result_str)
+CONTROL_RPC_LAYOUT_control_runtime_result_str
+#endif
 const char *control_runtime_result_str(const control_runtime_result_t *result) {
   if (result == NULL) return "null result";
   switch (result->domain) {
@@ -38,6 +106,9 @@ void home_request_wlc_detail_value_copy(const home_request_t *, home_request_val
 #endif
 
 typedef struct { wl_ctx_t *link; control_runtime_t *runtime; } control_peer_cancel_context_t;
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_cancel_peer_tx)
+CONTROL_RPC_LAYOUT_control_runtime_cancel_peer_tx
+#endif
 static void control_runtime_cancel_peer_tx(void *context, wl_tx_handle_t handle) {
   control_peer_cancel_context_t *cancel = context;
   wl_tx_result_t ignored;
@@ -49,6 +120,9 @@ static void control_runtime_cancel_peer_tx(void *context, wl_tx_handle_t handle)
     cancel->runtime->rpc_retiring_tx = handle;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_config_defaults)
+CONTROL_RPC_LAYOUT_control_runtime_config_defaults
+#endif
 wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
   memset(config, 0, sizeof(*config));
@@ -58,19 +132,24 @@ wl_err_t control_runtime_config_defaults(control_runtime_config_t *config) {
   config->rpc_client_next_operation_id = 1U;
   config->rpc_server_pending_slot_count = 1U;
   config->rpc_server_cache_slot_count = 1U;
-  config->rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
-  config->rpc_client_response_capacity = 12U;
   config->rpc_server_response_capacity = 12U;
+  config->rpc_server_cache_policy = WL_RPC_CACHE_REJECT_NEW;
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_config_enable_client)
+CONTROL_RPC_LAYOUT_control_runtime_config_enable_client
+#endif
 wl_err_t control_runtime_config_enable_client(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
-  if (!CONTROL_RUNTIME_HAS_RPC_CLIENT || config->rpc_client_slot_count == 0U || config->rpc_client_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
+  if (!CONTROL_RUNTIME_HAS_RPC_CLIENT || config->rpc_client_slot_count == 0U) return WL_ERR_NOT_SUPPORTED;
   config->rpc_client_enabled = 1U;
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_config_enable_server)
+CONTROL_RPC_LAYOUT_control_runtime_config_enable_server
+#endif
 wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config) {
   if (config == NULL) return WL_ERR_INVALID_ARG;
   if (!CONTROL_RUNTIME_HAS_RPC_SERVER || config->rpc_server_pending_slot_count == 0U || config->rpc_server_cache_slot_count == 0U || config->rpc_server_response_capacity == 0U) return WL_ERR_NOT_SUPPORTED;
@@ -78,20 +157,31 @@ wl_err_t control_runtime_config_enable_server(control_runtime_config_t *config) 
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_default_storage_descriptor)
+CONTROL_RPC_LAYOUT_control_runtime_default_storage_descriptor
+#endif
 control_runtime_storage_t control_runtime_default_storage_descriptor(control_runtime_default_storage_t *storage) {
   control_runtime_storage_t descriptor = {0};
   if (storage != NULL) {
     descriptor.data = storage->bytes;
     descriptor.size = sizeof(storage->bytes);
+    descriptor.rpc_results = storage->rpc_results;
+    descriptor.rpc_result_count = 1U;
   }
   return descriptor;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_roles_valid)
+CONTROL_RPC_LAYOUT_control_runtime_roles_valid
+#endif
 static int control_runtime_roles_valid(const control_runtime_config_t *config) {
   (void)config;
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_init_issue_str)
+CONTROL_RPC_LAYOUT_control_runtime_init_issue_str
+#endif
 const char *control_runtime_init_issue_str(control_runtime_init_issue_t issue) {
   switch (issue) {
     case CONTROL_RUNTIME_INIT_OK: return "ok";
@@ -112,6 +202,9 @@ const char *control_runtime_init_issue_str(control_runtime_init_issue_t issue) {
   }
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_init_failure)
+CONTROL_RPC_LAYOUT_control_runtime_init_failure
+#endif
 static int control_runtime_init_failure(control_runtime_init_diagnostic_t *diagnostic, control_runtime_init_issue_t issue, const char *field, size_t required, size_t provided, int result) {
   if (diagnostic != NULL) {
     diagnostic->issue = issue;
@@ -120,6 +213,26 @@ static int control_runtime_init_failure(control_runtime_init_diagnostic_t *diagn
     diagnostic->provided = provided;
   }
   return result;
+}
+
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_result_storage_validate)
+CONTROL_RPC_LAYOUT_control_runtime_result_storage_validate
+#endif
+static int control_runtime_result_storage_validate(const control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage, control_runtime_init_diagnostic_t *diagnostic) {
+  uintptr_t address, other;
+  size_t bytes;
+  if (!config->rpc_client_enabled) return WL_OK;
+  if (storage->rpc_result_count < config->rpc_client_slot_count) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL, "storage.rpc_result_count", config->rpc_client_slot_count, storage->rpc_result_count, WL_ERR_BUF_TOO_SMALL);
+  if (storage->rpc_results == NULL) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_NULL, "storage.rpc_results", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (storage->rpc_result_count > SIZE_MAX / sizeof(*storage->rpc_results)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW, "storage.rpc_result_count", 0U, storage->rpc_result_count, WL_ERR_INVALID_ARG);
+  address = (uintptr_t)(void *)storage->rpc_results;
+  if (address % _Alignof(control_rpc_result_value_t) != 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_ALIGNMENT, "storage.rpc_results", _Alignof(control_rpc_result_value_t), address % _Alignof(control_rpc_result_value_t), WL_ERR_INVALID_ARG);
+  bytes = storage->rpc_result_count * sizeof(*storage->rpc_results);
+  other = (uintptr_t)(const void *)instance;
+  if ((address <= other && other - address < bytes) || (other < address && address - other < sizeof(*instance))) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_OVERLAP, "storage.rpc_results", bytes, 0U, WL_ERR_INVALID_ARG);
+  other = (uintptr_t)storage->data;
+  if (storage->size != 0U && ((address <= other && other - address < bytes) || (other < address && address - other < storage->size))) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_OVERLAP, "storage.rpc_results", bytes, 0U, WL_ERR_INVALID_ARG);
+  return WL_OK;
 }
 
 typedef struct {
@@ -132,14 +245,15 @@ typedef struct {
   void *joint_command_fifo_storage;
   void *arm_mit_command_latest_storage;
   void *rpc_client_slots;
-  void *rpc_client_responses;
-  size_t rpc_client_responses_size;
   void *rpc_server_pending_slots;
   void *rpc_server_cache_slots;
   void *rpc_server_responses;
   size_t rpc_server_responses_size;
 } control_runtime_layout_t;
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_storage_region)
+CONTROL_RPC_LAYOUT_control_runtime_storage_region
+#endif
 static inline int control_runtime_storage_region(control_runtime_storage_cursor_t *cursor, size_t alignment, size_t count, size_t element_size, void **out_data, size_t *out_size) {
   size_t aligned;
   size_t region_size;
@@ -158,6 +272,9 @@ static inline int control_runtime_storage_region(control_runtime_storage_cursor_
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_layout)
+CONTROL_RPC_LAYOUT_control_runtime_layout
+#endif
 static int control_runtime_layout(const control_runtime_config_t *config, uint8_t *base, size_t size, control_runtime_layout_t *out_layout, control_runtime_requirements_t *out_requirements) {
   control_runtime_storage_cursor_t cursor = {base, size, 0U};
   size_t alignment = 1U;
@@ -186,26 +303,26 @@ static int control_runtime_layout(const control_runtime_config_t *config, uint8_
   if (control_runtime_roles_valid(config) != WL_OK) return WL_ERR_NOT_SUPPORTED;
   if (config->rpc_client_enabled > 1U || config->rpc_server_enabled > 1U) return WL_ERR_INVALID_ARG;
   if (config->rpc_client_enabled != 0U) {
-    if (config->rpc_client_slot_count == 0U || config->rpc_client_response_capacity == 0U) return WL_ERR_INVALID_ARG;
+    if (config->rpc_client_slot_count == 0U) return WL_ERR_INVALID_ARG;
     if (alignment < _Alignof(wl_rpc_client_slot_t)) alignment = _Alignof(wl_rpc_client_slot_t);
     result = control_runtime_storage_region(&cursor, _Alignof(wl_rpc_client_slot_t), config->rpc_client_slot_count, sizeof(wl_rpc_client_slot_t), out_layout == NULL ? NULL : &out_layout->rpc_client_slots, NULL);
-    if (result != WL_OK) return result;
-    result = control_runtime_storage_region(&cursor, 1U, config->rpc_client_slot_count, config->rpc_client_response_capacity, out_layout == NULL ? NULL : &out_layout->rpc_client_responses, out_layout == NULL ? NULL : &out_layout->rpc_client_responses_size);
     if (result != WL_OK) return result;
   }
   if (config->rpc_server_enabled != 0U) {
     if (config->rpc_server_pending_slot_count == 0U || config->rpc_server_cache_slot_count == 0U || config->rpc_server_response_capacity == 0U) return WL_ERR_INVALID_ARG;
-    if ((config->rpc_server_pending_timeout_ms != 0U && config->rpc_server_pending_timeout_ms >= UINT32_C(0x80000000)) || (config->rpc_server_cache_ttl_ms != 0U && config->rpc_server_cache_ttl_ms >= UINT32_C(0x80000000))) return WL_ERR_INVALID_ARG;
+    if (config->rpc_server_pending_timeout_ms >= UINT32_C(0x80000000)) return WL_ERR_INVALID_ARG;
+    if (config->rpc_server_cache_ttl_ms >= UINT32_C(0x80000000)) return WL_ERR_INVALID_ARG;
     if (config->rpc_server_cache_policy != WL_RPC_CACHE_REJECT_NEW && config->rpc_server_cache_policy != WL_RPC_CACHE_EVICT_OLDEST) return WL_ERR_INVALID_ARG;
     if (alignment < _Alignof(wl_rpc_server_pending_slot_t)) alignment = _Alignof(wl_rpc_server_pending_slot_t);
-    if (alignment < _Alignof(wl_rpc_server_cache_slot_t)) alignment = _Alignof(wl_rpc_server_cache_slot_t);
     result = control_runtime_storage_region(&cursor, _Alignof(wl_rpc_server_pending_slot_t), config->rpc_server_pending_slot_count, sizeof(wl_rpc_server_pending_slot_t), out_layout == NULL ? NULL : &out_layout->rpc_server_pending_slots, NULL);
     if (result != WL_OK) return result;
+    if (alignment < _Alignof(wl_rpc_server_cache_slot_t)) alignment = _Alignof(wl_rpc_server_cache_slot_t);
     result = control_runtime_storage_region(&cursor, _Alignof(wl_rpc_server_cache_slot_t), config->rpc_server_cache_slot_count, sizeof(wl_rpc_server_cache_slot_t), out_layout == NULL ? NULL : &out_layout->rpc_server_cache_slots, NULL);
     if (result != WL_OK) return result;
     result = control_runtime_storage_region(&cursor, 1U, config->rpc_server_cache_slot_count, config->rpc_server_response_capacity, out_layout == NULL ? NULL : &out_layout->rpc_server_responses, out_layout == NULL ? NULL : &out_layout->rpc_server_responses_size);
     if (result != WL_OK) return result;
   }
+  if (out_requirements != NULL) out_requirements->rpc_result_count = config->rpc_client_enabled ? config->rpc_client_slot_count : 0U;
   if (out_requirements != NULL) {
     out_requirements->storage_size = cursor.offset;
     out_requirements->storage_alignment = alignment;
@@ -213,6 +330,9 @@ static int control_runtime_layout(const control_runtime_config_t *config, uint8_
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_requirements)
+CONTROL_RPC_LAYOUT_control_runtime_requirements
+#endif
 int control_runtime_requirements(const control_runtime_config_t *config, control_runtime_requirements_t *out_requirements) {
   control_runtime_config_t config_copy;
   if (config == NULL || out_requirements == NULL) return WL_ERR_INVALID_ARG;
@@ -221,6 +341,9 @@ int control_runtime_requirements(const control_runtime_config_t *config, control
   return control_runtime_layout(&config_copy, NULL, SIZE_MAX, NULL, out_requirements);
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_init_validate)
+CONTROL_RPC_LAYOUT_control_runtime_init_validate
+#endif
 static int control_runtime_init_validate(const control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage, control_runtime_requirements_t *requirements, control_runtime_init_diagnostic_t *diagnostic) {
   uintptr_t instance_address;
   uintptr_t storage_address;
@@ -233,13 +356,12 @@ static int control_runtime_init_validate(const control_runtime_instance_t *insta
   if (config->rpc_client_enabled > 1U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "rpc_client_enabled", 1U, config->rpc_client_enabled, WL_ERR_INVALID_ARG);
   if (config->rpc_server_enabled > 1U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_ROLE_ENABLE, "rpc_server_enabled", 1U, config->rpc_server_enabled, WL_ERR_INVALID_ARG);
   if (config->rpc_client_enabled != 0U && config->rpc_client_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY, "rpc_client_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
-  if (config->rpc_client_enabled != 0U && config->rpc_client_response_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CLIENT_CAPACITY, "rpc_client_response_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->rpc_server_pending_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_pending_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->rpc_server_cache_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_cache_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->rpc_server_response_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_response_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->rpc_server_pending_timeout_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_pending_timeout_ms", UINT32_C(0x7fffffff), config->rpc_server_pending_timeout_ms, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->rpc_server_cache_ttl_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_cache_ttl_ms", UINT32_C(0x7fffffff), config->rpc_server_cache_ttl_ms, WL_ERR_INVALID_ARG);
-  if (config->rpc_server_enabled != 0U && config->rpc_server_cache_policy != WL_RPC_CACHE_REJECT_NEW && config->rpc_server_cache_policy != WL_RPC_CACHE_EVICT_OLDEST) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY, "rpc_server_cache_policy", 0U, (size_t)config->rpc_server_cache_policy, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled && config->rpc_server_pending_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_pending_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled && config->rpc_server_cache_slot_count == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_cache_slot_count", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled && config->rpc_server_response_capacity == 0U) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_SERVER_CAPACITY, "rpc_server_response_capacity", 1U, 0U, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled && config->rpc_server_pending_timeout_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_pending_timeout_ms", UINT32_C(0x7fffffff), config->rpc_server_pending_timeout_ms, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled && config->rpc_server_cache_ttl_ms >= UINT32_C(0x80000000)) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_TIMEOUT, "rpc_server_cache_ttl_ms", UINT32_C(0x7fffffff), config->rpc_server_cache_ttl_ms, WL_ERR_INVALID_ARG);
+  if (config->rpc_server_enabled && config->rpc_server_cache_policy != WL_RPC_CACHE_REJECT_NEW && config->rpc_server_cache_policy != WL_RPC_CACHE_EVICT_OLDEST) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_RPC_CACHE_POLICY, "rpc_server_cache_policy", 0U, (size_t)config->rpc_server_cache_policy, WL_ERR_INVALID_ARG);
   result = control_runtime_requirements(config, requirements);
   if (result != WL_OK) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_LAYOUT_OVERFLOW, "config", 0U, 0U, result);
   if (storage->size < requirements->storage_size) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_TOO_SMALL, "storage.size", requirements->storage_size, storage->size, WL_ERR_BUF_TOO_SMALL);
@@ -250,9 +372,14 @@ static int control_runtime_init_validate(const control_runtime_instance_t *insta
     storage_address = (uintptr_t)storage->data;
     if ((storage_address <= instance_address && instance_address - storage_address < requirements->storage_size) || (instance_address < storage_address && storage_address - instance_address < sizeof(*instance))) return control_runtime_init_failure(diagnostic, CONTROL_RUNTIME_INIT_STORAGE_OVERLAP, "storage.data", requirements->storage_size, storage->size, WL_ERR_INVALID_ARG);
   }
+  result = control_runtime_result_storage_validate(instance, config, storage, diagnostic);
+  if (result != WL_OK) return result;
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_init)
+CONTROL_RPC_LAYOUT_control_runtime_init
+#endif
 int control_runtime_init(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage) {
   control_runtime_config_t config_copy;
   control_runtime_storage_t storage_copy;
@@ -275,6 +402,8 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     storage_address = (uintptr_t)storage->data;
     if ((storage_address <= instance_address && instance_address - storage_address < requirements.storage_size) || (instance_address < storage_address && storage_address - instance_address < sizeof(*instance))) return WL_ERR_INVALID_ARG;
   }
+  result = control_runtime_result_storage_validate(instance, config, storage, NULL);
+  if (result != WL_OK) return result;
   result = control_runtime_layout(config, (uint8_t *)storage->data, storage->size, &layout, NULL);
   if (result != WL_OK) return result;
   memset(instance, 0, sizeof(*instance));
@@ -307,9 +436,6 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     const wl_rpc_client_config_t client_config = {
       (wl_rpc_client_slot_t *)layout.rpc_client_slots,
       config->rpc_client_slot_count,
-      (uint8_t *)layout.rpc_client_responses,
-      layout.rpc_client_responses_size,
-      config->rpc_client_response_capacity,
       config->rpc_client_next_operation_id
     };
     if (wl_rpc_client_init(&instance->rpc_client, &client_config) != WL_RPC_OK) {
@@ -317,21 +443,23 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
       goto init_failed;
     }
     instance->runtime.rpc_client = &instance->rpc_client;
+    instance->runtime.rpc_results = storage->rpc_results;
+    instance->runtime.rpc_result_count = storage->rpc_result_count;
   }
 #endif
 #if CONTROL_RUNTIME_HAS_RPC_SERVER
-  if (config->rpc_server_enabled != 0U) {
+  if (config->rpc_server_enabled) {
     const wl_rpc_server_config_t server_config = {
-      (wl_rpc_server_pending_slot_t *)layout.rpc_server_pending_slots,
-      config->rpc_server_pending_slot_count,
-      (wl_rpc_server_cache_slot_t *)layout.rpc_server_cache_slots,
-      config->rpc_server_cache_slot_count,
-      (uint8_t *)layout.rpc_server_responses,
-      layout.rpc_server_responses_size,
-      config->rpc_server_response_capacity,
-      config->rpc_server_pending_timeout_ms,
-      config->rpc_server_cache_ttl_ms,
-      config->rpc_server_cache_policy
+      .pending_slots = (wl_rpc_server_pending_slot_t *)layout.rpc_server_pending_slots,
+      .pending_slot_count = config->rpc_server_pending_slot_count,
+      .pending_timeout_ms = config->rpc_server_pending_timeout_ms,
+      .cache_slots = (wl_rpc_server_cache_slot_t *)layout.rpc_server_cache_slots,
+      .cache_slot_count = config->rpc_server_cache_slot_count,
+      .response_storage = (uint8_t *)layout.rpc_server_responses,
+      .response_storage_size = layout.rpc_server_responses_size,
+      .response_capacity_per_slot = config->rpc_server_response_capacity,
+      .cache_ttl_ms = config->rpc_server_cache_ttl_ms,
+      .cache_policy = config->rpc_server_cache_policy,
     };
     if (wl_rpc_server_init(&instance->rpc_server, &server_config) != WL_RPC_OK) {
       result = WL_ERR_INVALID_ARG;
@@ -347,9 +475,6 @@ int control_runtime_init(control_runtime_instance_t *instance, const control_run
     instance->runtime.home.user_data = config->home_user_data;
   }
 #endif
-#if CONTROL_RUNTIME_HAS_RPC_CLIENT
-  if (config->rpc_client_enabled != 0U) instance->runtime.home.response_scratch = &instance->home_scratch.response;
-#endif
   if (config->rpc_client_enabled != 0U || config->rpc_server_enabled != 0U) instance->runtime.rpc_encode_scratch = &instance->rpc_encode_scratch;
   return WL_OK;
 
@@ -358,6 +483,9 @@ init_failed:
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_init_checked)
+CONTROL_RPC_LAYOUT_control_runtime_init_checked
+#endif
 int control_runtime_init_checked(control_runtime_instance_t *instance, const control_runtime_config_t *config, const control_runtime_storage_t *storage, control_runtime_init_diagnostic_t *out_diagnostic) {
   control_runtime_requirements_t requirements;
   int result = control_runtime_init_validate(instance, config, storage, &requirements, out_diagnostic);
@@ -367,6 +495,25 @@ int control_runtime_init_checked(control_runtime_instance_t *instance, const con
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_rpc_response_writable)
+CONTROL_RPC_LAYOUT_control_rpc_response_writable
+#elif WLC_CONTROL_RPC_LAYOUT_ACTIVE
+CONTROL_RPC_LAYOUT(control_rpc_response_writable)
+#endif
+static uint8_t control_rpc_response_writable(const wl_ctx_t *ctx, const control_runtime_t *runtime) {
+  uint16_t message_id;
+  if (runtime->rpc_response_retry_blocked &&
+      runtime->rpc_response_retry_generation == wl_link_resource_generation(ctx)) return 0U;
+  if (runtime->rpc_server == NULL || wl_rpc_server_response_peek(runtime->rpc_server, &message_id) != WL_RPC_OK) return 0U;
+  switch (message_id) {
+    case HOME_RESPONSE_MESSAGE_ID: return wl_tx_can_submit(ctx, WL_DELIVERY_RELIABLE);
+    default: return wl_tx_can_submit(ctx, WL_DELIVERY_UNRELIABLE);
+  }
+}
+
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_peer_observe)
+CONTROL_RPC_LAYOUT_control_runtime_peer_observe
+#endif
 wl_rpc_err_t control_runtime_peer_observe(wl_ctx_t *ctx, control_runtime_t *runtime, uint64_t peer_session_id, wl_rpc_peer_observation_t *out_observation) {
   control_peer_cancel_context_t cancel = {ctx, runtime};
   wl_rpc_err_t result;
@@ -377,6 +524,9 @@ wl_rpc_err_t control_runtime_peer_observe(wl_ctx_t *ctx, control_runtime_t *runt
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_peer_observation_take)
+CONTROL_RPC_LAYOUT_control_runtime_peer_observation_take
+#endif
 wl_rpc_err_t control_runtime_peer_observation_take(control_runtime_t *runtime, wl_rpc_peer_observation_t *out_observation) {
   if (out_observation != NULL) memset(out_observation, 0, sizeof(*out_observation));
   if (runtime == NULL || out_observation == NULL) return WL_RPC_ERR_INVALID_ARG;
@@ -386,6 +536,11 @@ wl_rpc_err_t control_runtime_peer_observation_take(control_runtime_t *runtime, w
   return WL_RPC_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_poll)
+CONTROL_RPC_LAYOUT_control_runtime_poll
+#elif WLC_CONTROL_RPC_LAYOUT_ACTIVE
+CONTROL_RPC_LAYOUT(control_runtime_poll)
+#endif
 wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_poll_result_t *out_result) {
   wl_rpc_err_t result;
   wl_rpc_server_expiry_t server_expiry = {0};
@@ -406,6 +561,11 @@ wl_rpc_err_t control_runtime_poll(control_runtime_t *runtime, wl_time_ms_t now_m
   return WL_RPC_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_service)
+CONTROL_RPC_LAYOUT_control_runtime_service
+#elif WLC_CONTROL_RPC_LAYOUT_ACTIVE
+CONTROL_RPC_LAYOUT(control_runtime_service)
+#endif
 wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, wl_time_ms_t now_ms, control_runtime_service_result_t *out_result) {
   wl_rpc_server_response_t response = {0};
   wl_rpc_err_t result;
@@ -415,12 +575,18 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
   out_result->response = control_runtime_result(NULL);
   if (runtime->rpc_retiring_tx != 0U) {
     wl_tx_result_t ignored;
-    int retired = wl_tx_take(ctx, runtime->rpc_retiring_tx, &ignored);
+    int retired = wl_tx_can_take(ctx, runtime->rpc_retiring_tx) ? wl_tx_take(ctx, runtime->rpc_retiring_tx, &ignored) : WL_ERR_BUSY;
     if (retired == WL_OK || retired == WL_ERR_NOT_FOUND) runtime->rpc_retiring_tx = 0U;
   }
-  result = control_runtime_poll(runtime, now_ms, &out_result->deadlines);
+  wl_rpc_deadline_hint_t timer;
+  result = control_runtime_get_deadline_hint(runtime, now_ms, &timer);
   if (result != WL_RPC_OK) return result;
-  if (runtime->rpc_server == NULL) return WL_RPC_OK;
+  if (timer.next_deadline_ms == 0U) {
+    result = control_runtime_poll(runtime, now_ms, &out_result->deadlines);
+    if (result != WL_RPC_OK) return result;
+  }
+  if (!control_rpc_response_writable(ctx, runtime)) return WL_RPC_OK;
+  runtime->rpc_response_retry_blocked = 0U;
   result = wl_rpc_server_response_acquire(runtime->rpc_server, &response);
   if (result == WL_RPC_ERR_NOT_FOUND) return WL_RPC_OK;
   if (result != WL_RPC_OK) return result;
@@ -456,6 +622,8 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
     if (result != WL_RPC_OK) return result;
     out_result->response.domain = CONTROL_RUNTIME_CORE_ERROR;
     out_result->responses_deferred = 1U;
+    runtime->rpc_response_retry_generation = wl_link_resource_generation(ctx);
+    runtime->rpc_response_retry_blocked = 1U;
     return WL_RPC_OK;
   }
   if (reliable_response != 0U) {
@@ -472,6 +640,11 @@ wl_rpc_err_t control_runtime_service(wl_ctx_t *ctx, control_runtime_t *runtime, 
   return WL_RPC_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_get_deadline_hint)
+CONTROL_RPC_LAYOUT_control_runtime_get_deadline_hint
+#elif WLC_CONTROL_RPC_LAYOUT_ACTIVE
+CONTROL_RPC_LAYOUT(control_runtime_get_deadline_hint)
+#endif
 wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint) {
   wl_rpc_deadline_hint_t component = {WL_RPC_NO_DEADLINE_MS};
   wl_rpc_err_t result;
@@ -492,6 +665,46 @@ wl_rpc_err_t control_runtime_get_deadline_hint(const control_runtime_t *runtime,
   return WL_RPC_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_readiness)
+CONTROL_RPC_LAYOUT_control_runtime_readiness
+#elif WLC_CONTROL_RPC_LAYOUT_ACTIVE
+CONTROL_RPC_LAYOUT(control_runtime_readiness)
+#endif
+wl_readiness_t control_runtime_readiness(const wl_ctx_t *ctx, const control_runtime_t *runtime, wl_time_ms_t now_ms) {
+  wl_readiness_t value = wl_readiness_idle();
+  wl_rpc_deadline_hint_t timer;
+  uint16_t message_id = 0U;
+  if (runtime == NULL || ctx == NULL) return value;
+  if (control_runtime_get_deadline_hint(runtime, now_ms, &timer) == WL_RPC_OK)
+    value = wl_readiness_at(timer.next_deadline_ms);
+  if (runtime->rpc_retiring_tx != 0U) {
+    if (wl_tx_can_take(ctx, runtime->rpc_retiring_tx)) value.runnable = 1U;
+    else value.blocked = 1U;
+  }
+  if (runtime->rpc_server != NULL && wl_rpc_server_response_peek(runtime->rpc_server, &message_id) == WL_RPC_OK) {
+    wl_delivery_t delivery = WL_DELIVERY_UNRELIABLE;
+    switch (message_id) {
+      case HOME_RESPONSE_MESSAGE_ID: delivery = WL_DELIVERY_RELIABLE; break;
+      default: break;
+    }
+    if (wl_tx_can_submit(ctx, delivery) && (!runtime->rpc_response_retry_blocked ||
+        runtime->rpc_response_retry_generation != wl_link_resource_generation(ctx))) value.runnable = 1U;
+    else value.blocked = 1U;
+  }
+  return value;
+}
+
+/* Keep RPC routing separate from the pump under LTO. */
+#if defined(_MSC_VER)
+__declspec(noinline)
+#elif defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline))
+#endif
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_dispatch_event)
+CONTROL_RPC_LAYOUT_control_runtime_dispatch_event
+#elif WLC_CONTROL_RPC_LAYOUT_ACTIVE
+CONTROL_RPC_LAYOUT(control_runtime_dispatch_event)
+#endif
 control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_event_t *event, control_runtime_t *runtime, wl_time_ms_t now_ms) {
   control_runtime_result_t result = control_runtime_result(event);
   if (event == NULL) return result;
@@ -646,15 +859,6 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
         result.domain = CONTROL_RUNTIME_MISSING_ROUTE;
         break;
       }
-      if (event->peer_session_id != 0U && runtime->rpc_peer.session_id != event->peer_session_id) {
-        wl_rpc_peer_observation_t observation = {0};
-        result.detail.rpc.rpc_result = control_runtime_peer_observe(ctx, runtime, event->peer_session_id, &observation);
-        if (result.detail.rpc.rpc_result != WL_RPC_OK) {
-          result.domain = CONTROL_RUNTIME_RPC_ERROR;
-          break;
-        }
-        if (observation.changed != 0U) result.detail.rpc.peer_changed = 1U;
-      }
       if (runtime->home.request_scratch == NULL) {
         result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;
         break;
@@ -680,6 +884,15 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       identity.request_message_id = HOME_REQUEST_MESSAGE_ID;
       identity.response_message_id = HOME_RESPONSE_MESSAGE_ID;
       identity.peer_session_id = event->peer_session_id;
+      if (event->peer_session_id != 0U && runtime->rpc_peer.session_id != event->peer_session_id) {
+        wl_rpc_peer_observation_t observation = {0};
+        result.detail.rpc.rpc_result = control_runtime_peer_observe(ctx, runtime, event->peer_session_id, &observation);
+        if (result.detail.rpc.rpc_result != WL_RPC_OK) {
+          result.domain = CONTROL_RUNTIME_RPC_ERROR;
+          break;
+        }
+        if (observation.changed != 0U) result.detail.rpc.peer_changed = 1U;
+      }
       result.detail.rpc.rpc_result = wl_rpc_server_begin(runtime->rpc_server, &identity, now_ms, &result.detail.rpc.rpc_disposition, &server_request, &replay);
       if (result.detail.rpc.rpc_result != WL_RPC_OK) {
         result.domain = CONTROL_RUNTIME_RPC_ERROR;
@@ -723,6 +936,9 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
       break;
     }
     case HOME_RESPONSE_MESSAGE_ID: {
+      wl_rpc_client_response_t authority;
+      uint16_t result_index;
+      home_response_value_t *decoded = &runtime->rpc_mapped_scratch.home;
       result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
       if (event->type != WL_EVT_RELIABLE_RX) {
         result.domain = CONTROL_RUNTIME_DELIVERY_MISMATCH;
@@ -732,24 +948,36 @@ control_runtime_result_t control_runtime_dispatch_event(wl_ctx_t *ctx, const wl_
         result.domain = CONTROL_RUNTIME_MISSING_ROUTE;
         break;
       }
-      if (runtime->home.response_scratch == NULL) {
-        result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;
-        break;
-      }
-      result.detail.rpc.codec_status = home_response_decode(event->payload, event->payload_len, runtime->home.response_scratch);
+      /* Mapped correlation fields are in the schema body: decode once into
+       * owned scratch, validate authority, then copy into the selected slot. */
+      result.detail.rpc.codec_status = home_response_value_decode(event->payload, event->payload_len, decoded);
       if (result.detail.rpc.codec_status != WL_CODEC_OK) {
         result.domain = CONTROL_RUNTIME_CODEC_ERROR;
         break;
       }
-      if (!runtime->home.response_scratch->has_operation_id || runtime->home.response_scratch->operation_id == 0U || !runtime->home.response_scratch->has_status) {
+      if (!decoded->has_operation_id || decoded->operation_id == 0U || !decoded->has_status) {
         result.detail.rpc.rpc_result = WL_RPC_ERR_RESPONSE_MISMATCH;
         result.domain = CONTROL_RUNTIME_RPC_ERROR;
         break;
       }
-      result.detail.rpc.operation_id = runtime->home.response_scratch->operation_id;
-      result.detail.rpc.application_result = (int32_t)runtime->home.response_scratch->status;
+      result.detail.rpc.operation_id = decoded->operation_id;
+      result.detail.rpc.application_result = (int32_t)decoded->status;
       result.detail.rpc.payload_length = event->payload_len;
-      result.detail.rpc.rpc_result = wl_rpc_client_on_response(runtime->rpc_client, HOME_RESPONSE_MESSAGE_ID, result.detail.rpc.operation_id, result.detail.rpc.application_result, event->payload, event->payload_len);
+      result.detail.rpc.rpc_result = wl_rpc_client_response_prepare(runtime->rpc_client,
+          HOME_REQUEST_MESSAGE_ID, HOME_RESPONSE_MESSAGE_ID, decoded->operation_id, now_ms,
+          &authority, &result_index);
+      if (result.detail.rpc.rpc_result != WL_RPC_OK) {
+        result.domain = result.detail.rpc.rpc_result == WL_RPC_ERR_NOT_FOUND || result.detail.rpc.rpc_result == WL_RPC_ERR_INVALID_STATE ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_RPC_ERROR;
+        break;
+      }
+      if (runtime->rpc_results == NULL || result_index >= runtime->rpc_result_count) {
+        result.domain = CONTROL_RUNTIME_MISSING_SCRATCH;
+        break;
+      }
+      if (result.detail.rpc.application_result == 0)
+        runtime->rpc_results[result_index].home = *decoded;
+      result.detail.rpc.rpc_result = wl_rpc_client_response_commit(runtime->rpc_client,
+          &authority, result.detail.rpc.application_result, now_ms);
       result.domain = result.detail.rpc.rpc_result == WL_RPC_OK ? CONTROL_RUNTIME_OK : CONTROL_RUNTIME_RPC_ERROR;
       break;
     }
@@ -764,6 +992,9 @@ release_event:
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_joint_command_fifo_acquire)
+CONTROL_RPC_LAYOUT_control_joint_command_fifo_acquire
+#endif
 int control_joint_command_fifo_acquire(control_runtime_t *runtime, control_joint_command_fifo_view_t *out_view) {
   wl_fifo_view_t lease = {0};
   int result;
@@ -783,6 +1014,9 @@ int control_joint_command_fifo_acquire(control_runtime_t *runtime, control_joint
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_joint_command_fifo_release)
+CONTROL_RPC_LAYOUT_control_joint_command_fifo_release
+#endif
 int control_joint_command_fifo_release(control_runtime_t *runtime, control_joint_command_fifo_view_t *view) {
   int result;
   if (runtime == NULL || view == NULL) return WL_ERR_INVALID_ARG;
@@ -793,6 +1027,9 @@ int control_joint_command_fifo_release(control_runtime_t *runtime, control_joint
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_arm_mit_command_latest_acquire)
+CONTROL_RPC_LAYOUT_control_arm_mit_command_latest_acquire
+#endif
 int control_arm_mit_command_latest_acquire(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *out_view) {
   wl_latest_view_t lease = {0};
   int result;
@@ -813,6 +1050,9 @@ int control_arm_mit_command_latest_acquire(control_runtime_t *runtime, control_a
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_arm_mit_command_latest_release)
+CONTROL_RPC_LAYOUT_control_arm_mit_command_latest_release
+#endif
 int control_arm_mit_command_latest_release(control_runtime_t *runtime, control_arm_mit_command_latest_view_t *view) {
   int result;
   if (runtime == NULL || view == NULL) return WL_ERR_INVALID_ARG;
@@ -823,6 +1063,9 @@ int control_arm_mit_command_latest_release(control_runtime_t *runtime, control_a
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_client_finish_start)
+CONTROL_RPC_LAYOUT_control_home_client_finish_start
+#endif
 static control_runtime_result_t control_home_client_finish_start(control_runtime_t *runtime, uint32_t operation_id, control_send_result_t sent) {
   control_runtime_result_t result = control_runtime_result(NULL);
   result.message_id = HOME_REQUEST_MESSAGE_ID;
@@ -846,6 +1089,9 @@ static control_runtime_result_t control_home_client_finish_start(control_runtime
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_client_start)
+CONTROL_RPC_LAYOUT_control_home_client_start
+#endif
 control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtime_t *runtime, const home_request_t *request, uint32_t timeout_ms, wl_time_ms_t now_ms) {
   control_runtime_result_t result = control_runtime_result(NULL);
   control_send_result_t sent;
@@ -878,6 +1124,9 @@ control_runtime_result_t control_home_client_start(wl_ctx_t *ctx, control_runtim
   return control_home_client_finish_start(runtime, operation_id, sent);
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_client_inspect)
+CONTROL_RPC_LAYOUT_control_home_client_inspect
+#endif
 wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint32_t operation_id, wl_rpc_client_result_t *out_client) {
   wl_rpc_err_t result;
   if (out_client != NULL) memset(out_client, 0, sizeof(*out_client));
@@ -888,43 +1137,9 @@ wl_rpc_err_t control_home_client_inspect(const control_runtime_t *runtime, uint3
   return WL_RPC_OK;
 }
 
-control_runtime_result_t control_home_client_decode(const wl_rpc_client_result_t *client, home_response_t *response) {
-  control_runtime_result_t result = control_runtime_result(NULL);
-  result.message_id = HOME_RESPONSE_MESSAGE_ID;
-  result.detail_kind = CONTROL_RUNTIME_DETAIL_RPC;
-  if (client != NULL) {
-    result.detail.rpc.operation_id = client->operation_id;
-    result.detail.rpc.handle = client->tx_handle;
-    result.detail.rpc.core_result = client->link_result;
-    result.detail.rpc.application_result = client->application_status;
-    result.detail.rpc.payload_length = client->response_length;
-  }
-  if (client == NULL || response == NULL || client->operation_id == 0U) return result;
-  home_response_clear(response);
-  if (client->request_message_id != HOME_REQUEST_MESSAGE_ID || client->response_message_id != HOME_RESPONSE_MESSAGE_ID) {
-    result.detail.rpc.rpc_result = WL_RPC_ERR_RESPONSE_MISMATCH;
-    result.domain = CONTROL_RUNTIME_RPC_ERROR;
-    return result;
-  }
-  if ((client->state != WL_RPC_CLIENT_COMPLETED && client->state != WL_RPC_CLIENT_APPLICATION_ERROR) || client->response_data == NULL || client->response_length == 0U) {
-    result.detail.rpc.rpc_result = WL_RPC_ERR_INVALID_STATE;
-    result.domain = CONTROL_RUNTIME_RPC_ERROR;
-    return result;
-  }
-  result.detail.rpc.codec_status = home_response_decode(client->response_data, client->response_length, response);
-  if (result.detail.rpc.codec_status != WL_CODEC_OK) {
-    result.domain = CONTROL_RUNTIME_CODEC_ERROR;
-    return result;
-  }
-  if (!response->has_operation_id || response->operation_id != client->operation_id || !response->has_status || (int32_t)response->status != client->application_status) {
-    result.detail.rpc.rpc_result = WL_RPC_ERR_RESPONSE_MISMATCH;
-    result.domain = CONTROL_RUNTIME_RPC_ERROR;
-    return result;
-  }
-  result.domain = CONTROL_RUNTIME_OK;
-  return result;
-}
-
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_client_release)
+CONTROL_RPC_LAYOUT_control_home_client_release
+#endif
 wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t operation_id) {
   wl_rpc_client_result_t client = {0};
   wl_rpc_err_t result;
@@ -935,6 +1150,9 @@ wl_rpc_err_t control_home_client_release(control_runtime_t *runtime, uint32_t op
   return wl_rpc_client_release(runtime->rpc_client, operation_id);
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_server_finish)
+CONTROL_RPC_LAYOUT_control_home_server_finish
+#endif
 static control_runtime_result_t control_home_server_finish(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms, bool reject) {
   control_runtime_result_t result = control_runtime_result(NULL);
   wl_rpc_server_response_buffer_t buffer = {0};
@@ -987,14 +1205,38 @@ static control_runtime_result_t control_home_server_finish(control_runtime_t *ru
   return result;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_server_complete)
+CONTROL_RPC_LAYOUT_control_home_server_complete
+#endif
 control_runtime_result_t control_home_server_complete(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, const home_response_t *response, wl_time_ms_t now_ms) {
   return control_home_server_finish(runtime, server_request, 0, response, now_ms, false);
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_server_reject)
+CONTROL_RPC_LAYOUT_control_home_server_reject
+#endif
 control_runtime_result_t control_home_server_reject(control_runtime_t *runtime, const wl_rpc_server_request_t *server_request, int32_t application_status, const home_response_t *response, wl_time_ms_t now_ms) {
   return control_home_server_finish(runtime, server_request, application_status, response, now_ms, true);
 }
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_home_client_response)
+CONTROL_RPC_LAYOUT_control_home_client_response
+#endif
+wl_rpc_err_t control_home_client_response(const control_runtime_t *runtime, uint32_t operation_id, const home_response_value_t **out_response) {
+  wl_rpc_client_result_t client;
+  wl_rpc_err_t error;
+  if (out_response == NULL) return WL_RPC_ERR_INVALID_ARG;
+  *out_response = NULL;
+  error = control_home_client_inspect(runtime, operation_id, &client);
+  if (error != WL_RPC_OK) return error;
+  if (!client.response_valid || runtime->rpc_results == NULL || client.result_index >= runtime->rpc_result_count) return WL_RPC_ERR_INVALID_STATE;
+  *out_response = &runtime->rpc_results[client.result_index].home;
+  return WL_RPC_OK;
+}
 
+
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_pump_event)
+CONTROL_RPC_LAYOUT_control_runtime_pump_event
+#endif
 static wl_pump_event_disposition_t control_runtime_pump_event(void *user_data, wl_ctx_t *ctx, const wl_event_t *event, wl_time_ms_t now_ms) {
   control_runtime_pump_t *pump = (control_runtime_pump_t *)user_data;
   control_runtime_result_t result;
@@ -1004,24 +1246,31 @@ static wl_pump_event_disposition_t control_runtime_pump_event(void *user_data, w
   return result.event_consumed != 0U ? WL_PUMP_EVENT_CONSUMED : WL_PUMP_EVENT_UNHANDLED;
 }
 
-static uint8_t control_runtime_pump_progress(void *user_data, wl_ctx_t *ctx, wl_time_ms_t now_ms) {
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_pump_step)
+CONTROL_RPC_LAYOUT_control_runtime_pump_step
+#endif
+static uint8_t control_runtime_pump_step(void *user_data, wl_ctx_t *ctx, wl_time_ms_t now_ms) {
   control_runtime_pump_t *pump = (control_runtime_pump_t *)user_data;
   if (pump == NULL || pump->runtime == NULL) return 0U;
   pump->last_service_result = control_runtime_service(ctx, pump->runtime, now_ms, &pump->last_service);
   if (pump->last_service_result != WL_RPC_OK) return 0U;
   if (pump->last_service.response.message_id != 0U && pump->on_result != NULL)
     pump->on_result(pump->user_data, &pump->last_service.response);
-  return pump->last_service.responses_submitted != 0U ? 1U : 0U;
+  return pump->last_service.responses_submitted != 0U || pump->last_service.responses_deferred != 0U ? 1U : 0U;
 }
 
-static uint32_t control_runtime_pump_deadline(const void *user_data, wl_time_ms_t now_ms) {
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_pump_readiness)
+CONTROL_RPC_LAYOUT_control_runtime_pump_readiness
+#endif
+static wl_readiness_t control_runtime_pump_readiness(const void *user_data, const wl_ctx_t *ctx, wl_time_ms_t now_ms) {
   const control_runtime_pump_t *pump = (const control_runtime_pump_t *)user_data;
-  wl_rpc_deadline_hint_t hint = {0};
-  if (pump == NULL || pump->runtime == NULL || control_runtime_get_deadline_hint(pump->runtime, now_ms, &hint) != WL_RPC_OK)
-    return WL_POLL_NO_DEADLINE_MS;
-  return hint.next_deadline_ms;
+  if (pump == NULL || pump->runtime == NULL) return wl_readiness_idle();
+  return control_runtime_readiness(ctx, pump->runtime, now_ms);
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_pump_init)
+CONTROL_RPC_LAYOUT_control_runtime_pump_init
+#endif
 wl_err_t control_runtime_pump_init(control_runtime_pump_t *pump, control_runtime_t *runtime, control_runtime_result_fn on_result, void *user_data) {
   if (pump == NULL || runtime == NULL) return WL_ERR_INVALID_ARG;
   memset(pump, 0, sizeof(*pump));
@@ -1031,12 +1280,29 @@ wl_err_t control_runtime_pump_init(control_runtime_pump_t *pump, control_runtime
   return WL_OK;
 }
 
+#if WLC_CONTROL_RPC_LAYOUT_ACTIVE && defined(CONTROL_RPC_LAYOUT_control_runtime_pump_hooks)
+CONTROL_RPC_LAYOUT_control_runtime_pump_hooks
+#endif
 wl_pump_hooks_t control_runtime_pump_hooks(control_runtime_pump_t *pump) {
   wl_pump_hooks_t hooks = {0};
   if (pump == NULL) return hooks;
   hooks.application_user_data = pump;
   hooks.on_event = control_runtime_pump_event;
-  hooks.application_progress = control_runtime_pump_progress;
-  hooks.application_deadline_hint = control_runtime_pump_deadline;
+  hooks.application_step = control_runtime_pump_step;
+  hooks.application_readiness = control_runtime_pump_readiness;
   return hooks;
 }
+
+#undef WLC_CONTROL_RPC_LAYOUT_ACTIVE
+#ifdef WLC_CONTROL_RPC_LAYOUT_DEFAULT
+#undef CONTROL_RPC_LAYOUT
+#undef WLC_CONTROL_RPC_LAYOUT_DEFAULT
+#endif
+#ifdef WLC_CONTROL_RPC_LAYOUT_MODULE_DEFAULT
+#undef CONTROL_RPC_LAYOUT_ENABLE
+#undef WLC_CONTROL_RPC_LAYOUT_MODULE_DEFAULT
+#endif
+#ifdef WLC_CONTROL_RPC_LAYOUT_GLOBAL_DEFAULT
+#undef WLC_RPC_LAYOUT_ENABLE
+#undef WLC_CONTROL_RPC_LAYOUT_GLOBAL_DEFAULT
+#endif

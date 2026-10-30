@@ -34,10 +34,10 @@ int main(void) {
   if (error == WL_OK) {
     static rr_endpoint_t endpoint;
     uint64_t initial;
-    if (rr_endpoint_init(&endpoint, native) != WL_OK) return 2;
+    if (rr_endpoint_init(&endpoint, native, wl_link_defaults()) != WL_OK) return 2;
     initial = wl_link_session_id(wl_endpoint_link(rr_endpoint_handle(&endpoint)));
     if (initial == 0U || rr_endpoint_close(&endpoint) != WL_OK) return 2;
-    if (rr_endpoint_init(&endpoint, native) != WL_OK) return 2;
+    if (rr_endpoint_init(&endpoint, native, wl_link_defaults()) != WL_OK) return 2;
     if (wl_link_session_id(wl_endpoint_link(rr_endpoint_handle(&endpoint))) == initial ||
         rr_endpoint_close(&endpoint) != WL_OK) return 2;
     puts("SESSION platform endpoint reinit PASS");

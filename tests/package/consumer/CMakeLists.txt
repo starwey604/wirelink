@@ -3,10 +3,12 @@ cmake_minimum_required(VERSION 3.21)
 project(wirelink_package_consumer LANGUAGES C CXX)
 
 include(CTest)
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 
 add_executable(wirelink_package_consumer main.c)
-target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink)
+target_compile_definitions(wirelink_package_consumer PRIVATE
+  WL_PACKAGE_COBS_CRC16=$<STREQUAL:${Wirelink_LINK_PROFILE},cobs-crc16>)
+target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink Wirelink::usb_bulk_defaults)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::loopback)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::diagnostics)
 set_target_properties(wirelink_package_consumer PROPERTIES
@@ -25,8 +27,10 @@ endif()
 add_test(NAME wirelink_package_consumer COMMAND wirelink_package_consumer)
 
 add_executable(wirelink_package_consumer_cpp20 cpp20_public_headers.cpp)
+target_compile_definitions(wirelink_package_consumer_cpp20 PRIVATE
+  WL_PACKAGE_COBS_CRC16=$<STREQUAL:${Wirelink_LINK_PROFILE},cobs-crc16>)
 target_link_libraries(wirelink_package_consumer_cpp20
-  PRIVATE Wirelink::wirelink Wirelink::diagnostics)
+  PRIVATE Wirelink::wirelink Wirelink::diagnostics Wirelink::usb_bulk_defaults)
 set_target_properties(wirelink_package_consumer_cpp20 PROPERTIES
   CXX_STANDARD 20
   CXX_STANDARD_REQUIRED YES

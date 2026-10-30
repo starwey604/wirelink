@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(wirelink_wlc_package_consumer LANGUAGES C)
 
 include(CTest)
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 
 wirelink_wlc_generate_codec(
   TARGET generated_control_codec
@@ -19,6 +19,21 @@ wirelink_wlc_generate_runtime(
   PROFILE
     "${CMAKE_CURRENT_LIST_DIR}/../../fixtures/wlc/current/control_sender.bind.wl"
   RUNTIME_NAME control_sender)
+wirelink_wlc_generate_runtime(
+  TARGET generated_keyword_off
+  CODEC_TARGET generated_control_codec
+  PROFILE "${CMAKE_CURRENT_LIST_DIR}/../../fixtures/wlc/current/control.bind.wl"
+  RUNTIME_NAME switch_ RPC_LAYOUT OFF)
+get_target_property(_keyword_off generated_keyword_off WIRELINK_WLC_RPC_LAYOUT_ENABLE)
+if(NOT _keyword_off STREQUAL "0")
+  message(FATAL_ERROR "Keyword runtime layout must be OFF")
+endif()
+if(CMAKE_OBJDUMP AND UNIX AND NOT APPLE)
+  add_test(NAME wirelink_wlc_keyword_layout_off
+    COMMAND "${CMAKE_OBJDUMP}" -h "$<TARGET_FILE:generated_keyword_off>")
+  set_tests_properties(wirelink_wlc_keyword_layout_off PROPERTIES
+    FAIL_REGULAR_EXPRESSION "[.]text[.]wlc[.]switch_[.]rpc[.]")
+endif()
 
 # Keep the one-runtime composition wrapper covered while new code uses the
 # explicit codec/runtime boundary above.
@@ -70,12 +85,35 @@ add_test(NAME wirelink_wlc_legacy_consumer
 wirelink_wlc_generate(
   TARGET generated_calculator
   SCHEMA "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.wl"
-  PROFILE "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.bind.wl")
+  PROFILE "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.bind.wl"
+  RPC_LAYOUT ON)
 add_executable(wirelink_wlc_rpc_consumer rpc.c)
 target_link_libraries(wirelink_wlc_rpc_consumer PRIVATE generated_calculator)
 set_target_properties(wirelink_wlc_rpc_consumer PROPERTIES
   C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 add_test(NAME wirelink_wlc_rpc_consumer COMMAND wirelink_wlc_rpc_consumer)
+
+wirelink_wlc_generate(
+  TARGET generated_calculator_off
+  SCHEMA "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.wl"
+  PROFILE "${CMAKE_CURRENT_LIST_DIR}/../../../examples/01_rpc/calculator.bind.wl"
+  RPC_LAYOUT OFF)
+add_executable(wirelink_wlc_rpc_off_consumer rpc.c)
+target_link_libraries(wirelink_wlc_rpc_off_consumer PRIVATE generated_calculator_off)
+set_target_properties(wirelink_wlc_rpc_off_consumer PROPERTIES
+  C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+add_test(NAME wirelink_wlc_rpc_off_consumer COMMAND wirelink_wlc_rpc_off_consumer)
+get_target_property(_on generated_calculator WIRELINK_WLC_RPC_LAYOUT_ENABLE)
+get_target_property(_off generated_calculator_off WIRELINK_WLC_RPC_LAYOUT_ENABLE)
+if(NOT _on STREQUAL "1" OR NOT _off STREQUAL "0")
+  message(FATAL_ERROR "RPC layout must configure the actual runtime targets")
+endif()
+if(UNIX AND NOT APPLE AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  wirelink_wlc_group_rpc(TARGET wirelink_wlc_rpc_consumer MODULE calculator
+    ISOLATE_LITERALS)
+  target_link_options(wirelink_wlc_rpc_consumer PRIVATE
+    "LINKER:-Map,${CMAKE_CURRENT_BINARY_DIR}/rpc-layout.map")
+endif()
 
 # Composed profiles must work through the installed CMake helper, too.
 set(_device_example "${CMAKE_CURRENT_LIST_DIR}/../../../examples/03_device_service")
