@@ -1,101 +1,39 @@
-# Static footprint benchmark
+# Static footprint diagnostics
 
 [中文](README-cn.md).
 
-This benchmark measures what Wirelink costs at build time, without running it:
-the code and constant-data size of every core translation unit, and the static
-RAM the library asks the caller to reserve for representative configurations.
-It is a host tool with no external dependencies beyond a C compiler and a
-GNU/LLVM `size`.
-
-Wirelink allocates nothing and keeps no hidden state, so "footprint" is two
-separate numbers: the loadable code/rodata the linker emits, and the caller
-storage the configuration requires. The report records both.
-
-## Run
-
-Objects mode compiles each core source on its own with target-like flags
-(`-Os -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables`) and
-measures its `.text`, `.rodata`, `.data` and `.bss`:
+Current `wirelink-footprint-v2` compiles every `src/*.c` separately and records
+object sections, actual compiler version/flags and source hashes. This sum
+includes optional independent framing/container/stream tools: it is **not** the
+linked default product image size. The default native kernel does not acquire
+those optional execution costs merely because their objects exist.
 
 ```sh
 python benchmarks/footprint/footprint.py --json footprint.json
-```
-
-Match a specific build by passing the same compiler and extra flags. Flags whose
-value starts with `-` need `=`:
-
-```sh
-python benchmarks/footprint/footprint.py --cc gcc --cflags=-O2 \
-  --json footprint-o2.json
-```
-
-Firmware images are measured directly from a linked ELF, which is the accurate
-number because it includes dead-code elimination and cross-module inlining:
-
-```sh
-python benchmarks/footprint/footprint.py --elf build/rx/zephyr/zephyr.elf \
-  --size-tool ~/zephyr-sdk/gnu/xtensa-espressif_esp32s3_zephyr-elf/bin/xtensa-espressif_esp32s3_zephyr-elf-size \
-  --json footprint-esp32s3.json
-```
-
-The `size` tool must support `-A` (System V output). The tool never builds a
-firmware; build the image with `west` first.
-
-## Compare
-
-```sh
+python benchmarks/footprint/footprint.py --cc clang --json clang.json
 python benchmarks/footprint/compare.py before.json after.json
-python benchmarks/footprint/compare.py before.json after.json \
-  --max-regression-percent 5 --max-growth-bytes 64
 ```
 
-The comparison reports per-group byte deltas for the section totals, every
-module or ELF section, the storage contract and the public struct sizes.
-Section and module rows are lower-is-better; public struct sizes and the
-storage contract are exact, so any change is reported as a finding.
-A module that appears or disappears is reported as `new`. The growth limit is an
-optional gate for a dedicated runner, not a default: compiler and C-library
-updates legitimately move code size by a few percent, so always compare the same
-compiler, flags and mode. `--elf` and `objects` reports are not comparable to
-each other, and a mode or toolchain mismatch yields exit 2 (`incomparable`)
-instead of a size verdict.
+The C probe uses the checked-in generated demo kernel's actual layout, plus
+packet port, stream, byte FIFO and call-handle sizes. Three explicit example
+assemblies show endpoint, port, two RX units, optional stream TX/object and
+optional byte staging budgets. Every storage number is bytes. Generated endpoint
+size already includes kernel metadata, four request snapshots, four reply
+snapshots, one ordinary snapshot and codec scratch. Do not add these twice.
+Native USB reserves one byte beyond its maximum frame. Stream budgets use the
+actual selected connector bound. Byte staging uses a caller-selected sample
+budget, not a universal library requirement. Driver objects and padding in an
+application's enclosing structure are excluded.
 
-## Report contents
+The standalone probe does not compile the demo codec into the source-object sum.
+Actual linked-image text/rodata/RAM and whole-program layout require the final
+ELF/map/config and compile/link commands. `--elf IMAGE --size-tool TOOL` records
+sections and the ELF hash only; it explicitly lacks the original build identity
+and is inspection data, not an automatic comparable/gated pair. The hardware
+refactor report records actual qualified images and resource ledgers separately.
 
-| Field | Meaning |
-| --- | --- |
-| `totals` | Section-class totals: `text`, `rodata`, `data`, `bss`, plus `debug` (debug/unwind/comment, not loadable) and `other` |
-| `modules` | Per-source size in objects mode |
-| `sections` | Per-section size in ELF mode |
-| `storage` | `wl_config_requirements()` output for COBS `NONE`/`CRC32C` at 20/120/2048-byte payloads, and one non-COBS config |
-| `types` | Size of the public structs (`wl_ctx_t`, `wl_event_t`, `wl_config_t`, `wl_storage_t`, `wl_storage_requirements_t`) |
-
-The storage fields are the caller's contract: `tx_payload`, `tx_unit`,
-`control`, `rx_fifo` and `rx_fallback` bytes for that configuration. They are
-compile-time constants, so a change here is a change to every consumer's RAM
-budget and is the most important thing this benchmark tracks.
-
-## What it does not measure
-
-- Objects mode is pre-link. It has no cross-module inlining, no `--gc-sections`
-  and no LTO, so its totals are larger than any linked image. Use `--elf` for a
-  linked number.
-- Object sizes depend on the compiler, version and flags, and on section naming
-  such as `.text.*`. Only compare runs that used the same toolchain string,
-  which the report records.
-- The probe reports what the configuration requires, not what a program uses; a
-  product that reserves more is not visible here.
-- Host object sizes are a trend and per-module attribution signal, not the
-  firmware image. For flash and RAM on a target, measure the target ELF.
-- ELF mode counts every section it can attribute; allocator, bootloader and
-  vendor regions are outside this tool's concern.
-
-## Procedure
-
-Freeze a baseline report before editing the library, record the compiler version
-and flags, then rebuild the candidate and compare. Keep reports with the same
-mode, compiler and flags; refresh the baseline only when the toolchain changes.
-The regression note in [docs/rx-performance.md](../../docs/rx-performance.md)
-asks for image and RAM size on every RX-path change; this benchmark is how that
-number is produced.
+Historical v1 reports remain readable. The comparator rejects cross-schema,
+mode and compiler mismatches and incomplete/negative v2 storage rows. Structure
+and representative storage changes are exact-contract review signals; section
+byte growth can use an optional gate. Keep raw source, tool and image provenance
+alongside every report. No wall-time or CPU improvement is inferred from size.

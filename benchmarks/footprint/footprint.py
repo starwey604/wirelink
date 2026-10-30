@@ -6,9 +6,8 @@ The default ``objects`` mode compiles every core translation unit on its own and
 reports the size of each object's text, rodata, data and bss sections. The
 ``elf`` mode reports the section table of an already linked image (for example
 an ESP32-S3 or native_sim firmware). Both modes attach the storage contract that
-``wl_config_requirements()`` returns for representative configurations, plus the
-size of the public structs, so a report covers code size and the static RAM the
-library asks the caller to reserve.
+the explicit checked-in demo kernel uses in three sample assemblies, plus the
+size of the public structs, so a report covers code size and explicit example storage; it is not a default product image footprint.
 
 The tool compiles the sources itself, so it needs only a C compiler and a
 GNU/LLVM ``size``. It does not require a configured build tree.
@@ -23,6 +22,7 @@ Examples::
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -33,8 +33,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-SCHEMA = "wirelink-footprint-v1"
-PROBE_PREFIX = "wirelink_footprint_v1"
+SCHEMA = "wirelink-footprint-v2"
+PROBE_PREFIX = "wirelink_footprint_v2"
 DEFAULT_CFLAGS = [
     "-std=c11",
     "-Os",
@@ -46,18 +46,9 @@ DEFAULT_CFLAGS = [
 ]
 SECTIONS = ("text", "rodata", "data", "bss", "debug", "other")
 
-# Storage-config tuple order emitted by probe.c.
-STORAGE_FIELDS = (
-    "envelope",
-    "integrity",
-    "max_payload",
-    "mtu",
-    "tx_payload",
-    "tx_unit",
-    "control",
-    "rx_fifo",
-    "rx_fallback",
-)
+# Explicit example assembly byte fields emitted by probe.c.
+STORAGE_FIELDS = ("endpoint", "packet_port", "rx_units", "stream_object",
+                  "stream_tx", "byte_fifo_object", "byte_fifo_storage")
 
 
 def run(command):
@@ -163,10 +154,10 @@ def run_probe(cc, flags, root, objects, workdir):
         if parts[1] == "type":
             types[parts[2]] = int(parts[3])
         elif parts[1] == "storage":
-            values = [int(value) for value in parts[2:]]
+            values = [int(value) for value in parts[3:]]
             if len(values) != len(STORAGE_FIELDS):
                 raise RuntimeError("malformed storage row: %s" % line)
-            storage.append(dict(zip(STORAGE_FIELDS, values)))
+            storage.append({"deployment": parts[2], **dict(zip(STORAGE_FIELDS, values))})
     if not types or not storage:
         raise RuntimeError("probe produced no measurements")
     return types, storage
@@ -200,13 +191,15 @@ def recorded_flags(flags, root):
 
 
 def build_report(args):
-    compiler = {
+    compiler = {"identity": "unknown; retain the original image build separately"} if args.elf else {
         "cc": args.cc,
         "flags": recorded_flags(args.cflags, args.root),
+        "version": run([args.cc, "--version"]).splitlines()[0],
     }
     report = {
         "schema": SCHEMA,
         "mode": "objects",
+        "probe_enabled": args.probe and args.elf is None,
         "compiler": compiler,
         "target": None,
         "modules": None,
@@ -221,6 +214,7 @@ def build_report(args):
         totals, sections = measure_elf(args.elf, size_tool)
         report["mode"] = "elf"
         report["target"] = str(args.elf)
+        report["elf_sha256"] = hashlib.sha256(args.elf.read_bytes()).hexdigest()
         report["sections"] = sections
         report["totals"] = totals
         return report
@@ -232,6 +226,7 @@ def build_report(args):
         modules, objects = measure_objects(args.cc, args.cflags, size_tool, root,
                                            workdir)
         report["modules"] = modules
+        report["source_sha256"] = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in modules}
         for module in modules.values():
             for section in SECTIONS:
                 report["totals"][section] += module[section]
@@ -267,7 +262,8 @@ def parse_args(argv):
     for group in args.cflags or []:
         base.extend(shlex.split(group))
     args.cflags = base + ["-I", str(args.root / "include"), "-I",
-                          str(args.root / "src")]
+                          str(args.root / "src"), "-I",
+                          str(args.root / "examples/kernel/generated")]
     if args.size_tool is None:
         args.size_tool = size_tool_for(args.cc)
     return args

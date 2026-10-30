@@ -19,11 +19,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from report import add_output_arguments, emit, gate, gate_settings
 
-SCHEMA = "wirelink-footprint-v1"
+SCHEMA = "wirelink-footprint-v2"
+LEGACY_SCHEMA = "wirelink-footprint-v1"
 SECTIONS = ("text", "rodata", "data", "bss", "debug", "other")
-STORAGE_METRICS = ("tx_payload", "tx_unit", "control", "rx_fifo", "rx_fallback")
+LEGACY_STORAGE_METRICS = ("tx_payload", "tx_unit", "control", "rx_fifo", "rx_fallback")
+STORAGE_METRICS = ("endpoint", "packet_port", "rx_units", "stream_object", "stream_tx",
+                   "byte_fifo_object", "byte_fifo_storage")
 UNITS = {name: "bytes" for name in SECTIONS}
-UNITS.update({metric: "bytes" for metric in STORAGE_METRICS})
+UNITS.update({metric: "bytes" for metric in STORAGE_METRICS + LEGACY_STORAGE_METRICS})
 # Section/module rows are lower-is-better; public struct sizes are exact:
 # any change alters every consumer's ABI. The storage contract is the most
 # important thing this benchmark tracks, so it is exact too.
@@ -34,12 +37,27 @@ Row = namedtuple("Row", "group item before after")
 
 def load(path):
     report = json.loads(Path(path).read_text())
-    if not isinstance(report, dict) or report.get("schema") != SCHEMA:
+    if not isinstance(report, dict) or report.get("schema") not in (SCHEMA, LEGACY_SCHEMA):
         raise ValueError(f"{path}: not a {SCHEMA} report")
+    if report["schema"] == SCHEMA:
+        if report.get("mode") not in ("objects", "elf") or type(report.get("probe_enabled")) is not bool:
+            raise ValueError("invalid current footprint context")
+        if report["probe_enabled"]:
+            expected = {"demo_usb_native_none", "demo_serial_cobs_crc16", "demo_length16_none"}
+            entries = report.get("storage", [])
+            if len(entries) != 3 or {entry.get("deployment") for entry in entries} != expected:
+                raise ValueError("incomplete or duplicate assembly budgets")
+            for entry in entries:
+                if any(type(entry.get(key)) is not int or entry[key] < 0 for key in STORAGE_METRICS):
+                    raise ValueError("invalid assembly byte budget")
+            if not report.get("types") or any(type(value) is not int or value <= 0 for value in report["types"].values()):
+                raise ValueError("invalid measured structure sizes")
     return report
 
 
 def _storage_key(entry):
+    if "deployment" in entry:
+        return entry["deployment"]
     return "env%d/int%d/p%d" % (entry["envelope"], entry["integrity"],
                                 entry["max_payload"])
 
@@ -74,7 +92,8 @@ def compare(before, after):
     for key in sorted(indexed):
         old = indexed[key].get("before", {})
         new = indexed[key].get("after", {})
-        for metric in STORAGE_METRICS:
+        metrics = STORAGE_METRICS if "deployment" in old or "deployment" in new else LEGACY_STORAGE_METRICS
+        for metric in metrics:
             rows.append(Row("storage " + key, metric, int(old.get(metric, 0)),
                             int(new.get(metric, 0))))
 
@@ -127,8 +146,10 @@ def main(argv=None):
         before, after = load(args.before), load(args.after)
     except (ValueError, OSError) as error:
         parser.error(str(error))  # invalid data: exit 2, no verdict
-    if before.get("mode") != after.get("mode") or before.get("compiler") != after.get("compiler"):
-        reason = "mode or toolchain mismatch; size reports are not comparable"
+    unknown_image_build = before.get("schema") == SCHEMA and before.get("mode") == "elf"
+    if (unknown_image_build or before.get("schema") != after.get("schema") or before.get("mode") != after.get("mode")
+            or before.get("compiler") != after.get("compiler")):
+        reason = "unqualified image build" if unknown_image_build else "schema, mode or toolchain mismatch; size reports are not comparable"
         keys = {(row.group, row.item) for row in compare(before, after)}
         rows = [gate.incomparable("footprint", group, item, "bytes", reason,
                                   severity=severity)

@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 import copy
+import contextlib
+import io
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,7 +13,7 @@ import footprint
 
 def report(**overrides):
     base = {
-        "schema": compare.SCHEMA,
+        "schema": compare.LEGACY_SCHEMA,
         "mode": "objects",
         "compiler": {"cc": "cc", "flags": ["-Os"]},
         "target": None,
@@ -31,6 +35,52 @@ def report(**overrides):
 class CompareTest(unittest.TestCase):
     def rows_by_key(self, rows):
         return {(row.group, row.item): row for row in rows}
+
+    def test_current_kernel_storage_rows(self):
+        before = report(schema=compare.SCHEMA, types={"wl_kernel_t": 1000}, storage=[
+            {"deployment": "demo_usb_native_none", "endpoint": 1500, "packet_port": 160,
+             "rx_units": 48, "stream_object": 0, "stream_tx": 0,
+             "byte_fifo_object": 0, "byte_fifo_storage": 0}])
+        after = copy.deepcopy(before)
+        after["storage"][0]["rx_units"] += 16
+        rows = self.rows_by_key(compare.compare(before, after))
+        self.assertEqual(rows[("storage demo_usb_native_none", "rx_units")].after, 64)
+        self.assertEqual(rows[("type", "wl_kernel_t")].after, 1000)
+
+    def test_current_load_rejects_incomplete_negative_and_duplicate_budgets(self):
+        storage = [{"deployment": name, **{key: 1 for key in compare.STORAGE_METRICS}}
+                   for name in ("demo_usb_native_none", "demo_serial_cobs_crc16", "demo_length16_none")]
+        current = report(schema=compare.SCHEMA, probe_enabled=True,
+                         types={"wl_kernel_t": 616}, storage=storage)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "current.json"
+            path.write_text(json.dumps(current))
+            self.assertEqual(compare.load(path)["schema"], compare.SCHEMA)
+            for damage in ("missing", "duplicate", "negative", "boolean"):
+                broken = copy.deepcopy(current)
+                if damage == "missing":
+                    broken["storage"].pop()
+                elif damage == "duplicate":
+                    broken["storage"][1] = broken["storage"][0]
+                else:
+                    broken["storage"][0]["endpoint"] = -1 if damage == "negative" else True
+                path.write_text(json.dumps(broken))
+                with self.subTest(damage=damage), self.assertRaises(ValueError):
+                    compare.load(path)
+
+    def test_cross_schema_and_unqualified_elf_are_incomparable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            old = Path(directory) / "old.json"
+            new = Path(directory) / "new.json"
+            old.write_text(json.dumps(report()))
+            new.write_text(json.dumps(report(schema=compare.SCHEMA, probe_enabled=False,
+                                             types={}, storage=[])))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(compare.main([str(old), str(new)]), 2)
+            new.write_text(json.dumps(report(schema=compare.SCHEMA, probe_enabled=False,
+                                             mode="elf", types={}, storage=[])))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(compare.main([str(new), str(new)]), 2)
 
     def test_identical_reports_have_no_delta(self):
         before = report()
