@@ -45,4 +45,4 @@ UART 的实际 IRQ、DMA、polling adapter 在 native_sim、Cortex-M3、RISC-V �
 
 当前 libcsp 的 279 个普通源码文件逐字节匹配原冻结输入；K0 快照脚本漏掉了指向目录的 `zephyr -> contrib/zephyr` symlink。已仅在新的 C 输入快照恢复该链接并登记，未修改旧封存目录、libcsp 源码或业务。C 的 off/on device/host 已构建，下一步做资格及事前登记。完整 K4 数据尚未采集，K2 的保护项限制继续有效。
 
-K4 登记前修复 stream RX 上界：TX schema 最大编码长度不再充当 RX 上界；RX 默认由调用方 unit 容量推导，也可显式限定，因此合法未知字段不会仅因超过本地 TX bound 被提前拒绝。COBS/CRC16 和 length16/NONE 均增加 TX 8 B、RX 132 B 回归。GCC、Clang ASan/UBSan 各 13/13，安装后消费者 3/3，相关 unit_testing 6/6，WLC 两种 selected stream 的 Clang sanitizer 实际 RPC 检查通过。证据为新目录的 `rx-limit-*`；首次 WLC 命令使用了无效环境变量，已保留日志并以正确 `WLC_TEST_SANITIZE=1` 重跑。此模块未链接到已冻结的 K4 native USB B，未改变该镜像的性能输入。
+K4 登记前修复 stream RX 上界：TX schema 最大编码长度不再充当 RX 上界；RX 默认由调用方 unit 容量推导，也可显式限定，因此合法未知字段不会仅因超过本地 TX bound 被提前拒绝。COBS/CRC16 和 length16/NONE 均增加 TX 8 B、RX 132 B 回归。GCC、Clang ASan/UBSan 各 13/13，安装后消费者 3/3，相关 unit_testing 4/4，WLC 两种 selected stream 的 Clang sanitizer 实际 RPC 检查通过。证据为新目录的 `rx-limit-*`；首次 WLC 命令使用了无效环境变量，已保留日志并以正确 `WLC_TEST_SANITIZE=1` 重跑。此模块未链接到已冻结的 K4 native USB B，未改变该镜像的性能输入。
