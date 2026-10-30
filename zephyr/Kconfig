@@ -12,6 +12,26 @@ config WIRELINK
 
 if WIRELINK
 
+choice WIRELINK_LINK_PROFILE
+	prompt "Core link capability"
+	default WIRELINK_LINK_PROFILE_MULTI
+	help
+	  Select the envelopes and integrity modes compiled into the core.
+
+config WIRELINK_LINK_PROFILE_MULTI
+	bool "All envelopes and integrity modes"
+	help
+	  Allow endpoints with different link configurations in one firmware.
+
+config WIRELINK_LINK_PROFILE_COBS_CRC16
+	bool "COBS stream with CRC16 only"
+	help
+	  Specialize actual DATA, ACK, retry and RX paths for COBS + CRC16.
+	  Other valid configurations return WL_ERR_NOT_SUPPORTED. Standalone
+	  CRC and COBS tools remain available. Reliable delivery is supported.
+
+endchoice
+
 config WIRELINK_PLATFORM
 	bool "Enable the native clock/session environment"
 	select CSPRNG_NEEDED
@@ -51,6 +71,14 @@ config WIRELINK_ZEPHYR_USB_BULK
 	  publish ownership and completion state; the main loop performs protocol
 	  work and re-arms endpoint requests.
 
+config WIRELINK_ZEPHYR_UART_POLL_EXPERIMENTAL
+	bool "Enable experimental physical UART polling adapter"
+	depends on SERIAL && MULTITHREADING
+	help
+	  Caller-owned static RX thread, 64-byte batches and one-tick interruptible
+	  sleeps, with synchronous polling TX. Memory-consumed completion only.
+	  No hardware flow control or CDC support; production default is unchanged.
+
 config WIRELINK_ZEPHYR_UART_IRQ
 	bool "Enable the Zephyr interrupt-driven UART adapter"
 	depends on SERIAL
@@ -60,6 +88,25 @@ config WIRELINK_ZEPHYR_UART_IRQ
 	  fallback for USB CDC ACM devices and UART controllers without an async
 	  DMA implementation. RX FIFO bytes are written directly into the SPSC
 	  ring and all protocol processing remains in the consumer loop.
+
+config WIRELINK_ZEPHYR_UART_IRQ_TIMING
+	bool "Collect UART adapter callback timing diagnostics"
+	depends on WIRELINK_ZEPHYR_UART_IRQ
+	help
+	  Count valid driver callbacks and elapsed cycles inside the callback.
+	  These counts differ from RX/TX ready-source processing counts. Timing
+	  excludes the driver ISR and callback lock acquisition/release. Counters
+	  wrap at 32 bits; sample deltas within one counter wrap. Disabled builds
+	  have no additional timing reads, counters or callback work.
+
+config WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS
+	bool "Collect UART notification diagnostics"
+	depends on WIRELINK_ZEPHYR_UART_IRQ
+	help
+	  Count publication wake attempts, callback semaphore gives, service latch
+	  acknowledgements and waiter entries. For separate diagnostic builds only;
+	  disabled builds have no extra counters or notification work. Gives are
+	  attempts, not semaphore transitions or delivered business events.
 
 config WIRELINK_ZEPHYR_UDP
 	bool "Enable the Zephyr native IPv4 UDP socket adapter"

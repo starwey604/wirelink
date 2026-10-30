@@ -2,6 +2,7 @@ prefix=${pcfiledir}/../..
 exec_prefix=${prefix}
 libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
 includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+link_profile=@WIRELINK_LINK_PROFILE@
 
 Name: Wirelink
 Description: Allocation-free C11 link protocol engine

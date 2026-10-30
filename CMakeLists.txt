@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(wirelink VERSION 0.8.0 LANGUAGES C)
+project(wirelink VERSION 0.12.0 LANGUAGES C)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -21,11 +21,13 @@ set(WIRELINK_SOURCES
   src/endpoint.c
   src/fifo.c
   src/frame.c
+  src/frame_cobs_crc16.c
   src/init.c
   src/latest.c
   src/outbox.c
   src/pump.c
   src/protocol.c
+  src/unit_frame.c
   src/rpc.c
   src/rpc_async.c
   src/rx_ring_bipbuf.c
@@ -38,6 +40,11 @@ set(WIRELINK_SOURCES
 add_library(wirelink ${WIRELINK_SOURCES})
 add_library(Wirelink::wirelink ALIAS wirelink)
 
+set(WIRELINK_LINK_PROFILE "multi" CACHE STRING "Core link capability: multi or cobs-crc16")
+set_property(CACHE WIRELINK_LINK_PROFILE PROPERTY STRINGS multi cobs-crc16)
+include(WirelinkLinkProfile)
+wirelink_target_link_profile(wirelink "${WIRELINK_LINK_PROFILE}")
+
 target_include_directories(wirelink PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
@@ -48,6 +55,15 @@ set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
 # pay no code or state cost unless they explicitly link it.
 add_subdirectory(adapters/loopback)
 add_subdirectory(diagnostics)
+
+# Header-only USB integration policy; usable from C without a USB driver.
+add_library(wirelink_usb_bulk_defaults INTERFACE)
+add_library(Wirelink::usb_bulk_defaults ALIAS wirelink_usb_bulk_defaults)
+set_target_properties(wirelink_usb_bulk_defaults PROPERTIES EXPORT_NAME usb_bulk_defaults)
+target_link_libraries(wirelink_usb_bulk_defaults INTERFACE wirelink)
+target_include_directories(wirelink_usb_bulk_defaults INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/common/include>
+  $<INSTALL_INTERFACE:include>)
 
 if(MSVC)
   target_compile_options(wirelink PUBLIC /utf-8)
@@ -68,7 +84,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # wl_frame_encode() and wl_poll() run on small embedded stacks. Keep their
     # translation units' fixed frames within a predictable hot-path budget.
     if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-      set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
+      set_property(SOURCE src/frame.c src/frame_cobs_crc16.c src/unit_frame.c APPEND PROPERTY COMPILE_OPTIONS
         -Werror=frame-larger-than=256)
       set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
         -Werror=frame-larger-than=256)
@@ -77,7 +93,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
       set_property(SOURCE src/bulk_sender.c APPEND PROPERTY COMPILE_OPTIONS
         -Werror=frame-larger-than=256)
     else()
-      set_property(SOURCE src/frame.c APPEND PROPERTY COMPILE_OPTIONS
+      set_property(SOURCE src/frame.c src/frame_cobs_crc16.c src/unit_frame.c APPEND PROPERTY COMPILE_OPTIONS
         -Wframe-larger-than=256
         -Werror=frame-larger-than)
       set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
@@ -288,7 +304,11 @@ if(WIRELINK_BUILD_FUZZERS)
 endif()
 
 if(WIRELINK_BUILD_EXAMPLES)
-  add_subdirectory(examples)
+  if(WIRELINK_LINK_PROFILE STREQUAL "multi")
+    add_subdirectory(examples)
+  else()
+    message(STATUS "Native-packet examples require the multi link profile; omitted")
+  endif()
 endif()
 
 if(WIRELINK_BUILD_DOCS)
@@ -336,6 +356,9 @@ if(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK)
 endif()
 
 if(WIRELINK_INSTALL)
+  install(TARGETS wirelink_usb_bulk_defaults EXPORT WirelinkTargets)
+  install(FILES adapters/common/include/wirelink/usb_bulk_defaults.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
   install(FILES include/wirelink/detail/usb_stream_rx.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/detail)
   install(TARGETS wirelink
@@ -405,6 +428,7 @@ if(WIRELINK_INSTALL)
     include/wirelink/frame.h
     include/wirelink/latest.h
     include/wirelink/link.h
+    include/wirelink/link_defaults.h
     include/wirelink/loopback.h
     include/wirelink/outbox.h
     include/wirelink/port.h

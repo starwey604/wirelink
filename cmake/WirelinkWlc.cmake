@@ -3,11 +3,11 @@ include_guard(GLOBAL)
 # These values are consumed by functions that may be called from a parent
 # directory after Wirelink itself was added with add_subdirectory(). Keep them
 # in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.8.0" CACHE INTERNAL
+set(WIRELINK_WLC_VERSION "0.12.0" CACHE INTERNAL
   "Pinned WLC host compiler version" FORCE)
 set(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR "0" CACHE INTERNAL
   "Pinned WLC generated-code contract major" FORCE)
-set(WIRELINK_WLC_CODEGEN_CONTRACT_MINOR "8" CACHE INTERNAL
+set(WIRELINK_WLC_CODEGEN_CONTRACT_MINOR "12" CACHE INTERNAL
   "Pinned WLC generated-code contract minor" FORCE)
 option(WIRELINK_WLC_AUTO_DOWNLOAD
   "Fetch verified WLC host tools, or build pinned source on other hosts" ON)
@@ -15,6 +15,82 @@ set(WIRELINK_WLC_CACHE_DIR
   "${CMAKE_BINARY_DIR}/_deps/wirelink-wlc" CACHE PATH
   "Directory for verified WLC host compiler downloads")
 mark_as_advanced(WIRELINK_WLC_CACHE_DIR)
+
+option(WIRELINK_WLC_RPC_LAYOUT_ENABLE "Mark generated RPC ELF function sections" ON)
+
+# Set this on the target that compiles runtime.c, including in Zephyr builds.
+# Caller definitions cannot change a previously compiled static library.
+function(wirelink_wlc_configure_rpc_layout)
+  cmake_parse_arguments(L "" "TARGET;MODULE;ENABLE" "" ${ARGN})
+  if(L_UNPARSED_ARGUMENTS OR NOT TARGET "${L_TARGET}" OR
+      NOT L_MODULE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+    message(FATAL_ERROR "wirelink_wlc_configure_rpc_layout requires TARGET and C identifier MODULE")
+  endif()
+  if(NOT DEFINED L_ENABLE OR L_ENABLE STREQUAL "")
+    set(L_ENABLE "${WIRELINK_WLC_RPC_LAYOUT_ENABLE}")
+  endif()
+  if(NOT L_ENABLE MATCHES "^(ON|OFF|0|1)$")
+    message(FATAL_ERROR "RPC layout ENABLE must be ON, OFF, 0 or 1")
+  endif()
+  if(L_ENABLE)
+    set(_enabled 1)
+  else()
+    set(_enabled 0)
+  endif()
+  # MODULE is the emitted C namespace. Match layout.rs verbatim, including
+  # keyword-escape underscores (switch_ -> SWITCH__RPC_LAYOUT_ENABLE).
+  string(TOUPPER "${L_MODULE}" _prefix)
+  target_compile_definitions("${L_TARGET}" PRIVATE "${_prefix}_RPC_LAYOUT_ENABLE=${_enabled}")
+  set_property(TARGET "${L_TARGET}" PROPERTY WIRELINK_WLC_RPC_LAYOUT_ENABLE "${_enabled}")
+endfunction()
+
+# Include this fragment INSIDE an executable output section, before .text.*
+# and .literal.* catchalls. No KEEP: each input remains individually GC-able.
+function(wirelink_wlc_rpc_layout_fragment)
+  cmake_parse_arguments(L "ISOLATE_LITERALS" "MODULE;OUTPUT" "" ${ARGN})
+  if(L_UNPARSED_ARGUMENTS OR NOT L_OUTPUT OR
+      NOT L_MODULE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+    message(FATAL_ERROR "wirelink_wlc_rpc_layout_fragment requires MODULE and OUTPUT")
+  endif()
+  set(_boundary "")
+  if(L_ISOLATE_LITERALS)
+    # Zero-size assignments bound Xtensa BFD literal colocation on both sides,
+    # including when multiple independently configured modules share an ELF.
+    set(_boundary ". = .;\n")
+  endif()
+  file(WRITE "${L_OUTPUT}"
+    "/* SPDX-License-Identifier: Apache-2.0 */\n${_boundary}*(.literal.wlc.${L_MODULE}.rpc.* .text.wlc.${L_MODULE}.rpc.*)\n${_boundary}")
+endfunction()
+
+# Optional GNU ELF script integration for ordinary host link scripts. Embedded
+# MEMORY scripts should include the fragment above in their selected region.
+function(wirelink_wlc_group_rpc)
+  cmake_parse_arguments(L "ISOLATE_LITERALS" "TARGET;MODULE;LOCATION" "" ${ARGN})
+  if(L_UNPARSED_ARGUMENTS OR NOT TARGET "${L_TARGET}" OR APPLE OR WIN32 OR
+      NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    message(FATAL_ERROR "wirelink_wlc_group_rpc requires a GNU-compatible host ELF linker; use a platform fragment for embedded scripts")
+  endif()
+  set(_scope)
+  if(L_ISOLATE_LITERALS)
+    set(_scope ISOLATE_LITERALS)
+  endif()
+  set(_fragment "${CMAKE_CURRENT_BINARY_DIR}/${L_TARGET}-${L_MODULE}-rpc-inputs.ld")
+  wirelink_wlc_rpc_layout_fragment(MODULE "${L_MODULE}" OUTPUT "${_fragment}" ${_scope})
+  if(DEFINED ZEPHYR_BASE)
+    if(NOT L_LOCATION STREQUAL "ROM_START")
+      message(FATAL_ERROR "Zephyr RPC grouping requires LOCATION ROM_START and an executable insertion point before .text.*")
+    endif()
+    zephyr_linker_sources(ROM_START "${_fragment}")
+    return()
+  elseif(L_LOCATION)
+    message(FATAL_ERROR "LOCATION is only supported for Zephyr linker fragments")
+  endif()
+  set(_script "${CMAKE_CURRENT_BINARY_DIR}/${L_TARGET}-${L_MODULE}-rpc.ld")
+  file(READ "${_fragment}" _inputs)
+  file(WRITE "${_script}" "SECTIONS { .text.wlc.${L_MODULE}.rpc : {\n${_inputs}} } INSERT BEFORE .text;\n")
+  target_link_options("${L_TARGET}" PRIVATE "LINKER:-T,${_script}")
+  set_property(TARGET "${L_TARGET}" APPEND PROPERTY LINK_DEPENDS "${_script}")
+endfunction()
 
 # A generated consumer is compatible with this core when the majors match and,
 # before 1.0, the minors match exactly. From 1.0 on, an older generated minor is
@@ -140,7 +216,8 @@ function(wirelink_wlc_generate_runtime)
     CODEC_TARGET
     PROFILE
     OUTPUT_DIR
-    RUNTIME_NAME)
+    RUNTIME_NAME
+    RPC_LAYOUT)
   cmake_parse_arguments(WLC
     "${_options}" "${_one_value_args}" "PROFILES" ${ARGN})
 
@@ -255,6 +332,8 @@ function(wirelink_wlc_generate_runtime)
     "$<BUILD_INTERFACE:${_output_dir}>")
   target_compile_features("${WLC_TARGET}" PUBLIC c_std_11)
   target_link_libraries("${WLC_TARGET}" PUBLIC "${WLC_CODEC_TARGET}")
+  wirelink_wlc_configure_rpc_layout(TARGET "${WLC_TARGET}"
+    MODULE "${_runtime_name}" ENABLE "${WLC_RPC_LAYOUT}")
 
   set_property(TARGET "${WLC_TARGET}" PROPERTY
     WIRELINK_WLC_GENERATED_DIR "${_output_dir}")
@@ -281,7 +360,8 @@ function(wirelink_wlc_generate)
     PROFILE
     PREVIOUS
     OUTPUT_DIR
-    WLC_EXECUTABLE)
+    WLC_EXECUTABLE
+    RPC_LAYOUT)
   cmake_parse_arguments(WLC
     "${_options}" "${_one_value_args}" "" ${ARGN})
 
@@ -307,6 +387,7 @@ function(wirelink_wlc_generate)
   wirelink_wlc_generate_codec(
     TARGET "${_codec_target}"
     SCHEMA "${WLC_SCHEMA}"
+    PROFILE "${WLC_PROFILE}"
     PREVIOUS "${WLC_PREVIOUS}"
     OUTPUT_DIR "${WLC_OUTPUT_DIR}"
     WLC_EXECUTABLE "${WLC_WLC_EXECUTABLE}")
@@ -314,7 +395,8 @@ function(wirelink_wlc_generate)
     TARGET "${WLC_TARGET}"
     CODEC_TARGET "${_codec_target}"
     PROFILE "${WLC_PROFILE}"
-    OUTPUT_DIR "${WLC_OUTPUT_DIR}")
+    OUTPUT_DIR "${WLC_OUTPUT_DIR}"
+    RPC_LAYOUT "${WLC_RPC_LAYOUT}")
 endfunction()
 
 include("${CMAKE_CURRENT_LIST_DIR}/WirelinkWlcBootstrap.cmake")
@@ -372,6 +454,7 @@ function(wirelink_wlc_generate_codec)
   set(_one_value_args
     TARGET
     SCHEMA
+    PROFILE
     PREVIOUS
     OUTPUT_DIR
     WLC_EXECUTABLE)
@@ -434,6 +517,14 @@ function(wirelink_wlc_generate_codec)
     "${_wlc}" compile "${_schema}" --out-dir "${_output_dir}")
   _wirelink_wlc_schema_dependencies("${_wlc}" "${_schema}" _schema_dependencies)
   set(_depends ${_schema_dependencies} "${_wlc}")
+  if(WLC_PROFILE)
+    get_filename_component(_profile "${WLC_PROFILE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    if(NOT EXISTS "${_profile}")
+      message(FATAL_ERROR "Wirelink binding profile does not exist: ${_profile}")
+    endif()
+    list(APPEND _command --profile "${_profile}")
+    list(APPEND _depends "${_profile}")
+  endif()
   if(WLC_PREVIOUS)
     list(APPEND _command --previous "${_previous}")
     _wirelink_wlc_schema_dependencies("${_wlc}" "${_previous}" _previous_dependencies)
