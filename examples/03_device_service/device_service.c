@@ -10,7 +10,7 @@ void device_service_init(device_service_t *device) {
   device->upper = 100;
 }
 
-static int32_t ping(void *context, const ping_request_value_t *request,
+static int32_t ping(void *context, const ping_request_t *request,
                     ping_response_value_t *response) {
   (void)context;
   response->has_nonce = true;
@@ -18,7 +18,7 @@ static int32_t ping(void *context, const ping_request_value_t *request,
   return 0;
 }
 
-static int32_t get_info(void *context, const get_info_request_value_t *request,
+static int32_t get_info(void *context, const get_info_request_t *request,
                         get_info_response_value_t *response) {
   const device_service_t *device = context;
   (void)request;
@@ -28,7 +28,7 @@ static int32_t get_info(void *context, const get_info_request_value_t *request,
   return 0;
 }
 
-static int32_t set_name(void *context, const set_name_request_value_t *request,
+static int32_t set_name(void *context, const set_name_request_t *request,
                         set_name_response_value_t *response) {
   device_service_t *device = context;
   (void)response;
@@ -39,7 +39,7 @@ static int32_t set_name(void *context, const set_name_request_value_t *request,
   return 0;
 }
 
-static int32_t read_register(void *context, const read_register_request_value_t *request,
+static int32_t read_register(void *context, const read_register_request_t *request,
                              read_register_response_value_t *response) {
   const device_service_t *device = context;
   if (request->index >= 4) return DEVICE_INVALID_ARGUMENT;
@@ -48,7 +48,7 @@ static int32_t read_register(void *context, const read_register_request_value_t 
   return 0;
 }
 
-static int32_t write_register(void *context, const write_register_request_value_t *request,
+static int32_t write_register(void *context, const write_register_request_t *request,
                               write_register_response_value_t *response) {
   device_service_t *device = context;
   (void)response;
@@ -60,7 +60,7 @@ static int32_t write_register(void *context, const write_register_request_value_
   return 0;
 }
 
-static int32_t get_counters(void *context, const get_counters_request_value_t *request,
+static int32_t get_counters(void *context, const get_counters_request_t *request,
                             get_counters_response_value_t *response) {
   const device_service_t *device = context;
   (void)request;
@@ -69,7 +69,7 @@ static int32_t get_counters(void *context, const get_counters_request_value_t *r
   return 0;
 }
 
-static int32_t reset_counters(void *context, const reset_counters_request_value_t *request,
+static int32_t reset_counters(void *context, const reset_counters_request_t *request,
                               reset_counters_response_value_t *response) {
   device_service_t *device = context;
   (void)request;
@@ -80,13 +80,13 @@ static int32_t reset_counters(void *context, const reset_counters_request_value_
 
 /* extension: handlers */
 
-void device_service_bind(device_server_endpoint_config_t *config) {
-  config->on_ping = ping;
-  config->on_get_info = get_info;
-  config->on_set_name = set_name;
-  config->on_read_register = read_register;
-  config->on_write_register = write_register;
-  config->on_get_counters = get_counters;
-  config->on_reset_counters = reset_counters;
+void device_service_bind(device_kernel_handlers_t *config) {
+  config->on_rpc_ping = ping;
+  config->on_rpc_get_info = get_info;
+  config->on_rpc_set_name = set_name;
+  config->on_rpc_read_register = read_register;
+  config->on_rpc_write_register = write_register;
+  config->on_rpc_get_counters = get_counters;
+  config->on_rpc_reset_counters = reset_counters;
   /* extension: registration */
 }

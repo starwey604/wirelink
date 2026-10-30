@@ -1,66 +1,43 @@
-# A device service that grows without a new dispatcher
+# Multiple business handlers and application jobs
 
-This is a maintainer-facing acceptance example, not a benchmark. Two standalone
-C11 programs communicate over UDP and exercise 12 managed RPCs: device queries,
-settings, registers, arithmetic and one genuinely deferred self-test. No hardware
-is accessed. [中文阅读指南](README-cn.md).
+This C11 acceptance example uses two generated endpoints and one deterministic
+application owner loop. Device information, settings, register access, counters,
+arithmetic, limits and SelfTest retain their original message types/IDs. Each
+short handler fills an owned response and returns a signed business status.
+[中文](README-cn.md).
 
-Start with `get_info()` in [device_service.c](device_service.c), then read
-[server.c](server.c), [services.bind.wl](services.bind.wl), [device.wl](device.wl)
-and [client.c](client.c). Read [self_test.c](self_test.c) last: only deferred work
-needs completion authority. Ordinary handlers return their response/status.
+Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching local WLC 0.13.0. Run
+`wirelink_device_service_demo`, or `ctest -R wirelink_device_service` to also run
+the extension acceptance test. The default bare-metal example remains independent
+of a local schema compiler. Actual UDP peers are exercised in the UDP/SDK examples;
+this example's deterministic loopback performs no hardware operations.
 
-Both endpoints reuse one RPC contract. CMake composes that file with
-`client.bind.wl` (LATEST reception) or `server.bind.wl` (send-only telemetry).
-The outgoing 100-channel message is larger than every RPC: its bound must size
-the default endpoint even though the sender has no receive mailbox.
-Both local profiles select `native_packet` and their own `rpc_role`. WLC removes
-unused transport/RPC storage; handlers and client calls need no extra switches.
+`services.bind.wl` contains shared RPC declarations. CMake composes the receive
+and send routes into one profile-v2 kernel, with both RPC roles retained. The
+100-channel ordinary telemetry message sizes TX correctly; there is no retained
+LATEST policy or framework service scheduler. Application state lives in
+`device_service_t`; business modules register typed callbacks in handlers.
 
-Set `config.user_data` once for ordinary handlers. Non-null per-service
-`<service>_user_data` overrides it; NULL inherits. Advanced deferred contexts and
-per-call completion contexts stay explicit. Business modules register their own
-handlers; transport, RPC dispatch and result recycling are not application code.
+The old deferred SelfTest reply token was removed. The original SelfTest payload
+still returns its short calculation directly. New application messages 132–134
+add StartSelfTest(pattern), its immediate job_id acknowledgment, and an ordinary
+SelfTestProgress(job_id, observed) completion. This is an example application
+protocol addition, not a change to benchmark payloads or kernel RPC wire. One
+active job uses a few fields in application state and advances in the application
+loop; pending ordinary TX backpressure keeps the result until admission succeeds.
+A busy job returns DEVICE_BUSY. There is no generic job service in the core.
 
-## Build and run
+The application owns retry/idempotency and recovery from lost ordinary status.
+Local cancel/timeout cannot undo a started job; duplicate RPCs may execute twice.
+A production long-job protocol should define durable job identity/status queries
+and duplicate handling according to its business needs.
 
-Use the matching WLC 0.9.0 / codegen contract 0.9 and standalone Asio. Build the
-paired WLC commit `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29` in its separate
-workspace with `cargo build --release --locked`, verify `wlc --version` and
-`wlc codegen-contract`, and pass its executable explicitly. No nested WLC
-checkout is required.
+The completion callback copies borrowed response views into owned values before
+returning. Saved data, including NUL in a bounded UTF-8 name, remains valid after
+both cores close and their real packet leases quiesce. No inspect/release terminal
+slot is kept. All endpoint operations/callbacks share the owner.
 
-```sh
-cmake -S . -B build/device-service -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_GETTING_STARTED=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/include
-cmake --build build/device-service --config Release --parallel 2
-```
-
-Run `device_service_server` and `device_service_client` in separate terminals;
-executables are under `build/device-service/examples/03_device_service/`.
-Windows uses `.exe`; multi-config generators add `Release/`. Default loopback
-ports are 49300/49301; both accept `local_port peer_port`. Restart the server
-before repeating the full manual client, which changes simulated device state.
-
-## Add another RPC
-
-The [extension test](../../tests/tutorials/device_service_extension.py) adds
-GetBuildLabel to a temporary copy and rebuilds/runs the real programs. Exactly
-four application files change: message definitions, the shared RPC binding,
-one handler plus its registration, and a client use case. Server main, transport,
-other business modules and CMake remain byte-identical. There is no operation
-enum, dispatcher switch, manual buffer sizing or release branch to update.
-
-```sh
-ctest --test-dir build/device-service -C Release -R wirelink_device_service --output-on-failure
-```
-
-All original cases and the new service must pass. This tests extensibility, not
-unlimited capacity: messages still need unique IDs and bounded single-frame
-payloads. Concurrent calls retain the default four-slot limit. Timeouts include
-queuing. Do not call sync recursively from handlers; real workers hand deferred
-results back to the endpoint owner. Telemetry may drop under backpressure; this
-example does not implement product-specific fair scheduling.
+`device_service_extension.py` copies the example, adds GetBuildLabel in exactly
+four application files (schema, shared binding, business handler/registration,
+client use case), then builds/runs the same owner and CMake unchanged. It verifies
+the original tree is untouched. No transport dispatcher or RPC table is patched.

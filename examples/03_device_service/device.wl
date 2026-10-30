@@ -48,3 +48,11 @@ message DeviceTelemetry @id(200) {
   required uint32 sequence @id(1);
   required packed fixed32 channels[100] @id(2);
 }
+
+// Application job protocol: short acknowledgment, later ordinary completion.
+message StartSelfTestRequest @id(132) { required uint32 pattern @id(1); }
+message StartSelfTestResponse @id(133) { required uint32 job_id @id(1); }
+message SelfTestProgress @id(134) {
+  required uint32 job_id @id(1);
+  required uint32 observed @id(2);
+}

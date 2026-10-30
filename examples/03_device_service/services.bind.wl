@@ -1,4 +1,4 @@
-profile version 1;
+profile version 2;
 
 // One shared contract. Both programs compile this exact file.
 rpc Ping { request = PingRequest; response = PingResponse; }
@@ -15,3 +15,5 @@ rpc GetLimits { request = GetLimitsRequest; response = GetLimitsResponse; }
 rpc SetLimits { request = SetLimitsRequest; response = SetLimitsResponse; }
 
 rpc SelfTest { request = SelfTestRequest; response = SelfTestResponse; }
+
+rpc StartSelfTest { request=StartSelfTestRequest; response=StartSelfTestResponse; }

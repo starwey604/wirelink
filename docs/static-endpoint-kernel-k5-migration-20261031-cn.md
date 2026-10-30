@@ -81,3 +81,9 @@ SDK 的 C bridge 拥有 port 原子对象与两份 RX unit，typed callback 在�
 telemetry、calculator、device-info 均使用正式 WLC v2 endpoint 与一个应用 owner loop；两端 port/C storage 显式持有，TX snapshot、四并发请求、反向业务拒绝、bounded UTF-8/NUL response 及 close/drain 均真实执行。删去 deferred-server 源，说明长任务改走应用 job/status；ordinary profile 同时声明 send/direct，不再倚赖旧通用 send binding 或 retained mailbox。应用保存结果的 helper 只复制 typed 借用视图，没有关联表／计时副本。
 
 默认纯 C 例程仍使用 checked-in 生成物；`WIRELINK_BUILD_WLC_EXAMPLES=ON` 显式启用需要本地 matching WLC 的教程，生成 helper 与安装后相同。GCC **15/15**，Clang ASan/UBSan 对应块验证。旧多业务／组合／UDP 与 Zephyr 例程仍在后续迁移中，不能把本点视为全部消费者已完成。
+
+## 多业务 C 例程与应用 job
+
+03 保留设备／算术等原业务类型与 ID，handler 改为 callback-scoped view；两端共用一个 v2 静态声明，保留双 RPC 角色，普通 100 通道 telemetry 纳入容量计算。原 SelfTest 同步短计算保留；删除 reply token／deferred 回调，显式新增例程应用 message 132–134 做 StartSelfTest(job-ID ack) 与普通完成消息。该例程协议扩展没有改 benchmark schema 或内核 wire。任务字段、due、BUSY、ordinary TX 背压均由应用循环负责，不加入框架 service。文档明确 lost status／重试／幂等由业务定义，取消不回滚。
+
+业务／长任务／close 后 owned response 的实际 demo 与“四份应用文件新增 RPC、基础设施不变”的隔离复制构建测试，GCC **2/2**；Clang 块也 **2/2**，其中 demo 使用 ASan/UBSan，隔离扩展用 Clang 严格编译；扩展测试不修改原树。旧双进程测试 runner 迁为当前 demo runner；真实 UDP 合同仍由 SDK／adapter／UDP 示例承担。日志 `device-tutorial-*`。
