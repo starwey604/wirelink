@@ -1,4 +1,16 @@
 tests:
+  wirelink.usb_bulk_adapter.native_error:
+    tags: [wirelink, usb, integration]
+    harness: ztest
+    extra_args: [TEST_USB_NATIVE=ON, TEST_USB_NATIVE_ERROR=ON]
+    platform_allow: [native_sim]
+    integration_platforms: [native_sim]
+  wirelink.usb_bulk_adapter.native:
+    tags: [wirelink, usb, integration]
+    harness: ztest
+    extra_args: TEST_USB_NATIVE=ON
+    platform_allow: [native_sim]
+    integration_platforms: [native_sim]
   wirelink.usb_bulk_adapter.integration:
     tags:
       - wirelink

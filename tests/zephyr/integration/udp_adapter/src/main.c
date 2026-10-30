@@ -3,6 +3,7 @@
 #include <string.h>
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/ztest.h>
+#include <zephyr/net/socket.h>
 #include "wirelink/zephyr/udp.h"
 
 #define PAYLOAD_BOUND 64U
@@ -145,8 +146,8 @@ ZTEST(udp_adapter, test_automatic_attach_and_callback_free_wait) {
 #else
   zassert_false(IS_ENABLED(CONFIG_NET_IPV4_FRAGMENT));
 #endif
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
   send_value(42);
   zassert_ok(wl_zephyr_udp_wait(&udp, 1000));
@@ -216,15 +217,15 @@ ZTEST(udp_adapter, test_rejected_packets_consume_service_budget) {
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
   zassert_equal(stats(&udp).rx_rejected, 2);
   zassert_equal(received[0], 0);
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
-  zassert_equal(hint.next_deadline_ms, 0);
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
+  zassert_true(hint.runnable);
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
   zassert_equal(stats(&udp).rx_rejected, 3);
   zassert_equal(received[0], 1);
   zassert_equal(last_value[0], 19);
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
   zassert_equal(stats(&udp).common.errors, 0);
 }
@@ -259,8 +260,8 @@ ZTEST(udp_adapter, test_backpressure_deadline_gates_actual_syscalls) {
   TC_PRINT("UDP_TX_POOL_WAIT elapsed_ms=%lld (socket allocation path)\n",
            (long long)(k_uptime_get() - started));
   zassert_equal(stats(&udp).tx_backpressure, 1);
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, 10);
   for (unsigned i = 0; i < 5; ++i) {
     unsigned before_reads = clock_reads[0];
@@ -268,7 +269,9 @@ ZTEST(udp_adapter, test_backpressure_deadline_gates_actual_syscalls) {
     zassert_equal(clock_reads[0], before_reads + 1);
   }
   zassert_equal(stats(&udp).tx_backpressure, 1);
-  zassert_true(stats(&udp).tx_deferred >= 5);
+  zassert_equal(stats(&udp).tx_deferred, 0);
+  zassert_equal(wl_endpoint_last_step(&endpoints[0])->services, 0);
+  zassert_equal(wl_endpoint_last_step(&endpoints[0])->polls, 0);
   now[0] += 10;
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
   zassert_equal(stats(&udp).tx_backpressure, 2);
@@ -284,7 +287,7 @@ ZTEST(udp_adapter, test_backpressure_deadline_gates_actual_syscalls) {
   size_t length = read_peer(bytes, sizeof(bytes));
   zassert_ok(wl_frame_decode(bytes, length, WL_INTEGRITY_CRC32C, &view));
   zassert_equal(view.payload.data[0], value);
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
   zassert_equal(stats(&udp).common.errors, 0);
 #ifdef CONFIG_WIRELINK_ZEPHYR_UDP_TIMING
@@ -309,8 +312,8 @@ ZTEST(udp_adapter, test_retry_counter_wrap_and_endpoint_isolation) {
   zassert_equal(clock_reads[1], before_reads);
   zassert_equal(stats(&other_udp).tx_backpressure, 0);
   now[0] = 4;
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, 1);
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
   zassert_equal(stats(&udp).common.tx_units, 0);
@@ -332,8 +335,8 @@ ZTEST(udp_adapter, test_cancel_clears_stale_retry_deadline) {
   release_packets();
   now[0] += 10;
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
   zassert_equal(stats(&udp).common.tx_units, 0);
 }
@@ -359,8 +362,8 @@ ZTEST(udp_adapter, test_ack_backpressure_uses_retry_deadline) {
   zassert_equal(received[0], 1);
   zassert_equal(stats(&udp).tx_backpressure, 1);
   release_packets();
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, 10);
   zassert_ok(wl_endpoint_step(&endpoints[0], 8));
   zassert_equal(stats(&udp).common.tx_units, 0);
@@ -373,7 +376,7 @@ ZTEST(udp_adapter, test_ack_backpressure_uses_retry_deadline) {
   zassert_equal(view.sequence, packet.sequence);
   zassert_equal(view.session_id, packet.session_id);
   zassert_equal(stats(&udp).common.tx_units, 1);
-  zassert_ok(wl_endpoint_get_hint(&endpoints[0], &hint));
+  zassert_ok(wl_endpoint_get_readiness(&endpoints[0], &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
 }
 

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/rpc_async.h"
+#include "wirelink/port.h"
 #include <stdio.h>
 #include <string.h>
 #ifdef WL_ASYNC_ZTEST
@@ -12,7 +13,8 @@ static wl_rpc_client_t client;
 static wl_rpc_async_t async;
 static wl_rpc_client_slot_t client_slots[4];
 static wl_rpc_async_slot_t slots[4];
-static uint8_t requests[4][8], responses[4][8];
+static uint8_t requests[4][8];
+static uint32_t responses[4];
 static uint32_t transmitted[2], sends, next_tx, cancels, callbacks;
 static uint32_t saved_value, followup;
 static wl_rpc_client_state_t saved_state;
@@ -23,6 +25,14 @@ static wl_time_ms_t now;
 static uint16_t configured_count;
 static int cancelled, io_pending;
 
+uint8_t wl_tx_can_submit(const wl_ctx_t *ctx, wl_delivery_t delivery) {
+  (void)ctx; (void)delivery;
+  return !busy;
+}
+uint8_t wl_tx_can_take(const wl_ctx_t *ctx, wl_tx_handle_t handle) {
+  (void)ctx; (void)handle;
+  return cancelled && !io_pending;
+}
 /* Link mocks deliberately keep TX ownership after RPC completion/cancel.
  * Real transport/DMA ownership is covered by generated endpoint integration. */
 wl_err_t wl_send_unreliable(wl_ctx_t *ctx, uint16_t id, const uint8_t *bytes, size_t size) {
@@ -76,8 +86,7 @@ static void prepare(void *context, const wl_rpc_client_result_t *result) {
   saved_state = result->state;
   saved_link_error = result->link_result;
   saved_value = 0U;
-  if (result->state == WL_RPC_CLIENT_COMPLETED && result->response_length == 4U)
-    memcpy(&saved_value, result->response_data, 4U);
+  if (result->response_valid) saved_value = responses[result->result_index];
 }
 static void notify(void *context, wl_rpc_callback_t callback, void *user_data) {
   (void)context;
@@ -95,7 +104,7 @@ static wl_err_t submit(uint32_t value, uint32_t timeout, wl_delivery_t delivery,
 static void completed(void *user_data) {
   (void)user_data;
   ++callbacks;
-  uint16_t notified;
+  wl_rpc_async_service_result_t notified;
   callback_service = wl_rpc_async_service(&async, now, &notified);
   callback_close = wl_rpc_async_close(&async);
   callback_init = wl_rpc_async_init(&async, &link, &client, slots,
@@ -108,7 +117,7 @@ static void completed(void *user_data) {
 static int init(uint16_t count) {
   CHECK(wl_rpc_async_close(&async) == WL_OK);
   const wl_rpc_client_config_t config = {
-      client_slots, count, responses[0], sizeof(responses), 8U, 1U};
+      client_slots, count, 1U};
   CHECK(wl_rpc_client_init(&client, &config) == WL_RPC_OK);
   configured_count = count;
   CHECK(wl_rpc_async_init(&async, &link, &client, slots, count,
@@ -122,15 +131,24 @@ static int init(uint16_t count) {
   return 0;
 }
 static int service(void) {
-  uint16_t expired, notified;
+  uint16_t expired;
+  wl_rpc_async_service_result_t notified;
   CHECK(wl_rpc_client_poll(&client, now, &expired) == WL_RPC_OK);
   CHECK(wl_rpc_async_service(&async, now, &notified) == WL_OK);
-  CHECK(notified <= configured_count);
+  CHECK(notified.notified <= configured_count);
   return 0;
 }
+static wl_rpc_err_t accept_response(uint32_t id, uint32_t value) {
+  wl_rpc_client_response_t authority;
+  uint16_t index;
+  wl_rpc_err_t error = wl_rpc_client_response_prepare(&client, 2U, 3U, id,
+      now, &authority, &index);
+  if (error != WL_RPC_OK) return error;
+  responses[index] = value;
+  return wl_rpc_client_response_commit(&client, &authority, 0, now);
+}
 static int respond(uint32_t id, uint32_t value) {
-  CHECK(wl_rpc_client_on_response(&client, 3U, id, 0,
-      (const uint8_t *)&value, sizeof(value)) == WL_RPC_OK);
+  CHECK(accept_response(id, value) == WL_RPC_OK);
   return 0;
 }
 
@@ -168,7 +186,7 @@ static int snapshot_queue_and_deadline(void) {
   busy = 0;
   CHECK(submit(32U, 20U, WL_DELIVERY_UNRELIABLE, NULL) == WL_OK);
   CHECK(sends == 1U && transmitted[1] == 32U && callbacks == 0U);
-  CHECK(wl_rpc_async_notification_deadline(&async) == 0U);
+  CHECK(wl_rpc_async_get_readiness(&async).runnable != 0U);
   CHECK(service() == 0);
   CHECK(callbacks == 1U && saved_state == WL_RPC_CLIENT_TIMED_OUT);
   return 0;
@@ -199,7 +217,7 @@ static int callback_chain_and_detached_tx(void) {
   CHECK(service() == 0 && callbacks == 2U && saved_value == 100U);
   CHECK(submit(44U, 100U, WL_DELIVERY_UNRELIABLE, &second) == WL_OK);
   CHECK(wl_rpc_async_cancel(&async, &second) == WL_OK);
-  CHECK(wl_rpc_client_on_response(&client, 3U, transmitted[0], 0, NULL, 0U) == WL_RPC_ERR_INVALID_STATE);
+  CHECK(accept_response(transmitted[0], 0U) == WL_RPC_ERR_INVALID_STATE);
   CHECK(service() == 0 && callbacks == 3U && saved_state == WL_RPC_CLIENT_CANCELLED);
   return 0;
 }
@@ -224,7 +242,7 @@ static int failed_admission_and_communication(void) {
   CHECK(submit(0U, UINT32_C(0x80000000), WL_DELIVERY_RELIABLE, NULL) == WL_ERR_INVALID_ARG);
   send_error = WL_ERR_IO;
   CHECK(submit(1U, 100U, WL_DELIVERY_RELIABLE, NULL) == WL_OK);
-  CHECK(callbacks == 0U && wl_rpc_async_notification_deadline(&async) == 0U);
+  CHECK(callbacks == 0U && wl_rpc_async_get_readiness(&async).runnable != 0U);
   CHECK(service() == 0);
   CHECK(callbacks == 1U && saved_state == WL_RPC_CLIENT_LINK_FAILED && saved_link_error == WL_ERR_IO);
   CHECK(submit(2U, 100U, WL_DELIVERY_RELIABLE, NULL) == WL_OK);
@@ -264,7 +282,7 @@ static int close_and_stale_handles(void) {
   CHECK(chain_result == WL_ERR_NOT_INITIALIZED);
   CHECK(callback_close == WL_ERR_REENTRANT && callback_init == WL_ERR_INVALID_STATE);
   CHECK(wl_rpc_async_close(&async) == WL_OK && callbacks == 2U);
-  CHECK(wl_rpc_client_on_response(&client, 3U, first_id, 0, NULL, 0U) == WL_RPC_ERR_NOT_FOUND);
+  CHECK(accept_response(first_id, 0U) == WL_RPC_ERR_NOT_FOUND);
   CHECK(init(1U) == 0);
   CHECK(submit(61U, 100U, WL_DELIVERY_UNRELIABLE, NULL) == WL_OK);
   CHECK(wl_rpc_async_cancel(&async, &first) == WL_ERR_NOT_FOUND);
@@ -294,7 +312,31 @@ static int cancelled_tx_is_collected_after_io(void) {
   return 0;
 }
 
+static int idle_still_collects_retiring_tx(void) {
+  wl_rpc_call_t call;
+  wl_rpc_async_service_result_t work;
+  CHECK(init(1U) == 0);
+  CHECK(submit(11U, 10U, WL_DELIVERY_RELIABLE, &call) == WL_OK);
+  now += 10U;
+  CHECK(service() == 0);
+  CHECK(callbacks == 1U && busy == 1);
+  wl_readiness_t ready = wl_rpc_async_get_readiness(&async);
+  CHECK(ready.blocked != 0U && ready.runnable == 0U);
+  CHECK(wl_rpc_async_service(&async, now, &work) == WL_OK);
+  CHECK(!work.did_work && !work.notified && busy == 1);
+  io_pending = 0;
+  CHECK(wl_rpc_async_get_readiness(&async).runnable != 0U);
+  CHECK(wl_rpc_async_service(&async, now, &work) == WL_OK);
+  CHECK(work.did_work && !work.notified && !busy && callbacks == 1U);
+  ready = wl_rpc_async_get_readiness(&async);
+  CHECK(!ready.runnable && !ready.blocked);
+  CHECK(submit(12U, 100U, WL_DELIVERY_RELIABLE, NULL) == WL_OK);
+  CHECK(sends == 2U);
+  return 0;
+}
+
 #ifdef WL_ASYNC_ZTEST
+ZTEST(wirelink_rpc_async, test_idle_still_collects_retiring_tx) { zassert_equal(idle_still_collects_retiring_tx(), 0); }
 ZTEST(wirelink_rpc_async, test_cancelled_tx_is_collected_after_io) { zassert_equal(cancelled_tx_is_collected_after_io(), 0); }
 ZTEST(wirelink_rpc_async, test_snapshot_queue_and_deadline) { zassert_equal(snapshot_queue_and_deadline(), 0); }
 ZTEST(wirelink_rpc_async, test_callback_chain_and_detached_tx) { zassert_equal(callback_chain_and_detached_tx(), 0); }
@@ -304,6 +346,7 @@ ZTEST(wirelink_rpc_async, test_cancel_completion_is_local) { zassert_equal(cance
 ZTEST_SUITE(wirelink_rpc_async, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  CHECK(idle_still_collects_retiring_tx() == 0);
   CHECK(cancelled_tx_is_collected_after_io() == 0);
   CHECK(snapshot_queue_and_deadline() == 0);
   CHECK(callback_chain_and_detached_tx() == 0);

@@ -1,0 +1,45 @@
+tests:
+  wirelink.uart_irq_adapter.timeout32:
+    tags: [wirelink, uart, adapter]
+    harness: ztest
+    extra_configs:
+      - CONFIG_TIMEOUT_64BIT=n
+    platform_allow:
+      - native_sim/native/64
+  wirelink.uart_irq_adapter.smp:
+    tags: [wirelink, uart, adapter, smp]
+    harness: ztest
+    extra_configs:
+      - CONFIG_SMP=y
+      - CONFIG_MP_MAX_NUM_CPUS=2
+      - CONFIG_SCHED_CPU_MASK=y
+    platform_allow:
+      - qemu_x86_64
+  wirelink.uart_irq_adapter.notifications:
+    tags: [wirelink, uart, adapter]
+    harness: ztest
+    extra_configs:
+      - CONFIG_WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS=y
+    platform_allow:
+      - native_sim/native/64
+  wirelink.uart_irq_adapter.timing:
+    tags:
+      - wirelink
+      - uart
+      - adapter
+    harness: ztest
+    extra_configs:
+      - CONFIG_WIRELINK_ZEPHYR_UART_IRQ_TIMING=y
+    platform_allow:
+      - native_sim/native/64
+  wirelink.uart_irq_adapter.integration:
+    tags:
+      - wirelink
+      - uart
+      - adapter
+    harness: ztest
+    integration_platforms:
+      - native_sim/native/64
+    platform_allow:
+      - native_sim/native/64
+

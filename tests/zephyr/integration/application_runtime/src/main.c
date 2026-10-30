@@ -33,9 +33,12 @@ struct endpoint {
   size_t outbound_length;
 };
 
-typedef union runtime_storage_buffer {
-  max_align_t align;
-  uint8_t bytes[RUNTIME_STORAGE_CAPACITY];
+typedef struct runtime_storage_buffer {
+  union {
+    max_align_t align;
+    uint8_t bytes[RUNTIME_STORAGE_CAPACITY];
+  };
+  control_rpc_result_value_t results[2];
 } runtime_storage_buffer_t;
 
 struct latest_fixture {
@@ -108,6 +111,8 @@ initialize_generated_runtime(control_runtime_instance_t *instance,
   zassert_true(requirements.storage_size <= sizeof(buffer->bytes));
   zassert_true(requirements.storage_alignment <= _Alignof(*buffer));
   storage = (control_runtime_storage_t){
+      .rpc_results = buffer->results,
+      .rpc_result_count = ARRAY_SIZE(buffer->results),
       .data = buffer->bytes,
       .size = requirements.storage_size,
   };
@@ -189,7 +194,6 @@ ZTEST(wirelink_application_runtime,
 
   config.rpc_client_enabled = 1U;
   config.rpc_client_slot_count = 2U;
-  config.rpc_client_response_capacity = 16U;
   config.rpc_client_next_operation_id = 7U;
   config.rpc_server_enabled = 1U;
   config.rpc_server_pending_slot_count = 2U;
@@ -206,6 +210,8 @@ ZTEST(wirelink_application_runtime,
                _Alignof(runtime_storage_buffer_t));
 
   storage = (control_runtime_storage_t){
+      .rpc_results = requirements_storage.results,
+      .rpc_result_count = ARRAY_SIZE(requirements_storage.results),
       .data = requirements_storage.bytes,
       .size = requirements.storage_size - 1U,
   };
@@ -220,6 +226,8 @@ ZTEST(wirelink_application_runtime,
                 WL_ERR_INVALID_ARG);
 
   storage = (control_runtime_storage_t){
+      .rpc_results = requirements_storage.results,
+      .rpc_result_count = ARRAY_SIZE(requirements_storage.results),
       .data = requirements_storage.bytes,
       .size = requirements.storage_size,
   };
@@ -468,7 +476,6 @@ static void rpc_init(void) {
   client_config = retained_runtime_config(1U);
   client_config.rpc_client_enabled = 1U;
   client_config.rpc_client_slot_count = 1U;
-  client_config.rpc_client_response_capacity = 16U;
   client_config.rpc_client_next_operation_id = 1U;
   server_config = retained_runtime_config(1U);
   server_config.rpc_server_enabled = 1U;
@@ -485,8 +492,7 @@ static void rpc_init(void) {
                                      &server_config);
   zassert_equal(rpc_client.instance.runtime.rpc_client,
                 &rpc_client.instance.rpc_client);
-  zassert_equal(rpc_client.instance.runtime.home.response_scratch,
-                &rpc_client.instance.home_scratch.response);
+  zassert_equal(rpc_client.instance.runtime.rpc_results, rpc_client.storage.results);
   zassert_equal(rpc_server.instance.runtime.rpc_server,
                 &rpc_server.instance.rpc_server);
   zassert_equal(rpc_server.instance.runtime.home.request_scratch,
@@ -729,9 +735,7 @@ ZTEST(wirelink_application_runtime,
   zassert_equal(client_result.state, WL_RPC_CLIENT_COMPLETED);
   zassert_equal(client_result.application_status, OPERATION_OK);
   zassert_equal(client_result.link_delivery_confirmed, 1U);
-  zassert_equal(client_result.response_length, expected_length);
-  zassert_mem_equal(client_result.response_data, cached_response,
-                    expected_length);
+  zassert_equal(client_result.response_valid, client_result.application_status == 0);
   finish_response_tx(client, server, response_handle, 9U);
 
   result = send_request_copy(client, server, &request, 10U);
@@ -747,14 +751,14 @@ ZTEST(wirelink_application_runtime,
   const wl_tx_handle_t replay_handle = service_server_response(server, 11U);
   result = receive_home_response(server, client, cached_response,
                                  expected_length, 12U);
-  zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_INVALID_STATE);
   finish_response_tx(client, server, replay_handle, 13U);
   zassert_equal(wl_rpc_client_get(&rpc_client.instance.rpc_client, operation_id,
                                   &client_result),
                 WL_RPC_OK);
-  zassert_mem_equal(client_result.response_data, cached_response,
-                    expected_length);
+  zassert_true(client_result.response_valid);
+  zassert_equal(rpc_client.storage.results[client_result.result_index].home.operation_id, operation_id);
   zassert_equal(
       wl_rpc_client_release(&rpc_client.instance.rpc_client, operation_id),
       WL_RPC_OK);
@@ -859,9 +863,7 @@ ZTEST(wirelink_application_runtime,
                 WL_RPC_OK);
   zassert_equal(client_result.state, WL_RPC_CLIENT_APPLICATION_ERROR);
   zassert_equal(client_result.application_status, OPERATION_REJECTED);
-  zassert_equal(client_result.response_length, expected_length);
-  zassert_mem_equal(client_result.response_data, cached_response,
-                    expected_length);
+  zassert_equal(client_result.response_valid, client_result.application_status == 0);
   finish_response_tx(client, server, response_handle, 25U);
 
   result = send_request_copy(client, server, &request, 26U);
@@ -877,7 +879,7 @@ ZTEST(wirelink_application_runtime,
   const wl_tx_handle_t replay_handle = service_server_response(server, 27U);
   result = receive_home_response(server, client, cached_response,
                                  expected_length, 28U);
-  zassert_equal(result.domain, CONTROL_RUNTIME_RPC_ERROR);
+  zassert_equal(result.domain, CONTROL_RUNTIME_OK);
   zassert_equal(rpc_detail(&result)->rpc_result, WL_RPC_ERR_INVALID_STATE);
   finish_response_tx(client, server, replay_handle, 29U);
   zassert_equal(

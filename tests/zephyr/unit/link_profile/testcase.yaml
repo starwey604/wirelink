@@ -1,0 +1,11 @@
+tests:
+  wirelink.link_profile.multi:
+    type: unit
+    extra_args:
+      - WIRELINK_LINK_PROFILE=multi
+    tags: [wirelink, frame, protocol]
+  wirelink.link_profile.cobs_crc16:
+    type: unit
+    extra_args:
+      - WIRELINK_LINK_PROFILE=cobs-crc16
+    tags: [wirelink, frame, protocol]

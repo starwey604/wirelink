@@ -42,6 +42,14 @@ struct fake_uart_data {
 };
 
 static struct fake_uart_data fake_data;
+K_SEM_DEFINE(callback_detached, 0, 1);
+K_SEM_DEFINE(callback_entered, 0, 1);
+K_SEM_DEFINE(callback_continue, 0, 1);
+K_SEM_DEFINE(quiesce_done, 0, 1);
+K_THREAD_STACK_DEFINE(callback_stack, 2048);
+K_THREAD_STACK_DEFINE(quiesce_stack, 2048);
+static struct k_thread callback_thread;
+static struct k_thread quiesce_thread;
 static struct device_state fake_state = {
     .init_res = 0,
     .initialized = 1,
@@ -54,6 +62,7 @@ static int fake_callback_set(const struct device *dev, uart_callback_t callback,
   data->callback = callback;
   data->callback_data = user_data;
   data->callback_sets++;
+  if (callback == NULL) k_sem_give(&callback_detached);
   return 0;
 }
 
@@ -158,6 +167,8 @@ struct fixture {
   uint8_t rx_fallback[TEST_STORAGE_SIZE];
   uint8_t rx_dma_buffers[2][32];
 };
+
+static struct fixture fixture;
 
 static void init_fixture(struct fixture *fixture) {
   wl_zephyr_uart_dma_config_t adapter_config;
@@ -349,7 +360,6 @@ static size_t encode_rx_frame(const struct fixture *fixture,
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_tx_done_is_deferred_to_service) {
-  struct fixture fixture;
   const uint8_t payload[] = {0x11U, 0x22U, 0x33U};
   wl_zephyr_uart_dma_stats_t stats = {0};
   wl_event_t event = {0};
@@ -369,14 +379,13 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_done_is_deferred_to_service) {
   zassert_equal(stats.tx_active, 1U);
   zassert_equal(stats.tx_done_events, 1U);
 
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 0U);
   zassert_ok(wl_poll(&fixture.link, 1U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_tx_done_waits_for_physical_idle) {
-  struct fixture fixture;
   const uint8_t payload[] = {0x31U, 0x32U};
   wl_event_t event = {0};
 
@@ -384,19 +393,23 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_done_waits_for_physical_idle) {
   zassert_ok(
       wl_send_unreliable(&fixture.link, 0x108U, payload, sizeof(payload)));
   emit_tx_done_before_idle();
-  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter),
-                WL_ERR_WOULD_BLOCK);
-  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 1U);
+  wl_time_ms_t now = k_uptime_get_32();
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, now));
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 0U);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_drain_pending, 1U);
+  wl_readiness_t ready = wl_zephyr_uart_dma_readiness(&fixture.adapter, &fixture.link, now);
+  zassert_false(ready.runnable);
+  zassert_equal(ready.next_deadline_ms, 1U);
 
   fake_data.tx_idle = true;
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, now + 1U));
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_drain_pending, 0U);
   zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 0U);
   zassert_ok(wl_poll(&fixture.link, 1U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_tx_busy_retries_and_failure_maps_to_io) {
-  struct fixture fixture;
   const uint8_t payload[] = {0x44U, 0x55U};
   wl_zephyr_uart_dma_stats_t stats = {0};
   wl_event_t event = {0};
@@ -408,9 +421,13 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_busy_retries_and_failure_maps_to_io) {
       wl_send_unreliable(&fixture.link, 0x102U, payload, sizeof(payload)));
   zassert_equal(wl_ctx_impl(&fixture.link)->tx_queued, 1U);
   zassert_equal(wl_poll(&fixture.link, 1U, &event), WL_ERR_NO_DATA);
+  zassert_false(fake_data.tx_active);
+  zassert_equal(fake_data.tx_calls, 1U);
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, fixture.adapter.tx_retry_due));
+  zassert_equal(wl_poll(&fixture.link, 1U, &event), WL_ERR_NO_DATA);
   zassert_true(fake_data.tx_active);
   emit_tx_event(UART_TX_DONE, fake_data.tx_len);
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   zassert_ok(wl_poll(&fixture.link, 2U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
 
@@ -424,7 +441,6 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_busy_retries_and_failure_maps_to_io) {
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_tx_abort_can_retry_from_service) {
-  struct fixture fixture;
   const uint8_t payload[] = {0x66U, 0x77U};
   wl_tx_handle_t handle = 0U;
   wl_tx_state_t state = WL_TX_STATE_IDLE;
@@ -434,19 +450,18 @@ ZTEST(wirelink_uart_dma_adapter, test_tx_abort_can_retry_from_service) {
                               &handle));
   zassert_not_equal(handle, 0U);
   emit_tx_event(UART_TX_ABORTED, 1U);
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   zassert_equal(fake_data.tx_calls, 2U,
                 "completion service must permit synchronous retry submit");
   zassert_true(fake_data.tx_active);
 
   emit_tx_event(UART_TX_DONE, fake_data.tx_len);
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   zassert_ok(wl_tx_status(&fixture.link, handle, &state));
   zassert_equal(state, WL_TX_STATE_WAITING_ACK);
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_rx_release_restarts_and_decodes) {
-  struct fixture fixture;
   const uint8_t payload[] = {0xA1U, 0x00U, 0xB2U, 0xC3U};
   uint8_t wire[TEST_STORAGE_SIZE];
   wl_event_t event = {0};
@@ -464,7 +479,7 @@ ZTEST(wirelink_uart_dma_adapter, test_rx_release_restarts_and_decodes) {
   zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
   zassert_mem_equal(event.payload, payload, sizeof(payload));
   wl_event_release(&fixture.link, &event);
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   zassert_true(fake_data.rx_enabled);
   zassert_equal(fake_data.rx_enables, 1U);
   zassert_true(fake_data.rx_next_buf != NULL);
@@ -472,7 +487,6 @@ ZTEST(wirelink_uart_dma_adapter, test_rx_release_restarts_and_decodes) {
 
 ZTEST(wirelink_uart_dma_adapter,
       test_rx_short_ping_pong_preserves_continuous_stream) {
-  struct fixture fixture;
   const uint8_t payload[] = {0x21U, 0x00U, 0x43U, 0x65U, 0x87U};
   uint8_t frame[TEST_STORAGE_SIZE];
   uint8_t stream[TEST_STORAGE_SIZE * 4U];
@@ -500,7 +514,7 @@ ZTEST(wirelink_uart_dma_adapter,
     receive_and_release(stream + offset, length);
     offset += length;
     received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
-    zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+    zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   }
   received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
 
@@ -517,7 +531,6 @@ ZTEST(wirelink_uart_dma_adapter,
 
 ZTEST(wirelink_uart_dma_adapter,
       test_rx_staging_survives_temporary_ring_backpressure) {
-  struct fixture fixture;
   uint8_t payload[32];
   uint8_t frame[TEST_STORAGE_SIZE];
   uint8_t stream[TEST_STORAGE_SIZE * 2U];
@@ -559,7 +572,7 @@ ZTEST(wirelink_uart_dma_adapter,
 
   received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
   zassert_true(received > 0U);
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   zassert_not_null(fake_data.rx_next_buf,
                    "released staging slot must be resupplied after drain");
 
@@ -569,7 +582,7 @@ ZTEST(wirelink_uart_dma_adapter,
     receive_and_release(stream + offset, length);
     offset += length;
     received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
-    zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+    zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   }
   received += drain_rx_events(&fixture, payload, sizeof(payload), &now);
 
@@ -583,7 +596,6 @@ ZTEST(wirelink_uart_dma_adapter,
 }
 
 ZTEST(wirelink_uart_dma_adapter, test_stop_waits_for_driver_and_can_restart) {
-  struct fixture fixture;
   const uint8_t payload[] = {0x88U, 0x99U};
   wl_zephyr_uart_dma_stats_t stats = {0};
 
@@ -593,12 +605,12 @@ ZTEST(wirelink_uart_dma_adapter, test_stop_waits_for_driver_and_can_restart) {
   zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
   zassert_equal(fake_data.rx_disables, 1U);
   zassert_equal(fake_data.tx_aborts, 1U);
-  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter),
+  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()),
                 WL_ERR_WOULD_BLOCK);
 
   emit_tx_event(UART_TX_ABORTED, 0U);
   release_all_and_disable();
-  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter));
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, k_uptime_get_32()));
   wl_zephyr_uart_dma_get_stats(&fixture.adapter, &stats);
   zassert_equal(stats.started, 0U);
   zassert_equal(stats.stopping, 0U);
@@ -613,4 +625,195 @@ ZTEST(wirelink_uart_dma_adapter, test_stop_waits_for_driver_and_can_restart) {
       wl_send_unreliable(&fixture.link, 0x107U, payload, sizeof(payload)));
 }
 
-ZTEST_SUITE(wirelink_uart_dma_adapter, NULL, NULL, NULL, NULL, NULL);
+static void fill_ring_and_staging(void) {
+  uint8_t payload[32];
+  uint8_t frame[TEST_STORAGE_SIZE];
+  uint8_t stream[TEST_STORAGE_SIZE * 3U];
+  memset(payload, 0x5a, sizeof(payload));
+  size_t length = encode_rx_frame(&fixture, payload, sizeof(payload), frame,
+                                  sizeof(frame));
+  for (size_t i = 0U; i < 3U; ++i) memcpy(stream + i * length, frame, length);
+  for (size_t i = 0U; i < 3U; ++i)
+    receive_and_release(stream + i * sizeof(fixture.rx_dma_buffers[0]),
+                         sizeof(fixture.rx_dma_buffers[0]));
+  /* No poll has run, so there is no application RX lease. */
+  zassert_false(wl_rx_has_space(&fixture.link));
+  size_t pending = 0U;
+  for (size_t i = 0U; i < 2U; ++i)
+    pending += fixture.adapter.slots[i].received - fixture.adapter.slots[i].forwarded;
+  zassert_true(pending > 0U);
+}
+
+ZTEST(wirelink_uart_dma_adapter, test_stop_discards_staging_with_full_ring) {
+  init_fixture(&fixture);
+  fill_ring_and_staging();
+  atomic_val_t published = atomic_get(&fixture.adapter.published_bytes);
+  zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
+  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter, 1U), WL_ERR_WOULD_BLOCK);
+  release_all_and_disable();
+  int ret = wl_zephyr_uart_dma_service(&fixture.adapter, 2U);
+  /* Let a broken implementation clean up before reporting its failed stop. */
+  if (ret != WL_OK) {
+    zassert_ok(wl_feed_recover_reset(&fixture.link));
+    (void)wl_zephyr_uart_dma_service(&fixture.adapter, 3U);
+  }
+  zassert_ok(ret);
+  zassert_false(wl_rx_has_space(&fixture.link), "stop must not consume the core ring");
+  zassert_equal(atomic_get(&fixture.adapter.published_bytes), published);
+  zassert_equal(atomic_get(&fixture.adapter.started), 0);
+  zassert_equal(atomic_get(&fixture.adapter.stopping), 0);
+  for (size_t i = 0U; i < 2U; ++i) zassert_equal(fixture.adapter.slots[i].order, 0U);
+  wl_zephyr_uart_dma_quiesce(&fixture.adapter);
+  zassert_true(fixture.adapter.detached);
+}
+
+ZTEST(wirelink_uart_dma_adapter, test_disabled_waits_for_queued_buffer_returns) {
+  init_fixture(&fixture);
+  /* The driver is disabled, but its buffer-return callbacks are still queued. */
+  fake_data.rx_enabled = false;
+  zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
+  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter, 1U), WL_ERR_WOULD_BLOCK);
+  zassert_true(fixture.adapter.slots[0].driver_owned);
+  zassert_true(fixture.adapter.slots[1].driver_owned);
+  release_all_and_disable();
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, 2U));
+}
+
+ZTEST(wirelink_uart_dma_adapter, test_stopping_bytes_do_not_make_driver_wait_runnable) {
+  init_fixture(&fixture);
+  zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
+  /* RX disable may report a final prefix before returning its buffer. Stop
+   * discards that prefix; room in the core ring is not executable stop work. */
+  memset(fake_data.rx_buf, 0x5a, 4U);
+  emit_rx_ready(0U, 4U);
+  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter, 1U), WL_ERR_WOULD_BLOCK);
+  zassert_true(wl_rx_has_space(&fixture.link));
+  wl_readiness_t ready = wl_zephyr_uart_dma_readiness(&fixture.adapter, &fixture.link, 1U);
+  zassert_false(ready.runnable);
+  zassert_true(ready.blocked);
+  zassert_equal(ready.next_deadline_ms, WL_NO_DEADLINE);
+  release_all_and_disable();
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, 2U));
+}
+
+static void suspend_callback(void *unused) {
+  ARG_UNUSED(unused);
+  if (k_current_get() != &callback_thread) return;
+  /* Test-only suspension models a callback preempted just before dispatch exit. */
+  k_sem_give(&callback_entered);
+  (void)k_sem_take(&callback_continue, K_FOREVER);
+}
+
+static void finish_disabled_callback(void *a, void *b, void *c) {
+  ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+  emit_rx_disabled();
+}
+
+static void run_quiesce(void *a, void *b, void *c) {
+  ARG_UNUSED(a); ARG_UNUSED(b); ARG_UNUSED(c);
+  wl_zephyr_uart_dma_quiesce(&fixture.adapter);
+  k_sem_give(&quiesce_done);
+}
+
+ZTEST(wirelink_uart_dma_adapter, test_quiesce_full_ring_waits_for_callback_exit) {
+  init_fixture(&fixture);
+  fill_ring_and_staging();
+  zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
+  struct uart_event returned = {.type = UART_RX_BUF_RELEASED};
+  returned.data.rx_buf.buf = fake_data.rx_buf;
+  fake_data.callback(&fake_uart, &returned, fake_data.callback_data);
+  if (fake_data.rx_next_buf != NULL) {
+    returned.data.rx_buf.buf = fake_data.rx_next_buf;
+    fake_data.callback(&fake_uart, &returned, fake_data.callback_data);
+  }
+  k_sem_reset(&callback_detached);
+  k_sem_reset(&callback_entered);
+  k_sem_reset(&callback_continue);
+  k_sem_reset(&quiesce_done);
+  fixture.adapter.config.notify = suspend_callback;
+  k_thread_create(&callback_thread, callback_stack, K_THREAD_STACK_SIZEOF(callback_stack),
+                  finish_disabled_callback, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+  zassert_ok(k_sem_take(&callback_entered, K_SECONDS(1)));
+  k_thread_create(&quiesce_thread, quiesce_stack, K_THREAD_STACK_SIZEOF(quiesce_stack),
+                  run_quiesce, NULL, NULL, NULL, 5, 0, K_NO_WAIT);
+  /* Full-ring staging must not prevent detachment, but the entered callback
+   * must exit before quiesce returns and its adapter memory can be freed. */
+  int detached = k_sem_take(&callback_detached, K_SECONDS(1));
+  int finished_early = k_sem_take(&quiesce_done, K_NO_WAIT);
+  k_sem_give(&callback_continue);
+  zassert_ok(detached);
+  zassert_not_equal(finished_early, 0);
+  zassert_ok(k_sem_take(&quiesce_done, K_SECONDS(1)));
+  zassert_ok(k_thread_join(&callback_thread, K_SECONDS(1)));
+  zassert_ok(k_thread_join(&quiesce_thread, K_SECONDS(1)));
+  zassert_true(fixture.adapter.detached);
+  zassert_is_null(fake_data.callback);
+  zassert_false(wl_rx_has_space(&fixture.link));
+}
+
+static void close_fixture(void *unused) {
+  ARG_UNUSED(unused);
+  if (fixture.adapter.detached) return;
+  zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
+  if (fake_data.tx_active) emit_tx_event(UART_TX_ABORTED, 0U);
+  if (fake_data.rx_enabled) release_all_and_disable();
+  wl_zephyr_uart_dma_quiesce(&fixture.adapter);
+}
+
+ZTEST(wirelink_uart_dma_adapter, test_old_callback_cannot_access_reused_adapter) {
+  init_fixture(&fixture);
+  uart_callback_t old_callback = fake_data.callback;
+  void *old_context = fake_data.callback_data;
+  close_fixture(NULL);
+  memset(&fixture.adapter, 0xa5, sizeof(fixture.adapter));
+  struct uart_event late = {.type = UART_RX_DISABLED};
+  old_callback(&fake_uart, &late, old_context);
+  init_fixture(&fixture);
+  uint8_t before[sizeof(fixture.adapter)];
+  memcpy(before, &fixture.adapter, sizeof(before));
+  old_callback(&fake_uart, &late, old_context);
+  zassert_mem_equal(before, &fixture.adapter, sizeof(before));
+  zassert_true(fake_data.rx_enabled);
+}
+
+ZTEST(wirelink_uart_dma_adapter, test_mismatched_completion_preserves_current_lease) {
+  init_fixture(&fixture);
+  zassert_ok(wl_send_unreliable(&fixture.link, 0x108U, NULL, 0U));
+  const uint8_t other = 0U;
+  struct uart_event late = {.type = UART_TX_DONE,
+    .data.tx = {.buf = &other, .len = fake_data.tx_len}};
+  fake_data.callback(&fake_uart, &late, fake_data.callback_data);
+  zassert_equal(wl_ctx_impl(&fixture.link)->tx_inflight, 1U);
+  zassert_equal(atomic_get(&fixture.adapter.tx_completion), 0);
+  emit_tx_event(UART_TX_DONE, fake_data.tx_len);
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, 1U));
+  wl_event_t event;
+  zassert_ok(wl_poll(&fixture.link, 1U, &event));
+  zassert_equal(event.type, WL_EVT_TX_SUCCESS);
+  zassert_equal(wl_poll(&fixture.link, 1U, &event), WL_ERR_NO_DATA);
+}
+static struct k_thread dma_wait_thread;
+K_THREAD_STACK_DEFINE(dma_wait_stack, 2048);
+static wl_err_t dma_wait_result;
+static void run_dma_wait(void *a, void *b, void *c) {
+  (void)a; (void)b; (void)c;
+  dma_wait_result = wl_zephyr_uart_dma_wait(&fixture.adapter, K_FOREVER);
+}
+ZTEST(wirelink_uart_dma_adapter, test_stop_interrupts_public_wait_but_quiesce_still_joins) {
+  init_fixture(&fixture);
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, 0U));
+  dma_wait_result = WL_ERR_INVALID_STATE;
+  k_thread_create(&dma_wait_thread, dma_wait_stack, K_THREAD_STACK_SIZEOF(dma_wait_stack),
+      run_dma_wait, NULL, NULL, NULL, K_PRIO_COOP(0), 0, K_NO_WAIT);
+  zassert_equal(dma_wait_result, WL_ERR_INVALID_STATE);
+  zassert_ok(wl_zephyr_uart_dma_stop(&fixture.adapter));
+  zassert_ok(k_thread_join(&dma_wait_thread, K_SECONDS(1)));
+  zassert_equal(dma_wait_result, WL_ERR_CANCELLED);
+  zassert_equal(wl_zephyr_uart_dma_wait(&fixture.adapter, K_FOREVER), WL_ERR_CANCELLED);
+  /* Cancellation of business waiting does not return the driver's buffers. */
+  zassert_equal(wl_zephyr_uart_dma_service(&fixture.adapter, 0U), WL_ERR_WOULD_BLOCK);
+  release_all_and_disable();
+  zassert_ok(wl_zephyr_uart_dma_service(&fixture.adapter, 0U));
+  zassert_equal(wl_zephyr_uart_dma_wait(&fixture.adapter, K_NO_WAIT), WL_ERR_CANCELLED);
+}
+ZTEST_SUITE(wirelink_uart_dma_adapter, NULL, NULL, NULL, close_fixture, NULL);

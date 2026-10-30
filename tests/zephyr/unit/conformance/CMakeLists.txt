@@ -12,6 +12,7 @@ target_sources(testbinary PRIVATE
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
   ${WIRELINK_ROOT}/src/frame.c
+  ${WIRELINK_ROOT}/src/frame_cobs_crc16.c
   ${WIRELINK_ROOT}/src/types.c
 )
 

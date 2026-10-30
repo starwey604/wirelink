@@ -16,6 +16,51 @@ static uint8_t overlap_payload[600U];
 static uint8_t overlap_expected[WL_FRAME_MAX_COBS_LEN];
 static uint8_t overlap_arena[WL_FRAME_MAX_COBS_LEN * 2U + 128U];
 
+static void assert_decode_failure(const uint8_t *data, size_t size,
+                                  wl_integrity_t integrity, wl_err_t expected) {
+  wl_frame_view_t view, saved;
+  memset(&view, 0xA5, sizeof(view));
+  memcpy(&saved, &view, sizeof(saved));
+  zassert_equal(wl_frame_decode(data, size, integrity, &view), expected);
+  zassert_mem_equal(&view, &saved, sizeof(view));
+}
+
+ZTEST(wirelink_frame_unit, test_decode_error_precedence_and_unchanged_output)
+{
+  uint8_t invalid[] = {WL_FRAME_PREFIX, 0U, 0U, 1U, 7U, 0U, 0U};
+  assert_decode_failure(invalid, sizeof(invalid), WL_INTEGRITY_CRC16, WL_ERR_CRC);
+  invalid[1] = 1U;
+  assert_decode_failure(invalid, sizeof(invalid), WL_INTEGRITY_CRC16, WL_ERR_BAD_FRAME);
+  invalid[0] = WL_FRAME_MARKER | (2U << WL_FRAME_VERSION_SHIFT);
+  assert_decode_failure(invalid, sizeof(invalid), WL_INTEGRITY_CRC16, WL_ERR_PROTOCOL_VERSION);
+  invalid[0] = WL_FRAME_PREFIX | 3U;
+  assert_decode_failure(invalid, sizeof(invalid), WL_INTEGRITY_CRC16, WL_ERR_NOT_SUPPORTED);
+  invalid[0] = 0U;
+  assert_decode_failure(invalid, sizeof(invalid), WL_INTEGRITY_CRC16, WL_ERR_BAD_FRAME);
+  assert_decode_failure(invalid, 0U, (wl_integrity_t)-1, WL_ERR_INVALID_ARG);
+
+  memset(boundary_native, 0, sizeof(boundary_native));
+  boundary_native[0] = WL_FRAME_PREFIX;
+  boundary_native[1] = 1U;
+  assert_decode_failure(boundary_native,
+      WL_FRAME_BASE_HEADER_SIZE + WL_PACKET_MAX_PAYLOAD + 1U,
+      WL_INTEGRITY_NONE, WL_ERR_FRAME_TOO_LONG);
+  boundary_native[0] = WL_FRAME_PREFIX | 1U;
+  assert_decode_failure(boundary_native, WL_FRAME_RELIABLE_HEADER_SIZE - 1U,
+      WL_INTEGRITY_NONE, WL_ERR_BAD_FRAME);
+  boundary_native[1] = 0U;
+  boundary_native[3] = 1U;
+  assert_decode_failure(boundary_native, WL_FRAME_RELIABLE_HEADER_SIZE,
+      WL_INTEGRITY_NONE, WL_ERR_BAD_FRAME);
+  boundary_native[0] = WL_FRAME_PREFIX | 2U;
+  boundary_native[11] = 1U;
+  assert_decode_failure(boundary_native, WL_FRAME_RELIABLE_HEADER_SIZE,
+      WL_INTEGRITY_NONE, WL_ERR_BAD_FRAME);
+  boundary_native[3] = 0U;
+  assert_decode_failure(boundary_native, WL_FRAME_RELIABLE_HEADER_SIZE + 1U,
+      WL_INTEGRITY_NONE, WL_ERR_BAD_FRAME);
+}
+
 ZTEST(wirelink_frame_unit, test_overlap_at_exact_and_worst_case_output_end)
 {
   static uint8_t saved[sizeof(overlap_arena)];

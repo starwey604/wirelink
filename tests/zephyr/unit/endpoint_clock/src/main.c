@@ -15,6 +15,16 @@ struct fixture {
 
 static struct fixture first, second;
 
+ZTEST(wirelink_endpoint_clock, test_wait_budget_saturates_and_wraps) {
+  zassert_equal(wl_wait_remaining(10U, 100U, 103U), 7U);
+  zassert_equal(wl_wait_remaining(10U, 100U, 110U), 0U);
+  zassert_equal(wl_wait_remaining(10U, 100U, 200U), 0U);
+  zassert_equal(wl_wait_remaining(0U, 100U, 100U), 0U);
+  zassert_equal(wl_wait_remaining(10U, UINT32_MAX - 4U, 2U), 3U);
+  zassert_equal(wl_wait_remaining(UINT32_MAX, UINT32_MAX - 4U, 2U), UINT32_MAX);
+  zassert_equal(wl_wait_remaining(UINT32_MAX - 1U, 0U, 1U), UINT32_MAX - 2U);
+}
+
 static unsigned policy_events, policy_passes;
 static uint8_t policy_followup;
 static void observe_event(void *context, wl_ctx_t *link,
@@ -28,12 +38,12 @@ static void observe_event(void *context, wl_ctx_t *link,
   zassert_equal(snapshot, now);
   zassert_equal(wl_endpoint_set_policy(&f->endpoint, NULL), WL_ERR_REENTRANT);
 }
-static uint8_t policy_progress(void *context, wl_ctx_t *link, wl_time_ms_t now) {
+static wl_work_result_t policy_progress(void *context, wl_ctx_t *link, wl_time_ms_t now) {
   (void)context;
   (void)link;
   (void)now;
   ++policy_passes;
-  return policy_followup;
+  return (wl_work_result_t){1U, policy_followup};
 }
 static uint32_t policy_deadline(const void *context, wl_time_ms_t now) {
   (void)context;
@@ -61,9 +71,14 @@ static int service(void *user_data) {
   struct fixture *f = user_data;
   if (!f->finish) return WL_ERR_NO_DATA;
   f->finish = 0;
-  return wl_tx_complete(wl_endpoint_link(&f->endpoint), f->token, WL_OK);
+  return wl_tx_consumed(wl_endpoint_link(&f->endpoint), f->token, WL_OK);
 }
 
+static wl_readiness_t adapter_ready(const void *context, const wl_ctx_t *ctx, wl_time_ms_t now) {
+  const struct fixture *f = context;
+  (void)ctx; (void)now;
+  return wl_readiness_at(f->finish ? 0U : WL_NO_DEADLINE);
+}
 static wl_pump_event_disposition_t event(void *user_data, wl_ctx_t *ctx,
     const wl_event_t *ev, wl_time_ms_t now_ms) {
   struct fixture *f = user_data;
@@ -77,6 +92,9 @@ static wl_pump_event_disposition_t event(void *user_data, wl_ctx_t *ctx,
   zassert_ok(wl_endpoint_now(&f->endpoint, &nested));
   zassert_equal(nested, now_ms);
   zassert_equal(f->reads, reads);
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&f->endpoint, &hint));
+  zassert_equal(f->reads, reads); /* Default query reuses the current pass. */
   zassert_equal(wl_endpoint_step(&f->endpoint, 1U), WL_ERR_REENTRANT);
   return WL_PUMP_EVENT_UNHANDLED;
 }
@@ -94,7 +112,7 @@ static void init(struct fixture *f, wl_time_ms_t now_ms) {
     .rx_fallback = f->rx, .rx_fallback_size = sizeof(f->rx)};
   wl_clock_t clock = {read_clock, f};
   const wl_pump_hooks_t app = {.application_user_data = f, .on_event = event};
-  const wl_pump_hooks_t adapter = {.adapter_user_data = f, .service = service};
+  const wl_pump_hooks_t adapter = {.adapter_user_data = f, .service = service, .adapter_readiness = adapter_ready};
   zassert_equal(wl_endpoint_init(&f->endpoint, &config, &storage, NULL, &app),
                 WL_ERR_INVALID_ARG);
   zassert_equal(wl_endpoint_init(&f->endpoint, &config, &storage,
@@ -104,6 +122,57 @@ static void init(struct fixture *f, wl_time_ms_t now_ms) {
   zassert_ok(wl_endpoint_attach(&f->endpoint, &adapter));
   zassert_ok(wl_set_sink(wl_endpoint_link(&f->endpoint), sink, f));
   zassert_equal(f->reads, 0U);
+}
+
+static uint32_t slow_deadline_query(const void *context, wl_time_ms_t queried_at) {
+  struct fixture *f = (struct fixture *)context;
+  zassert_equal(queried_at, UINT32_MAX - 4U);
+  /* Deterministically model time passing while querying a service, rather
+   * than sleeping and hoping to cross a millisecond boundary. */
+  f->time += 7U;
+  return 10U;
+}
+ZTEST(wirelink_endpoint_clock, test_wait_keeps_query_snapshot_after_service_delay) {
+  init(&first, UINT32_MAX - 4U);
+  const wl_endpoint_service_t service = {.user_data = &first,
+    .deadline_hint = slow_deadline_query};
+  zassert_ok(wl_endpoint_set_services(&first.endpoint, &service, 1U));
+  wl_time_ms_t queried_at, wait_now;
+  wl_readiness_t hint;
+  unsigned reads = first.reads;
+  zassert_ok(wl_endpoint_now(&first.endpoint, &queried_at));
+  zassert_ok(wl_endpoint_get_readiness_at(&first.endpoint, queried_at, &hint));
+  zassert_false(hint.runnable);
+  zassert_equal(hint.next_deadline_ms, 10U);
+  zassert_equal(first.reads, reads + 1U); /* The explicit query reads no clock. */
+  zassert_ok(wl_endpoint_now(&first.endpoint, &wait_now));
+  zassert_equal(wl_wait_remaining(hint.next_deadline_ms, queried_at, wait_now), 3U);
+  zassert_equal(first.events, 0U);
+  zassert_equal(first.sends, 0U);
+  wl_endpoint_close(&first.endpoint);
+  zassert_equal(wl_endpoint_get_readiness_at(&first.endpoint, wait_now, &hint),
+      WL_ERR_NOT_INITIALIZED);
+  zassert_equal(wl_endpoint_get_readiness_at(NULL, wait_now, &hint), WL_ERR_INVALID_ARG);
+}
+
+ZTEST(wirelink_endpoint_clock, test_default_query_errors_and_snapshot) {
+  wl_readiness_t hint = {.runnable = 7U, .next_deadline_ms = 123U};
+  wl_endpoint_t uninitialized = {0};
+  zassert_equal(wl_endpoint_get_readiness(NULL, &hint), WL_ERR_INVALID_ARG);
+  zassert_equal(wl_endpoint_get_readiness(&uninitialized, NULL), WL_ERR_INVALID_ARG);
+  zassert_equal(wl_endpoint_get_readiness(&uninitialized, &hint), WL_ERR_NOT_INITIALIZED);
+  zassert_equal(hint.runnable, 7U);
+  zassert_equal(hint.next_deadline_ms, 123U); /* Failed queries leave output alone. */
+  init(&first, UINT32_MAX - 4U);
+  const wl_endpoint_service_t service = {.user_data = &first,
+    .deadline_hint = slow_deadline_query};
+  zassert_ok(wl_endpoint_set_services(&first.endpoint, &service, 1U));
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
+  zassert_equal(first.reads, 1U);
+  zassert_equal(hint.next_deadline_ms, 10U);
+  zassert_equal(first.time, 2U);
+  zassert_equal(wl_wait_remaining(hint.next_deadline_ms, UINT32_MAX - 4U, first.time), 3U);
+  wl_endpoint_close(&first.endpoint);
 }
 
 static wl_tx_handle_t send(struct fixture *f) {
@@ -147,7 +216,7 @@ ZTEST(wirelink_endpoint_clock, test_policy_composes_without_consuming_events) {
   policy_events = policy_passes = 0U;
   policy_followup = 0U;
   wl_endpoint_policy_t policy = {.user_data = &first,
-    .on_event = observe_event, .progress = policy_progress,
+    .on_event = observe_event, .step = policy_progress,
     .deadline_hint = policy_deadline};
   zassert_ok(wl_endpoint_set_policy(&first.endpoint, &policy));
   memset(&policy, 0, sizeof(policy));
@@ -155,19 +224,21 @@ ZTEST(wirelink_endpoint_clock, test_policy_composes_without_consuming_events) {
   first.time += 5U;
   zassert_ok(wl_endpoint_step(&first.endpoint, 8U));
   first.time += 5U;
+  zassert_ok(wl_endpoint_activate_policy(&first.endpoint));
   zassert_ok(wl_endpoint_step(&first.endpoint, 8U));
   zassert_equal(first.events, 1U);
   zassert_equal(policy_events, 1U);
   zassert_equal(policy_passes, 2U);
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
   zassert_equal(hint.next_deadline_ms, 3U);
   policy_followup = 1U;
+  zassert_ok(wl_endpoint_activate_policy(&first.endpoint));
   zassert_ok(wl_endpoint_step(&first.endpoint, 8U));
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
-  zassert_equal(hint.next_deadline_ms, 0U);
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
+  zassert_true(hint.runnable);
   zassert_ok(wl_endpoint_set_policy(&first.endpoint, NULL));
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
   zassert_equal(hint.next_deadline_ms, UINT32_MAX);
   wl_endpoint_close(&first.endpoint);
   zassert_equal(wl_endpoint_set_policy(&first.endpoint, &policy), WL_ERR_NOT_INITIALIZED);
@@ -181,8 +252,8 @@ ZTEST(wirelink_endpoint_clock, test_completion_service_uses_current_pass) {
   first.finish = 1;
   zassert_ok(wl_endpoint_step(&first.endpoint, 8U));
   zassert_equal(first.sends, 1U);
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
   zassert_equal(hint.next_deadline_ms, 5U);
   zassert_equal(first.reads, 3U); /* submit, pass, query */
   wl_endpoint_close(&first.endpoint);
@@ -246,10 +317,10 @@ ZTEST(wirelink_endpoint_clock, test_commit_uses_explicit_time) {
 
 static unsigned service_trace[8], service_trace_count;
 static uint8_t service_pending;
-static uint8_t composed_progress(void *context, wl_ctx_t *link, wl_time_ms_t now_ms) {
+static wl_work_result_t composed_progress(void *context, wl_ctx_t *link, wl_time_ms_t now_ms) {
   (void)link; (void)now_ms;
   service_trace[service_trace_count++] = *(unsigned *)context;
-  return service_pending;
+  return (wl_work_result_t){1U, service_pending};
 }
 static uint32_t composed_deadline(const void *context, wl_time_ms_t now_ms) {
   (void)now_ms;
@@ -271,15 +342,16 @@ ZTEST(wirelink_endpoint_clock, test_static_service_rotation_hints_and_close) {
   service_pending = 1U;
   zassert_equal(wl_endpoint_set_services(&first.endpoint, NULL, 1U), WL_ERR_INVALID_ARG);
   zassert_ok(wl_endpoint_set_services(&first.endpoint, services, 2U));
-  wl_poll_hint_t hint;
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  wl_readiness_t hint;
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
   zassert_equal(hint.next_deadline_ms, 11U);
+  zassert_true(hint.runnable);
   zassert_ok(wl_endpoint_step(&first.endpoint, 1U));
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
-  zassert_equal(hint.next_deadline_ms, 0U);
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
+  zassert_true(hint.runnable);
   service_pending = 0U;
   zassert_ok(wl_endpoint_step(&first.endpoint, 1U));
-  zassert_ok(wl_endpoint_get_hint(&first.endpoint, &hint));
+  zassert_ok(wl_endpoint_get_readiness(&first.endpoint, &hint));
   zassert_equal(hint.next_deadline_ms, 11U);
   zassert_equal(wl_endpoint_set_services(&first.endpoint, NULL, 0U), WL_ERR_INVALID_STATE);
   wl_endpoint_close(&first.endpoint);

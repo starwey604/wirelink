@@ -14,6 +14,7 @@ target_sources(testbinary PRIVATE
 
 target_include_directories(testbinary PRIVATE
   ${WIRELINK_ROOT}/include
+  ${WIRELINK_ROOT}/src
 )
 
 target_compile_definitions(testbinary PRIVATE WL_RPC_TEST_HOOKS=1)

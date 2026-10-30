@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <zephyr/ztest.h>
+#include <zephyr/net/socket.h>
 #include "wirelink/zephyr/udp.h"
 
 WL_ZEPHYR_UDP_DEFINE(udp, 64, 2);
@@ -39,8 +40,8 @@ ZTEST(udp_fragmentation, test_no_fragmentation_or_reject_before_attachment) {
     zassert_is_null(wl_endpoint_waiter(&endpoint));
   }
 #endif
-  zassert_ok(wl_zephyr_udp_close(&udp));
   wl_endpoint_close(&endpoint);
+  zassert_ok(wl_zephyr_udp_close(&udp));
 }
 
 ZTEST_SUITE(udp_fragmentation, NULL, NULL, NULL, NULL, NULL);

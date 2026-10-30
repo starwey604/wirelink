@@ -1,0 +1,15 @@
+tests:
+  wirelink.uart_poll_adapter.integration:
+    tags: [wirelink, uart, adapter]
+    harness: ztest
+    platform_allow: [native_sim/native/64]
+  wirelink.uart_poll_adapter.timeout32:
+    tags: [wirelink, uart, adapter]
+    harness: ztest
+    extra_configs: [CONFIG_TIMEOUT_64BIT=n]
+    platform_allow: [native_sim/native/64]
+  wirelink.uart_poll_adapter.smp:
+    tags: [wirelink, uart, adapter, smp]
+    harness: ztest
+    extra_configs: [CONFIG_SMP=y, CONFIG_MP_MAX_NUM_CPUS=2]
+    platform_allow: [qemu_x86_64]

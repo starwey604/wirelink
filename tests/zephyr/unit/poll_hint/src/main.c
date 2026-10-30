@@ -85,11 +85,12 @@ static struct fixture *fixture_init(wl_envelope_type_t envelope,
 }
 
 static void expect_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
-                        uint32_t work_pending, uint32_t next_deadline_ms) {
-  wl_poll_hint_t hint = {UINT32_MAX, 0U};
+                        uint32_t runnable, uint32_t next_deadline_ms) {
+  wl_readiness_t hint = {UINT32_MAX, 0U};
 
-  zassert_ok(wl_poll_get_hint(ctx, now_ms, &hint));
-  zassert_equal(hint.work_pending, work_pending);
+  zassert_ok(wl_link_get_readiness(ctx, now_ms, &hint));
+  zassert_equal(hint.runnable, runnable, "time=%u actual=%u expected=%u sink_calls=%u",
+                now_ms, hint.runnable, runnable, test_fixture.sink.call_count);
   zassert_equal(hint.next_deadline_ms, next_deadline_ms);
 }
 
@@ -118,21 +119,21 @@ static size_t encode_packet(const struct fixture *fixture,
 
 ZTEST(wirelink_poll_hint_unit, test_query_validation_and_idle_state) {
   wl_ctx_t uninitialized = {0};
-  wl_poll_hint_t hint = {7U, 9U};
+  wl_readiness_t hint = {7U, 9U};
   struct fixture *fixture;
 
-  zassert_equal(wl_poll_get_hint(NULL, 0U, &hint), WL_ERR_INVALID_ARG);
-  zassert_equal(hint.work_pending, 0U);
-  zassert_equal(hint.next_deadline_ms, WL_POLL_NO_DEADLINE_MS);
-  hint = (wl_poll_hint_t){7U, 9U};
-  zassert_equal(wl_poll_get_hint(&uninitialized, 0U, &hint),
+  zassert_equal(wl_link_get_readiness(NULL, 0U, &hint), WL_ERR_INVALID_ARG);
+  zassert_equal(hint.runnable, 0U);
+  zassert_equal(hint.next_deadline_ms, WL_NO_DEADLINE);
+  hint = (wl_readiness_t){7U, 9U};
+  zassert_equal(wl_link_get_readiness(&uninitialized, 0U, &hint),
                 WL_ERR_NOT_INITIALIZED);
-  zassert_equal(hint.work_pending, 0U);
-  zassert_equal(hint.next_deadline_ms, WL_POLL_NO_DEADLINE_MS);
-  zassert_equal(wl_poll_get_hint(&uninitialized, 0U, NULL), WL_ERR_INVALID_ARG);
+  zassert_equal(hint.runnable, 0U);
+  zassert_equal(hint.next_deadline_ms, WL_NO_DEADLINE);
+  zassert_equal(wl_link_get_readiness(&uninitialized, 0U, NULL), WL_ERR_INVALID_ARG);
 
   fixture = fixture_init(WL_ENVELOPE_NATIVE_PACKET, 5U, 1U, NULL, 0U);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit, test_async_tx_completion_becomes_poll_work) {
@@ -143,12 +144,12 @@ ZTEST(wirelink_poll_hint_unit, test_async_tx_completion_becomes_poll_work) {
 
   zassert_equal(wl_poll(&fixture->ctx, 100U, &event), WL_ERR_NO_DATA);
   zassert_ok(wl_send_unreliable(&fixture->ctx, 1U, NULL, 0U));
-  expect_hint(&fixture->ctx, 100U, 0U, WL_POLL_NO_DEADLINE_MS);
-  zassert_ok(wl_tx_complete(&fixture->ctx, fixture->sink.last_token, WL_OK));
-  expect_hint(&fixture->ctx, 100U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 100U, 0U, WL_NO_DEADLINE);
+  zassert_ok(wl_tx_consumed(&fixture->ctx, fixture->sink.last_token, WL_OK));
+  expect_hint(&fixture->ctx, 100U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 100U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
-  expect_hint(&fixture->ctx, 100U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 100U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit,
@@ -168,18 +169,18 @@ ZTEST(wirelink_poll_hint_unit,
   zassert_ok(wl_feed_unit(&fixture->ctx, unit, unit_length));
   zassert_ok(wl_send_unreliable(&fixture->ctx, 0x72U, NULL, 0U));
   zassert_ok(wl_send_unreliable(&fixture->ctx, 0x73U, NULL, 0U));
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
 
   zassert_ok(wl_poll(&fixture->ctx, 0U, &rx_event));
   zassert_equal(rx_event.type, WL_EVT_UNRELIABLE_RX);
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
 
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
   wl_event_release(&fixture->ctx, &rx_event);
 }
 
@@ -192,8 +193,8 @@ ZTEST(wirelink_poll_hint_unit, test_reliable_tx_completion_arms_deadline) {
 
   zassert_equal(wl_poll(&fixture->ctx, 100U, &event), WL_ERR_NO_DATA);
   zassert_ok(wl_send_reliable(&fixture->ctx, 2U, NULL, 0U, 100U, &handle));
-  expect_hint(&fixture->ctx, 100U, 0U, WL_POLL_NO_DEADLINE_MS);
-  zassert_ok(wl_tx_complete(&fixture->ctx, fixture->sink.last_token, WL_OK));
+  expect_hint(&fixture->ctx, 100U, 0U, WL_NO_DEADLINE);
+  zassert_ok(wl_tx_consumed(&fixture->ctx, fixture->sink.last_token, WL_OK));
   expect_hint(&fixture->ctx, 100U, 0U, 5U);
   expect_hint(&fixture->ctx, 105U, 1U, 0U);
 }
@@ -222,7 +223,7 @@ ZTEST(wirelink_poll_hint_unit,
   zassert_ok(wl_poll(&fixture->ctx, 7U, &event));
   zassert_equal(event.type, WL_EVT_TX_TIMEOUT);
   zassert_equal(event.handle, handle);
-  expect_hint(&fixture->ctx, 7U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 7U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit, test_zero_ack_timeout_has_no_deadline) {
@@ -232,7 +233,7 @@ ZTEST(wirelink_poll_hint_unit, test_zero_ack_timeout_has_no_deadline) {
   wl_tx_handle_t handle = 0U;
 
   zassert_ok(wl_send_reliable(&fixture->ctx, 3U, NULL, 0U, 0U, &handle));
-  expect_hint(&fixture->ctx, UINT32_MAX, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, UINT32_MAX, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit,
@@ -259,22 +260,22 @@ ZTEST(wirelink_poll_hint_unit,
   zassert_ok(
       wl_feed_bytes(&fixture->ctx, first_unit, first_length - 1U, &accepted));
   zassert_equal(accepted, first_length - 1U);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
   zassert_ok(wl_feed_bytes(&fixture->ctx, &first_unit[first_length - 1U], 1U,
                            &accepted));
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.message_id, 0x10U);
 
   zassert_ok(
       wl_feed_bytes(&fixture->ctx, second_unit, second_length, &accepted));
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
   wl_event_release(&fixture->ctx, &event);
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.message_id, 0x11U);
   wl_event_release(&fixture->ctx, &event);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit, test_unit_queue_is_immediate_until_leased) {
@@ -305,16 +306,16 @@ ZTEST(wirelink_poll_hint_unit, test_unit_queue_is_immediate_until_leased) {
                     0U, second.span.data, second.span.length);
   zassert_ok(wl_rx_unit_commit(&fixture->ctx, &second, encoded_length));
 
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.message_id, 0x20U);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
   wl_event_release(&fixture->ctx, &event);
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.message_id, 0x21U);
   wl_event_release(&fixture->ctx, &event);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit, test_overflow_notification_is_consumer_work) {
@@ -324,9 +325,9 @@ ZTEST(wirelink_poll_hint_unit, test_overflow_notification_is_consumer_work) {
   wl_event_t event = {0};
 
   wl_rx_note_overflow(&fixture->ctx);
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_equal(wl_poll(&fixture->ctx, 0U, &event), WL_ERR_NO_DATA);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
   zassert_ok(wl_rx_get_counters(&fixture->ctx, &counters));
   zassert_equal(counters.overflow, 1U);
 }
@@ -339,16 +340,17 @@ ZTEST(wirelink_poll_hint_unit,
   wl_event_t event = {0};
 
   zassert_ok(wl_send_unreliable(&fixture->ctx, 4U, NULL, 0U));
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
-  expect_hint(&fixture->ctx, 10U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
+  expect_hint(&fixture->ctx, 10U, 0U, WL_NO_DEADLINE);
   zassert_equal(fixture->sink.call_count, 1U,
                 "a BUSY sink must not create a zero-delay spin loop");
 
   /* Simulate a wake after the sink becomes writable. */
+  zassert_ok(wl_tx_writable(&fixture->ctx));
   zassert_ok(wl_poll(&fixture->ctx, 10U, &event));
   zassert_equal(event.type, WL_EVT_TX_SUCCESS);
   zassert_equal(fixture->sink.call_count, 2U);
-  expect_hint(&fixture->ctx, 10U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 10U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit,
@@ -365,18 +367,43 @@ ZTEST(wirelink_poll_hint_unit,
                     0x30U, UINT64_C(0x1122334455667788), 7U, NULL, 0U,
                     reliable_data, sizeof(reliable_data));
   zassert_ok(wl_feed_unit(&fixture->ctx, reliable_data, reliable_length));
-  expect_hint(&fixture->ctx, 0U, 1U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 1U, WL_NO_DEADLINE);
   zassert_ok(wl_poll(&fixture->ctx, 0U, &event));
   zassert_equal(event.type, WL_EVT_RELIABLE_RX);
-  zassert_equal(fixture->sink.call_count, 2U);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  zassert_equal(fixture->sink.call_count, 1U);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
   wl_event_release(&fixture->ctx, &event);
-  expect_hint(&fixture->ctx, 0U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
 
-  /* A writable/activity wake causes one new poll attempt. */
+  reliable_length = encode_packet(fixture, WL_ENVELOPE_NATIVE_PACKET, 0U,
+      0x31U, 0U, 0U, NULL, 0U, reliable_data, sizeof(reliable_data));
+  const wl_rx_unit_queue_config_t queue_config = {
+      .storage = &fixture->unit_slots[0][0],
+      .storage_size = sizeof(fixture->unit_slots),
+      .unit_size = sizeof(fixture->unit_slots[0]),
+      .slot_count = ARRAY_SIZE(fixture->unit_slots),
+  };
+  wl_rx_unit_claim_t claim;
+  zassert_ok(wl_rx_unit_queue_init(&fixture->ctx, &queue_config));
+  zassert_ok(wl_rx_unit_claim(&fixture->ctx, reliable_length, &claim));
+  memcpy(claim.span.data, reliable_data, reliable_length);
+  zassert_ok(wl_rx_unit_commit(&fixture->ctx, &claim, reliable_length));
+  expect_hint(&fixture->ctx, 0U, 0U, WL_NO_DEADLINE);
+  zassert_equal(wl_poll(&fixture->ctx, 0U, &event), WL_ERR_NO_DATA);
+  zassert_equal(fixture->sink.call_count, 1U);
+
+  /* Each BUSY response clears runnable until a distinct writable report. */
+  zassert_ok(wl_tx_writable(&fixture->ctx));
   zassert_equal(wl_poll(&fixture->ctx, 1U, &event), WL_ERR_NO_DATA);
+  zassert_equal(fixture->sink.call_count, 2U);
+  expect_hint(&fixture->ctx, 1U, 0U, WL_NO_DEADLINE);
+  zassert_ok(wl_tx_writable(&fixture->ctx));
+  zassert_ok(wl_poll(&fixture->ctx, 1U, &event));
+  zassert_equal(event.type, WL_EVT_UNRELIABLE_RX);
+  zassert_equal(event.message_id, 0x31U);
+  wl_event_release(&fixture->ctx, &event);
   zassert_equal(fixture->sink.call_count, 3U);
-  expect_hint(&fixture->ctx, 1U, 0U, WL_POLL_NO_DEADLINE_MS);
+  expect_hint(&fixture->ctx, 1U, 0U, WL_NO_DEADLINE);
 }
 
 ZTEST(wirelink_poll_hint_unit, test_expired_ack_waits_for_telemetry_physical_resource) {
@@ -390,13 +417,14 @@ ZTEST(wirelink_poll_hint_unit, test_expired_ack_waits_for_telemetry_physical_res
     zassert_ok(wl_send_reliable(&fixture->ctx, 21U, NULL, 0U, 0U, &handle));
     zassert_equal(wl_poll(&fixture->ctx, 1U, &event), WL_ERR_NO_DATA);
     zassert_ok(wl_send_unreliable(&fixture->ctx, 23U, NULL, 0U));
-    expect_hint(&fixture->ctx, 10U, 0U, WL_POLL_NO_DEADLINE_MS);
+    expect_hint(&fixture->ctx, 10U, 0U, WL_NO_DEADLINE);
     if (busy == 0U) {
       zassert_equal(wl_poll(&fixture->ctx, 10U, &event), WL_ERR_NO_DATA);
       zassert_equal(fixture->sink.call_count, 2U);
-      zassert_ok(wl_tx_complete(&fixture->ctx, fixture->sink.last_token, WL_OK));
+      zassert_ok(wl_tx_consumed(&fixture->ctx, fixture->sink.last_token, WL_OK));
       expect_hint(&fixture->ctx, 10U, 1U, 0U);
     }
+    if (busy != 0U) zassert_ok(wl_tx_writable(&fixture->ctx));
     zassert_ok(wl_poll(&fixture->ctx, 10U, &event));
     zassert_equal(event.type, WL_EVT_TX_SUCCESS);
     zassert_equal(event.handle, 0U);

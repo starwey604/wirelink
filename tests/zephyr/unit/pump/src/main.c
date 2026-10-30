@@ -145,18 +145,25 @@ static uint8_t ordered_application(void *user_data, wl_ctx_t *ctx,
   return 1U;
 }
 
-static uint32_t application_deadline(const void *user_data,
-                                     wl_time_ms_t now_ms) {
+static wl_readiness_t application_deadline(const void *user_data,
+                                     const wl_ctx_t *ctx, wl_time_ms_t now_ms) {
   (void)user_data;
   (void)now_ms;
-  return 7U;
+  (void)ctx;
+  return wl_readiness_at(7U);
 }
 
-static uint32_t adapter_deadline(const void *user_data,
-                                 wl_time_ms_t now_ms) {
+static wl_readiness_t adapter_deadline(const void *user_data,
+                                 const wl_ctx_t *ctx, wl_time_ms_t now_ms) {
   (void)user_data;
   (void)now_ms;
-  return 3U;
+  (void)ctx;
+  return wl_readiness_at(3U);
+}
+
+static wl_readiness_t activated(const void *context, const wl_ctx_t *ctx, wl_time_ms_t now) {
+  (void)context; (void)ctx; (void)now;
+  return wl_readiness_at(0U);
 }
 
 static void mark_quiesced(void *user_data) {
@@ -189,8 +196,10 @@ ZTEST(wirelink_pump_unit, test_owner_pass_order_and_default_release) {
   wl_pump_hooks_t hooks = {
       .adapter_user_data = &state,
       .service = ordered_service,
+      .adapter_readiness = activated,
       .application_user_data = &state,
-      .application_progress = ordered_application,
+      .application_step = ordered_application,
+      .application_readiness = activated,
       .on_event = ordered_event,
   };
   wl_pump_result_t result;
@@ -201,7 +210,7 @@ ZTEST(wirelink_pump_unit, test_owner_pass_order_and_default_release) {
   zassert_ok(wl_pump_step(&fixture->ctx, 10U, 4U, &hooks, &result));
   zassert_equal(result.events, 1U);
   zassert_equal(result.rx_events, 1U);
-  zassert_equal(result.progress, 1U);
+  zassert_equal(result.did_work, 1U);
   zassert_true(state.service_order < state.event_order);
   zassert_true(state.event_order < state.application_order);
 
@@ -219,14 +228,14 @@ ZTEST(wirelink_pump_unit, test_deadline_merge_and_quiesce) {
   const wl_pump_hooks_t hooks = {
       .adapter_user_data = &state,
       .quiesce = mark_quiesced,
-      .application_deadline_hint = application_deadline,
-      .adapter_deadline_hint = adapter_deadline,
+      .application_readiness = application_deadline,
+      .adapter_readiness = adapter_deadline,
       .application_user_data = &state,
   };
-  wl_poll_hint_t hint;
+  wl_readiness_t hint;
 
-  zassert_ok(wl_pump_get_hint(&fixture->ctx, 0U, &hooks, &hint));
-  zassert_equal(hint.work_pending, 0U);
+  zassert_ok(wl_pump_get_readiness(&fixture->ctx, 0U, &hooks, &hint));
+  zassert_equal(hint.runnable, 0U);
   zassert_equal(hint.next_deadline_ms, 3U);
   wl_pump_quiesce(&hooks);
   zassert_equal(state.quiesced, 1U);
@@ -239,6 +248,7 @@ ZTEST(wirelink_pump_unit, test_adapter_and_application_contexts_are_separate) {
   const wl_pump_hooks_t hooks = {
       .adapter_user_data = &adapter_seen,
       .service = record_adapter_context,
+      .adapter_readiness = activated,
       .application_user_data = &application_seen,
       .on_event = release_with_application_context,
   };
@@ -297,7 +307,7 @@ ZTEST(wirelink_pump_unit, test_consumed_terminal_is_not_owned_by_pump) {
 ZTEST(wirelink_pump_unit, test_validation) {
   struct fixture *fixture = fixture_init(5U);
   wl_pump_result_t result;
-  wl_poll_hint_t hint;
+  wl_readiness_t hint;
 
   zassert_equal(wl_pump_step(NULL, 0U, 1U, NULL, &result),
                 WL_ERR_INVALID_ARG);
@@ -305,9 +315,9 @@ ZTEST(wirelink_pump_unit, test_validation) {
                 WL_ERR_INVALID_ARG);
   zassert_equal(wl_pump_step(&fixture->ctx, 0U, 1U, NULL, NULL),
                 WL_ERR_INVALID_ARG);
-  zassert_equal(wl_pump_get_hint(NULL, 0U, NULL, &hint),
+  zassert_equal(wl_pump_get_readiness(NULL, 0U, NULL, &hint),
                 WL_ERR_INVALID_ARG);
-  zassert_equal(wl_pump_get_hint(&fixture->ctx, 0U, NULL, NULL),
+  zassert_equal(wl_pump_get_readiness(&fixture->ctx, 0U, NULL, NULL),
                 WL_ERR_INVALID_ARG);
 }
 
@@ -356,6 +366,7 @@ ZTEST(wirelink_pump_unit, test_endpoint_assembly_lifecycle_and_service_errors) {
                 WL_ERR_INVALID_STATE);
   adapter.adapter_user_data = &calls;
   adapter.service = failing_endpoint_service;
+  adapter.adapter_readiness = activated;
   adapter.quiesce = endpoint_quiesced;
   zassert_ok(wl_endpoint_attach(&endpoint, &adapter));
   const wl_endpoint_service_t application_service = {

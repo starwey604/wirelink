@@ -6,7 +6,7 @@ find_package(Zephyr COMPONENTS unittest REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_protocol_unit)
 
 # Count actual encoder calls without production counters or hot-path hooks.
-target_link_options(testbinary PRIVATE -Wl,--wrap=wl_frame_encode)
+
 
 set(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../..")
 
@@ -16,8 +16,10 @@ target_sources(testbinary PRIVATE
   ${WIRELINK_ROOT}/src/cobs.c
   ${WIRELINK_ROOT}/src/crc.c
   ${WIRELINK_ROOT}/src/frame.c
+  ${WIRELINK_ROOT}/src/frame_cobs_crc16.c
   ${WIRELINK_ROOT}/src/init.c
   ${WIRELINK_ROOT}/src/protocol.c
+  ${WIRELINK_ROOT}/src/unit_frame.c
   ${WIRELINK_ROOT}/src/rx_ring_bipbuf.c
   ${WIRELINK_ROOT}/src/schedule.c
   ${WIRELINK_ROOT}/src/transport.c
@@ -29,3 +31,5 @@ target_include_directories(testbinary PRIVATE
   ${WIRELINK_ROOT}/include
   ${WIRELINK_ROOT}/src
 )
+
+set_property(SOURCE ${WIRELINK_ROOT}/src/frame.c ${WIRELINK_ROOT}/src/frame_cobs_crc16.c APPEND PROPERTY COMPILE_OPTIONS -finstrument-functions)
