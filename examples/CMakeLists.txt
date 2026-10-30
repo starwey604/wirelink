@@ -10,3 +10,9 @@ wl_warnings(wirelink_bare_metal_loopback PRIVATE -Wall -Wextra -Wpedantic -Werro
 if(BUILD_TESTING)
   add_test(NAME wirelink_bare_metal_loopback COMMAND wirelink_bare_metal_loopback)
 endif()
+
+if(WIRELINK_BUILD_WLC_EXAMPLES)
+  add_subdirectory(00_telemetry)
+  add_subdirectory(01_rpc)
+  add_subdirectory(02_device_info)
+endif()

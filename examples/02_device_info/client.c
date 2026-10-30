@@ -1,40 +1,25 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "device_info_endpoint.h"
-#include "tutorial_host.h"
-
-int main(int argc, char **argv) {
-  static device_info_endpoint_t client;
-  info_request_value_t request;
-  info_response_value_t response;
-  uint16_t local = 49200, peer = 49201;
-  CHECK(example_ports(argc, argv, &local, &peer));
-  info_request_value_clear(&request);
-  CHECK(device_info_endpoint_init(&client, wl_platform_environment(), wl_link_defaults()) == WL_OK);
-  example_udp_t *udp = example_udp_open(device_info_endpoint_handle(&client), local, peer);
-  CHECK(udp != NULL);
-
-  wl_rpc_completion_t result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
-  if (result.status != WL_RPC_SUCCESS) {
-    fprintf(stderr, "GetInfo failed: %s\n", wl_rpc_status_str(result.status));
-    CHECK(device_info_endpoint_close(&client) == WL_OK);
-    example_udp_close(udp);
-    return 1;
+#include "device_info_kernel.h"
+#include "loopback_owner.h"
+int32_t device_info_query(void *, const info_request_t *, info_response_value_t *);
+static device_info_kernel_t endpoints[2];
+static example_pair_t pair;
+EXAMPLE_COMPLETION(info, info_response)
+int main(void) {
+  unsigned queries = 0;
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const device_info_kernel_handlers_t handlers = {.on_rpc_get_info = device_info_query};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(device_info_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, &queries) == WL_OK);
+  for (unsigned call = 0; call < 8; ++call) {
+    info_request_value_t request = {0}; wl_kernel_call_handle_t handle;
+    EXAMPLE_REQUIRE(device_info_kernel_get_info_start(&endpoints[0], &request, pair.now, 500,
+      info_completed, NULL, &handle) == WL_OK);
+    example_pair_wait(&pair, &info_count, call + 1);
+    EXAMPLE_REQUIRE(info_result.outcome == WL_KERNEL_SUCCESS && info_value.query_count == call + 1);
   }
-  const info_response_value_t saved = response; /* Copies the strings too. */
-  result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
-  CHECK(result.status == WL_RPC_SUCCESS);
-  printf("current name=%.*s firmware=%.*s query=%lu\n",
-         (int)response.name.length, response.name.data,
-         (int)response.firmware.length, response.firmware.data,
-         (unsigned long)response.query_count);
-  info_response_value_clear(&response); /* Does not change saved. */
-  CHECK(device_info_endpoint_close(&client) == WL_OK);
-  example_udp_close(udp);
-
-  /* These fields remain usable after another call and endpoint close. */
-  printf("saved after close name=%.*s firmware=%.*s query=%lu\n",
-         (int)saved.name.length, saved.name.data,
-         (int)saved.firmware.length, saved.firmware.data,
-         (unsigned long)saved.query_count);
+  example_pair_close(&pair);
+  EXAMPLE_REQUIRE(info_value.name.length == 11 && memcmp(info_value.name.data, "workbench\0x", 11) == 0);
+  puts("bounded UTF-8/NUL response copied before callback exit and retained after close");
   return 0;
 }

@@ -1,31 +1,23 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_endpoint.h"
-#include "tutorial_host.h"
-
-int main(int argc, char **argv) {
-  static telemetry_endpoint_t publisher;
-  uint16_t local = 49000, peer = 49001;
-  telemetry_t value;
-  CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, wl_platform_environment(), wl_link_defaults()) == WL_OK);
-  example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
-  CHECK(udp != NULL);
-
-  telemetry_clear(&value);
-  value.has_sample = true;
-  value.has_temperature_centi_c = true;
-  value.temperature_centi_c = 2350;
-  for (value.sample = 1; value.sample <= 5 && example_running(); ++value.sample) {
-    CHECK(telemetry_endpoint_send_telemetry(&publisher, &value).domain == TELEMETRY_SEND_OK);
-    printf("published sample=%u temperature=23.50 C\n", (unsigned)value.sample);
-    /* Publish every 200 ms; keep servicing the endpoint while waiting. */
-    const wl_time_ms_t started = example_now_ms();
-    while ((wl_time_ms_t)(example_now_ms() - started) < 200U && example_running()) {
-      CHECK(telemetry_endpoint_step(&publisher) == WL_OK);
-      const uint32_t elapsed = example_now_ms() - started;
-      if (elapsed < 200U) CHECK(example_udp_wait(udp, 200U - elapsed) == WL_OK);
-    }
+#include "telemetry_kernel.h"
+#include "loopback_owner.h"
+extern unsigned telemetry_received;
+void telemetry_receive(void *, const telemetry_t *);
+static telemetry_kernel_t endpoints[2];
+static example_pair_t pair;
+int main(void) {
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const telemetry_kernel_handlers_t handlers = {.on_message_telemetry = telemetry_receive};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(telemetry_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+  for (unsigned sample = 0; sample < 12; ++sample) {
+    telemetry_value_t message = {.has_sample = true, .sample = sample,
+      .has_temperature_centi_c = true, .temperature_centi_c = -1234};
+    EXAMPLE_REQUIRE(telemetry_kernel_send_telemetry(&endpoints[0], &message) == WL_OK);
+    memset(&message, 0, sizeof(message)); /* Admission copied the source. */
+    example_pair_wait(&pair, &telemetry_received, sample + 1);
   }
-  example_udp_close(udp);
+  example_pair_close(&pair);
+  puts("12 ordinary telemetry messages received; both endpoints quiescent");
   return 0;
 }

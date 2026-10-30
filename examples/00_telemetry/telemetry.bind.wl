@@ -1,5 +1,8 @@
-profile version 1;
+profile version 2;
+endpoint { envelope=native_packet; }
 
-latest Telemetry {
+direct Telemetry {
   delivery = unreliable;
 }
+
+send Telemetry { delivery=unreliable; }

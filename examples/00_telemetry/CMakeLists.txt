@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-wirelink_wlc_generate_codec(TARGET telemetry_codec SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.wl")
-wirelink_wlc_generate_runtime(TARGET telemetry_protocol CODEC_TARGET telemetry_codec
+wirelink_wlc_generate(TARGET telemetry_protocol SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.wl"
   PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/telemetry.bind.wl")
-foreach(role publisher subscriber)
-  add_executable(telemetry_${role} ${role}.c)
-  target_link_libraries(telemetry_${role} PRIVATE telemetry_protocol wirelink_tutorial_host)
-endforeach()
+add_executable(wirelink_telemetry_demo publisher.c subscriber.c)
+target_link_libraries(wirelink_telemetry_demo PRIVATE telemetry_protocol Wirelink::packet_loopback)
+target_include_directories(wirelink_telemetry_demo PRIVATE ../common)
+wl_warnings(wirelink_telemetry_demo PRIVATE -Wall -Wextra -Wpedantic -Werror)
+if(BUILD_TESTING)
+  add_test(NAME wirelink_telemetry_demo COMMAND wirelink_telemetry_demo)
+endif()

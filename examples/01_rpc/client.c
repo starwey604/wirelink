@@ -1,35 +1,26 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "calculator_endpoint.h"
-#include "tutorial_host.h"
-
-int main(int argc, char **argv) {
-  static calculator_endpoint_t client;
-  add_response_value_t response;
-  add_request_value_t request;
-  uint16_t local = 49100, peer = 49101;
-  CHECK(argc == 1 || argc == 3 || argc == 5);
-  CHECK(example_ports(argc == 5 ? 3 : argc, argv, &local, &peer));
-  add_request_value_clear(&request);
-  request.has_left = request.has_right = true;
-  request.left = 20;
-  request.right = 22;
-  if (argc == 5) {
-    CHECK(example_int32(argv[3], &request.left));
-    CHECK(example_int32(argv[4], &request.right));
-  }
-
-  CHECK(calculator_endpoint_init(&client, wl_platform_environment(), wl_link_defaults()) == WL_OK);
-  example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
-  CHECK(udp != NULL);
-  const wl_rpc_completion_t result = calculator_endpoint_add_sync(&client, &request, &response, 1500U);
-  CHECK(calculator_endpoint_close(&client) == WL_OK);
-  if (result.status == WL_RPC_SUCCESS) {
-    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)response.sum);
-  } else if (result.status == WL_RPC_REJECTED) {
-    printf("addition rejected: status=%ld\n", (long)result.rejection);
-  } else {
-    fprintf(stderr, "RPC failed: %s (local=%s)\n", wl_rpc_status_str(result.status), wl_err_str(result.local_error));
-  }
-  example_udp_close(udp);
-  return result.status == WL_RPC_SUCCESS || result.status == WL_RPC_REJECTED ? 0 : 1;
+#include "service.h"
+#include "loopback_owner.h"
+unsigned calculator_async_count(void);
+static calculator_kernel_t endpoints[2];
+static example_pair_t pair;
+EXAMPLE_COMPLETION(add, add_response)
+int main(void) {
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const calculator_kernel_handlers_t handlers = {.on_rpc_add = calculator_add};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+  calculator_async_example(&endpoints[0], &endpoints[1]);
+  for (unsigned pass = 0; pass < 500 && calculator_async_count() != 4; ++pass) example_pair_step(&pair);
+  EXAMPLE_REQUIRE(calculator_async_count() == 4);
+  /* A blocking application wrapper uses the same start/owner advancement. */
+  add_request_value_t request = {.has_left = true, .left = INT32_MAX, .has_right = true, .right = 1};
+  wl_kernel_call_handle_t handle;
+  EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[1], &request, pair.now, 500,
+    add_completed, NULL, &handle) == WL_OK);
+  example_pair_wait(&pair, &add_count, 1);
+  EXAMPLE_REQUIRE(add_result.outcome == WL_KERNEL_REJECTED && add_result.status == 1);
+  example_pair_close(&pair);
+  puts("four concurrent copied requests and reverse-direction rejection passed");
+  return 0;
 }

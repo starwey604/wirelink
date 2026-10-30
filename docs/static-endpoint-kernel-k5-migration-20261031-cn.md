@@ -75,3 +75,9 @@ WLC 升为开发版 0.13.0／codegen 0.13／SDK binding API 3。`compile --profi
 SDK 的 C bridge 拥有 port 原子对象与两份 RX unit，typed callback 在借用期内复制 response；C++ sync/async 使用 Session 和同一个 C kernel，不再生成 invoke／第二套 RPC 表。同步等待拒绝 owner 线程调用，失败 admission 不生成未来 terminal。Python native 暴露 outcome/status/OS，不伪造已删除的错误域。两个 checked-in SDK 从新编译器确定性生成（64 份文件比对通过），schema 业务内容未变；C++ 同步／异步／嵌套数据／关闭结果 **3/3**，wheel 中 Python 同步／asyncio／双 SDK 隔离 **59/59**。恢复了新 factory 的初始化失败／无效地址／端口占用回滚测试；旧 HeldOwner/RPC queue fixture 被当前 host owner 与 kernel 四槽测试替代。
 
 旧特性测试逐文件记录在 `retired-wlc-tests.json`。managed wire 的合法 payload 向量、完整 metadata ID/session/status 范围移植到新 primitives；只删除旧 inspect/release/长期终态槽相关执行部分。完整 Rust/GCC 块只因该移植 fixture 缺共享 metadata 头 失败，补跑通过；其余保留纯 codec、schema、SDK、新 kernel 测试通过。Clang ASan/UBSan 完整块通过，新增当前 CLI/managed-wire focused 块随后通过；Clippy all-targets/all-features 和 fmt 通过。首次工具解析、编译和旧断言失败日志保留，未做批量 xfail。此点仍不表示 K5/K6 完成，其余示例／Zephyr sample／benchmark／fuzz／测试和当前公开文档仍需逐个迁移，最终硬件确认尚未进行。
+
+## 基础 C 教程 00–02
+
+telemetry、calculator、device-info 均使用正式 WLC v2 endpoint 与一个应用 owner loop；两端 port/C storage 显式持有，TX snapshot、四并发请求、反向业务拒绝、bounded UTF-8/NUL response 及 close/drain 均真实执行。删去 deferred-server 源，说明长任务改走应用 job/status；ordinary profile 同时声明 send/direct，不再倚赖旧通用 send binding 或 retained mailbox。应用保存结果的 helper 只复制 typed 借用视图，没有关联表／计时副本。
+
+默认纯 C 例程仍使用 checked-in 生成物；`WIRELINK_BUILD_WLC_EXAMPLES=ON` 显式启用需要本地 matching WLC 的教程，生成 helper 与安装后相同。GCC **15/15**，Clang ASan/UBSan 对应块验证。旧多业务／组合／UDP 与 Zephyr 例程仍在后续迁移中，不能把本点视为全部消费者已完成。
