@@ -191,3 +191,25 @@ validated internally. A gap is an explicit I/O error and invalidates the
 partial COBS window until a delimiter. Plain backpressure does not imply loss.
 The host fixture transfers one million bytes concurrently, exercises tiny FIFO
 fragments across 1000 complete frames, and checks gap recovery and ownership.
+
+K3 temporary Zephyr UART bindings are `kernel_uart_irq`, `kernel_uart_dma` and
+`kernel_uart_poll`. They use the same packet port plus independent byte FIFO
+and selected COBS/CRC16 framing. Init registers only the actual driver binding;
+application assembly wires submit/notify explicitly. Owner service consumes
+staged bytes and publishes physical TX completion; no old link/endpoint/pump is
+linked. IRQ always requires a real line-idle query. DMA retains its two driver
+buffers, ordered staged forwarding, cache hooks, BUSY retry deadline, explicit
+buffer-return acknowledgements and callback generation/join barrier.
+
+Polling remains experimental. It requires a platform `tx_idle` provider and
+keeps physical TX active after synchronous source consumption. Stop joins the
+RX worker and returns WOULD_BLOCK until real idle is confirmed; caller-owned
+adapter/stack/port/stream storage stays alive. A driver without physical-idle
+support is not silently treated as drained. This is a deliberate migration
+from the old polling adapter's weaker completion boundary.
+
+The actual UART adapters pass four controlled-driver cases on native_sim,
+Cortex-M3 and RISC-V (12 case/platform executions), including a DMA callback
+suspended during shutdown with a full byte FIFO. Shutdown waits for its exit
+without requiring unpublished bytes to be parsed. These are software adapter
+fixtures; UART hardware throughput and physical timing have not been measured.

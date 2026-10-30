@@ -1,0 +1,163 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#ifndef WIRELINK_KERNEL_ZEPHYR_UART_DMA_H_
+#define WIRELINK_KERNEL_ZEPHYR_UART_DMA_H_
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include <zephyr/device.h>
+#include <zephyr/kernel.h>
+#include <zephyr/sys/atomic.h>
+
+#include "wirelink/byte_fifo.h"
+#include "wirelink/io_readiness.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef void (*wl_kernel_uart_dma_cache_fn)(void *user_data, uint8_t *data, size_t length);
+typedef uint32_t (*wl_kernel_uart_dma_cycle_count_fn)(void *user_data);
+
+typedef struct {
+  const struct device *uart;
+  wl_packet_port_t *port;
+  wl_byte_fifo_t *fifo;
+  wl_packet_stream_t *stream;
+  /* Two disjoint caller-owned, DMA-capable buffers. The async UART alternates
+   * between them; completed bytes are copied into the Wirelink RX ring. */
+  wl_span_t rx_buffers[2];
+  int32_t timeout_us;
+  int32_t tx_timeout_us;
+  /* Work around DMA drivers whose TX_DONE precedes physical line idle. */
+  bool wait_for_tx_idle;
+  uint32_t drain_check_ms;
+  /* Async UART has no generic writable event for a rejected submission. */
+  uint32_t tx_retry_ms;            /* 0 selects a bounded 1 ms retry deadline. */
+  void (*notify)(void *user_data); /* ISR-safe, nonblocking, latched. */
+  void *notify_user_data;
+  void *cache_user_data;
+  wl_kernel_uart_dma_cache_fn prepare_for_dma;
+  wl_kernel_uart_dma_cache_fn complete_from_dma;
+  /* Optional ISR-safe cycle counter used only for ingress instrumentation. */
+  void *cycle_counter_user_data;
+  wl_kernel_uart_dma_cycle_count_fn cycle_counter;
+} wl_kernel_uart_dma_config_t;
+
+typedef struct {
+  wl_span_t buffer;
+  size_t received;
+  size_t forwarded;
+  uint64_t order;
+  uint8_t driver_owned;
+  uint8_t released;
+} wl_kernel_uart_dma_slot_t;
+
+typedef struct {
+  wl_kernel_uart_dma_config_t config;
+  struct k_sem wake;
+  atomic_t service_pending;
+  uint32_t drain_due, tx_retry_due;
+  uint8_t tx_retry_pending, detached;
+  uint8_t drain_pending;
+  uint8_t binding;
+  wl_kernel_uart_dma_slot_t slots[2];
+  wl_packet_token_t tx_token;
+  const uint8_t *tx_data;
+  size_t tx_length;
+  atomic_t started;
+  atomic_t stopping;
+  atomic_t running;
+  atomic_t paused;
+  atomic_t abort_pending;
+  atomic_t abort_disable_requested;
+  atomic_t recovery_barrier;
+  atomic_t expected_disabled;
+  atomic_t tx_active;
+  atomic_t tx_completion;
+  /* Serializes callback and owner-side copies into the SPSC RX producer. */
+  struct k_spinlock rx_lock;
+  struct k_spinlock tx_lock;
+  uint64_t rx_next_order;
+  uint8_t buffer_request_pending;
+  atomic_t gap_pending;
+  atomic_t buffer_requests;
+  atomic_t rx_ready_events;
+  atomic_t published_bytes;
+  atomic_t producer_cycles;
+  atomic_t tx_submissions;
+  atomic_t tx_done_events;
+  atomic_t tx_aborted_events;
+  atomic_t tx_busy;
+  atomic_t errors;
+} wl_kernel_uart_dma_t;
+
+typedef struct {
+  uint32_t buffer_requests;
+  uint32_t rx_ready_events;
+  uint32_t published_bytes;
+  uint32_t producer_cycles;
+  uint32_t tx_submissions;
+  uint32_t tx_done_events;
+  uint32_t tx_aborted_events;
+  uint32_t tx_busy;
+  uint32_t errors;
+  uint8_t started;
+  uint8_t stopping;
+  uint8_t running;
+  uint8_t paused;
+  uint8_t tx_active;
+} wl_kernel_uart_dma_stats_t;
+
+/*
+ * Initialize the adapter and register the UART's sole async callback.
+ * Bind submit explicitly through the selected stream transport.
+ * Does not start reception.
+ */
+int wl_kernel_uart_dma_init(wl_kernel_uart_dma_t *adapter,
+                            const wl_kernel_uart_dma_config_t *config);
+
+/* Start a staged DMA receive stream into the Wirelink RX ring. */
+int wl_kernel_uart_dma_start(wl_kernel_uart_dma_t *adapter);
+
+/*
+ * Begin an asynchronous stop. New sink submissions fail immediately. The
+ * driver may still own RX buffers or an active TX until callbacks hand them
+ * back; keep calling service() until stats report started=0 and stopping=0.
+ * Unpublished staging bytes are discarded once the driver returns its buffers;
+ * stopping never requires the closing owner to drain the core RX ring.
+ */
+int wl_kernel_uart_dma_stop(wl_kernel_uart_dma_t *adapter);
+
+/*
+ * Call from the single owner around kernel step. It delivers deferred
+ * TX completion to the core, performs RX recovery, completes stop requests,
+ * and resumes RX after backpressure. A recovery barrier deliberately consumes
+ * one service call so owner service can invalidate the aborted COBS window.
+ * WL_ERR_WOULD_BLOCK is transient: call service again from a later main-loop
+ * iteration after the UART callback has handed buffer ownership back.
+ */
+int wl_kernel_uart_dma_service(wl_kernel_uart_dma_t *adapter, uint32_t now_ms);
+wl_io_readiness_t wl_kernel_uart_dma_readiness(const void *adapter, uint32_t now_ms);
+/* Business wait: stop interrupts it with CANCELLED. Driver buffer returns and
+ * callbacks are still joined separately by quiesce before storage is freed. */
+wl_err_t wl_kernel_uart_dma_wait(wl_kernel_uart_dma_t *adapter, k_timeout_t timeout);
+/* Stops driver ownership, discards unpublished staging bytes, synchronizes
+ * dispatched callbacks, and detaches the sink. */
+void wl_kernel_uart_dma_quiesce(wl_kernel_uart_dma_t *adapter);
+
+/* Clear benchmark/telemetry counters without changing RX ownership. */
+void wl_kernel_uart_dma_reset_stats(wl_kernel_uart_dma_t *adapter);
+void wl_kernel_uart_dma_get_stats(const wl_kernel_uart_dma_t *adapter,
+                                  wl_kernel_uart_dma_stats_t *out_stats);
+
+wl_packet_submit_t wl_kernel_uart_dma_submit(void *, const uint8_t *, size_t, wl_packet_token_t);
+void wl_kernel_uart_dma_notify(void *);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* WIRELINK_KERNEL_ZEPHYR_UART_DMA_H_ */
