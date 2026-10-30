@@ -19,7 +19,7 @@ static int32_t add(void *context, const add_request_value_t *request,
 int main(void) {
   if (sample_network_init() < 0) { printk("network unavailable\n"); return 1; }
   udp_demo_endpoint_config_t config;
-  wl_err_t error = udp_demo_endpoint_config_defaults(&config, wl_platform_environment());
+  wl_err_t error = udp_demo_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults());
   if (error != WL_OK) { printk("endpoint config: %d\n", error); return 1; }
   config.on_add = add;
   error = udp_demo_endpoint_init_config(&server, &config);

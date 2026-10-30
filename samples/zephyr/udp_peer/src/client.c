@@ -7,7 +7,7 @@ WL_ZEPHYR_UDP_DEFINE(udp, UDP_DEMO_ENDPOINT_MAX_PAYLOAD, 2);
 
 int main(void) {
   if (sample_network_init() < 0) { printk("network unavailable\n"); return 1; }
-  wl_err_t error = udp_demo_endpoint_init(&client, wl_platform_environment());
+  wl_err_t error = udp_demo_endpoint_init(&client, wl_platform_environment(), wl_link_defaults());
   if (error != WL_OK) { printk("endpoint init: %d\n", error); return 1; }
   error = sample_udp_open(&udp, udp_demo_endpoint_handle(&client));
   if (error != WL_OK) {

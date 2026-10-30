@@ -4,6 +4,7 @@
 #include <zephyr/sys/printk.h>
 #include "calculator_advanced.h"
 #include "wirelink/loopback.h"
+#include "wirelink/zephyr/detail/timeout.h"
 
 #define CHECK(x) do { if (!(x)) { printk("CLOCK_CHECK FAIL line=%u: %s\n", \
   (unsigned)__LINE__, #x); return -1; } } while (0)
@@ -37,8 +38,8 @@ static int configure(int selected_mode) {
   calculator_endpoint_config_t a, b;
   calculator_endpoint_close(&client);
   calculator_endpoint_close(&server);
-  CHECK(calculator_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){0})) == WL_OK);
-  CHECK(calculator_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){0})) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
   a.environment.clock = b.environment.clock = (wl_clock_t){read_clock, NULL};
   CHECK(calculator_runtime_config_enable_client(&a.advanced) == WL_OK);
   CHECK(calculator_runtime_config_enable_server(&b.advanced) == WL_OK);
@@ -81,17 +82,28 @@ static int transaction(int selected_mode, uint32_t idle_ms) {
         result.state == WL_RPC_CLIENT_APPLICATION_ERROR ||
         result.state == WL_RPC_CLIENT_TIMED_OUT) break;
     CHECK(k_uptime_get_32() - started < 500U);
-    /* Finish immediately available loopback work before sleeping. A forced
-     * scheduler tick between request/ACK/response can consume a short timeout
-     * on emulators whose clock jumps while the host is descheduled. */
-    if (!wl_endpoint_last_step(calculator_endpoint_handle(&client))->progress &&
-        !wl_endpoint_last_step(calculator_endpoint_handle(&server))->progress)
-      k_msleep(1);
+    /* configure() binds both endpoints to this same uptime source/domain.
+     * Query at one shared sample; merging independently relative hints would
+     * otherwise extend the earlier endpoint's deadline by query time. */
+    wl_time_ms_t queried_at, wait_now;
+    CHECK(wl_endpoint_now(calculator_endpoint_handle(&client), &queried_at) == WL_OK);
+    wl_readiness_t client_ready, server_ready;
+    CHECK(wl_endpoint_get_readiness_at(calculator_endpoint_handle(&client), queried_at, &client_ready) == WL_OK);
+    CHECK(wl_endpoint_get_readiness_at(calculator_endpoint_handle(&server), queried_at, &server_ready) == WL_OK);
+    wl_readiness_merge(&client_ready, server_ready);
+    if (!client_ready.runnable && client_ready.next_deadline_ms != 0U) {
+      uint32_t remaining = client_ready.next_deadline_ms;
+      if (remaining != WL_NO_DEADLINE) {
+        CHECK(wl_endpoint_now(calculator_endpoint_handle(&client), &wait_now) == WL_OK);
+        remaining = wl_wait_remaining(remaining, queried_at, wait_now);
+      }
+      if (remaining != 0U) k_sleep(wl_zephyr_timeout_ms(remaining));
+    }
   }
   const uint32_t elapsed = k_uptime_get_32() - started;
   if (selected_mode == 0 && !result.response_valid)
     printk("CLOCK_CHECK unexpected state=%d elapsed_ms=%u handled=%u\n", (int)result.state, elapsed, handled);
-  if (selected_mode == 0) CHECK(result.response_valid && result.response.sum == 42);
+  if (selected_mode == 0) CHECK(result.response_valid && result.response->sum == 42);
   if (selected_mode == 1) CHECK(result.state == WL_RPC_CLIENT_APPLICATION_ERROR && result.application_status == 7);
   if (selected_mode == 2) CHECK(result.state == WL_RPC_CLIENT_TIMED_OUT && elapsed >= 50U);
   CHECK(handled == 1U);
@@ -108,7 +120,7 @@ static int performance(void) {
   enum { ITERATIONS = 20000 };
   calculator_endpoint_close(&client);
   calculator_endpoint_close(&server);
-  CHECK(calculator_endpoint_init(&client, test_environment_id(3U, (wl_clock_t){read_clock, NULL})) == WL_OK);
+  CHECK(calculator_endpoint_init(&client, test_environment_id(3U, (wl_clock_t){read_clock, NULL}), wl_link_defaults()) == WL_OK);
   const uint32_t reads = clock_reads;
   const uint32_t begin = k_cycle_get_32();
   for (unsigned i = 0; i < ITERATIONS; ++i)

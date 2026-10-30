@@ -19,6 +19,7 @@ typedef struct port {
   unsigned reads, waits, handlers;
   atomic_t closed;
   atomic_t waiting_for_space;
+  atomic_t writable;
   uint8_t receive[2 * RPC_VALIDATION_ENDPOINT_UNIT_CAPACITY];
   bool drop;
 } port_t;
@@ -78,8 +79,10 @@ static wl_err_t wait(void *context, uint32_t maximum) {
   ++port->waits;
   /* Called after the owner drained RX; give a blocked producer a credit wake.
    * Its failed claim also notifies us, covering the check-to-wait race. */
-  if (atomic_cas(&port->peer->waiting_for_space, 1, 0))
+  if (atomic_cas(&port->peer->waiting_for_space, 1, 0)) {
+    atomic_set(&port->peer->writable, 1);
     wl_zephyr_waiter_notify(&port->peer->activity);
+  }
   return port->base_wait.wait(port->base_wait.user_data, maximum);
 }
 static void notify(void *context) { wl_zephyr_waiter_notify(&((port_t *)context)->activity); }
@@ -126,6 +129,15 @@ static int32_t download(void *context, const empty_value_t *request, large_value
   memset(response->data.data, 0xa5, response->data.length);
   return 0;
 }
+static wl_readiness_t port_readiness(const void *context, const wl_ctx_t *link, wl_time_ms_t now) {
+  (void)link; (void)now;
+  return wl_readiness_at(atomic_get(&((const port_t *)context)->writable) ? 0U : WL_NO_DEADLINE);
+}
+static int port_service(void *context) {
+  port_t *port = context;
+  if (!atomic_set(&port->writable, 0)) return WL_ERR_NO_DATA;
+  return wl_tx_writable(wl_endpoint_link(rpc_validation_endpoint_handle(port->endpoint)));
+}
 static void attach(port_t *port) {
   CHECK(wl_zephyr_waiter_init(&port->activity) == WL_OK);
   port->base_wait = wl_zephyr_waiter_descriptor(&port->activity);
@@ -133,6 +145,8 @@ static void attach(port_t *port) {
   wl_pump_hooks_t adapter = {0};
   adapter.adapter_user_data = port;
   adapter.quiesce = quiesce;
+  adapter.service = port_service;
+  adapter.adapter_readiness = port_readiness;
   wl_endpoint_t *handle = rpc_validation_endpoint_handle(port->endpoint);
   const wl_rx_unit_queue_config_t queue = {
     port->receive, sizeof(port->receive), RPC_VALIDATION_ENDPOINT_UNIT_CAPACITY, 2};
@@ -145,10 +159,19 @@ static void server_run(void *a, void *b, void *c) {
   (void)a; (void)b; (void)c;
   for (;;) {
     CHECK(rpc_validation_endpoint_step(server.endpoint) == WL_OK);
-    wl_poll_hint_t hint;
-    CHECK(wl_endpoint_get_hint(rpc_validation_endpoint_handle(server.endpoint), &hint) == WL_OK);
-    if (hint.work_pending || hint.next_deadline_ms == 0U) continue;
-    const int result = wait(&server, hint.next_deadline_ms);
+    wl_endpoint_t *handle = rpc_validation_endpoint_handle(server.endpoint);
+    wl_time_ms_t queried_at, wait_now;
+    wl_readiness_t hint;
+    CHECK(wl_endpoint_now(handle, &queried_at) == WL_OK);
+    CHECK(wl_endpoint_get_readiness_at(handle, queried_at, &hint) == WL_OK);
+    if (hint.runnable || hint.next_deadline_ms == 0U) continue;
+    uint32_t remaining = hint.next_deadline_ms;
+    if (remaining != WL_NO_DEADLINE) {
+      CHECK(wl_endpoint_now(handle, &wait_now) == WL_OK);
+      remaining = wl_wait_remaining(remaining, queried_at, wait_now);
+    }
+    if (remaining == 0U) continue;
+    const int result = wait(&server, remaining);
     if (result == WL_ERR_CANCELLED) break;
     CHECK(result == WL_OK || result == WL_ERR_NO_DATA);
   }
@@ -179,7 +202,7 @@ int main(void) {
       RPC_VALIDATION_ENDPOINT_ALIGNMENT, 2) == WL_OK);
   wl_allocator_t allocator = {allocate, deallocate, &pool};
   rpc_validation_endpoint_config_t config;
-  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(101, (wl_clock_t){0})) == WL_OK);
+  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(101, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
   config.environment.clock = (wl_clock_t){now, &client};
   fail_allocation = true;
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_ERR_NO_MEM);
@@ -234,10 +257,19 @@ int main(void) {
       const uint32_t start = cycle_now();
       CHECK(rpc_validation_endpoint_step(client.endpoint) == WL_OK);
       if (callbacks != i) { completion_cycles += cycle_now() - start; break; }
-      wl_poll_hint_t hint;
-      CHECK(wl_endpoint_get_hint(rpc_validation_endpoint_handle(client.endpoint), &hint) == WL_OK);
-      if (!hint.work_pending && hint.next_deadline_ms != 0U) {
-        const int waited = wait(&client, hint.next_deadline_ms);
+      wl_endpoint_t *handle = rpc_validation_endpoint_handle(client.endpoint);
+      wl_time_ms_t queried_at, wait_now;
+      wl_readiness_t hint;
+      CHECK(wl_endpoint_now(handle, &queried_at) == WL_OK);
+      CHECK(wl_endpoint_get_readiness_at(handle, queried_at, &hint) == WL_OK);
+      if (!hint.runnable && hint.next_deadline_ms != 0U) {
+        uint32_t remaining = hint.next_deadline_ms;
+        if (remaining != WL_NO_DEADLINE) {
+          CHECK(wl_endpoint_now(handle, &wait_now) == WL_OK);
+          remaining = wl_wait_remaining(remaining, queried_at, wait_now);
+        }
+        if (remaining == 0U) continue;
+        const int waited = wait(&client, remaining);
         CHECK(waited == WL_OK || waited == WL_ERR_NO_DATA);
       }
     }
@@ -266,7 +298,7 @@ int main(void) {
 
   /* Isolate CPU paths after both other tasks joined; IRQ-off bounded batches.
    * QEMU/native numbers are functional diagnostics, never hardware performance. */
-  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(103, (wl_clock_t){0})) == WL_OK);
+  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(103, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
   config.environment.clock = (wl_clock_t){now, &client};
   CHECK(rpc_validation_endpoint_create(&client.endpoint, &config, &allocator) == WL_OK);
   const unsigned reads = client.reads;

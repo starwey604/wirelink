@@ -2,6 +2,7 @@
 #include <limits.h>
 #include <errno.h>
 #include <zephyr/ztest.h>
+#include <zephyr/net/socket.h>
 #include "udp_demo_endpoint.h"
 #include "wirelink/zephyr/udp.h"
 #include "../../../../tests/support/test_environment.h"
@@ -19,6 +20,7 @@ K_THREAD_STACK_DEFINE(server_stack, 4096);
 static bool thread_active;
 static wl_err_t server_result;
 static int relay_fds[2] = {-1, -1};
+static wl_integrity_t relay_integrity;
 
 static wl_time_ms_t clock_read(void *context) {
   (void)context;
@@ -55,9 +57,9 @@ static add_request_value_t request(int32_t left, int32_t right) {
 
 static void open_pair(uint16_t client_peer, uint16_t server_peer, uint64_t session) {
   const wl_clock_t clock = {.now_ms = clock_read};
-  zassert_ok(udp_demo_endpoint_init(&client, test_environment_id(session, clock)));
+  zassert_ok(udp_demo_endpoint_init(&client, test_environment_id(session, clock), wl_link_defaults()));
   udp_demo_endpoint_config_t config;
-  zassert_ok(udp_demo_endpoint_config_defaults(&config, test_environment_id(2, clock)));
+  zassert_ok(udp_demo_endpoint_config_defaults(&config, test_environment_id(2, clock), wl_link_defaults()));
   config.on_add = add;
   zassert_ok(udp_demo_endpoint_init_config(&server, &config));
   /* Ports are private to this Zephyr loopback stack, not host OS sockets. */
@@ -213,6 +215,9 @@ ZTEST(udp_validation, test_absent_peer_times_out_without_periodic_polling) {
 /* Test-only UDP relay: faults happen BETWEEN real sockets, never by replacing
  * adapter syscalls. Each side preserves the fixed source address/port. */
 static void start_relay(void) {
+  wl_config_t link_config;
+  zassert_ok(wl_get_config(wl_endpoint_link(udp_demo_endpoint_handle(&client)), &link_config));
+  relay_integrity = link_config.integrity;
   zassert_ok(udp_demo_endpoint_close(&client));
   zassert_ok(udp_demo_endpoint_close(&server));
   zassert_ok(wl_zephyr_udp_close(&client_udp));
@@ -250,7 +255,7 @@ static void relay(unsigned side, relay_faults_t *faults) {
       return;
     }
     wl_frame_view_t view;
-    zassert_ok(wl_frame_decode(bytes, (size_t)length, WL_INTEGRITY_CRC32C, &view));
+    zassert_ok(wl_frame_decode(bytes, (size_t)length, relay_integrity, &view));
     const bool reliable_data = view.type == WL_PACKET_DATA &&
         (view.flags & WL_PACKET_FLAG_RELIABLE) != 0;
     if (reliable_data) {
@@ -378,7 +383,7 @@ ZTEST(udp_validation, test_rebuild_same_endpoint_rejects_old_response) {
   relay(0, &outbound);
   outbound.drop_data = 0;
   const wl_clock_t clock = {.now_ms = clock_read};
-  zassert_ok(udp_demo_endpoint_init(&client, test_environment_id(3, clock)));
+  zassert_ok(udp_demo_endpoint_init(&client, test_environment_id(3, clock), wl_link_defaults()));
   const wl_zephyr_udp_config_t network = {.peer_address = "127.0.0.1",
     .peer_port = 49102, .local_address = "127.0.0.1", .local_port = 49100};
   zassert_ok(wl_zephyr_udp_open(&client_udp, udp_demo_endpoint_handle(&client), &network));

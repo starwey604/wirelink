@@ -72,7 +72,7 @@ static void done(void *context, const wl_rpc_completion_t *result, const respons
   if (closing) {
     request_value_t value = request();
     CHECK(rpc_validation_endpoint_execute_async(&client, &value, 100, done, &completions, NULL) == WL_ERR_NOT_INITIALIZED);
-    CHECK(rpc_validation_endpoint_init(&client, test_environment_id(99, (wl_clock_t){read_clock, NULL})) == WL_ERR_REENTRANT);
+    CHECK(rpc_validation_endpoint_init(&client, test_environment_id(99, (wl_clock_t){read_clock, NULL}), wl_link_defaults()) == WL_ERR_REENTRANT);
   }
   if (chained != 0) {
     request_value_t value = request();
@@ -90,8 +90,8 @@ static void download_done(void *context, const wl_rpc_completion_t *result, cons
 }
 static void initialize(void) {
   rpc_validation_endpoint_config_t config;
-  CHECK(rpc_validation_endpoint_init(&client, test_environment_id(1, (wl_clock_t){read_clock, NULL})) == WL_OK);
-  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(2, (wl_clock_t){0})) == WL_OK);
+  CHECK(rpc_validation_endpoint_init(&client, test_environment_id(1, (wl_clock_t){read_clock, NULL}), wl_link_defaults()) == WL_OK);
+  CHECK(rpc_validation_endpoint_config_defaults(&config, test_environment_id(2, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
   config.environment.clock = (wl_clock_t){read_clock, NULL};
   config.on_execute = execute;
   config.execute_user_data = &handlers;

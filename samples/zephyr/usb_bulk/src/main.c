@@ -21,6 +21,8 @@
 #include "wirelink/bulk.h"
 #include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
+#include "wirelink/wait.h"
+#include "wirelink/zephyr/detail/timeout.h"
 #include "wirelink/zephyr/usb_bulk.h"
 
 #define MAX_PAYLOAD WL_FRAME_MAX_PAYLOAD
@@ -497,6 +499,10 @@ static bool service_bulk_status(void) {
   if (bulk_result != WL_BULK_OK) {
     return true;
   }
+  if (!wl_tx_can_submit(&link, WL_DELIVERY_UNRELIABLE)) {
+    (void)wl_bulk_receiver_status_defer(&object_receiver, &view);
+    return true;
+  }
   message = (bulk_status_t){
       .has_transfer_id = true,
       .transfer_id = view.status.transfer_id,
@@ -569,11 +575,16 @@ static void usb_message(struct usbd_context *context,
   }
 }
 
+K_SEM_DEFINE(owner_wake, 0, 1);
+static void notify_owner(void *context) {
+  (void)context;
+  k_sem_give(&owner_wake);
+}
+
 int main(void) {
-  const wl_config_t config = {
+  wl_config_t config = {
       .max_payload_len = MAX_PAYLOAD,
       .envelope = WL_ENVELOPE_COBS_STREAM,
-      .integrity = WL_INTEGRITY_NONE,
       .session_id = UINT64_C(0x55534242554C4B31),
       .max_retries = 2U,
       .ack_timeout_ms = 20U,
@@ -592,6 +603,7 @@ int main(void) {
       .rx_fallback_size = sizeof(rx_fallback),
   };
   const wl_zephyr_usb_bulk_config_t adapter_config = {
+      .wake_consumer = notify_owner,
       .link = &link,
       .maximum_rx_size = UNIT_STORAGE,
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
@@ -616,6 +628,9 @@ int main(void) {
   size_t pending_payload_len = 0U;
   uint16_t pending_message_id = 0U;
   bool echo_pending = false;
+  bool rx_held = false;
+  bool rx_deferred = false;
+  wl_event_t held_event = {0};
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
   int64_t next_stats_snapshot = 0;
   int64_t last_activity = 0;
@@ -625,6 +640,7 @@ int main(void) {
 #endif
   int result;
 
+  (void)wl_config_apply_link_defaults(&config, wl_usb_bulk_link_defaults());
   result = wl_init(&link, &config, &storage);
   if (result != WL_OK) {
     printk("wl_init failed: %d\n", result);
@@ -666,8 +682,14 @@ int main(void) {
 #endif
 
     bulk_status_pending = service_bulk_status();
-    if (!echo_pending && !bulk_status_pending) {
+    if (rx_held && !rx_deferred && !echo_pending && !bulk_status_pending) {
+      wl_event_release(&link, &held_event);
+      rx_held = false;
+    }
+    {
       wl_event_t pending_event;
+      wl_readiness_t link_ready;
+      const bool dispatch_retained = rx_deferred && !echo_pending && !bulk_status_pending;
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
       uint32_t now_ms;
       uint32_t poll_cycles;
@@ -675,10 +697,18 @@ int main(void) {
 #endif
 
       memset(&pending_event, 0, sizeof(pending_event));
+      (void)wl_link_get_readiness(&link, k_uptime_get_32(), &link_ready);
+      result = WL_ERR_NO_DATA;
+      if (dispatch_retained) {
+        pending_event = held_event;
+        rx_deferred = false;
+        result = WL_OK;
+      }
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
       now_ms = k_uptime_get_32();
       SAMPLE_CPU_START(poll_started);
-      result = wl_poll(&link, now_ms, &pending_event);
+      if (!dispatch_retained && link_ready.runnable)
+        result = wl_poll(&link, now_ms, &pending_event);
       poll_cycles = wirelink_usb_cpu_cycle_count() - poll_started;
       received_payload =
           result == WL_OK &&
@@ -691,21 +721,27 @@ int main(void) {
         sample_window_active = true;
       }
 #else
-      result = wl_poll(&link, k_uptime_get_32(), &pending_event);
+      if (!dispatch_retained && link_ready.runnable)
+        result = wl_poll(&link, k_uptime_get_32(), &pending_event);
 #endif
       if (result == WL_OK &&
           (pending_event.type == WL_EVT_UNRELIABLE_RX ||
            pending_event.type == WL_EVT_RELIABLE_RX)) {
-        if (is_bulk_message(pending_event.message_id)) {
+        held_event = pending_event;
+        rx_held = true;
+        if (echo_pending || bulk_status_pending) {
+          /* Keep one input leased while a previous response waits for TX.
+           * Terminal TX events remain pollable while this RX is held. */
+          rx_deferred = true;
+        } else if (is_bulk_message(pending_event.message_id)) {
           dispatch_bulk_event(&pending_event, k_uptime_get_32());
-          wl_event_release(&link, &pending_event);
+          bulk_status_pending = true;
         } else {
           SAMPLE_CPU_START(copy_release_started);
           pending_message_id = pending_event.message_id;
           pending_payload_len = pending_event.payload_len;
           memcpy(echo_payload, pending_event.payload, pending_payload_len);
           echo_pending = true;
-          wl_event_release(&link, &pending_event);
           SAMPLE_CPU_FINISH(rx_event_copy_release_stats,
                             copy_release_started);
         }
@@ -713,7 +749,8 @@ int main(void) {
     }
 
     SAMPLE_CPU_START(service_started);
-    (void)wl_zephyr_usb_bulk_service(&usb_adapter);
+    if (wl_zephyr_usb_bulk_readiness(&usb_adapter).runnable)
+      (void)wl_zephyr_usb_bulk_service(&usb_adapter);
     SAMPLE_CPU_FINISH_IF(usb_service_stats, service_started,
                          sample_window_active);
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
@@ -728,7 +765,7 @@ int main(void) {
       }
     }
 #endif
-    if (echo_pending) {
+    if (echo_pending && wl_tx_can_submit(&link, WL_DELIVERY_UNRELIABLE)) {
       SAMPLE_CPU_START(send_started);
       result = wl_send_unreliable(&link, pending_message_id, echo_payload,
                                   pending_payload_len);
@@ -745,7 +782,13 @@ int main(void) {
 #endif
       }
     }
-    (void)wl_bulk_receiver_poll(&object_receiver, k_uptime_get_32());
+    wl_bulk_deadline_hint_t due_bulk;
+    const wl_time_ms_t bulk_now = k_uptime_get_32();
+    if (wl_bulk_receiver_get_deadline_hint(&object_receiver, bulk_now, &due_bulk) == WL_BULK_OK &&
+        due_bulk.next_deadline_ms == 0U) {
+      (void)wl_bulk_receiver_poll(&object_receiver, bulk_now);
+      bulk_status_pending = service_bulk_status();
+    }
     maybe_print_object_report();
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
     if (tx_completed_this_iteration && !tx_submitted_this_iteration &&
@@ -766,7 +809,32 @@ int main(void) {
       }
     }
 #endif
-    k_yield();
+    /* Link, bulk, report and stats deadlines all use Zephyr uptime. */
+    const int64_t wait_uptime = k_uptime_get();
+    const wl_time_ms_t wait_now = (wl_time_ms_t)wait_uptime;
+    wl_readiness_t readiness;
+    (void)wl_link_get_readiness(&link, wait_now, &readiness);
+    wl_readiness_merge(&readiness, wl_zephyr_usb_bulk_readiness(&usb_adapter));
+    wl_bulk_deadline_hint_t bulk_timer;
+    if (wl_bulk_receiver_get_deadline_hint(&object_receiver, wait_now, &bulk_timer) == WL_BULK_OK)
+      wl_readiness_merge(&readiness, wl_readiness_at(bulk_timer.next_deadline_ms));
+    if (object_sink.report_pending &&
+        (int32_t)(wait_now - object_sink.report_ready_at_ms) < 0)
+      wl_readiness_merge(&readiness, wl_readiness_at(object_sink.report_ready_at_ms - wait_now));
+    readiness.runnable |= (echo_pending || bulk_status_pending) &&
+        wl_tx_can_submit(&link, WL_DELIVERY_UNRELIABLE);
+    readiness.runnable |= rx_deferred && !echo_pending && !bulk_status_pending;
+#if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
+    const int64_t stats_remaining = next_stats_snapshot - wait_uptime;
+    wl_readiness_merge(&readiness, wl_readiness_at(stats_remaining > 0 ? (uint32_t)stats_remaining : 0U));
+#endif
+    if (!readiness.runnable && readiness.next_deadline_ms != 0U) {
+      const uint32_t remaining = readiness.next_deadline_ms == WL_NO_DEADLINE
+          ? WL_NO_DEADLINE : wl_wait_remaining(readiness.next_deadline_ms,
+              wait_now, k_uptime_get_32());
+      if (remaining != 0U)
+        (void)k_sem_take(&owner_wake, wl_zephyr_timeout_ms(remaining));
+    }
   }
   return 0;
 }

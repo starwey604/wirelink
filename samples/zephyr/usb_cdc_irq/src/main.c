@@ -12,13 +12,55 @@
 #include <zephyr/usb/usbd.h>
 
 #include "wirelink/wirelink.h"
+#include "wirelink/usb_bulk_defaults.h"
 #include "wirelink/zephyr/uart_irq.h"
+#include "owner_wait.h"
 
 #define MAX_PAYLOAD 512U
 #define UNIT_STORAGE 576U
 #define RX_RING_STORAGE 2048U
 
-static wl_ctx_t link;
+static wl_endpoint_t endpoint;
+static uint8_t pending_payload[MAX_PAYLOAD];
+static size_t pending_payload_len;
+static uint16_t pending_message_id;
+static bool echo_pending;
+static wl_event_t held_rx;
+static wl_time_ms_t now(void *context) { (void)context; return k_uptime_get_32(); }
+static wl_pump_event_disposition_t receive(void *context, wl_ctx_t *link,
+    const wl_event_t *event, wl_time_ms_t time) {
+  (void)context; (void)time;
+  if (event->type != WL_EVT_UNRELIABLE_RX && event->type != WL_EVT_RELIABLE_RX)
+    return WL_PUMP_EVENT_UNHANDLED;
+  if (!echo_pending) {
+    pending_message_id = event->message_id;
+    pending_payload_len = event->payload_len;
+    memcpy(pending_payload, event->payload, pending_payload_len);
+    echo_pending = true;
+  }
+  (void)link;
+  held_rx = *event;
+  return WL_PUMP_EVENT_LEASED;
+}
+static wl_readiness_t echo_readiness(const void *context, const wl_ctx_t *link, wl_time_ms_t time) {
+  (void)context; (void)time;
+  wl_readiness_t readiness = wl_readiness_idle();
+  if (echo_pending) {
+    readiness.runnable = wl_tx_can_submit(link, WL_DELIVERY_UNRELIABLE);
+    readiness.blocked = !readiness.runnable;
+  }
+  return readiness;
+}
+static uint8_t echo_step(void *context, wl_ctx_t *link, wl_time_ms_t time) {
+  (void)context; (void)time;
+  int result = wl_send_unreliable(link, pending_message_id, pending_payload, pending_payload_len);
+  if (result != WL_ERR_BUSY) {
+    echo_pending = false;
+    wl_event_release(link, &held_rx);
+    memset(&held_rx, 0, sizeof(held_rx));
+  }
+  return result == WL_OK;
+}
 static wl_zephyr_uart_irq_t cdc_adapter;
 static uint8_t tx_payload[MAX_PAYLOAD];
 static uint8_t tx_unit[UNIT_STORAGE];
@@ -39,10 +81,9 @@ static void usb_message(struct usbd_context *context,
 
 int main(void) {
   const struct device *cdc = DEVICE_DT_GET_ONE(zephyr_cdc_acm_uart);
-  const wl_config_t config = {
+  wl_config_t config = {
       .max_payload_len = MAX_PAYLOAD,
       .envelope = WL_ENVELOPE_COBS_STREAM,
-      .integrity = WL_INTEGRITY_CRC32C,
       .session_id = UINT64_C(0x5553424344434931),
       .max_retries = 2U,
       .ack_timeout_ms = 20U,
@@ -62,20 +103,19 @@ int main(void) {
   };
   const wl_zephyr_uart_irq_config_t adapter_config = {
       .uart = cdc,
-      .link = &link,
   };
   struct usbd_context *usb_context;
-  uint8_t pending_payload[MAX_PAYLOAD];
-  size_t pending_payload_len = 0U;
-  uint16_t pending_message_id = 0U;
-  bool echo_pending = false;
   int result;
 
   if (!device_is_ready(cdc)) {
     printk("CDC ACM device is not ready\n");
     return 0;
   }
-  result = wl_init(&link, &config, &storage);
+  const wl_clock_t clock = {now, NULL};
+  const wl_pump_hooks_t application = {.on_event = receive, .application_step = echo_step,
+    .application_readiness = echo_readiness};
+  (void)wl_config_apply_link_defaults(&config, wl_usb_bulk_link_defaults());
+  result = wl_endpoint_init(&endpoint, &config, &storage, &clock, &application);
   if (result != WL_OK) {
     printk("wl_init failed: %d\n", result);
     return 0;
@@ -91,7 +131,7 @@ int main(void) {
     return 0;
   }
 
-  result = wl_zephyr_uart_irq_init(&cdc_adapter, &adapter_config);
+  result = wl_zephyr_uart_irq_attach(&cdc_adapter, &endpoint, &adapter_config);
   if (result == WL_OK) {
     result = wl_zephyr_uart_irq_start(&cdc_adapter);
   }
@@ -102,32 +142,12 @@ int main(void) {
 
   printk("Wirelink CDC IRQ endpoint ready (DMA=off)\n");
   for (;;) {
-    if (!echo_pending) {
-      wl_event_t pending_event;
-
-      memset(&pending_event, 0, sizeof(pending_event));
-      result = wl_poll(&link, k_uptime_get_32(), &pending_event);
-      if (result == WL_OK &&
-          (pending_event.type == WL_EVT_UNRELIABLE_RX ||
-           pending_event.type == WL_EVT_RELIABLE_RX)) {
-        pending_message_id = pending_event.message_id;
-        pending_payload_len = pending_event.payload_len;
-        memcpy(pending_payload, pending_event.payload, pending_payload_len);
-        wl_event_release(&link, &pending_event);
-        echo_pending = true;
-      }
-    }
-    (void)wl_zephyr_uart_irq_service(&cdc_adapter);
-    if (echo_pending) {
-      result = wl_send_unreliable(&link, pending_message_id, pending_payload,
-                                  pending_payload_len);
-      if (result == WL_OK) {
-        echo_pending = false;
-      } else if (result != WL_ERR_BUSY) {
-        echo_pending = false;
-      }
-    }
-    k_yield();
+    result = wl_endpoint_step(&endpoint, 8U);
+    if (result != WL_OK) break;
+    result = cdc_wait_for_activity(&endpoint);
+    if (result != WL_OK && result != WL_ERR_NO_DATA) break;
   }
+  if (echo_pending) wl_event_release(wl_endpoint_link(&endpoint), &held_rx);
+  wl_endpoint_close(&endpoint);
   return 0;
 }

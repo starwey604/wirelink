@@ -12,4 +12,4 @@ tests:
       - serial
       - wirelink
     integration_platforms:
-      - esp32s3_devkitc/esp32s3/procpu
+      - nrf52840dk/nrf52840
