@@ -105,8 +105,8 @@ symbols; this is a code dependency check, not a device performance measurement.
 
 The Zephyr product binding lives in `adapters/zephyr/usb_bulk/src/kernel_usb_bulk.c` and
 `wirelink/zephyr/kernel_usb_bulk.h`. It preserves the existing descriptor,
-net_buf, ZLP and explicit reconfiguration mechanisms. It has no old core dependency. Zephyr module build integration is being
-migrated separately in K5; the focused fixture compiles this actual driver directly.
+net_buf, ZLP and explicit reconfiguration mechanisms. Enable `CONFIG_WIRELINK=y` and `CONFIG_WIRELINK_ZEPHYR_USB_BULK=y`.
+The default module builds the same driver and kernel; it has no old core dependency.
 
 Initialize the packet port first with `wl_kernel_usb_bulk_submit`,
 `wl_kernel_usb_bulk_notify`, and `user=adapter`, then bind the adapter with the
@@ -191,7 +191,7 @@ partial COBS window until a delimiter. Plain backpressure does not imply loss.
 The host fixture transfers one million bytes concurrently, exercises tiny FIFO
 fragments across 1000 complete frames, and checks gap recovery and ownership.
 
-K3 temporary Zephyr UART bindings are `kernel_uart_irq`, `kernel_uart_dma` and
+The default Zephyr UART bindings are `kernel_uart_irq`, `kernel_uart_dma` and
 `kernel_uart_poll`. They use the same packet port plus independent byte FIFO
 and selected COBS/CRC16 framing. Init registers only the actual driver binding;
 application assembly wires submit/notify explicitly. Owner service consumes

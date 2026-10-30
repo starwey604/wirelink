@@ -1,68 +1,40 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-
 #include "wirelink/diagnostics.h"
-
-#include <stdint.h>
 #include <string.h>
-
-#define CHECK(condition)                                                       \
-  do {                                                                         \
-    if (!(condition))                                                          \
-      return __LINE__;                                                         \
-  } while (0)
-
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 int main(void) {
+  const wl_kernel_result_t result = {WL_KERNEL_REJECTED, INT32_MIN};
+  const char *expected = "kernel_result outcome=1 status=-2147483648\n";
   char output[512];
-  char truncated[12];
   wl_diag_writer_t writer;
-  wl_diag_writer_t sizing;
-  const wl_rx_counters_t rx = {
-      .malformed = 1U,
-      .bad_integrity = 2U,
-      .overflow = 3U,
-      .duplicate = 4U,
-      .unsupported = UINT32_MAX,
-  };
-  const wl_rpc_client_result_t rpc = {
-      .operation_id = 42U,
-      .request_message_id = 10U,
-      .response_message_id = 11U,
-      .state = WL_RPC_CLIENT_APPLICATION_ERROR,
-      .tx_handle = 7U,
-      .link_result = -38,
-      .application_status = INT32_MIN,
-      .runtime_error = WL_RPC_ERR_RESPONSE_MISMATCH,
-      .link_delivery_confirmed = 1U,
-      .result_index = 1U,
-      .response_valid = 0U,
-  };
-
+  for (size_t capacity = 0; capacity <= strlen(expected) + 1; ++capacity) {
+    memset(output, 'x', sizeof(output));
+    CHECK(wl_diag_writer_init(&writer, capacity ? output : NULL, capacity) == WL_OK);
+    CHECK(wl_diag_format_kernel_result(&writer, &result) ==
+        (capacity > strlen(expected) ? WL_OK : WL_ERR_BUF_TOO_SMALL));
+    CHECK(writer.required == strlen(expected));
+    CHECK(writer.length == (capacity == 0 ? 0 : capacity - 1));
+    if (capacity) {
+      CHECK(output[writer.length] == '\0');
+      CHECK(memcmp(output, expected, writer.length) == 0);
+    }
+    CHECK(output[capacity] == 'x');
+  }
   CHECK(wl_diag_writer_init(&writer, output, sizeof(output)) == WL_OK);
-  CHECK(wl_diag_format_rx_counters(&writer, &rx) == WL_OK);
-  CHECK(strcmp(output, "rx malformed=1 bad_integrity=2 overflow=3 duplicate=4 "
-                       "unsupported=4294967295\n") == 0);
-  CHECK(wl_diag_format_rpc_client_result(&writer, &rpc) == WL_OK);
-  CHECK(strstr(output, " application_status=-2147483648 ") != NULL);
-  CHECK(writer.length == strlen(output));
-  CHECK(writer.required == writer.length);
-
-  CHECK(wl_diag_writer_init(&sizing, NULL, 0U) == WL_OK);
-  CHECK(wl_diag_format_rx_counters(&sizing, &rx) == WL_ERR_BUF_TOO_SMALL);
-  CHECK(sizing.length == 0U);
-  CHECK(sizing.required + 1U > sizeof(truncated));
-
-  CHECK(wl_diag_writer_init(&writer, truncated, sizeof(truncated)) == WL_OK);
-  CHECK(wl_diag_format_rx_counters(&writer, &rx) == WL_ERR_BUF_TOO_SMALL);
-  CHECK(writer.length == sizeof(truncated) - 1U);
-  CHECK(truncated[sizeof(truncated) - 1U] == '\0');
-  CHECK(writer.required == sizing.required);
+  const wl_outbox_stats_t outbox = {.submitted = UINT64_MAX};
+  CHECK(wl_diag_format_outbox_stats(&writer, &outbox) == WL_OK);
+  CHECK(strstr(output, "submitted=18446744073709551615") != NULL);
   wl_diag_writer_reset(&writer);
-  CHECK(writer.length == 0U && writer.required == 0U && truncated[0] == '\0');
-
-  CHECK(wl_diag_writer_init(NULL, output, sizeof(output)) ==
-        WL_ERR_INVALID_ARG);
-  CHECK(wl_diag_writer_init(&writer, NULL, 1U) == WL_ERR_INVALID_ARG);
-  CHECK(wl_diag_writer_init(&writer, output, sizeof(output)) == WL_OK);
-  CHECK(wl_diag_format_fifo_stats(&writer, NULL) == WL_ERR_INVALID_ARG);
+  const wl_fifo_stats_t fifo = {.depth = 3, .errors = UINT32_MAX};
+  CHECK(wl_diag_format_fifo_stats(&writer, &fifo) == WL_OK);
+  CHECK(strncmp(output, "fifo depth=3 ", 13) == 0);
+  CHECK(strstr(output, "errors=4294967295\n") != NULL);
+  wl_diag_writer_reset(&writer);
+  const wl_latest_stats_t latest = {.generation = UINT32_MAX};
+  CHECK(wl_diag_format_latest_stats(&writer, &latest) == WL_OK);
+  CHECK(strstr(output, "generation=4294967295") != NULL);
+  CHECK(wl_diag_writer_init(NULL, output, sizeof(output)) == WL_ERR_INVALID_ARG);
+  CHECK(wl_diag_writer_init(&writer, NULL, 1) == WL_ERR_INVALID_ARG);
+  CHECK(wl_diag_format_kernel_result(&writer, NULL) == WL_ERR_INVALID_ARG);
   return 0;
 }

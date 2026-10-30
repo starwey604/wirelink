@@ -39,3 +39,13 @@ K4 的 18 份完整采集及独立重放通过，见 [结果与限制](static-en
 验证：默认 GCC **11/11**；含真实 host adapter 的 GCC 与 Clang ASan/UBSan 各 **14/14**；安装后 C/C++/COBS **3/3**；纯 C-only 配置／安装没有启用 C++ 编译器；Zephyr 纯核心、独立容器与 frozen-v1 framing 向量 **50/50**；真实 UART/UDP/USB focused adapter 在 native_sim、Cortex-M3、RISC-V 合计 **15/15**，四个不支持组合正常过滤。WLC 的 5 项生成检查在迁入正式路径后以 Clang sanitizer 通过。日志在新证据目录的 `core-*`、`all-adapters-*`、`asan-*`、`consumer-*`、`c-only-*`、`twister-*`。
 
 本点不代表 K5 完成：WLC 默认生成／SDK、Zephyr 默认模块、host executor、其余消费者和公开文档仍在后续迁移范围；不能用旧执行生成物作新产品交付。八份原有 dirty 文档未修改或整块提交。
+
+## Zephyr 默认模块与旧 adapter 清理
+
+Zephyr `CONFIG_WIRELINK=y` 已只链接新 kernel／packet port；COBS、length16、framing、独立容器、固定池与 waiter 分别选择。UART DMA/IRQ/poll、USB、UDP 通过正式 Kconfig 进入同一个模块。focused fixtures 现在通过默认模块集成，不再手工并排编译原型源。保留既有 IRQ callback 平台属性映射，删除只引用旧 endpoint/pump 的 owner IRAM 脚本，没有将新 core/codec 搬到 IRAM。
+
+旧 Astrial serial/USB、Asio UDP、Zephyr adapter、旧 loopback 实现与头、旧 USB config/link-apply helper 均删除，改用已迁移的 packet bindings。旧 adapter 专用集成目录被新实际 adapter 合同 fixture 替代；原始文件名单和原因在 `retired-adapter-tests.json`，没有批量 xfail。低层 socket 的 18 项合同保留，claim/commit/abort 场景改为新 packet port；四生产者通知、满槽屏蔽、eventfd 耗尽、ISR 拒绝、错误分类、截断和 stop/reopen 继续真实运行。
+
+独立工具复核后保留 `wl_allocator_t`／固定池和 `wl_waiter_t`／纯 deadline 算术，它们没有旧 RPC 表、线程或 clock fallback；API 注释改为调用方显式管理。无分配诊断 writer 与 FIFO/LATEST/outbox 格式保留，旧 link/replay/bulk 记录删除，新 terminal 仅输出 outcome/status，整数范围、截断及 sizing regression 在 GCC/Clang sanitizer 通过。
+
+默认模块实际通过 **96 个 case/platform**：UART 三平台及 USB 13，native32/64 UDP 与 waiter（含32-bit timeout）29，socket 三平台54；固定池另 **3/3**。首次 Twister 在非 west 工作区启动被拒，随后 5-config 块中 UDP 缺少 fixture 私有 include；补跑块又遇到新 port 断言误写 `payload_length`（实际 `length`）。失败日志均保留，修复后只补跑受影响场景：默认模块其余4配置合格、UDP/waiter7配置合格、socket3配置合格。没有修改内核以绕过测试。独立 native platform/storage 的纯 C 构建与安装也通过。

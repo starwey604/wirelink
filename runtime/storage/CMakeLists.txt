@@ -2,7 +2,7 @@
 add_library(wirelink_storage src/fixed_pool.c)
 add_library(Wirelink::storage ALIAS wirelink_storage)
 set_target_properties(wirelink_storage PROPERTIES EXPORT_NAME storage)
-target_link_libraries(wirelink_storage PUBLIC wirelink)
+target_link_libraries(wirelink_storage PUBLIC wirelink_types)
 target_include_directories(wirelink_storage PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)

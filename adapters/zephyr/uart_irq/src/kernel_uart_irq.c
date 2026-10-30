@@ -24,7 +24,7 @@ static struct {
 } bindings[UART_BINDINGS];
 static uintptr_t next_generation = UART_BINDINGS;
 
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
 #define NOTE(adapter, field) ((void)atomic_inc(&(adapter)->field))
 #else
 #define NOTE(adapter, field) ((void)0)
@@ -131,7 +131,7 @@ static void WL_ZEPHYR_UART_IRQ_HOT_CODE uart_callback(const struct device *devic
   const struct uart_driver_api *api = adapter->private_uart_api;
   unsigned published = 0U;
   /* Bound each ISR even under continuous input. A ready source reasserts IRQ. */
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_TIMING)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_TIMING)
   const uint32_t callback_start = k_cycle_get_32();
   atomic_inc(&adapter->callback_irqs);
 #endif
@@ -164,7 +164,7 @@ static void WL_ZEPHYR_UART_IRQ_HOT_CODE uart_callback(const struct device *devic
    * No cross-callback pending flag: a later callback always gets a fresh give. */
   if (published & IRQ_NOTIFY)
     wake_owner(adapter);
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_TIMING)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_TIMING)
   atomic_add(&adapter->callback_ticks, (atomic_val_t)(k_cycle_get_32() - callback_start));
 #endif
   k_spin_unlock(&callback_lock, key);
@@ -314,7 +314,7 @@ wl_err_t WL_ZEPHYR_UART_IRQ_HOT_CODE wl_kernel_uart_irq_wait(wl_kernel_uart_irq_
   if (!atomic_test_bit(&adapter->flags, STARTED))
     return WL_ERR_CANCELLED;
   NOTE(adapter, waits);
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
   int result = k_sem_take(&adapter->wake, K_NO_WAIT);
   if (result == 0)
     NOTE(adapter, wait_ready);
@@ -373,14 +373,14 @@ void wl_kernel_uart_irq_get_stats(const wl_kernel_uart_irq_t *adapter,
   READ(tx_drained);
   READ(drain_queries);
   READ(errors);
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
   READ(publications);
   READ(callback_gives);
   READ(service_acks);
   READ(waits);
   READ(wait_ready);
 #endif
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_TIMING)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_TIMING)
   READ(callback_irqs);
   READ(callback_ticks);
 #endif

@@ -1,135 +1,90 @@
 # SPDX-License-Identifier: Apache-2.0
-
 menu "Wirelink"
-
 config WIRELINK
-	bool "Enable Wirelink protocol library"
+	bool "Enable the static Wirelink endpoint kernel"
 	default y
 	help
-	  Build the platform-independent Wirelink protocol core. Transport adapters
-	  are opt-in so the core can be shared by Zephyr, bare-metal, and other RTOS
-	  projects.
-
+	  Portable C11 packet ownership and bounded four-call/four-reply execution.
+	  Best-effort ordinary DATA only: no ARQ, ACK state, replay or deferred reply.
+	  Select one wire connector in each version2 binding profile.
 if WIRELINK
-
-choice WIRELINK_LINK_PROFILE
-	prompt "Core link capability"
-	default WIRELINK_LINK_PROFILE_MULTI
-	help
-	  Select the envelopes and integrity modes compiled into the core.
-
-config WIRELINK_LINK_PROFILE_MULTI
-	bool "All envelopes and integrity modes"
-	help
-	  Allow endpoints with different link configurations in one firmware.
-
-config WIRELINK_LINK_PROFILE_COBS_CRC16
-	bool "COBS stream with CRC16 only"
-	help
-	  Specialize actual DATA, ACK, retry and RX paths for COBS + CRC16.
-	  Other valid configurations return WL_ERR_NOT_SUPPORTED. Standalone
-	  CRC and COBS tools remain available. Reliable delivery is supported.
-
-endchoice
-
 config WIRELINK_PLATFORM
-	bool "Enable the native clock/session environment"
+	bool "Native clock and fresh-instance environment"
 	select CSPRNG_NEEDED
 	help
-	  Provide default endpoint time and random instance identities. Without a
-	  real CSPRNG, identity acquisition fails; applications can inject their
-	  own source instead. Does not use the insecure testing generator.
-
-config WIRELINK_STORAGE
-	bool "Enable the optional fixed-block endpoint allocator"
+	  Initialization-only platform clock/session providers; no core clock reads.
+config WIRELINK_PACKET_STREAM
+	bool
+config WIRELINK_FRAMING_PRIMITIVES
+	bool
+config WIRELINK_STREAM_COBS_CRC16
+	bool "COBS/CRC16 packet connector"
+	select WIRELINK_PACKET_STREAM
+	select WIRELINK_FRAMING_PRIMITIVES
+config WIRELINK_STREAM_LENGTH16_NONE
+	bool "Length16/NONE packet connector"
+	select WIRELINK_PACKET_STREAM
+config WIRELINK_BYTE_FIFO
+	bool "Independent SPSC byte staging"
+config WIRELINK_BYTE_FIFO_COBS
+	bool
+	select WIRELINK_BYTE_FIFO
+	select WIRELINK_STREAM_COBS_CRC16
+config WIRELINK_CONTAINERS
+	bool "Independent FIFO, LATEST and outbox data tools"
+config WIRELINK_FRAME_TOOLS
+	bool "Standalone frozen-wire frame tools"
+	select WIRELINK_FRAMING_PRIMITIVES
 	help
-	  Creates generated endpoints in caller-supplied fixed pools. No heap
-	  fallback and no allocations during protocol operation.
-
+	  Independent framing utilities include historical reliable/ACK wire formats.
+	  This does not enable reliable execution in the endpoint kernel.
+config WIRELINK_STORAGE
+	bool "Independent caller-owned fixed-block allocator"
 config WIRELINK_ZEPHYR_WAIT
-	bool "Enable the Zephyr owner-task RPC waiter"
+	bool "Latched owner wait and stop notification"
 	depends on MULTITHREADING
 	help
-	  Static semaphore-based activity and stop notifications for generated
-	  synchronous RPCs. Creates no thread and does no periodic polling.
-
+	  Static semaphore, no internal thread, RPC table or protocol callback.
 config WIRELINK_ZEPHYR_UART_DMA
-	bool "Enable the Zephyr asynchronous UART adapter"
-	depends on SERIAL
-	depends on UART_ASYNC_API
+	bool "Asynchronous UART packet adapter"
+	depends on SERIAL && UART_ASYNC_API
+	select WIRELINK_BYTE_FIFO_COBS
 	help
-	  Build Wirelink's full-duplex Zephyr UART adapter. The adapter owns the
-	  UART asynchronous callback, receives directly into the Wirelink SPSC
-	  ring, and exposes the UART TX path as the Wirelink sink.
-
+	  Callbacks stage bytes only. Owner decodes COBS and drives the endpoint.
+	  Stop waits for actual DMA buffer returns and callback quiescence.
 config WIRELINK_ZEPHYR_USB_BULK
-	bool "Enable the Zephyr USB vendor bulk adapter"
+	bool "Native/NONE USB vendor bulk packet adapter"
 	depends on USB_DEVICE_STACK_NEXT
 	help
-	  Build Wirelink's full-duplex custom USB Bulk class. The UDC receives
-	  directly into one Wirelink ring claim. USB completion callbacks only
-	  publish ownership and completion state; the main loop performs protocol
-	  work and re-arms endpoint requests.
-
+	  Two caller-owned RX units, one physical read/write, explicit boundary
+	  faults and real cancellation acknowledgement; no protocol work in I/O.
 config WIRELINK_ZEPHYR_UART_POLL_EXPERIMENTAL
-	bool "Enable experimental physical UART polling adapter"
+	bool "Experimental physical UART polling packet adapter"
 	depends on SERIAL && MULTITHREADING
+	select WIRELINK_BYTE_FIFO_COBS
 	help
-	  Caller-owned static RX thread, 64-byte batches and one-tick interruptible
-	  sleeps, with synchronous polling TX. Memory-consumed completion only.
-	  No hardware flow control or CDC support; production default is unchanged.
-
+	  Static RX worker stages bytes. Polling TX reports consumed, and a required
+	  platform tx_idle callback confirms actual physical drain before reuse.
 config WIRELINK_ZEPHYR_UART_IRQ
-	bool "Enable the Zephyr interrupt-driven UART adapter"
-	depends on SERIAL
-	depends on UART_INTERRUPT_DRIVEN
+	bool "Interrupt-driven UART packet adapter"
+	depends on SERIAL && UART_INTERRUPT_DRIVEN
+	select WIRELINK_BYTE_FIFO_COBS
 	help
-	  Build Wirelink's interrupt-driven UART adapter. It is the low-latency
-	  fallback for USB CDC ACM devices and UART controllers without an async
-	  DMA implementation. RX FIFO bytes are written directly into the SPSC
-	  ring and all protocol processing remains in the consumer loop.
-
+	  ISR stages bytes; owner parses. TX completion requires irq_tx_complete.
+	  No claim that accepting bytes proves the hardware has drained.
 config WIRELINK_ZEPHYR_UART_IRQ_TIMING
-	bool "Collect UART adapter callback timing diagnostics"
+	bool "UART callback timing diagnostics"
 	depends on WIRELINK_ZEPHYR_UART_IRQ
-	help
-	  Count valid driver callbacks and elapsed cycles inside the callback.
-	  These counts differ from RX/TX ready-source processing counts. Timing
-	  excludes the driver ISR and callback lock acquisition/release. Counters
-	  wrap at 32 bits; sample deltas within one counter wrap. Disabled builds
-	  have no additional timing reads, counters or callback work.
-
 config WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS
-	bool "Collect UART notification diagnostics"
+	bool "UART notification diagnostics"
 	depends on WIRELINK_ZEPHYR_UART_IRQ
-	help
-	  Count publication wake attempts, callback semaphore gives, service latch
-	  acknowledgements and waiter entries. For separate diagnostic builds only;
-	  disabled builds have no extra counters or notification work. Gives are
-	  attempts, not semaphore transitions or delivered business events.
-
 config WIRELINK_ZEPHYR_UDP
-	bool "Enable the Zephyr native IPv4 UDP socket adapter"
+	bool "Native IPv4 UDP packet adapter"
 	depends on MULTITHREADING && NET_SOCKETS && NET_NATIVE_IPV4 && NET_NATIVE_UDP
 	depends on !NET_SOCKETS_OFFLOAD
 	select ZVFS_EVENTFD
 	help
-	  Single-owner native-packet UDP with static RX slots and combined socket/
-	  eventfd waiting. Attaches to default endpoints; no background thread or
-	  adapter heap. Each instance needs one socket and one eventfd. Notifications
-	  are thread-only. Configure the network interface and resource pools in the
-	  application; offloaded sockets and COBS are not supported by this adapter.
-
-config WIRELINK_ZEPHYR_UDP_TIMING
-	bool "Collect UDP adapter elapsed-cycle diagnostics"
-	depends on WIRELINK_ZEPHYR_UDP
-	help
-	  Opt-in call counts, total and maximum elapsed cycles for actual socket
-	  sends, receives and owner receive service. Uses k_cycle_get_32, not the
-	  endpoint clock. Includes preemption and stack waiting; it is not CPU
-	  accounting. Each measured interval must be shorter than one counter wrap.
-	  Disabled builds have no timing reads or timing storage.
-
+	  Owner-only sockets, fixed peer and latched eventfd waiting. Optional
+	  selected transport decoder; no adapter thread or heap.
 endif
-
 endmenu

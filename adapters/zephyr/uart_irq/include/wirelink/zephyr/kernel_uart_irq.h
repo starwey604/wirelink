@@ -32,10 +32,10 @@ typedef struct {
 typedef struct {
   uint32_t rx_irqs, rx_bytes, rx_pauses;
   uint32_t tx_irqs, tx_bytes, tx_consumed, tx_drained, drain_queries, errors;
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
   uint32_t publications, callback_gives, service_acks, waits, wait_ready;
 #endif
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_TIMING)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_TIMING)
   uint32_t callback_irqs, callback_ticks;
 #endif
   bool started, rx_paused, tx_active;
@@ -59,10 +59,10 @@ typedef struct {
   atomic_t flags, tx_completion, error_pending;
   atomic_t rx_irqs, rx_bytes, rx_pauses;
   atomic_t tx_irqs, tx_bytes, tx_consumed, tx_drained, drain_queries, errors;
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_NOTIFICATION_DIAGNOSTICS)
   atomic_t publications, callback_gives, service_acks, waits, wait_ready;
 #endif
-#if defined(CONFIG_WIRELINK_KERNEL_ZEPHYR_UART_IRQ_TIMING)
+#if defined(CONFIG_WIRELINK_ZEPHYR_UART_IRQ_TIMING)
   atomic_t callback_irqs, callback_ticks;
 #endif
 } wl_kernel_uart_irq_t;
