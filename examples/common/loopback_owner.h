@@ -17,11 +17,13 @@ typedef struct {
   uint32_t now;
 } example_pair_t;
 static inline void example_pair_init(example_pair_t *pair, wl_kernel_t *a, wl_kernel_t *b) {
+  static uint64_t next_instance = 1000; /* Single-owner fixture provider. */
   memset(pair, 0, sizeof(*pair)); pair->cores[0] = a; pair->cores[1] = b;
   EXAMPLE_REQUIRE(wl_packet_loopback_init(&pair->cable, &pair->ports[0], &pair->ports[1], NULL, NULL) == WL_OK);
   for (unsigned side = 0; side < 2; ++side) {
     /* Deterministic fixture identities. Production must supply fresh identities. */
-    wl_packet_config_t config = {.instance = 1001U + side,
+    EXAMPLE_REQUIRE(next_instance != UINT64_MAX);
+    wl_packet_config_t config = {.instance = ++next_instance,
       .rx_storage = &pair->rx[side][0][0], .rx_storage_size = sizeof(pair->rx[side]),
       .rx_unit_size = sizeof(pair->rx[side][0]), .submit = wl_packet_loopback_submit,
       .notify = wl_packet_loopback_notify, .user = &pair->cable.directions[side]};
@@ -39,10 +41,13 @@ static inline void example_pair_wait(example_pair_t *pair, const unsigned *compl
   EXAMPLE_REQUIRE(*completed == target);
 }
 static inline void example_pair_close(example_pair_t *pair) {
+  const bool cancelled[2] = {pair->cable.directions[0].pending != 0, pair->cable.directions[1].pending != 0};
   for (unsigned side = 0; side < 2; ++side) EXAMPLE_REQUIRE(wl_kernel_close(pair->cores[side]) == WL_OK);
   wl_packet_loopback_stop(&pair->cable);
   for (unsigned side = 0; side < 2; ++side) {
-    EXAMPLE_REQUIRE(wl_kernel_step(pair->cores[side], pair->now, 16) == WL_OK);
+    const wl_err_t error = wl_kernel_step(pair->cores[side], pair->now, 16);
+    /* A stopped model driver reports a real abandoned physical transfer. */
+    EXAMPLE_REQUIRE(error == WL_OK || (cancelled[side] && error == WL_ERR_IO));
     EXAMPLE_REQUIRE(wl_kernel_quiescent(pair->cores[side]));
   }
 }

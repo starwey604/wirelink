@@ -1,53 +1,23 @@
-# Default endpoint clock check
+# Explicit owner clock check
 
-An isolated Zephyr application using the generated calculator endpoint and the
-real `k_uptime_get_32()` clock. Two endpoints communicate through the in-memory
-loopback adapter on the same CPU. It does **not** validate USB/UART/CAN
-transport, actuator behavior, or a product firmware build.
+The generated calculator endpoint runs over packet loopback on one Zephyr owner.
+The owner reads real uptime and supplies `now`; admission, codecs and the shared
+C kernel do not read a clock. First submission after 75/150 ms idle, short reply,
+business rejection and a missing-handler timeout are checked. Missing handler
+returns NOT_SUPPORTED from the owner pass; the client still waits until its
+local deadline. No deferred reply or retry engine is involved.
 
-It checks first submission after idle without a preparatory step, inline reply
-and rejection, a real deferred-call timeout, exact clock-read budgets, and no
-premature reliable retries. It then measures 20,000 idle endpoint passes with
-`k_cycle_get_32()`; interrupts remain enabled, so the result includes interrupt
-and timer overhead, not isolated CPU instruction time. Virtual `native_sim` time
-can report zero cycles and is not a performance measurement.
-
-## Build and run
-
-From an initialized Zephyr workspace with a matching WLC compiler:
-
-```sh
-west build -s /path/to/wirelink/samples/zephyr/endpoint_clock -b native_sim \
-  -d /path/to/build/endpoint-clock-native -- \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
-```
-
-For automated regression, run the same sample through Twister:
+The final 20,000 idle kernel passes reuse a supplied timestamp and assert zero
+core clock reads. Cycles are diagnostic, with interrupts enabled; native/QEMU
+values are not hardware performance measurements or a comparison with the old
+clock-reading runtime. The fixture supplies a fresh identity at each reinit and
+closes/drains actual packet borrows before reusing storage.
 
 ```sh
 west twister -T /path/to/wirelink/samples/zephyr/endpoint_clock \
   -p native_sim -p qemu_cortex_m3 -p qemu_riscv32 -p qemu_x86_64 \
-  -x=WIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -x=WIRELINK_WLC_EXECUTABLE=/path/to/wlc \
-  --inline-logs --outdir /path/to/build/endpoint-clock-twister
+  --extra-args WIRELINK_WLC_EXECUTABLE=/path/to/matching/wlc
 ```
 
-CI runs these four platforms with the matching source-built compiler. The console
-harness requires all four RPC results, the clock-read budget result, and the final
-success marker in order. It does not set a simulated-cycle performance threshold.
-
-## ESP32-S3 hardware run
-
-```sh
-west build -b esp32s3_devkitc/esp32s3/procpu \
-  /path/to/wirelink/samples/zephyr/endpoint_clock -d build/endpoint-clock-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-west flash -d build/endpoint-clock-hw
-python benchmarks/zephyr/capture_serial.py \
-  --port /dev/ttyACM0 --out clock.log --until "ALL PASS" --seconds 60
-```
-
-`boards/esp32s3_devkitc_esp32s3_procpu.overlay` routes the console to the board
-USB Serial/JTAG port. Expect `CLOCK_CHECK ALL PASS`. Hardware cycle counts are
-real CPU time; `native_sim` cycles are not.
+Expected console marker: `CLOCK_CHECK ALL PASS`. This is a loopback contract
+check, not USB/UART/CAN, actuator or firmware performance validation.

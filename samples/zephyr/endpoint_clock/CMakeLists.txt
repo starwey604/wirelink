@@ -5,10 +5,8 @@ list(APPEND ZEPHYR_EXTRA_MODULES ${WIRELINK_ROOT})
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_endpoint_clock)
 include(${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake)
-wirelink_wlc_generate_codec(TARGET calculator_codec
-  SCHEMA "${WIRELINK_ROOT}/examples/01_rpc/calculator.wl")
-wirelink_wlc_generate_runtime(TARGET calculator_protocol CODEC_TARGET calculator_codec
+wirelink_wlc_generate(TARGET calculator_protocol SCHEMA "${WIRELINK_ROOT}/examples/01_rpc/calculator.wl"
   PROFILE "${WIRELINK_ROOT}/examples/01_rpc/calculator.bind.wl")
-target_link_libraries(calculator_codec PUBLIC zephyr_interface)
-target_sources(app PRIVATE src/main.c ${WIRELINK_ROOT}/adapters/loopback/src/loopback.c)
+target_sources(app PRIVATE src/main.c)
+target_include_directories(app PRIVATE "${WIRELINK_ROOT}/examples/common")
 target_link_libraries(app PRIVATE calculator_protocol)

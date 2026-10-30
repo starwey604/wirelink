@@ -1,145 +1,75 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <zephyr/kernel.h>
-#include "../../../../tests/support/test_environment.h"
 #include <zephyr/sys/printk.h>
-#include "calculator_advanced.h"
-#include "wirelink/loopback.h"
-#include "wirelink/zephyr/detail/timeout.h"
-
-#define CHECK(x) do { if (!(x)) { printk("CLOCK_CHECK FAIL line=%u: %s\n", \
-  (unsigned)__LINE__, #x); return -1; } } while (0)
-
-static calculator_endpoint_t client, server;
-static wl_loopback_t cable;
-static uint32_t clock_reads, handled;
+#include "calculator_kernel.h"
+#include "loopback_owner.h"
+#include "wirelink/zephyr/kernel_timeout.h"
+static calculator_kernel_t endpoints[2];
+static example_pair_t pair;
+static unsigned reads, completed, handled;
+static wl_kernel_result_t result;
 static int mode;
-
-static wl_time_ms_t read_clock(void *user) {
-  (void)user;
-  ++clock_reads;
-  return k_uptime_get_32();
+static uint32_t read_clock(void) { ++reads; return k_uptime_get_32(); }
+static int32_t add(void *user, const add_request_t *request, add_response_value_t *response) {
+  (void)user; ++handled;
+  if (mode == 1) return 7;
+  response->has_sum = true; response->sum = request->left + request->right; return 0;
 }
-
-static int32_t add(void *user, const add_request_t *request,
-    const calculator_add_request_token_t *token, wl_delivery_t delivery) {
-  (void)user;
-  (void)delivery;
-  ++handled;
-  if (mode == 2) return 0; /* Deferred work tests the client's real deadline. */
-  if (mode == 1) return calculator_endpoint_add_reject(&server, token, 7);
-  add_response_t response;
-  add_response_clear(&response);
-  response.has_sum = true;
-  response.sum = request->left + request->right;
-  return calculator_endpoint_add_complete(&server, token, &response);
+static void done(void *user, wl_kernel_result_t value, const add_response_t *response) {
+  (void)user; result = value;
+  if (value.outcome == WL_KERNEL_SUCCESS) EXAMPLE_REQUIRE(response && response->sum == 42);
+  ++completed;
 }
-
-static int configure(int selected_mode) {
-  calculator_endpoint_config_t a, b;
-  calculator_endpoint_close(&client);
-  calculator_endpoint_close(&server);
-  CHECK(calculator_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
-  CHECK(calculator_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){0}), wl_link_defaults()) == WL_OK);
-  a.environment.clock = b.environment.clock = (wl_clock_t){read_clock, NULL};
-  CHECK(calculator_runtime_config_enable_client(&a.advanced) == WL_OK);
-  CHECK(calculator_runtime_config_enable_server(&b.advanced) == WL_OK);
-  a.link.ack_timeout_ms = b.link.ack_timeout_ms = 20U;
-  a.link.max_retries = b.link.max_retries = 2U;
-  b.advanced.rpc_server_pending_timeout_ms = 1000U;
-  b.advanced.rpc_server_cache_ttl_ms = 10000U;
-  b.advanced.add_request_handler = add;
-  CHECK(calculator_endpoint_init_config(&client, &a) == WL_OK);
-  CHECK(calculator_endpoint_init_config(&server, &b) == WL_OK);
-  CHECK(wl_loopback_connect(&cable, calculator_endpoint_handle(&client),
-                            calculator_endpoint_handle(&server)) == WL_OK);
-  handled = 0U;
-  mode = selected_mode;
-  return 0;
-}
-
-static int transaction(int selected_mode, uint32_t idle_ms) {
-  calculator_add_call_t call;
-  calculator_add_result_t result;
-  add_request_t request;
-  CHECK(configure(selected_mode) == 0);
-  k_msleep(idle_ms); /* Deliberately no step before submission. */
-  add_request_clear(&request);
-  request.has_left = request.has_right = true;
-  request.left = 20;
-  request.right = 22;
-  const uint32_t started = k_uptime_get_32();
-  uint32_t reads = clock_reads;
-  CHECK(calculator_endpoint_add_call(&client, &request, 50U, &call) == WL_RPC_OK);
-  CHECK(clock_reads == reads + 1U);
-  for (;;) {
-    reads = clock_reads;
-    CHECK(calculator_endpoint_step(&client) == WL_OK);
-    CHECK(calculator_endpoint_step(&server) == WL_OK);
-    CHECK(clock_reads == reads + 2U); /* Inline complete/reject reuse the pass. */
-    CHECK(calculator_endpoint_add_inspect(&client, &call, &result) == WL_RPC_OK);
-    CHECK(clock_reads == reads + 2U);
-    if (result.state == WL_RPC_CLIENT_COMPLETED ||
-        result.state == WL_RPC_CLIENT_APPLICATION_ERROR ||
-        result.state == WL_RPC_CLIENT_TIMED_OUT) break;
-    CHECK(k_uptime_get_32() - started < 500U);
-    /* configure() binds both endpoints to this same uptime source/domain.
-     * Query at one shared sample; merging independently relative hints would
-     * otherwise extend the earlier endpoint's deadline by query time. */
-    wl_time_ms_t queried_at, wait_now;
-    CHECK(wl_endpoint_now(calculator_endpoint_handle(&client), &queried_at) == WL_OK);
-    wl_readiness_t client_ready, server_ready;
-    CHECK(wl_endpoint_get_readiness_at(calculator_endpoint_handle(&client), queried_at, &client_ready) == WL_OK);
-    CHECK(wl_endpoint_get_readiness_at(calculator_endpoint_handle(&server), queried_at, &server_ready) == WL_OK);
-    wl_readiness_merge(&client_ready, server_ready);
-    if (!client_ready.runnable && client_ready.next_deadline_ms != 0U) {
-      uint32_t remaining = client_ready.next_deadline_ms;
-      if (remaining != WL_NO_DEADLINE) {
-        CHECK(wl_endpoint_now(calculator_endpoint_handle(&client), &wait_now) == WL_OK);
-        remaining = wl_wait_remaining(remaining, queried_at, wait_now);
-      }
-      if (remaining != 0U) k_sleep(wl_zephyr_timeout_ms(remaining));
+static void transaction(int selected, unsigned idle_ms) {
+  mode = selected; completed = handled = 0; unsigned unsupported = 0;
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const calculator_kernel_handlers_t handlers = {.on_rpc_add = selected == 2 ? NULL : add};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+  k_sleep(K_MSEC(idle_ms)); /* No step before submit: owner supplies fresh now. */
+  const uint32_t began = read_clock();
+  add_request_value_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  wl_kernel_call_handle_t call; unsigned before = reads;
+  EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[0], &request, began, 50, done, NULL, &call) == WL_OK);
+  EXAMPLE_REQUIRE(reads == before);
+  while (!completed) {
+    uint32_t now = read_clock(); before = reads;
+    for (unsigned side = 0; side < 2; ++side) {
+      const wl_err_t error = calculator_kernel_step(&endpoints[side], now);
+      EXAMPLE_REQUIRE(error == WL_OK || (selected == 2 && side == 1 && error == WL_ERR_NOT_SUPPORTED));
+      if (error == WL_ERR_NOT_SUPPORTED) ++unsupported;
     }
+    EXAMPLE_REQUIRE(wl_packet_loopback_service(&pair.cable, 2) == WL_OK);
+    EXAMPLE_REQUIRE(reads == before); /* Kernel/codecs have no clock provider. */
+    EXAMPLE_REQUIRE(k_uptime_get_32() - began < 1000);
+    if (completed || wl_packet_loopback_ready(&pair.cable)) continue;
+    bool runnable = false; uint32_t maximum = 10;
+    for (unsigned side = 0; side < 2; ++side) {
+      int has_deadline = 0; uint32_t deadline = 0;
+      runnable |= wl_kernel_ready(&endpoints[side].core, now, &has_deadline, &deadline) != 0;
+      if (has_deadline && deadline - now < maximum) maximum = deadline - now;
+    }
+    uint32_t elapsed = read_clock() - now;
+    if (!runnable && maximum > elapsed) k_sleep(wl_kernel_timeout_ms(maximum - elapsed));
   }
-  const uint32_t elapsed = k_uptime_get_32() - started;
-  if (selected_mode == 0 && !result.response_valid)
-    printk("CLOCK_CHECK unexpected state=%d elapsed_ms=%u handled=%u\n", (int)result.state, elapsed, handled);
-  if (selected_mode == 0) CHECK(result.response_valid && result.response->sum == 42);
-  if (selected_mode == 1) CHECK(result.state == WL_RPC_CLIENT_APPLICATION_ERROR && result.application_status == 7);
-  if (selected_mode == 2) CHECK(result.state == WL_RPC_CLIENT_TIMED_OUT && elapsed >= 50U);
-  CHECK(handled == 1U);
-  CHECK(calculator_endpoint_add_release(&client, &call) == WL_RPC_OK);
-  wl_adapter_stats_t stats;
-  CHECK(wl_loopback_get_stats(&cable, WL_LOOPBACK_ENDPOINT_A, &stats) == WL_OK);
-  CHECK(stats.tx_units == (selected_mode == 2 ? 1U : 2U)); /* No premature retry. */
-  printk("CLOCK_CHECK rpc mode=%d idle_ms=%u elapsed_ms=%u client_units=%llu PASS\n",
-      selected_mode, idle_ms, elapsed, (unsigned long long)stats.tx_units);
-  return 0;
+  EXAMPLE_REQUIRE(result.outcome == (selected == 0 ? WL_KERNEL_SUCCESS : selected == 1 ? WL_KERNEL_REJECTED : WL_KERNEL_TIMED_OUT));
+  if (selected == 1) EXAMPLE_REQUIRE(result.status == 7);
+  if (selected == 2) EXAMPLE_REQUIRE(!handled && unsupported == 1 && k_uptime_get_32() - began >= 50);
+  example_pair_close(&pair);
+  printk("CLOCK_CHECK rpc mode=%u idle_ms=%u elapsed_ms=%u explicit_now PASS\n", selected, idle_ms, k_uptime_get_32() - began);
 }
-
-static int performance(void) {
-  enum { ITERATIONS = 20000 };
-  calculator_endpoint_close(&client);
-  calculator_endpoint_close(&server);
-  CHECK(calculator_endpoint_init(&client, test_environment_id(3U, (wl_clock_t){read_clock, NULL}), wl_link_defaults()) == WL_OK);
-  const uint32_t reads = clock_reads;
-  const uint32_t begin = k_cycle_get_32();
-  for (unsigned i = 0; i < ITERATIONS; ++i)
-    CHECK(calculator_endpoint_step(&client) == WL_OK);
-  const uint32_t cycles = k_cycle_get_32() - begin;
-  CHECK(clock_reads == reads + ITERATIONS);
-  printk("CLOCK_CHECK idle iterations=%u cycles/op=%u ns/op=%llu reads/op=1 endpoint_bytes=%u\n",
-      ITERATIONS, cycles / ITERATIONS,
-      (unsigned long long)(k_cyc_to_ns_floor64(cycles) / ITERATIONS),
-      (unsigned)sizeof(client));
-  calculator_endpoint_close(&client);
-  return 0;
-}
-
 int main(void) {
-  printk("CLOCK_CHECK contract=%u.%u native_ms=%u start\n", CALCULATOR_CODEGEN_CONTRACT_MAJOR,
-      CALCULATOR_CODEGEN_CONTRACT_MINOR, k_uptime_get_32());
-  if (transaction(0, 75U) || transaction(0, 150U) || transaction(1, 75U) ||
-      transaction(2, 75U) || performance()) return 1;
-  printk("CLOCK_CHECK ALL PASS\n");
-  return 0;
+  printk("CLOCK_CHECK contract=0.13 native_ms=%u start\n", k_uptime_get_32());
+  transaction(0, 75); transaction(0, 150); transaction(1, 75); transaction(2, 75);
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const calculator_kernel_handlers_t handlers = {0};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+  uint32_t now = read_clock(); unsigned before = reads; uint32_t began = k_cycle_get_32();
+  for (unsigned i = 0; i < 20000; ++i) EXAMPLE_REQUIRE(calculator_kernel_step(&endpoints[0], now) == WL_OK);
+  uint32_t cycles = k_cycle_get_32() - began;
+  EXAMPLE_REQUIRE(reads == before);
+  printk("CLOCK_CHECK idle iterations=20000 cycles/op=%u core_reads/op=0 endpoint_bytes=%u\n", cycles / 20000, (unsigned)sizeof(endpoints[0]));
+  example_pair_close(&pair);
+  printk("CLOCK_CHECK ALL PASS\n"); return 0;
 }

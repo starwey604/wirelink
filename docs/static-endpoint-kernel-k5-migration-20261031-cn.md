@@ -105,3 +105,9 @@ telemetry、calculator、device-info 均使用正式 WLC v2 endpoint 与一个�
 peer client/server 共用 desktop 的业务 schema／typed handler／v2 profile，C 显式持有 port/core/RX storage，网络与 fresh identity 在应用配置。owner helper 只合并 UDP I/O、core deadline、业务期限及 close/drain，没有 RPC 表或 adapter thread。native32/64 的四个 peer 配置 **仅构建通过**；首次 Twister 因从仓库而非 west workspace 启动被拒，修正目录后通过，失败日志保留。
 
 udp_validation 移除旧 ARQ／CRC selector／replay／inspect-release 用例，改为新生成端点与两真实 UDP socket：每端四并发／第五次 WOULD_BLOCK、请求失效后快照、ordinary telemetry、close 后 owned response、业务拒绝、本地取消、UINT32_MAX 回绕 timeout、迟到响应不二次完成、close CLOSED、旧 handle 拒绝、有限 idle wait／锁存通知。native32／native64／Cortex-M3 合计 **9/9** 真实运行通过。独立 frozen-wire／完整 adapter socket/guard/stop 合同仍在原测试中；没有声称两块真实 Ethernet/Wi-Fi 板卡已互通。日志 `twister-udp-peer*`、`twister-udp-generated*`。
+
+## 显式时钟与生成 RPC 所有权 sample
+
+endpoint_clock 改为 owner 显式传 now，验证 idle 后首调用、短 handler／拒绝／未安装 handler 的本地 timeout，并断言 admission／codec／core 不取时钟。20,000 次 idle step 的 core clock reads 为零，仅报当前诊断 cycles。rpc_usability 固定四槽，验证第五次拒绝、callback 再提交、反向拒绝、UTF-8/NUL、完整 2023 B owned response、物理 TX 仍被借用时的回绕 timeout、真实 stop/drain 及新实例旧 handle 拒绝。原 one-slot knob 删除且明确失败；四槽大响应在 Cortex-M3 64 KiB 也实际跑通，没有缩 schema／server-only。
+
+首次八配置失败来自两条 fixture 假设：未安装 handler 的 step 会返回 NOT_SUPPORTED；timeout 后停止仍借用 TX 的模型 driver 会发布 TX_ERROR，step 报 IO。按明确场景接收这些错误，仍断言本地唯一 terminal、未提前释放的物理 lease、最终 quiescent；未修改 core、未 xfail。修正后 native／M3／RISC-V／x86_64 **8/8** 运行通过。共用 loopback helper 的 fixture 身份改为每次初始化递增；生产仍必须提供真实 fresh identity。日志 `twister-clock-rpc*`。
