@@ -1,11 +1,10 @@
-prefix=${pcfiledir}/../..
+prefix=@CMAKE_INSTALL_PREFIX@
 exec_prefix=${prefix}
 libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
 includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
-link_profile=@WIRELINK_LINK_PROFILE@
 
-Name: Wirelink
-Description: Allocation-free C11 link protocol engine
+Name: wirelink
+Description: Allocation-free C11 static endpoint kernel
 Version: @PROJECT_VERSION@
-Libs: -L${libdir} -lwirelink
+Libs: -L${libdir} -lwirelink_kernel -lwirelink_packet_port -lwirelink_kernel_wire -lwirelink_types
 Cflags: -I${includedir}

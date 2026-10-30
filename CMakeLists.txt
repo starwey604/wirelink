@@ -19,6 +19,7 @@ option(WIRELINK_BUILD_STORAGE "Build the independent fixed-block allocator" OFF)
 option(WIRELINK_BUILD_PLATFORM "Build native environment providers" OFF)
 if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER OR WIRELINK_BUILD_ASTRIAL_ADAPTER OR WIRELINK_BUILD_ASIO_UDP_ADAPTER)
   enable_language(CXX)
+  find_package(Threads REQUIRED)
 endif()
 if(DEFINED WIRELINK_LINK_PROFILE)
   message(FATAL_ERROR "WIRELINK_LINK_PROFILE was removed: select one transport in a version2 binding profile; use a fresh build directory")
@@ -125,7 +126,9 @@ if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
   target_include_directories(wirelink_astrial_usb PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/astrial_usb/include>
     $<INSTALL_INTERFACE:include>)
-  target_link_libraries(wirelink_astrial_usb PUBLIC wirelink_packet_port astrial_usb)
+  target_link_libraries(wirelink_astrial_usb PUBLIC wirelink_packet_port
+    $<BUILD_INTERFACE:astrial_usb> $<INSTALL_INTERFACE:WirelinkBackend::astrial_usb>
+    PRIVATE Threads::Threads)
   wl_warnings(wirelink_astrial_usb PRIVATE -Wall -Wextra -Wpedantic -Werror)
   if(BUILD_TESTING)
     add_executable(kernel_packet_usb_test tests/core/packet_usb_owner.c tests/core/packet_usb.cpp)
@@ -217,7 +220,9 @@ if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
   target_include_directories(wirelink_astrial PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/astrial/include>
     $<INSTALL_INTERFACE:include>)
-  target_link_libraries(wirelink_astrial PUBLIC wirelink_byte_fifo_cobs astrial)
+  target_link_libraries(wirelink_astrial PUBLIC wirelink_byte_fifo_cobs
+    $<BUILD_INTERFACE:astrial> $<INSTALL_INTERFACE:WirelinkBackend::astrial>
+    PRIVATE Threads::Threads)
   if(BUILD_TESTING AND UNIX)
     add_executable(kernel_packet_serial_test tests/core/packet_serial_owner.c tests/core/packet_serial.cpp)
     wl_warnings(kernel_packet_serial_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
@@ -259,6 +264,21 @@ foreach(_component packet_port kernel_wire kernel packet_stream stream_cobs_crc1
     stream_length16_none byte_fifo byte_fifo_cobs packet_loopback framing_primitives frame_tools containers types)
   add_library(Wirelink::${_component} ALIAS wirelink_${_component})
 endforeach()
+foreach(_adapter IN ITEMS asio_udp astrial astrial_usb)
+  if(TARGET wirelink_${_adapter})
+    set_target_properties(wirelink_${_adapter} PROPERTIES EXPORT_NAME ${_adapter})
+    add_library(Wirelink::${_adapter} ALIAS wirelink_${_adapter})
+    if(WIRELINK_INSTALL)
+      install(TARGETS wirelink_${_adapter} EXPORT Wirelink_${_adapter}Targets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+      install(DIRECTORY adapters/${_adapter}/include/wirelink DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+      install(EXPORT Wirelink_${_adapter}Targets NAMESPACE Wirelink::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
+    endif()
+  endif()
+endforeach()
 if(WIRELINK_INSTALL)
   include(GNUInstallDirs)
   include(CMakePackageConfigHelpers)
@@ -287,4 +307,7 @@ if(WIRELINK_INSTALL)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake DESTINATION ${_kernel_cmake})
   install(EXPORT WirelinkTargets NAMESPACE Wirelink:: DESTINATION ${_kernel_cmake})
+  configure_file(cmake/wirelink.pc.in ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc @ONLY)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+  install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/wirelink)
 endif()

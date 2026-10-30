@@ -257,3 +257,25 @@ API. Matching WLC remains an independently built tool.
 its own non-benchmark schema. It verifies eight bidirectional native calls,
 a C++ typed consumer with C-owned atomics, and real COBS/CRC16 RPC. No source-tree
 include directory or legacy library is supplied to these consumers. This is the default product package; no second engine or release publication is involved.
+
+Installed transports are explicit CMake components. A C-only application uses
+`find_package(Wirelink CONFIG REQUIRED)` and links `Wirelink::wirelink`; no C++
+compiler, thread library or transport backend is required. Plain C consumers
+may alternatively use the `wirelink` pkg-config module. `Wirelink::frame_tools`,
+`Wirelink::containers`, and `Wirelink::diagnostics` remain independent tools.
+
+Build with `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON` to install `asio_udp`, and request
+`find_package(Wirelink CONFIG REQUIRED COMPONENTS asio_udp)` from a C++20 project.
+Astrial serial/USB use `astrial`/`astrial_usb` components. The application first
+provides its unchanged Astrial targets, for example by `add_subdirectory` of its
+own Astrial source. An explicit `WirelinkBackend::astrial` or
+`WirelinkBackend::astrial_usb` target is also accepted. These backend targets
+supply the public Astrial headers and actual driver dependencies. The Wirelink
+package exports the packet adapter, does not bundle a vendor copy or substitute
+a driver, and reports a missing backend/C++ compiler at configure time.
+
+`tests/package/packet_adapters` links only installed Wirelink headers/libraries
+and application-supplied Astrial, exercising real UDP loopback, controlled USB
+completion and a PTY serial stream. `tests/package/c_core` separately verifies
+CMake and pkg-config C-only linking against an installation containing all C++
+components, and rejects installed legacy execution headers.

@@ -49,3 +49,9 @@ Zephyr `CONFIG_WIRELINK=y` 已只链接新 kernel／packet port；COBS、length1
 独立工具复核后保留 `wl_allocator_t`／固定池和 `wl_waiter_t`／纯 deadline 算术，它们没有旧 RPC 表、线程或 clock fallback；API 注释改为调用方显式管理。无分配诊断 writer 与 FIFO/LATEST/outbox 格式保留，旧 link/replay/bulk 记录删除，新 terminal 仅输出 outcome/status，整数范围、截断及 sizing regression 在 GCC/Clang sanitizer 通过。
 
 默认模块实际通过 **96 个 case/platform**：UART 三平台及 USB 13，native32/64 UDP 与 waiter（含32-bit timeout）29，socket 三平台54；固定池另 **3/3**。首次 Twister 在非 west 工作区启动被拒，随后 5-config 块中 UDP 缺少 fixture 私有 include；补跑块又遇到新 port 断言误写 `payload_length`（实际 `length`）。失败日志均保留，修复后只补跑受影响场景：默认模块其余4配置合格、UDP/waiter7配置合格、socket3配置合格。没有修改内核以绕过测试。独立 native platform/storage 的纯 C 构建与安装也通过。
+
+## 可选 host adapter 安装导出
+
+`Wirelink::asio_udp`、`::astrial`、`::astrial_usb` 分别导出为显式组件；核心包不加载 C++／Threads／Astrial。Astrial 由应用提供真实 backend target（或 `WirelinkBackend::astrial[_usb]`），不修改／捆绑外部 driver，缺失时明确 configure 失败。保留 driver 的公开 include 和链接依赖；首次将其误置 private 导致 fixture 找不到 `astrial/Usb.hpp`，已修正为 public，并保留失败日志。新增 pkg-config 核心导出，仅链接新 kernel／port／wire／types。
+
+安装后真实 UDP／受控 USB／PTY serial **3/3**；缺 backend、缺 C++ 的特定诊断检查通过；含全部 C++ 组件的安装上，C-only CMake 与 pkg-config **2/2**，没有启用 C++ 或安装旧执行头。证据 `adapter-export-*`、`adapter-consumer-*`、`adapter-component-diagnostics.log`、`c-core-consumer-*`。下一点仍包括默认 WLC／SDK、host executor 和其余消费者，K5/K6 尚未结束。
