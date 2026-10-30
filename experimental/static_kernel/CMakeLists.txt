@@ -53,6 +53,21 @@ if(BUILD_TESTING)
     target_compile_options(kernel_cpp_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(kernel_cpp_test PRIVATE kernel_usb_fixture_codec)
     add_test(NAME kernel_cpp COMMAND kernel_cpp_test)
+    set(_instrument "${CMAKE_CURRENT_BINARY_DIR}/instrument")
+    add_custom_command(OUTPUT ${_instrument}/instrument.c ${_instrument}/instrument.h
+        ${_instrument}/instrument_values.h ${_instrument}/instrument_kernel.c
+        ${_instrument}/instrument_kernel.h ${_instrument}/instrument_kernel_codecs.h
+        ${_instrument}/instrument_kernel_manifest.json ${_instrument}/instrument_kernel_deployment.json
+      COMMAND ${WIRELINK_KERNEL_WLC_EXECUTABLE} compile-kernel
+        ${CMAKE_CURRENT_SOURCE_DIR}/schema/instrument.wl
+        --profile ${CMAKE_CURRENT_SOURCE_DIR}/schema/instrument.bind.wl --out-dir ${_instrument}
+      DEPENDS ${WIRELINK_KERNEL_WLC_EXECUTABLE} schema/instrument.wl schema/instrument.bind.wl VERBATIM)
+    add_executable(generated_instrument_test tests/generated_instrument.c
+      ${_instrument}/instrument.c ${_instrument}/instrument_kernel.c)
+    target_include_directories(generated_instrument_test PRIVATE ${_instrument})
+    target_compile_options(generated_instrument_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(generated_instrument_test PRIVATE wirelink_kernel)
+    add_test(NAME generated_instrument COMMAND generated_instrument_test)
   else()
     message(STATUS "Generated endpoint tests need WIRELINK_KERNEL_WLC_EXECUTABLE")
   endif()
