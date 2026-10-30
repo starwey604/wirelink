@@ -161,7 +161,7 @@ static int bulk_init(struct usbd_class_data *class_data) {
   return 0;
 }
 
-static void *bulk_get_descriptors(struct usbd_class_data *class_data,
+static const void *bulk_get_descriptors(struct usbd_class_data *class_data,
                                   enum usbd_speed speed) {
   struct bulk_data *data = usbd_class_get_private(class_data);
 
