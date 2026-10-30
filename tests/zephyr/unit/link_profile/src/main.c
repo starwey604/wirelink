@@ -509,3 +509,22 @@ ZTEST(wirelink_link_profile, test_transport_defaults_preserve_core_configuration
   config.integrity = invalid.integrity;
   zassert_equal(wl_init(&ctx, &config, &storage), WL_ERR_INVALID_ARG);
 }
+
+#if !WL_LINK_PROFILE_COBS_CRC16
+ZTEST(wirelink_link_profile, test_stale_unit_claim_after_reinitialization) {
+  fixture_t *f = &peers[0];
+  static uint8_t units[WL_FRAME_MAX_RAW_LEN * 2U];
+  const wl_rx_unit_queue_config_t queue = {
+      .storage = units, .storage_size = sizeof(units),
+      .unit_size = WL_FRAME_MAX_RAW_LEN, .slot_count = 2U};
+  wl_rx_unit_claim_t claim;
+  init(f, config(WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_NONE, 1U));
+  zassert_ok(wl_rx_unit_queue_init(&f->ctx, &queue));
+  zassert_ok(wl_rx_unit_claim(&f->ctx, queue.unit_size, &claim));
+  /* Reinitialization clears queue geometry. Both stale operations must reject
+   * before calculating an address modulo the now-zero slot count. */
+  init(f, config(WL_ENVELOPE_NATIVE_PACKET, WL_INTEGRITY_NONE, 2U));
+  zassert_equal(wl_rx_unit_commit(&f->ctx, &claim, 4U), WL_ERR_NOT_FOUND);
+  zassert_equal(wl_rx_unit_abort(&f->ctx, &claim), WL_ERR_NOT_FOUND);
+}
+#endif

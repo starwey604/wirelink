@@ -214,6 +214,21 @@ _Static_assert(sizeof(wl_rx_dma_claim_t) == 24U &&
 #endif
 
 int main(void) {
+  /* Independent tools keep their utility contract even when the core omits
+   * their envelope/integrity modes. This consumer receives no private macros. */
+  const uint8_t utility_input[] = {0U, 1U, 0U, 2U, 0xffU};
+  const uint8_t utility_check[] = "123456789";
+  uint8_t utility_encoded[16], utility_decoded[sizeof(utility_input)];
+  size_t utility_encoded_size = 0U, utility_decoded_size = 0U;
+  if (wl_crc16_ccitt_false(utility_check, 9U) != UINT16_C(0x29b1) ||
+      wl_crc32c(utility_check, 9U) != UINT32_C(0xe3069283) ||
+      wl_cobs_encode(utility_input, sizeof(utility_input), utility_encoded,
+          sizeof(utility_encoded), &utility_encoded_size) != WL_OK ||
+      wl_cobs_decode(utility_encoded, utility_encoded_size, utility_decoded,
+          sizeof(utility_decoded), &utility_decoded_size) != WL_OK ||
+      utility_decoded_size != sizeof(utility_input)) return 1;
+  for (size_t i = 0U; i < sizeof(utility_input); ++i)
+    if (utility_decoded[i] != utility_input[i]) return 1;
   wl_config_t selected_config = {0};
   if (wl_config_apply_link_defaults(&selected_config, wl_link_defaults()) != WL_OK ||
       selected_config.integrity != WL_INTEGRITY_CRC16 ||

@@ -120,11 +120,15 @@ wl_err_t wl_rx_unit_claim(wl_ctx_t *ctx, size_t maximum_length,
 
 static int claim_matches(const wl_rx_unit_queue_state_t *queue,
                          const wl_rx_unit_claim_t *claim) {
+  /* Reinitialization clears the queue. Reject stale claims before using
+   * its storage geometry (slot_count is zero until queue initialization). */
+  if (queue->initialized == 0U || queue->claim_active == 0U || claim == NULL) {
+    return 0;
+  }
   const uint8_t *expected =
       queue->storage +
       ((size_t)(queue->claim_cursor % queue->slot_count) * queue->unit_size);
-  return queue->claim_active != 0U && claim != NULL &&
-         claim->token == queue->claim_token && claim->span.data == expected;
+  return claim->token == queue->claim_token && claim->span.data == expected;
 }
 
 wl_err_t wl_rx_unit_commit(wl_ctx_t *ctx, const wl_rx_unit_claim_t *claim,
