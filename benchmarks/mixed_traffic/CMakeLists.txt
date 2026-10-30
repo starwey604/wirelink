@@ -6,11 +6,10 @@ set(WIRELINK_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "Wirelink s
 set(WIRELINK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WIRELINK_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${WIRELINK_SOURCE_DIR}" wirelink)
-wirelink_wlc_generate_codec(TARGET mixed_codec SCHEMA "${CMAKE_CURRENT_LIST_DIR}/mixed.wl")
-wirelink_wlc_generate_runtime(TARGET mixed_runtime CODEC_TARGET mixed_codec
-  PROFILE "${CMAKE_CURRENT_LIST_DIR}/mixed.bind.wl" RUNTIME_NAME mixed)
+wirelink_wlc_generate(TARGET mixed_protocol SCHEMA "${CMAKE_CURRENT_LIST_DIR}/mixed.wl"
+  PROFILE "${CMAKE_CURRENT_LIST_DIR}/mixed.bind.wl")
 add_executable(wirelink_mixed_traffic main.c workload.c)
-target_link_libraries(wirelink_mixed_traffic PRIVATE mixed_runtime)
+target_link_libraries(wirelink_mixed_traffic PRIVATE mixed_protocol Wirelink::stream_cobs_crc16 Wirelink::stream_length16_none)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink_mixed_traffic PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
@@ -18,6 +17,8 @@ add_test(NAME mixed_traffic_freshness COMMAND wirelink_mixed_traffic --check)
 set_tests_properties(mixed_traffic_freshness PROPERTIES LABELS "integration;deterministic" TIMEOUT 30)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME mixed_kernel_reports COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/test_kernel_report.py" $<TARGET_FILE:wirelink_mixed_traffic>)
   add_test(NAME mixed_traffic_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare.py")
   add_test(NAME mixed_traffic_firmware_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare_firmware.py")
 endif()

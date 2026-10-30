@@ -1,278 +1,214 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* Deterministic protocol-time experiment, NOT a CPU or physical UART benchmark. */
-#include "mixed_endpoint.h"
-#include "wirelink/cobs.h"
-#include "wirelink/wirelink.h"
+/* Deterministic application/packet-time model, not a hardware CPU benchmark. */
+#include "mixed_kernel.h"
+#include "wirelink/packet_stream.h"
 #include "workload.h"
 #include <stdio.h>
 #include <stdlib.h>
-
-#define CHECK(condition) do { if (!(condition)) { \
-  fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); abort(); \
-} } while (0)
+#include <string.h>
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); abort(); } } while (0)
 #define CALLS 5U
 #define DURATION 2400U
 
 typedef struct {
   const char *name;
-  unsigned dropped_acks, busy_ms, io_ms, telemetry_ms;
-  bool rpc, telemetry_first, wrap;
-  unsigned ack_drop_limit; /* Zero: apply loss to each reliable sequence. */
+  unsigned busy_ms, io_ms, sample_ms;
+  bool rpc, telemetry_first, wrap, drop_request, drop_response;
 } scenario_t;
-
 typedef struct simulation simulation_t;
 typedef struct {
   simulation_t *simulation;
-  unsigned started, sequence;
-} call_t;
-
+  unsigned side, sequence, began, attempts;
+  bool done, retry;
+} job_t;
 typedef struct {
   simulation_t *simulation;
-  unsigned index;
-  wl_endpoint_t *owner;
-  wl_ctx_t *link, *peer;
+  unsigned side;
+  wl_packet_port_t port;
+  wl_packet_stream_t stream;
+  uint8_t rx[2][128], stream_tx[80], copy[80];
   const uint8_t *borrowed;
-  size_t length;
-  wl_io_token_t token;
-  unsigned complete_at;
-  unsigned retry_at;
-  bool retry_pending;
-  uint8_t copy[MIXED_ENDPOINT_UNIT_CAPACITY];
-  uint32_t ack_sequence;
-  bool have_ack, drop;
-  unsigned ack_copies, ack_drops, busy;
+  size_t length, fed;
+  wl_packet_token_t token;
+  unsigned consumed_at, drained_at, retry_at;
+  bool active, retry_due, drop;
   unsigned accepted, received, last_sequence, sampled_at, received_at;
-  unsigned max_age, max_arrival_age, max_gap;
+  unsigned max_age, max_arrival_age, max_gap, busy, dropped_requests, dropped_responses;
   uint64_t age_sum;
-  telemetry_t latest;
-  unsigned sent_sequence;
-  call_t calls[CALLS];
+  telemetry_value_t latest;
+  bool latest_pending;
+  job_t jobs[CALLS];
 } port_t;
-
 struct simulation {
   scenario_t scenario;
-  wl_envelope_type_t envelope;
   unsigned tick;
-  uint64_t identity;
-  mixed_endpoint_t endpoints[2];
+  int envelope;
+  mixed_kernel_t endpoints[2];
   port_t ports[2];
-  unsigned completed, handled, max_rpc_ms;
+  unsigned completed, handled, timed_out, max_rpc;
 };
-
-static wl_time_ms_t now(void *context) {
-  const simulation_t *s = context;
+static simulation_t simulation;
+static uint64_t next_instance = 1000;
+static uint32_t now(const simulation_t *s) {
   return (s->scenario.wrap ? UINT32_MAX - 500U : 0U) + s->tick;
 }
-
-static wl_err_t next_session(void *context, uint64_t *session) {
-  simulation_t *s = context;
-  *session = ++s->identity;
-  return WL_OK;
-}
-
-static wl_sink_result_t transmit(void *context, wl_io_token_t token,
-                                  const uint8_t *data, size_t length) {
-  port_t *p = context;
-  simulation_t *s = p->simulation;
-  CHECK(p->borrowed == NULL); /* Core must serialize the physical resource. */
-  if (s->scenario.busy_ms != 0U && s->tick % 250U >= 120U &&
-      s->tick % 250U < 120U + s->scenario.busy_ms) {
-    ++p->busy;
-    p->retry_at = s->tick - s->tick % 250U + 120U + s->scenario.busy_ms;
-    p->retry_pending = true;
-    return WL_SINK_BUSY;
+static wl_packet_submit_t transmit(void *user, const uint8_t *data, size_t length,
+                                   wl_packet_token_t token) {
+  port_t *p = user; simulation_t *s = p->simulation;
+  CHECK(!p->active);
+  if (s->scenario.busy_ms && s->tick % 250 >= 120 && s->tick % 250 < 120 + s->scenario.busy_ms) {
+    ++p->busy; p->retry_at = s->tick - s->tick % 250 + 120 + s->scenario.busy_ms;
+    p->retry_due = true; return WL_PACKET_BUSY;
   }
   CHECK(length <= sizeof(p->copy));
-  memcpy(p->copy, data, length);
-  uint8_t decoded[MIXED_ENDPOINT_UNIT_CAPACITY];
-  const uint8_t *raw = data;
-  size_t raw_length = length;
-  if (s->envelope == WL_ENVELOPE_COBS_STREAM) {
-    CHECK(length > 1U && data[length - 1U] == 0U);
-    CHECK(wl_cobs_decode(data, length - 1U, decoded, sizeof(decoded), &raw_length) == WL_OK);
-    raw = decoded;
-  } else if (s->envelope == WL_ENVELOPE_BUS_LENGTH16) {
-    CHECK(length >= 2U);
-    raw += 2U;
-    raw_length -= 2U;
-  }
-  wl_frame_view_t frame;
-  CHECK(wl_frame_decode(raw, raw_length, WL_INTEGRITY_CRC32C, &frame) == WL_OK);
+  memcpy(p->copy, data, length); p->length = length; p->fed = 0;
+  p->borrowed = data; p->token = token; p->active = true;
+  p->consumed_at = s->tick + 1; p->drained_at = s->tick + s->scenario.io_ms;
+  /* Model loss inspects an independent copy; no source bytes are altered. */
+  uint8_t raw[80]; memcpy(raw, data, length);
+  size_t raw_length = length; const uint8_t *canonical = raw;
+  if (s->envelope == 0) CHECK(wl_packet_cobs_crc16_decode(raw, length, &raw_length) == WL_OK);
+  else if (s->envelope == 2) { CHECK(length > 2); canonical += 2; raw_length -= 2; }
+  wl_kernel_frame_t frame;
+  CHECK(wl_kernel_native_none_read(canonical, raw_length, &frame) == WL_OK);
   p->drop = false;
-  if (frame.type == WL_PACKET_ACK) {
-    if (!p->have_ack || p->ack_sequence != frame.sequence) {
-      p->have_ack = true;
-      p->ack_sequence = frame.sequence;
-      p->ack_copies = 0U;
-    }
-    p->drop = p->ack_copies++ < s->scenario.dropped_acks &&
-        (s->scenario.ack_drop_limit == 0U || p->ack_drops < s->scenario.ack_drop_limit);
-    if (p->drop) ++p->ack_drops;
+  if (frame.message_id == ECHO_REQUEST_MESSAGE_ID && s->scenario.drop_request && !p->dropped_requests) {
+    ++p->dropped_requests; p->drop = true;
   }
-  p->borrowed = data;
-  p->length = length;
-  p->token = token;
-  p->complete_at = s->tick + s->scenario.io_ms;
-  return WL_SINK_STARTED;
-}
-
-static int service(void *context) {
-  port_t *p = context;
-  if (p->retry_pending && p->simulation->tick >= p->retry_at) {
-    p->retry_pending = false;
-    CHECK(wl_tx_writable(p->link) == WL_OK);
-    return WL_OK;
+  if (frame.message_id == ECHO_RESPONSE_MESSAGE_ID && s->scenario.drop_response && !p->dropped_responses) {
+    ++p->dropped_responses; p->drop = true;
   }
-  if (p->borrowed == NULL || p->simulation->tick < p->complete_at)
-    return WL_ERR_NO_DATA;
-  CHECK(memcmp(p->borrowed, p->copy, p->length) == 0);
-  if (!p->drop) {
-    if (p->simulation->envelope == WL_ENVELOPE_COBS_STREAM) {
-      size_t accepted;
-      CHECK(wl_feed_bytes(p->peer, p->copy, p->length, &accepted) == WL_OK);
-      CHECK(accepted == p->length);
-    } else CHECK(wl_feed_unit(p->peer, p->copy, p->length) == WL_OK);
+  return WL_PACKET_STARTED;
+}
+static void service(port_t *p) {
+  simulation_t *s = p->simulation;
+  if (p->retry_due && s->tick >= p->retry_at) {
+    p->retry_due = false; wl_packet_activity(&p->port);
   }
-  p->borrowed = NULL;
-  CHECK(wl_tx_consumed(p->link, p->token, WL_OK) == WL_OK);
-  return WL_OK;
-}
-
-static wl_readiness_t readiness(const void *context, const wl_ctx_t *link,
-                               wl_time_ms_t now_ms) {
-  const port_t *p = context;
-  wl_readiness_t value = wl_readiness_idle();
-  const unsigned tick = p->simulation->tick;
-  (void)link;
-  (void)now_ms;
-  if (p->borrowed != NULL)
-    wl_readiness_merge(&value, wl_readiness_at(tick >= p->complete_at ? 0U : p->complete_at - tick));
-  if (p->retry_pending)
-    wl_readiness_merge(&value, wl_readiness_at(tick >= p->retry_at ? 0U : p->retry_at - tick));
-  return value;
-}
-
-static void quiesce(void *context) {
-  port_t *p = context;
-  /* The simulation cancels outstanding physical I/O at close. */
-  CHECK(wl_set_sink(p->link, NULL, NULL) == WL_OK);
-  if (p->borrowed != NULL) {
+  if (!p->active) return;
+  if (p->borrowed && s->tick >= p->consumed_at) {
+    CHECK(memcmp(p->borrowed, p->copy, p->length) == 0);
     p->borrowed = NULL;
-    CHECK(wl_tx_consumed(p->link, p->token, WL_OK) == WL_OK);
+    CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_CONSUMED) == WL_OK);
   }
-}
-
-static int32_t echo(void *context, const echo_request_value_t *request,
-                    echo_response_value_t *response) {
-  simulation_t *s = context;
-  ++s->handled;
-  response->has_sequence = true;
-  response->sequence = request->sequence;
-  return 0;
-}
-
-static void completed(void *context, const wl_rpc_completion_t *result,
-                       const echo_response_value_t *response) {
-  call_t *call = context;
-  simulation_t *s = call->simulation;
-  CHECK(result->status == WL_RPC_SUCCESS);
-  CHECK(response != NULL && response->sequence == call->sequence);
-  unsigned elapsed = s->tick - call->started;
-  if (elapsed > s->max_rpc_ms) s->max_rpc_ms = elapsed;
-  ++s->completed;
-}
-
-static void telemetry(simulation_t *s, unsigned index) {
-  port_t *p = &s->ports[index];
-  if (s->tick % s->scenario.telemetry_ms == 0U) {
-    p->latest.has_sequence = p->latest.has_sampled_at = true;
-    ++p->latest.sequence;
-    p->latest.sampled_at = s->tick;
+  if (s->tick < p->drained_at) return;
+  port_t *peer = &s->ports[1 - p->side];
+  if (!p->drop) {
+    wl_err_t error;
+    if (s->envelope == 1) {
+      wl_packet_claim_t claim;
+      error = wl_packet_rx_claim(&peer->port, p->length, &claim);
+      if (error == WL_ERR_WOULD_BLOCK) return;
+      CHECK(error == WL_OK); memcpy(claim.span.data, p->copy, p->length);
+      CHECK(wl_packet_rx_commit(&peer->port, &claim, p->length) == WL_OK);
+    } else {
+      size_t consumed = 0;
+      error = s->envelope == 0 ? wl_packet_stream_cobs_crc16_feed(&peer->stream,
+        p->copy + p->fed, p->length - p->fed, &consumed) :
+        wl_packet_stream_length16_none_feed(&peer->stream, p->copy + p->fed, p->length - p->fed, &consumed);
+      p->fed += consumed;
+      CHECK(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
+      if (p->fed < p->length) return;
+    }
   }
-  if (p->sent_sequence == p->latest.sequence) return;
-  mixed_send_result_t result = mixed_endpoint_send_telemetry(&s->endpoints[index], &p->latest);
-  if (result.domain == MIXED_SEND_OK) {
-    ++p->accepted;
-    p->sent_sequence = p->latest.sequence;
-  } else CHECK(result.core_result == WL_ERR_BUSY || result.core_result == WL_ERR_WOULD_BLOCK);
+  CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_DRAINED) == WL_OK);
+  p->borrowed = NULL; p->active = false;
 }
-
-static void observe(simulation_t *s, unsigned index) {
-  port_t *p = &s->ports[index];
-  telemetry_t latest = {0};
-  int result = mixed_endpoint_read_telemetry(&s->endpoints[index], &latest);
-  CHECK(result == WL_OK || result == WL_ERR_NO_DATA);
-  if (result == WL_OK) {
-    CHECK(latest.has_sequence && latest.has_sampled_at);
-    CHECK(latest.sampled_at <= s->tick && latest.sequence > p->last_sequence);
-    const unsigned gap = s->tick - p->received_at;
-    const unsigned arrival_age = s->tick - latest.sampled_at;
-    if (p->received != 0U && gap > p->max_gap) p->max_gap = gap;
-    if (arrival_age > p->max_arrival_age) p->max_arrival_age = arrival_age;
-    ++p->received;
-    p->last_sequence = latest.sequence;
-    p->sampled_at = latest.sampled_at;
-    p->received_at = s->tick;
-  }
-  /* read consumes the mailbox revision, not the application's last value.
-   * Its age continues increasing on EVERY tick with no new reception. */
-  if (p->received == 0U) return;
-  const unsigned age = s->tick - p->sampled_at;
-  if (age > p->max_age) p->max_age = age;
-  s->ports[index].age_sum += age;
+static int32_t echo(void *user, const echo_request_t *request, echo_response_value_t *response) {
+  port_t *p = user; ++p->simulation->handled;
+  response->has_sequence = true; response->sequence = request->sequence; return 0;
 }
-
-static void run(scenario_t scenario, wl_envelope_type_t envelope, bool check) {
-  static simulation_t s;
-  memset(&s, 0, sizeof(s));
-  s.scenario = scenario;
-  s.envelope = envelope;
-  const wl_environment_t environment = {{now, &s}, {next_session, &s}};
-  for (unsigned i = 0U; i < 2U; ++i) {
-    mixed_endpoint_config_t config;
-    CHECK(mixed_endpoint_config_defaults(&config, environment, wl_link_defaults()) == WL_OK);
-    config.link.envelope = envelope;
-    config.link.integrity = WL_INTEGRITY_CRC32C; /* This workload tests CRC32C. */
-    config.link.ack_timeout_ms = 100U;
-    config.link.max_retries = 4U;
-    config.on_echo = echo;
-    config.user_data = &s;
-    CHECK(mixed_endpoint_init_config(&s.endpoints[i], &config) == WL_OK);
-    s.ports[i].simulation = &s;
-    s.ports[i].index = i;
-    s.ports[i].owner = mixed_endpoint_handle(&s.endpoints[i]);
-    s.ports[i].link = wl_endpoint_link(s.ports[i].owner);
+static void telemetry(void *user, const telemetry_t *value) {
+  port_t *p = user; simulation_t *s = p->simulation;
+  CHECK(value->sequence > p->last_sequence && value->sampled_at <= s->tick);
+  unsigned age = s->tick - value->sampled_at;
+  if (age > p->max_arrival_age) p->max_arrival_age = age;
+  if (p->received && s->tick - p->received_at > p->max_gap)
+    p->max_gap = s->tick - p->received_at;
+  p->last_sequence = value->sequence; p->sampled_at = value->sampled_at;
+  p->received_at = s->tick; ++p->received;
+}
+static void completed(void *user, wl_kernel_result_t result, const echo_response_t *response) {
+  job_t *job = user; simulation_t *s = job->simulation;
+  if (result.outcome == WL_KERNEL_TIMED_OUT) {
+    CHECK(job->attempts < 3); ++s->timed_out; job->retry = true; return;
   }
-  for (unsigned i = 0U; i < 2U; ++i) {
-    port_t *p = &s.ports[i];
-    p->peer = s.ports[1U - i].link;
-    wl_pump_hooks_t hooks = {.adapter_user_data = p, .service = service,
-      .quiesce = quiesce, .adapter_readiness = readiness};
-    CHECK(wl_endpoint_attach(p->owner, &hooks) == WL_OK);
-    CHECK(wl_set_sink(p->link, transmit, p) == WL_OK);
+  CHECK(result.outcome == WL_KERNEL_SUCCESS && response && response->sequence == job->sequence);
+  CHECK(!job->done); job->done = true; ++s->completed;
+  unsigned elapsed = s->tick - job->began;
+  if (elapsed > s->max_rpc) s->max_rpc = elapsed;
+}
+static void start(job_t *job) {
+  simulation_t *s = job->simulation;
+  echo_request_value_t value = {.has_sequence = true, .sequence = job->sequence};
+  wl_kernel_call_handle_t handle;
+  CHECK(mixed_kernel_echo_start(&s->endpoints[job->side], &value, now(s), 80,
+    completed, job, &handle) == WL_OK);
+  memset(&value, 0, sizeof(value)); ++job->attempts; job->retry = false;
+}
+static void send_sample(port_t *p) {
+  simulation_t *s = p->simulation;
+  if (s->tick % s->scenario.sample_ms == 0) {
+    p->latest = (telemetry_value_t){.has_sequence = true,
+      .sequence = s->tick / s->scenario.sample_ms + 1,
+      .has_sampled_at = true, .sampled_at = s->tick};
+    p->latest_pending = true;
+  }
+  if (!p->latest_pending) return;
+  wl_err_t error = mixed_kernel_send_telemetry(&s->endpoints[p->side], &p->latest);
+  CHECK(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
+  if (error == WL_OK) { ++p->accepted; p->latest_pending = false; }
+}
+static void run(scenario_t scenario, int envelope, bool check) {
+  simulation_t *s = &simulation; memset(s, 0, sizeof(*s));
+  s->scenario = scenario; s->envelope = envelope;
+  const mixed_kernel_handlers_t handlers = {.on_rpc_echo = echo, .on_message_telemetry = telemetry};
+  for (unsigned side = 0; side < 2; ++side) {
+    port_t *p = &s->ports[side]; p->simulation = s; p->side = side;
+    wl_packet_config_t config = {.instance = ++next_instance, .rx_storage = &p->rx[0][0],
+      .rx_unit_size = sizeof(p->rx[0]), .rx_storage_size = sizeof(p->rx), .submit = transmit, .user = p};
+    if (envelope != 1) {
+      config.submit = envelope == 0 ? wl_packet_stream_cobs_crc16_submit : wl_packet_stream_length16_none_submit;
+      config.notify = wl_packet_stream_notify; config.user = &p->stream;
+    }
+    CHECK(wl_packet_init(&p->port, &config) == WL_OK);
+    if (envelope != 1) {
+      wl_packet_stream_config_t stream = {.port = &p->port, .tx_storage = {p->stream_tx, sizeof(p->stream_tx)},
+        .maximum_frame_size = 64, .physical_submit = transmit, .user = p};
+      CHECK((envelope == 0 ? wl_packet_stream_cobs_crc16_init(&p->stream, &stream) :
+        wl_packet_stream_length16_none_init(&p->stream, &stream)) == WL_OK);
+    }
+    CHECK(mixed_kernel_init(&s->endpoints[side], &p->port, &handlers, NULL, p) == WL_OK);
   }
 #ifdef MIXED_TRAFFIC_FIRMWARE
   mixed_fw_case_begin();
 #endif
-  for (s.tick = 0U; s.tick < DURATION; ++s.tick) {
+  for (s->tick = 0; s->tick < DURATION; ++s->tick) {
 #ifdef MIXED_TRAFFIC_FIRMWARE
     mixed_fw_tick_begin();
 #endif
-    if (scenario.rpc && s.tick >= 100U && (s.tick - 100U) % 400U == 0U &&
-        (s.tick - 100U) / 400U < CALLS) {
-      const unsigned ordinal = (s.tick - 100U) / 400U;
-      for (unsigned i = 0U; i < 2U; ++i) {
-        call_t *call = &s.ports[i].calls[ordinal];
-        *call = (call_t){&s, s.tick, i * CALLS + ordinal + 1U};
-        echo_request_value_t request = {.has_sequence = true, .sequence = call->sequence};
-        CHECK(mixed_endpoint_echo_async(&s.endpoints[i], &request, 1500U,
-                                         completed, call, NULL) == WL_OK);
+    for (unsigned side = 0; side < 2; ++side) service(&s->ports[side]);
+    for (unsigned side = 0; side < 2; ++side) {
+      port_t *p = &s->ports[side];
+      if (scenario.rpc && s->tick >= 100 && (s->tick - 100) % 400 == 0 && (s->tick - 100) / 400 < CALLS) {
+        unsigned index = (s->tick - 100) / 400;
+        p->jobs[index] = (job_t){.simulation = s, .side = side, .sequence = index + 1, .began = s->tick};
+        start(&p->jobs[index]);
+      }
+      for (unsigned index = 0; index < CALLS; ++index) if (p->jobs[index].retry) start(&p->jobs[index]);
+    }
+    if (scenario.telemetry_first) for (unsigned side = 0; side < 2; ++side) send_sample(&s->ports[side]);
+    for (unsigned side = 0; side < 2; ++side) CHECK(mixed_kernel_step(&s->endpoints[side], now(s)) == WL_OK);
+    if (!scenario.telemetry_first) for (unsigned side = 0; side < 2; ++side) send_sample(&s->ports[side]);
+    for (unsigned side = 0; side < 2; ++side) {
+      port_t *p = &s->ports[side];
+      if (p->received) {
+        unsigned age = s->tick - p->sampled_at, gap = s->tick - p->received_at;
+        if (age > p->max_age) p->max_age = age;
+        if (gap > p->max_gap) p->max_gap = gap;
+        p->age_sum += age;
       }
     }
-    if (scenario.telemetry_first) for (unsigned i = 0U; i < 2U; ++i) telemetry(&s, i);
-    for (unsigned i = 0U; i < 2U; ++i) CHECK(mixed_endpoint_step(&s.endpoints[i]) == WL_OK);
-    if (!scenario.telemetry_first) for (unsigned i = 0U; i < 2U; ++i) telemetry(&s, i);
-    for (unsigned i = 0U; i < 2U; ++i) observe(&s, i);
 #ifdef MIXED_TRAFFIC_FIRMWARE
     mixed_fw_tick_end();
 #endif
@@ -280,43 +216,52 @@ static void run(scenario_t scenario, wl_envelope_type_t envelope, bool check) {
 #ifdef MIXED_TRAFFIC_FIRMWARE
   mixed_fw_case_end(scenario.name, envelope);
 #endif
-  CHECK(s.completed == (scenario.rpc ? CALLS * 2U : 0U));
-  CHECK(s.handled == s.completed); /* Retries must not repeat business work. */
-  for (unsigned i = 0U; i < 2U; ++i) {
-    port_t *p = &s.ports[i];
-    CHECK(p->received > 0U);
-    if (scenario.rpc && scenario.dropped_acks != 0U) CHECK(p->ack_drops > 0U);
-    if (scenario.busy_ms != 0U) CHECK(p->busy > 0U);
-    printf("{\"format\":1,\"clock\":\"simulated_ms\",\"duration_ms\":%u,"
-           "\"scenario\":\"%s\",\"envelope\":%d,\"receiver\":%u,"
-           "\"accepted\":%u,\"received\":%u,\"max_age_ms\":%u,"
-           "\"max_arrival_age_ms\":%u,\"max_gap_ms\":%u,\"mean_age_ms\":%.3f,"
-           "\"rpc_completed\":%u,\"max_rpc_ms\":%u,\"ack_drops\":%u,\"busy\":%u}\n",
-           DURATION, scenario.name, envelope, i, s.ports[1U - i].accepted, p->received,
-           p->max_age, p->max_arrival_age, p->max_gap, (double)p->age_sum / DURATION,
-           s.completed, s.max_rpc_ms, p->ack_drops, p->busy);
+  CHECK(s->completed == (scenario.rpc ? CALLS * 2 : 0));
+  CHECK(s->handled == s->completed + s->ports[0].dropped_responses + s->ports[1].dropped_responses);
+  CHECK(s->timed_out == s->ports[0].dropped_requests + s->ports[1].dropped_requests +
+    s->ports[0].dropped_responses + s->ports[1].dropped_responses);
+  for (unsigned side = 0; side < 2; ++side) {
+    port_t *p = &s->ports[side], *sender = &s->ports[1 - side];
+    CHECK(p->received && p->received <= sender->accepted);
+    CHECK((p->busy > 0) == (scenario.busy_ms != 0));
+    CHECK(p->dropped_requests == (unsigned)scenario.drop_request && p->dropped_responses == (unsigned)scenario.drop_response);
     if (check) {
-      /* Finite physical backpressure/serialization remain observable; ACK
-       * timeout (100 ms) must not determine telemetry freshness. */
-      const unsigned bound = scenario.busy_ms + scenario.telemetry_ms + 12U * scenario.io_ms;
+      unsigned bound = scenario.busy_ms + scenario.sample_ms + 16 * scenario.io_ms + 8;
       CHECK(p->max_age <= bound && p->max_gap <= bound);
     }
+    printf("{\"format\":2,\"clock\":\"simulated_ms\",\"duration_ms\":2400,\"scenario\":\"%s\",\"envelope\":%d,\"receiver\":%u,"
+      "\"accepted\":%u,\"received\":%u,\"max_age_ms\":%u,\"max_arrival_age_ms\":%u,\"max_gap_ms\":%u,\"mean_age_ms\":%.6f,"
+      "\"rpc_completed\":%u,\"rpc_handled\":%u,\"rpc_timed_out\":%u,\"max_rpc_ms\":%u,\"dropped_requests\":%u,\"dropped_responses\":%u,\"busy\":%u}\n",
+      scenario.name, envelope, side, sender->accepted, p->received, p->max_age, p->max_arrival_age,
+      p->max_gap, (double)p->age_sum / DURATION, s->completed, s->handled, s->timed_out,
+      s->max_rpc, p->dropped_requests, p->dropped_responses, p->busy);
   }
-  for (unsigned i = 0U; i < 2U; ++i) CHECK(mixed_endpoint_close(&s.endpoints[i]) == WL_OK);
+  for (unsigned side = 0; side < 2; ++side) {
+    port_t *p = &s->ports[side]; CHECK(wl_kernel_close(&s->endpoints[side].core) == WL_OK);
+    bool cancelled = p->active;
+    if (p->active) {
+      /* Model driver abandons its actual held source/copy before TX_ERROR. */
+      p->borrowed = NULL; p->active = false;
+      CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_TX_ERROR) == WL_OK);
+    }
+    if (envelope != 1) CHECK(wl_packet_stream_abort_rx(&p->stream) == WL_OK);
+    wl_err_t error = mixed_kernel_step(&s->endpoints[side], now(s));
+    CHECK(error == WL_OK || (cancelled && error == WL_ERR_IO));
+    CHECK(wl_kernel_quiescent(&s->endpoints[side].core));
+  }
 }
-
 int mixed_traffic_run(bool check) {
   const scenario_t scenarios[] = {
-    {"telemetry_only", 0, 0, 1, 5, false, false, false, 0},
-    {"rpc_clean", 0, 0, 1, 5, true, false, false, 0},
-    {"single_ack", 1, 0, 1, 5, true, false, false, 1},
-    {"drop_ack", 2, 0, 1, 5, true, false, false, 0},
-    {"backpressure", 0, 20, 1, 5, true, false, false, 0},
-    {"drop_ack_backpressure", 2, 20, 1, 5, true, false, false, 0},
-    {"saturated_wrap", 2, 20, 3, 1, true, true, true, 0},
+    {.name = "telemetry_only", .io_ms = 1, .sample_ms = 5},
+    {.name = "rpc_clean", .io_ms = 1, .sample_ms = 5, .rpc = true},
+    {.name = "drop_request", .io_ms = 1, .sample_ms = 5, .rpc = true, .drop_request = true},
+    {.name = "drop_response", .io_ms = 1, .sample_ms = 5, .rpc = true, .drop_response = true},
+    {.name = "backpressure", .busy_ms = 20, .io_ms = 1, .sample_ms = 5, .rpc = true},
+    {.name = "loss_backpressure", .busy_ms = 20, .io_ms = 1, .sample_ms = 5, .rpc = true, .drop_request = true, .drop_response = true},
+    {.name = "saturated_wrap", .busy_ms = 20, .io_ms = 3, .sample_ms = 1, .rpc = true,
+      .telemetry_first = true, .wrap = true, .drop_request = true, .drop_response = true},
   };
-  for (int envelope = WL_ENVELOPE_COBS_STREAM; envelope <= WL_ENVELOPE_BUS_LENGTH16; ++envelope)
-    for (size_t i = 0U; i < sizeof(scenarios) / sizeof(scenarios[0]); ++i)
-      run(scenarios[i], envelope, check);
+  for (int envelope = 0; envelope < 3; ++envelope)
+    for (unsigned i = 0; i < sizeof(scenarios) / sizeof(scenarios[0]); ++i) run(scenarios[i], envelope, check);
   return 0;
 }

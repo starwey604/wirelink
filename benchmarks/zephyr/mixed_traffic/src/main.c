@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "workload.h"
-#include "mixed_endpoint.h"
+#include "mixed_kernel.h"
 #include <zephyr/kernel.h>
 #include <zephyr/timing/timing.h>
 
@@ -31,25 +31,23 @@ void mixed_fw_tick_end(void) {
 
 void mixed_fw_case_end(const char *scenario, int envelope) {
   __ASSERT_NO_MSG(ticks == 2400U);
-  printk("mixed_cpu_v1,scenario=%s,e=%d,n=%u,cycles=%llu,max=%llu\n",
+  printk("mixed_kernel_cpu_v1,scenario=%s,e=%d,n=%u,cycles=%llu,max=%llu\n",
       scenario, envelope, ticks, (unsigned long long)total_cycles,
       (unsigned long long)max_cycles);
   /* Neither reporting nor RTT drain belongs to the timed owner work. */
   k_sleep(K_MSEC(20));
 }
 
-void mixed_retry_cpu(void);
 
 int main(void) {
   /* Let the USB Serial/JTAG console attach after reset before printing. */
   k_sleep(K_MSEC(2000));
   timing_init();
   timing_start();
-  printk("mixed_fw_begin_v1,hz=%llu,lto=%u,coexist=%u,endpoint_bytes=%u,barriers=1\n",
+  printk("mixed_kernel_fw_begin_v1,hz=%llu,lto=%u,endpoint_bytes=%u,barriers=1\n",
       (unsigned long long)timing_freq_get(), IS_ENABLED(CONFIG_LTO),
-      MIXED_EXPECT_COEXIST, (unsigned)sizeof(mixed_endpoint_t));
-  __ASSERT_NO_MSG(mixed_traffic_run(MIXED_EXPECT_COEXIST != 0) == 0);
-  mixed_retry_cpu();
-  printk("mixed_fw_end_v1,result=pass,traffic_rows=42,cpu_groups=21,retry_samples=360\n");
+      (unsigned)sizeof(mixed_kernel_t));
+  __ASSERT_NO_MSG(mixed_traffic_run(true) == 0);
+  printk("mixed_kernel_fw_end_v1,result=pass,traffic_rows=42,cpu_groups=21\n");
   return 0;
 }

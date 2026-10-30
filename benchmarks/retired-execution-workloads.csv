@@ -1,0 +1,2 @@
+path,retired_sha256,reason,replacement
+benchmarks/zephyr/mixed_traffic/src/retry_cpu.c,497ed248291f023a595faf9a2a0f210e709969bb2dece214a31803efc2eeece6,Cached/reconstructed ARQ retry engine removed; historical report parser retained,benchmarks/mixed_traffic/workload.c explicit application retry and duplicate execution; static kernel USB benchmark

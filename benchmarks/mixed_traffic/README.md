@@ -1,92 +1,58 @@
-# Reliable RPC / telemetry coexistence
+# Kernel RPC and application telemetry model
 
 [中文](README-cn.md).
 
-This is a deterministic **protocol-time** regression, not a CPU benchmark or a
-prediction of UART, USB or OS scheduling latency. It runs real generated
-endpoints, owned async RPCs, retained telemetry and the core with a fake clock
-and a serialized asynchronous transport. No sockets, threads, sleeps or Google
-Benchmark dependency are required.
-
-A [firmware variant](../zephyr/README.md) reuses this workload with real timer
-measurements, including cached versus reconstructed retries.
-Running the model on a board does not turn its ages into USB/UART latency.
-
-## Run
-
-Build a matching WLC independently, then point CMake at it:
+This deterministic 2400-tick model runs real generated kernels and packet ports
+in both directions. It is a protocol/application-time regression, not a CPU,
+USB/UART latency or OS scheduling benchmark. The unchanged Echo/Telemetry
+business schema now has an explicit v2 native packet profile. One shared kernel
+runs over native packets, an explicit COBS/CRC16 connector or length16/NONE.
+There is no endpoint selector, ACK engine or generated retention service.
 
 ```sh
-cmake -S benchmarks/mixed_traffic -B build/mixed-traffic \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc/target/release/wlc
-cmake --build build/mixed-traffic --parallel 2
-ctest --test-dir build/mixed-traffic --output-on-failure
-build/mixed-traffic/wirelink_mixed_traffic --report > after.jsonl
-python3 benchmarks/mixed_traffic/compare.py before.jsonl after.jsonl
+cmake -S benchmarks/mixed_traffic -B build/mixed \
+  -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.13
+cmake --build build/mixed --parallel
+ctest --test-dir build/mixed --output-on-failure
+build/mixed/wirelink_mixed_traffic --report > after.jsonl
+python3 benchmarks/mixed_traffic/compare_kernel.py before.jsonl after.jsonl
 ```
 
-`--report` still requires complete, correct RPC results, exactly one business
-execution per call, exercised fault injection and immutable in-flight bytes.
-`--check` additionally bounds telemetry age/gap by the scenario's physical
-backpressure, sampling interval and serialization allowance. This gate fails
-against the pre-change core; it is not a percentage timing threshold.
+The seven cases are telemetry-only, clean RPC, one dropped request, one dropped
+response, finite BUSY windows, combined loss/BUSY and saturated telemetry with
+a wrapping owner clock. Each RPC direction runs five application jobs. A job
+explicitly retries a timed-out call, at most three attempts, with a fresh kernel
+operation. A dropped response therefore executes the business handler twice.
+The model asserts exactly those extra executions; it does not provide or assume
+a replay cache, rollback or exactly-once execution. Real non-idempotent business
+operations need their own durable job/idempotency IDs.
 
-To compare another core without replacing the working tree, configure a separate
-build with `-DWIRELINK_SOURCE_DIR=/path/to/exported/wirelink`. The harness/schema
-come from this directory; the linked core comes from the selected source tree.
-Use the same WLC and harness for both. Record the source revision/diff and binary
-hashes; `compare.py` validates all 42 JSONL records before printing maxima.
-Do not overwrite a previously frozen baseline binary with candidate sources.
+The application owns one latest unsent telemetry value and replaces it on each
+sampling tick. Kernel admission snapshots accepted data before return; a BUSY
+physical frame is never replaced in place. The controlled driver retains the
+actual source until CONSUMED, keeps an owned transfer copy until peer admission
+or deliberate loss, then publishes DRAINED. BUSY has a finite resource wake.
+Close actually abandons remaining model transfers before reporting TX_ERROR;
+it does not manufacture a successful physical drain. There are no sockets,
+threads, sleeps or heap allocation in the model.
 
-## Workload and metrics
+Format 2 contains all 42 scenario/connector/direction rows. The current validator
+rejects missing/duplicate rows, invalid counts, missing fault injection and a
+false once-only claim under response loss. Ages/gaps cover the receiver's last
+application value, including quiet tails; `max_arrival_age_ms` covers arrivals
+only. RPC duration includes application retries. `--check` also applies the
+explicit scenario serialization/backpressure bound. Record identical workload
+sources, toolchains, flags and binary hashes before comparing model results.
 
-Each case runs 2,400 one-millisecond owner ticks, default 16-event endpoint
-passes, and all three frame envelopes with CRC32C. Both directions emit samples
-every 5 ms. RPC cases start five calls per direction at ticks 100/500/900/1300/1700,
-with a 1,500 ms call budget, 100 ms ACK timeout and four retries.
+`compare.py`, `compare_firmware.py` and their tests remain **historical report
+tools** for the old ARQ experiment. They do not parse current captures. Removed
+cached/reconstructed retry execution is listed in
+`../retired-execution-workloads.csv`. Frozen reports are unchanged.
 
-| Case | Fault/load |
-| --- | --- |
-| `telemetry_only` | No RPC; one-millisecond physical I/O |
-| `rpc_clean` | RPC plus telemetry, without faults |
-| `single_ack` | Drop only the first ACK in each direction |
-| `drop_ack` | Drop the first two ACK copies of every reliable sequence |
-| `backpressure` | Return BUSY during a 20 ms window every 250 ms |
-| `drop_ack_backpressure` | Combine recurring ACK loss and BUSY windows |
-| `saturated_wrap` | Combined faults, 1 ms sampling, 3 ms I/O, telemetry attempted before step, wrapping clock |
-
-The application keeps one latest unsent sample, replacing it on each sampling
-tick. Once the core accepts a BUSY submission, that frame is already owned by
-the transport path and is not replaced; finite backpressure remains visible.
-
-- `max_age_ms`: age of the receiver's last application value on **every tick**,
-  including ticks with no new packet. It does not reset when a mailbox is read.
-- `max_arrival_age_ms`: age only when a new value arrives. Alone this misses
-  long outages followed by a fresh packet.
-- `max_gap_ms`: largest interval between observed updates. The age metric also
-  covers an outage that extends to the end of the observation window.
-- `mean_age_ms`: sum of observed value ages divided by all 2,400 ticks; the
-  initial ticks before the first reception contribute zero.
-- `max_rpc_ms` / `rpc_completed`: worst call completion time and total correct
-  calls across both directions. These are repeated in each receiver record,
-  not two separate sets of calls to add together.
-
-Permanent BUSY, an owner that stops running, overloaded RX consumption and a
-real medium with different serialization/wake behavior are outside this model.
-Fair access does not mean telemetry cannot consume bandwidth or delay an RPC.
-
-## Zephyr
-
-The same workload is a Ztest integration app in
-`tests/zephyr/integration/mixed_traffic`. From an initialized Zephyr workspace:
-
-```sh
-west twister -T /path/to/wirelink/tests/zephyr/integration/mixed_traffic \
-  -p native_sim -p qemu_cortex_m3 -p qemu_riscv32 -j 2 \
-  --extra-args=WIRELINK_WLC_EXECUTABLE=/path/to/wlc/target/release/wlc
-```
-
-Isolate unrelated modules as required by the workspace. These runs validate
-target toolchain behavior using simulated protocol time; their wall time and
-printed ages are not firmware CPU measurements.
+The Zephyr integration suite runs this same model on simulators. Its firmware
+wrapper emits `mixed_kernel_fw_*_v1` records and one cycle group per case, with
+a 2400-tick IRQ-masked intrinsic diagnostic. Those cycles include the model's
+copying, loss inspection and application bookkeeping; they are not end-to-end
+active CPU and cannot be compared with old retry-engine groups. No board flash
+is needed for model correctness tests; the dedicated static-kernel USB workload
+supplies current RPC/Sample hardware evidence.

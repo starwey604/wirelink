@@ -1,3 +1,5 @@
-profile version 1;
+profile version 2;
+endpoint { envelope = native_packet; rpc_role = both; }
 rpc Echo { request = EchoRequest; response = EchoResponse; }
-latest Telemetry { delivery = unreliable; }
+direct Telemetry { delivery = unreliable; }
+send Telemetry { delivery = unreliable; }
