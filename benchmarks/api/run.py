@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Historical workload tooling: requires archived old binaries/reports, not the current product.
 """Collect Google Benchmark CPU results and real two-process UDP distributions."""
 import argparse
 import hashlib

@@ -1,2 +1,5 @@
 path,retired_sha256,reason,replacement
 benchmarks/zephyr/mixed_traffic/src/retry_cpu.c,497ed248291f023a595faf9a2a0f210e709969bb2dece214a31803efc2eeece6,Cached/reconstructed ARQ retry engine removed; historical report parser retained,benchmarks/mixed_traffic/workload.c explicit application retry and duplicate execution; static kernel USB benchmark
+benchmarks/api/executor.cpp,1363c5f1f139844ebf1ad5434218a590f0e04308e1ae9d041b7ba8947214a177,Old generic executor proxy/latest/shared service workload and eight-slot knob removed,benchmarks/owner_pass; runtime/host/tests; bindings/cpp/tests
+benchmarks/api/udp.cpp,f0898d2c0bbb240f387c8cfb571bd5c80ec2e16cda3859c7ddbd805b81ec5cd5,Old reliable/runtime two-process API harness removed,examples/05_zephyr_udp; static kernel USB host benchmark
+benchmarks/api/make_schema.py,d0ec769a450077d05c1196f6cbb307c71b8cdb7f7831da2fc28ca2cc0d2eda2f,Old v1 reliability/capacity profile variants removed,benchmarks/api/kernel_api.wl; benchmarks/api/kernel_api.bind.wl

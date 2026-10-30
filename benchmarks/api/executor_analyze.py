@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Historical workload tooling: requires archived old binaries/reports, not the current product.
 """Summarize repeated executor measurements without combining their quantiles."""
 import argparse
 from collections import defaultdict

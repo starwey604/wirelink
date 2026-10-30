@@ -1,62 +1,49 @@
-# Generated API performance regression
+# Fixed-contract kernel API diagnostic
 
 [中文](README-cn.md).
 
-[EXECUTOR.md](EXECUTOR.md) covers multi-producer executor contention separately.
-Use Google Benchmark for single-thread CPU/loopback work and two real UDP
-processes for end-to-end latency. Zephyr `native_sim` remains a behavior gate,
-not the microbenchmark's clock. These are host measurements; they do not predict
-MCU CPU time.
-
-Enable `WIRELINK_BUILD_API_BENCHMARKS=ON` in a Release build. Supply a matching
-WLC compiler, standalone Asio, Python 3 and either an installed Google
-Benchmark 1.9+ CMake package or `WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR`. Tested
-source: v1.9.5, commit `192ef10025eb2c4cdd392bc502f0c852196baa48`. Nothing is
-downloaded automatically and the benchmark dependencies are not core
-dependencies.
+The current benchmark runs the real generated four-call/four-reply kernel with
+both RPC roles and ordinary Sample DATA. The C fixture owns both kernels,
+packet ports, C11 atomics and RAM loopback storage. C++ only drives Google
+Benchmark through an opaque C function interface. Caller-supplied manual ticks
+advance the kernels; there are no hidden clock reads or RPC tables in a wrapper.
 
 ```sh
-cmake -S . -B build/api-bench -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_API_BENCHMARKS=ON -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/absolute/path/to/google-benchmark \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/include
-cmake --build build/api-bench --config Release --parallel 2
-ctest --test-dir build/api-bench -C Release -L benchmark --output-on-failure
-python benchmarks/api/run.py --bin-dir build/api-bench/benchmarks/api --out before.json
-# Modify, regenerate and rebuild, then:
-python benchmarks/api/run.py --bin-dir build/api-bench/benchmarks/api --out after.json
-python benchmarks/api/compare.py before.json after.json
+cmake -S . -B build/api -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_API_BENCHMARK=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.13 \
+  -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/path/to/google-benchmark
+cmake --build build/api --parallel
+ctest --test-dir build/api --output-on-failure
+build/api/benchmarks/api/wirelink_api_benchmark \
+  --benchmark_min_time=0.01s --benchmark_repetitions=5 \
+  --benchmark_out=after.json --benchmark_out_format=json
+python benchmarks/stamp.py after.json benchmarks/api/fixture.c benchmarks/api/fixture.h \
+  benchmarks/api/micro.cpp benchmarks/api/kernel_api.wl benchmarks/api/kernel_api.bind.wl
+python benchmarks/api/compare_kernel.py before.json after.json
 ```
 
-The matrix covers 1/12/64 declared services, 1/4 slots, reliable/unreliable
-RPC, 0–1024-byte bodies, idle/initialization, four-call batches and 512-byte
-telemetry. All services have the same bounded shapes; Echo is the hot service.
-This measures the cost of additional definitions, not execution of 64 business
-handlers. `Rpc/N/B` reports time **per B-call batch**, including validation and
-TX retirement. Endpoint and arena bytes are host-ABI static sizes, not process
-RSS or MCU RAM.
+The seven cases are two idle kernel steps, eight successful RPCs (four per
+direction), eight business rejections, and two ordinary Sample messages with
+32/120/512/1024-byte payloads. A measured operation includes admission, source
+clearing for RPC, owner steps, actual RAM transfer copies/completion and callback
+validation. Sample callbacks validate every payload byte. This is not merely
+API submit time, the owning C++ Session workload or physical USB/UART latency.
+The C fixture aborts on incorrect results, missing callbacks or ownership errors.
 
-UDP reports per-round p50/p95/p99/max, throughput, and separate client/server
-process CPU per call. It uses real ordinary sync RPC, localhost sockets,
-readiness waiting, warmup and payload verification, without an artificial
-millisecond sleep. Server measurement uses start/stop RPC markers and includes
-minor boundary work; its window is not identical to the client's. Python only
-orchestrates processes.
+`wirelink-kernel-api-v1` records call/sample counts, generated endpoint bytes and
+total fixture bytes (including the diagnostic's own storage). The current
+comparator rejects failed work, changed counts, inconsistent layouts, missing
+repetitions and workload/machine/source-hash mismatches. CPU thresholds are
+optional; resource and wall-time rows remain diagnostic. Preserve binaries,
+compiler/link flags, source revisions and hashes before performance comparison.
+No improvement is inferred from a single shared-host smoke run.
 
-Defaults: `--repetitions 5 --min-time 0.05 --samples 2000 --warmup 200
---udp-rounds 3`. Use `--skip-udp` or `--skip-micro` to isolate a layer. Output
-files are never overwritten; omitting `--out` performs a non-persistent smoke
-run. Direct binaries also accept Google Benchmark filters and reporting options.
-
-Comparison uses medians of repetitions and rejects mismatched environments,
-build flags, workloads, missing cases and invalid measurements. Comparing max
-means the median of round maxima, not a global maximum. Timing gates are opt-in:
-`--max-regression-percent 10` gates micro CPU only on a stable dedicated runner.
-Shared CI should use correctness smoke tests; frequency scaling, ASLR and other
-processes introduce noise. Source is cross-platform; take formal measurements
-on an idle host.
-
-See the
-[Google Benchmark timing guide](https://google.github.io/benchmark/user_guide.html#cpu-timers).
+Old reliable/unreliable and one/eight-slot variants, the generic executor service
+benchmark and old runtime UDP harness were removed with those contracts. The
+per-file replacement list is `../retired-execution-workloads.csv`. Existing
+`compare.py`, `run.py`, executor analysis/runners and their tests are historical
+tools requiring archived old binaries/reports. They do not parse current data.
+Real current UDP process behavior runs in `examples/05_zephyr_udp`; current
+owner/Session contracts run in the host/CPP tests; the dedicated static-kernel
+USB benchmark supplies qualified RPC/Sample hardware results.

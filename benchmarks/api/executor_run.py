@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Historical workload tooling: requires archived old binaries/reports, not the current product.
 """Repeat real executor workloads; save every log, including failed executions."""
 import argparse
 import hashlib

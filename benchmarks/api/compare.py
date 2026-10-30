@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Historical workload tooling: requires archived old binaries/reports, not the current product.
 """Compare repeated measurements. Timing gates are opt-in, not universal SLAs."""
 import argparse
 import json

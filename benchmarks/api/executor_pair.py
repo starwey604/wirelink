@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# Historical workload tooling: requires archived old binaries/reports, not the current product.
 """Alternate frozen baseline/candidate executables; never run them concurrently."""
 import argparse
 import hashlib
