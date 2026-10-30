@@ -1,31 +1,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <array>
-#include <chrono>
-#include "wirelink/asio/udp_adapter.hpp"
-#include "wirelink/host/clock.hpp"
-
-int main()
-{
-    wl_endpoint_t endpoint{};
-    std::array<std::uint8_t, 128> payload{}, tx{}, control{}, rx{};
-    const wl_config_t config{.max_payload_len = 32,
-        .envelope = WL_ENVELOPE_NATIVE_PACKET, .integrity = WL_INTEGRITY_CRC32C,
-        .session_id = 1, .max_retries = 0, .ack_timeout_ms = 0,
-        .max_transmission_unit = 0};
-    const wl_storage_t storage{.tx_payload = payload.data(), .tx_payload_size = payload.size(),
-        .tx_unit = tx.data(), .tx_unit_size = tx.size(),
-        .control_unit = control.data(), .control_unit_size = control.size(),
-        .rx_fifo = nullptr, .rx_fifo_size = 0,
-        .rx_fallback = rx.data(), .rx_fallback_size = rx.size()};
-    const wl_clock_t clock = wirelink::host::monotonic_clock();
-    if (wl_endpoint_init(&endpoint, &config, &storage, &clock, nullptr) != WL_OK) return 1;
-    wirelink::asio::UdpAdapterConfig udp;
-    udp.bind_address = "127.0.0.1";
-    std::error_code error;
-    auto adapter = wirelink::asio::UdpAdapter::open(endpoint, udp, error);
-    if (!adapter || error) return 2;
-    if (adapter->wait_for_activity(std::chrono::milliseconds(1)) != WL_ERR_NO_DATA) return 3;
-    if (wl_endpoint_step(&endpoint, 8) != WL_OK) return 4;
-    adapter.reset();
-    return wl_endpoint_link(&endpoint) == nullptr ? 0 : 5;
+#include <wirelink/asio/packet_udp.hpp>
+extern "C" wl_packet_port_t *installed_udp_port(void);
+extern "C" int installed_udp_prepare(wl_packet_sink_fn, wl_packet_notify_fn, void *);
+int main() {
+  using namespace std::chrono_literals;
+  using wirelink::asio::PacketUdpAdapter;
+  auto *port = installed_udp_port(); PacketUdpAdapter adapter(*port);
+  if (installed_udp_prepare(PacketUdpAdapter::submit, PacketUdpAdapter::notify, &adapter) != WL_OK) return 1;
+  wirelink::asio::PacketUdpConfig config; config.bind_address = "127.0.0.1";
+  config.maximum_datagram_size = 200; std::error_code error;
+  if (adapter.start(config, error) != WL_OK || error) return 2;
+  if (adapter.service() != WL_OK) return 3;
+  for (unsigned i = 0; i < 4; ++i) (void)adapter.wait_for_activity(0ms);
+  if (adapter.wait_for_activity(2ms) != WL_ERR_NO_DATA) return 4;
+  PacketUdpAdapter::notify(&adapter);
+  if (adapter.wait_for_activity(10ms) != WL_OK) return 5;
+  adapter.stop(); return wl_packet_quiescent(port) ? 0 : 6;
 }

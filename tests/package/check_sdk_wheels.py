@@ -40,7 +40,7 @@ with subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, text=True) as calc_
             try:
                 c.add(left=2**31 - 1, right=1)
             except calculator.RejectedError as error:
-                assert error.rejection == 1
+                assert error.status == 1 and error.outcome == 1
             else:
                 raise AssertionError('expected business rejection')
         assert response.settings.token == b'\0\x80\xff'

@@ -5,12 +5,14 @@ set -euo pipefail
 cd /io
 export PATH="/opt/python/cp314-cp314/bin:$PATH"
 export CMAKE_BUILD_PARALLEL_LEVEL=4
+: "${WIRELINK_WLC_EXECUTABLE:?Supply a matching WLC 0.13 binary executable inside the container}"
 python -m pip install 'cmake>=3.21' build auditwheel pytest
 cmake -S . -B build/manylinux-native -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=/io/build/manylinux-install \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF \
   -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON \
   -DWIRELINK_BUILD_EXAMPLES=OFF \
+  -DWIRELINK_WLC_EXECUTABLE="$WIRELINK_WLC_EXECUTABLE" \
   -DWIRELINK_ASIO_INCLUDE_DIR=/io/.tools/asio/asio/include
 cmake --build build/manylinux-native --parallel 4
 ctest --test-dir build/manylinux-native --output-on-failure

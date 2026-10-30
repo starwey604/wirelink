@@ -1,55 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-
 project(wirelink_package_consumer LANGUAGES C CXX)
-
 include(CTest)
-find_package(Wirelink 0.12 CONFIG REQUIRED)
-
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS OFF)
+option(WIRELINK_CONSUMER_HOST "Check the explicitly installed host component" OFF)
+find_package(Wirelink 0.13.0 EXACT CONFIG REQUIRED)
+if(WIRELINK_CONSUMER_HOST)
+  find_package(Wirelink 0.13.0 EXACT CONFIG REQUIRED COMPONENTS host)
+endif()
 add_executable(wirelink_package_consumer main.c)
-target_compile_definitions(wirelink_package_consumer PRIVATE
-  WL_PACKAGE_COBS_CRC16=$<STREQUAL:${Wirelink_LINK_PROFILE},cobs-crc16>)
-target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink Wirelink::usb_bulk_defaults)
-target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::loopback)
-target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::diagnostics)
-set_target_properties(wirelink_package_consumer PROPERTIES
-  C_STANDARD 11
-  C_STANDARD_REQUIRED YES
-  C_EXTENSIONS NO
-  NO_SYSTEM_FROM_IMPORTED YES)
-
-if(MSVC)
-  target_compile_options(wirelink_package_consumer PRIVATE /W4 /WX)
-elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(wirelink_package_consumer PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
-endif()
-
-add_test(NAME wirelink_package_consumer COMMAND wirelink_package_consumer)
-
+target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink Wirelink::frame_tools Wirelink::diagnostics Wirelink::containers)
+set_target_properties(wirelink_package_consumer PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 add_executable(wirelink_package_consumer_cpp20 cpp20_public_headers.cpp)
-target_compile_definitions(wirelink_package_consumer_cpp20 PRIVATE
-  WL_PACKAGE_COBS_CRC16=$<STREQUAL:${Wirelink_LINK_PROFILE},cobs-crc16>)
-target_link_libraries(wirelink_package_consumer_cpp20
-  PRIVATE Wirelink::wirelink Wirelink::diagnostics Wirelink::usb_bulk_defaults)
-set_target_properties(wirelink_package_consumer_cpp20 PROPERTIES
-  CXX_STANDARD 20
-  CXX_STANDARD_REQUIRED YES
-  CXX_EXTENSIONS NO
-  NO_SYSTEM_FROM_IMPORTED YES)
-
-if(MSVC)
-  target_compile_options(wirelink_package_consumer_cpp20 PRIVATE
-    /W4 /WX /permissive- /Zc:__cplusplus)
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(wirelink_package_consumer_cpp20 PRIVATE
-    -Wall -Wextra -Wpedantic -Werror)
-endif()
-
-add_test(NAME wirelink_package_consumer_cpp20
-  COMMAND wirelink_package_consumer_cpp20)
-
-if(TARGET Wirelink::host)
-  add_executable(wirelink_package_consumer_host host.cpp)
+target_compile_features(wirelink_package_consumer_cpp20 PRIVATE cxx_std_20)
+target_link_libraries(wirelink_package_consumer_cpp20 PRIVATE Wirelink::wirelink Wirelink::diagnostics)
+foreach(target wirelink_package_consumer wirelink_package_consumer_cpp20)
+  set_target_properties(${target} PROPERTIES NO_SYSTEM_FROM_IMPORTED YES)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  else()
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME ${target} COMMAND ${target})
+endforeach()
+if(WIRELINK_CONSUMER_HOST)
+  add_executable(wirelink_package_consumer_host host.cpp host_owner.c)
+  target_compile_features(wirelink_package_consumer_host PRIVATE cxx_std_20)
   target_link_libraries(wirelink_package_consumer_host PRIVATE Wirelink::host)
   add_test(NAME wirelink_package_consumer_host COMMAND wirelink_package_consumer_host)
+  set_tests_properties(wirelink_package_consumer_host PROPERTIES TIMEOUT 10)
 endif()
