@@ -1,6 +1,6 @@
 # 静态端点内核重构：实施记录
 
-日期：2026-10-30。对应 [计划](static-endpoint-kernel-refactor-plan-20261030-cn.md) 和 [K0 合同](static-endpoint-kernel-contract-20261030-cn.md)。当前为 **K0 完成，K1 共享内核与真实生成端点通过软件验证，USB 产品集成尚未完成**，不是 K2 性能验收结论，也不是 K6 最终结果。以下先保留首批记录，再登记第二批进展。
+开始日期：2026-10-30；最近更新：2026-10-31。对应 [计划](static-endpoint-kernel-refactor-plan-20261030-cn.md) 和 [K0 合同](static-endpoint-kernel-contract-20261030-cn.md)。当前为 **K0、K1 完成，K2 正在登记**，不是 K2 性能验收结论，也不是 K6 最终结果。以下保留各批完成时的记录。
 
 ## 已完成并提交的点
 
@@ -89,3 +89,29 @@ WLC **独立仓库提交 `ac6c29b`** 增加 `compile-kernel`、profile v2 验证
 Xtensa 对象测得 `sizeof(wl_kernel_t)=416 B`、生成 endpoint **4400 B**（已含 core、typed response scratch 和三个 TX 池）、packet port **88 B**；RX 外置 **4096 B**，当前这三者合计 **8584 B**。请求池 4×53 B、回复池 4×544 B、普通池 1036 B。旧 A 配置是四 client slots、四 server pending slots、四 server cache slots及 540 B cache 响应容量；新 B 是至少四个独立已编码待发回复，不保留历史。这里尚未计入新 USB adapter、全部线程栈、driver/observer 或 heap，不能据此宣布整个集成 RAM 达标或性能改善。
 
 下一点是把 USB 产品 adapter 从 `wl_ctx_t` 改接 packet port，并将 benchmark 的真实 Setpoint／Control／Sample 业务接到生成 API。随后补齐完整 K1 生命周期与产品 I/O fixture，再登记 K2 的共同旧 host、A→B→A→B→A 筛查。本批仍未访问 USB/串口或刷写固件，没有本轮性能结果。
+
+## 第三批：USB 产品绑定与实板资格验证（2026-10-31）
+
+- Wirelink `44155bf`：USB class 直接绑定 packet port；沿用原描述符、net_buf、FS/HS MPS、ZLP 和明确重配置路径。RX claim/enqueue 只在 owner 执行，I/O callback 只发布状态；TX completion 直接带强 token 发布，不再经旧 link 消费接口。两个 net_buf 的 user data 增加各一个 token，共 32 B；callback 活动计数使 stop 不会在旧 callback 仍访问 adapter/port 时确认静默。
+- WLC 独立仓库 `f79807a`：普通消息增加 borrowed-view send，在返回前编码到同一个最终 TX buffer。Wirelink `b547e08` 验证源对象返回后被修改仍保持快照及完全相同的 wire。这避免在 benchmark 调用层额外构造 1024 B owned StreamChunk；不是另一套执行引擎。
+- benchmark 独立仓库 `f47904d`：新增隔离 `usb/static_kernel/device`。直接编译既有 `main.c`、CPU、资源和 observer 源码，Setpoint 与全部 Control 操作调用原业务 handler。保留实际 client 入口 `ub_backend_request` 及四槽表，未改为 server-only。四个应用 continuation 只保存错误报告的业务 ID，共 32 B，计入完整 RAM。
+
+新 identity 保留原有 build ID/library/observer/variant/envelope 校验，并明确附加 `kernel=1, profile=2, role=both, replies=4`。`core_profile=native-none` 表示真实编入的 framing 能力，使用冻结旧 host 已支持的完整三项 expected-device 参数核对；没有修改 host 的 identity 检查或跳过 build ID。生成 manifest、业务 schema 和编译单元另行核对。
+
+资格证据位于 `../wirelink-static-kernel-20261030/k1-usb/` 和 `captures/`：
+
+| 捕获 | 结果 |
+| --- | --- |
+| `k1-A-before-smoke` | 本轮新冻结 A 的首次实板 smoke 通过 |
+| `k1-B-smoke`、`k1-B-o1-smoke` | B 的 CPU-off/on 均通过同一组冻结旧 host 的 smoke；业务／传输错误为零 |
+| `k1-B-boundary`、`k1-B-o1-boundary` | 两组均覆盖 63/64/65、127/128/129、511/512/513 B 的真实双向编码帧边界 |
+| `twister-usb-port-final/` | 实际 USBD class + 产品 packet API 的 native_sim 集成用例通过：RX 满池、借用释放、inline completion、分配端点/MPS、ZLP、旧 token、边界故障／恢复、异步 stop/deinit/reinit |
+| `twister-usb-core/` | 10 项共享端口／wire／调用内核 unit cases 通过 |
+
+Smoke 使用 10 warmup、100 RPC、10 次低频调用、1000 paced Sample、四尺寸×三方向的短 stream；CPU-on 同时验证 CPU 自检、所有 worker/IRQ 字段及完整资源导出。它不是 K2 的 1000 warmup／10000 RPC 矩阵，不能从这些数字宣布性能收益。
+
+`structural-audit.json` 确认 CPU-off/on 的 cache、240 MHz、USB、栈、heap、LTO 和 SMP 配置与各自 A 相同；两组 `.iram0.text` 均与 A 相同，未移动 core 到 IRAM。B 没有旧 core 编译单元，也没有 `wl_poll`、旧 RPC client/server 或 pump 符号；`wl_kernel_call_start` 和应用 client 入口存在。两个 observer 下 B 的 `.bss + .noinit` 均减少 **7248 B**，其他 DRAM data/平台区保持相同，已包括新增 adapter、continuation 和 net_buf token 数据。栈和 allocator 的运行期观测仍保留在原始 CPU-on 资源行，不把可用 heap 增加当作库 RAM 收益。
+
+构建失败尝试保留：初次 board 构建缺少 venv 的 esptool PATH；CPU-on 首次构建缺少原 observer 的全局 tracing include，补上与旧目标相同的 include 后通过；Twister 首次发现测试名缺少 `test_` 前缀。没有修改 Zephyr/USB driver 或全局系统调度设置来通过检查。
+
+K2 使用另外冻结的旧执行引擎 host，仅在外围 harness 加入 warmup 前 stdin gate、精确 10000 RPC 的 `screen` 选择及测量结束标记。补丁见 `k2-host-harness.patch`；旧 A、Astrial、业务 codec 与原 host 仍独立保留。每个 observer 的新旧设备共用同一个 host binary。两份 gated host 已先通过边界资格验证，在 `research_ready` 处冻结真实 main/worker policy、nice、affinity、governor/EPP，再释放 warmup。后续 K2 全程每 50 ms 核对，先登记再采集。
