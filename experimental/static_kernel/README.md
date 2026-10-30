@@ -229,3 +229,14 @@ Actual Asio loopback tests (GCC and Clang ASan/UBSan) and actual Zephyr loopback
 socket tests cover source/guard checks, held RX, full slots and release, native
 and COBS input, notify-before-wait and notify-during-wait, stop and close. They
 measure no UDP performance and do not imply Wi-Fi/hardware-network validation.
+
+`wirelink_kernel_astrial_serial` uses the unchanged Astrial borrowed I/O API.
+RX callbacks stage only bytes into the C FIFO; owner service runs COBS/CRC16.
+Write completion publishes CONSUMED. A required nonblocking platform `drained`
+query publishes DRAINED only after the real configured boundary, with a finite
+query deadline. Missing drain support is an explicit init error, not a false
+completion. Stop closes/joins Astrial before cancellation acknowledgement,
+so borrowed storage and callback context remain live until their actual exit.
+The real PTY fixture covers partial RX, a tiny staging FIFO, borrowed TX source
+snapshot, distinct consumed/drained, latched waiting and stop; it is not a
+physical serial-line timing measurement. GCC and Clang ASan/UBSan pass it.
