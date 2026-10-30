@@ -39,8 +39,8 @@ struct Pair {
   unsigned completed = 0;
   Pair() {
     perf_endpoint_config_t config;
-    check(perf_endpoint_init(&client, environment.get()) == WL_OK);
-    check(perf_endpoint_config_defaults(&config, environment.get()) == WL_OK);
+    check(perf_endpoint_init(&client, environment.get(), wl_link_defaults()) == WL_OK);
+    check(perf_endpoint_config_defaults(&config, environment.get(), wl_link_defaults()) == WL_OK);
     config.on_echo = echo;
     check(perf_endpoint_init_config(&server, &config) == WL_OK);
     check(wl_loopback_connect(&cable, perf_endpoint_handle(&client), perf_endpoint_handle(&server)) == WL_OK);
@@ -135,7 +135,7 @@ static void Initialize(benchmark::State &state) {
   for (auto _ : state) {
     (void)_;
     perf_endpoint_config_t config;
-    check(perf_endpoint_config_defaults(&config, environment.get()) == WL_OK);
+    check(perf_endpoint_config_defaults(&config, environment.get(), wl_link_defaults()) == WL_OK);
     config.on_echo = echo;
     check(perf_endpoint_init_config(endpoint.get(), &config) == WL_OK);
     check(perf_endpoint_close(endpoint.get()) == WL_OK);

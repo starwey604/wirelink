@@ -7,17 +7,20 @@
 extern "C" {
 #endif
 enum { FRAMING_SPARE, FRAMING_EXACT, FRAMING_OVERLAP, FRAMING_SEND,
-       FRAMING_CLAIM, FRAMING_BUSY3, FRAMING_RETRY3, FRAMING_MODES };
+       FRAMING_CLAIM, FRAMING_BUSY3, FRAMING_RETRY3, FRAMING_RAW_DECODE,
+       FRAMING_COBS_DECODE, FRAMING_RECEIVE, FRAMING_MODES };
 typedef struct {
   wl_ctx_t link;
   wl_wire_packet_t packet;
+  wl_event_t rx_event;
+  wl_frame_view_t rx_view;
   wl_envelope_type_t envelope;
   unsigned mode, busy;
   uint32_t sequence, now;
   uint64_t calls;
   wl_io_token_t token;
   const uint8_t *last_data;
-  size_t last_len, exact_len, output_len;
+  size_t last_len, exact_len, raw_len, output_len;
   uint8_t payload[WL_FRAME_MAX_PAYLOAD];
   uint8_t tx_payload[WL_FRAME_MAX_PAYLOAD];
   uint8_t tx_unit[WL_FRAME_MAX_COBS_LEN];

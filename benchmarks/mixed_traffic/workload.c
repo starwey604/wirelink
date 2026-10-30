@@ -35,6 +35,8 @@ typedef struct {
   size_t length;
   wl_io_token_t token;
   unsigned complete_at;
+  unsigned retry_at;
+  bool retry_pending;
   uint8_t copy[MIXED_ENDPOINT_UNIT_CAPACITY];
   uint32_t ack_sequence;
   bool have_ack, drop;
@@ -76,6 +78,8 @@ static wl_sink_result_t transmit(void *context, wl_io_token_t token,
   if (s->scenario.busy_ms != 0U && s->tick % 250U >= 120U &&
       s->tick % 250U < 120U + s->scenario.busy_ms) {
     ++p->busy;
+    p->retry_at = s->tick - s->tick % 250U + 120U + s->scenario.busy_ms;
+    p->retry_pending = true;
     return WL_SINK_BUSY;
   }
   CHECK(length <= sizeof(p->copy));
@@ -114,6 +118,11 @@ static wl_sink_result_t transmit(void *context, wl_io_token_t token,
 
 static int service(void *context) {
   port_t *p = context;
+  if (p->retry_pending && p->simulation->tick >= p->retry_at) {
+    p->retry_pending = false;
+    CHECK(wl_tx_writable(p->link) == WL_OK);
+    return WL_OK;
+  }
   if (p->borrowed == NULL || p->simulation->tick < p->complete_at)
     return WL_ERR_NO_DATA;
   CHECK(memcmp(p->borrowed, p->copy, p->length) == 0);
@@ -125,8 +134,22 @@ static int service(void *context) {
     } else CHECK(wl_feed_unit(p->peer, p->copy, p->length) == WL_OK);
   }
   p->borrowed = NULL;
-  CHECK(wl_tx_complete(p->link, p->token, WL_OK) == WL_OK);
+  CHECK(wl_tx_consumed(p->link, p->token, WL_OK) == WL_OK);
   return WL_OK;
+}
+
+static wl_readiness_t readiness(const void *context, const wl_ctx_t *link,
+                               wl_time_ms_t now_ms) {
+  const port_t *p = context;
+  wl_readiness_t value = wl_readiness_idle();
+  const unsigned tick = p->simulation->tick;
+  (void)link;
+  (void)now_ms;
+  if (p->borrowed != NULL)
+    wl_readiness_merge(&value, wl_readiness_at(tick >= p->complete_at ? 0U : p->complete_at - tick));
+  if (p->retry_pending)
+    wl_readiness_merge(&value, wl_readiness_at(tick >= p->retry_at ? 0U : p->retry_at - tick));
+  return value;
 }
 
 static void quiesce(void *context) {
@@ -135,7 +158,7 @@ static void quiesce(void *context) {
   CHECK(wl_set_sink(p->link, NULL, NULL) == WL_OK);
   if (p->borrowed != NULL) {
     p->borrowed = NULL;
-    CHECK(wl_tx_complete(p->link, p->token, WL_OK) == WL_OK);
+    CHECK(wl_tx_consumed(p->link, p->token, WL_OK) == WL_OK);
   }
 }
 
@@ -207,8 +230,9 @@ static void run(scenario_t scenario, wl_envelope_type_t envelope, bool check) {
   const wl_environment_t environment = {{now, &s}, {next_session, &s}};
   for (unsigned i = 0U; i < 2U; ++i) {
     mixed_endpoint_config_t config;
-    CHECK(mixed_endpoint_config_defaults(&config, environment) == WL_OK);
+    CHECK(mixed_endpoint_config_defaults(&config, environment, wl_link_defaults()) == WL_OK);
     config.link.envelope = envelope;
+    config.link.integrity = WL_INTEGRITY_CRC32C; /* This workload tests CRC32C. */
     config.link.ack_timeout_ms = 100U;
     config.link.max_retries = 4U;
     config.on_echo = echo;
@@ -222,7 +246,8 @@ static void run(scenario_t scenario, wl_envelope_type_t envelope, bool check) {
   for (unsigned i = 0U; i < 2U; ++i) {
     port_t *p = &s.ports[i];
     p->peer = s.ports[1U - i].link;
-    wl_pump_hooks_t hooks = {.adapter_user_data = p, .service = service, .quiesce = quiesce};
+    wl_pump_hooks_t hooks = {.adapter_user_data = p, .service = service,
+      .quiesce = quiesce, .adapter_readiness = readiness};
     CHECK(wl_endpoint_attach(p->owner, &hooks) == WL_OK);
     CHECK(wl_set_sink(p->link, transmit, p) == WL_OK);
   }

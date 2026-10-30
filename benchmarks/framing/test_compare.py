@@ -22,6 +22,38 @@ def firmware_report():
 
 
 class Reports(unittest.TestCase):
+    def test_v2_firmware_rx_and_capability_matrix(self):
+        for profile in ("multi", "cobs-crc16"):
+            lines = [f"framing_cpu_begin_v2,hz=240000000,context_bytes=896,irq_masked_batch=32,matrix={profile}"]
+            samples = 0
+            for mode, e, i, p, b, r in itertools.product(compare.MODES + compare.RX_MODES,
+                    range(3), range(3), range(3), (32, 120, 512, 2048), range(5)):
+                if mode in ("raw_decode", "cobs_decode") and e != 0:
+                    continue
+                if profile == "cobs-crc16" and (e, i) != (0, 1):
+                    continue
+                lines.append(f"framing_cpu_v2,mode={mode},e={e},i={i},p={p},b={b},r={r},n=32,cycles=17600")
+                samples += 1
+            lines.append(f"framing_cpu_end_v2,result=pass,groups={samples // 5},samples={samples}")
+            report = compare.firmware("\n".join(lines))
+            self.assertEqual(len(report[1]), 936 if profile == "multi" else 120)
+            self.assertIn("receive/e0/i1/p0/b32", report[1])
+            with self.assertRaises(ValueError):
+                compare.firmware("\n".join(lines[:100] + lines[101:]))
+            with self.assertRaises(ValueError):
+                compare.firmware("\n".join(lines).replace("framing_cpu_v2,", "framing_cpu_v1,", 1))
+
+    def test_v2_host_rx(self):
+        report = host_report()
+        report["context"]["workload"] = "wirelink-framing-v2"
+        for row in report["benchmarks"]:
+            row["name"] = "receive/e0/i1/p2/b120"
+            row["sink_calls_per_op"] = 0
+        parsed = compare.host(report)
+        self.assertEqual(len(parsed[1]), 1)
+        with self.assertRaises(ValueError):
+            compare.compare(parsed, compare.host(host_report()))
+
     def test_host_medians_and_units(self):
         before = host_report()
         after = copy.deepcopy(before)

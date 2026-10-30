@@ -1,4 +1,4 @@
-# Frame encoding and retry CPU benchmark
+# Frame TX/RX and retry CPU benchmark
 
 [中文](README-cn.md).
 
@@ -65,12 +65,16 @@ correctness smoke can still run, but its timings are not performance evidence.
 | `claim` | Claim, copy bytes into the claim, commit and completion poll |
 | `busy3` | Unreliable send, three BUSY results, then synchronous SENT |
 | `retry3` | Reliable send, three ACK-timeout retries, then cancel/take cleanup |
+| `raw_decode` | Fully parse and integrity-check an existing raw frame |
+| `cobs_decode` | Copy immutable encoded input, then decode COBS in place and validate the raw frame |
+| `receive` | Release the previous event lease, feed, poll and retain the current event for checking outside timing |
 
 `e0/e1/e2` select COBS/native packet/length16. `i0/i1/i2` select
 NONE/CRC16/CRC32C. `p0/p1/p2` select all-zero/nonzero/zero-every-17-byte
 payloads. `bN` is payload size, excluding link headers and integrity bytes. The
-full smoke matrix has 1,134 groups, including empty payloads and 254-byte
+v2 full host smoke matrix has 1,404 groups, including empty payloads and 254-byte
 boundaries.
+`raw_decode` and `cobs_decode` register only `e0` to avoid duplicate raw workloads.
 
 Tight buffers can still use the fast path when their exact size equals the
 worst-case bound. `claim` includes a setup copy, so it is not a direct-codec
@@ -79,10 +83,22 @@ they measure work, **not** network RTT, loss probability, or waiting time.
 The clock is simulated; no sleep, adapter or real I/O occurs inside an operation.
 
 Initialization, warmup and final byte checking are outside Google Benchmark's
-timed loop. The oracle is a native frame plus the independent standalone COBS
-encoder. Per-operation return/event checks and a constant-time counting sink
+timed loop. The oracle independently constructs the Compact-v1 header and uses
+standalone CRC/COBS tools. Per-operation return/event checks and a constant-time counting sink
 are included. Protocol unit tests additionally check every retry's bytes,
 actual encoding call count, I/O token freshness and ACK storage isolation.
+
+`busy3` explicitly notifies writable after each BUSY result. RX payload comparisons
+remain outside timing; the `cobs_decode` setup copy is timed, while `receive`
+includes the actual ring/fallback and event lease lifecycle. The independent
+`tests/zephyr/unit/framing_workload` suite checks every workload without Google
+Benchmark and cross-checks bytes with bitwise CRC references.
+
+Both host and Zephyr accept `-DWIRELINK_FRAMING_COBS_CRC16_ONLY=ON` to limit the
+diagnostic matrix. This does not specialize the core. The v2 Zephyr `matrix`
+field distinguishes the full 936-group/4,680-sample matrix from the filtered
+120-group/600-sample matrix. The parser also reads historical v1 reports, but
+rejects comparisons across workload versions, matrices or source hashes.
 
 For sanitizer smoke, configure a separate Clang build with
 `-DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'` and the

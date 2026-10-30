@@ -13,6 +13,7 @@ from report import (add_output_arguments, emit, gate_settings, gate_rows,
                     incomparable_rows, manifest)
 
 MODES = ("spare", "exact", "overlap", "send", "claim", "busy3", "retry3")
+RX_MODES = ("raw_decode", "cobs_decode", "receive")
 UNITS = {"cpu_ns": "ns", "wall_ns": "ns", "cycles": "cycles"}
 GATED = {"cpu_ns"}
 
@@ -25,8 +26,9 @@ def positive(value):
 
 def host(report):
     context = report["context"]
-    if context.get("workload") != "wirelink-framing-v1":
+    if context.get("workload") not in ("wirelink-framing-v1", "wirelink-framing-v2"):
         raise ValueError("unsupported host workload")
+    modes = MODES + RX_MODES if context["workload"].endswith("v2") else MODES
     groups = {}
     for row in report["benchmarks"]:
         if row.get("error_occurred"):
@@ -35,7 +37,7 @@ def host(report):
             continue
         name = row.get("run_name", row["name"])
         mode = name.split("/")[0]
-        if mode not in MODES:
+        if mode not in modes:
             raise ValueError(f"unknown mode: {name}")
         expected_calls = 4 if mode in ("busy3", "retry3") else 1 if mode in ("send", "claim") else 0
         if row["sink_calls_per_op"] != expected_calls or row["context_bytes"] != 896:
@@ -60,6 +62,7 @@ def host(report):
 
 def firmware(text):
     begin, end, rows = None, None, {}
+    version = None
     for line in text.splitlines():
         # Boot banners may precede the first record on the same RTT line.
         start = line.find("framing_cpu_")
@@ -67,18 +70,24 @@ def firmware(text):
             continue
         kind, *items = line[start:].split(",")
         fields = dict(item.split("=", 1) for item in items)
-        if kind == "framing_cpu_begin_v1":
+        if kind in ("framing_cpu_begin_v1", "framing_cpu_begin_v2"):
             if begin is not None or rows or end is not None:
                 raise ValueError("duplicate or misplaced begin")
             begin = {key: int(fields[key]) for key in ("hz", "context_bytes", "irq_masked_batch")}
+            version = kind.rsplit("_", 1)[1]
+            begin["workload"] = f"wirelink-framing-{version}"
+            if version == "v2":
+                begin["matrix"] = fields["matrix"]
+                if begin["matrix"] not in ("multi", "cobs-crc16"):
+                    raise ValueError("unsupported firmware matrix")
             positive(begin["hz"])
             if begin["context_bytes"] != 896 or begin["irq_masked_batch"] != 32:
                 raise ValueError("firmware workload invariant changed")
-        elif kind == "framing_cpu_end_v1":
+        elif kind == f"framing_cpu_end_{version}":
             if begin is None or end is not None:
                 raise ValueError("duplicate or misplaced end")
             end = fields
-        elif kind == "framing_cpu_v1":
+        elif kind == f"framing_cpu_{version}":
             if begin is None or end is not None:
                 raise ValueError("measurement outside begin/end")
             key = (fields["mode"], *(int(fields[k]) for k in ("e", "i", "p", "b", "r")))
@@ -88,7 +97,12 @@ def firmware(text):
         else:
             raise ValueError(f"unknown framing record: {kind}")
     expected = set(itertools.product(MODES, (0, 1), (0,), range(3), (32, 120, 512, 2048), range(5)))
-    if set(rows) != expected or end != {"result": "pass", "groups": "168", "samples": "840"}:
+    if version == "v2":
+        expected = {row for row in itertools.product(MODES + RX_MODES, range(3), range(3), range(3),
+                    (32, 120, 512, 2048), range(5))
+                    if (row[0] not in ("raw_decode", "cobs_decode") or row[1] == 0)
+                    and (begin["matrix"] != "cobs-crc16" or row[1:3] == (0, 1))}
+    if set(rows) != expected or end != {"result": "pass", "groups": str(len(expected) // 5), "samples": str(len(expected))}:
         raise ValueError("incomplete firmware matrix (lost console data, reset or assertion failure)")
     groups = {}
     for (mode, envelope, integrity, pattern, size, _), cycles in rows.items():

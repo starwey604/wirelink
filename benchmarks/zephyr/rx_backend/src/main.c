@@ -1,5 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+/* Active polling is intentional in this ingress/storage microbenchmark:
+ * startup TX validation, raw FIFO feeding/drain, single-frame latency,
+ * streaming throughput and the external-source monitor use bounded or
+ * explicitly continuous polling. These are separate from the public endpoint
+ * executor and the native RPC/telemetry performance comparison. */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -341,7 +347,7 @@ static int validate_uart_dma_tx(void) {
   while (k_uptime_get() < deadline) {
     wl_event_t event = {0};
 
-    ret = wl_zephyr_uart_dma_service(&dma_adapter);
+    ret = wl_zephyr_uart_dma_service(&dma_adapter, k_uptime_get_32());
     if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
       return ret;
     }
@@ -492,7 +498,7 @@ static int ensure_dma_running(void) {
 
   while (k_uptime_get() < deadline) {
     wl_zephyr_uart_dma_stats_t stats = {0};
-    int ret = wl_zephyr_uart_dma_service(&dma_adapter);
+    int ret = wl_zephyr_uart_dma_service(&dma_adapter, k_uptime_get_32());
 
     if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK && ret != WL_ERR_BUSY) {
       return -EIO;
@@ -523,7 +529,7 @@ static int wait_for_frame(size_t payload_len, uint32_t started,
       *out_latency = (uint32_t)(bench_cycle_count() - started);
       wl_event_release(&link_ctx, &event);
 #if defined(WL_BENCH_INGRESS_DMA)
-      (void)wl_zephyr_uart_dma_service(&dma_adapter);
+      (void)wl_zephyr_uart_dma_service(&dma_adapter, k_uptime_get_32());
 #endif
       return valid ? 0 : -EBADMSG;
     }
@@ -776,7 +782,7 @@ static int run_stream_profile(size_t payload_len) {
     }
 
 #if defined(WL_BENCH_INGRESS_DMA)
-    (void)wl_zephyr_uart_dma_service(&dma_adapter);
+    (void)wl_zephyr_uart_dma_service(&dma_adapter, k_uptime_get_32());
 #endif
     if (received != last_seen) {
       last_seen = received;

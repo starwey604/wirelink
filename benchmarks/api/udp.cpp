@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
   Server server;
   server.expected = static_cast<unsigned>(samples);
   perf_endpoint_config_t config;
-  check(perf_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+  check(perf_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   if (is_server) { config.user_data = &server; config.on_echo = echo; }
   check(perf_endpoint_init_config(&endpoint, &config) == WL_OK);
   auto *udp = example_udp_open(perf_endpoint_handle(&endpoint), static_cast<uint16_t>(local), static_cast<uint16_t>(peer));

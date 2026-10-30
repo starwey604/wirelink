@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "workload.h"
 #include "wirelink/cobs.h"
+#include "wirelink/crc.h"
 #include <string.h>
 
 const char *framing_mode_name(unsigned mode) {
-  static const char *const names[] = {"spare", "exact", "overlap", "send", "claim", "busy3", "retry3"};
+  static const char *const names[] = {"spare", "exact", "overlap", "send", "claim", "busy3", "retry3",
+      "raw_decode", "cobs_decode", "receive"};
   return mode < FRAMING_MODES ? names[mode] : "invalid";
 }
 
@@ -19,14 +21,34 @@ static wl_sink_result_t sink(void *context, wl_io_token_t token,
   return WL_SINK_SENT;
 }
 
-/* Independent COBS oracle: native frame + standalone COBS encoder. */
+static void write_be(uint8_t *out, uint64_t value, size_t length) {
+  for (size_t i = 0U; i < length; ++i)
+    out[i] = (uint8_t)(value >> ((length - 1U - i) * 8U));
+}
+
+/* Independent raw construction + standalone CRC/COBS tools. */
 static int reference(framing_fixture_t *f) {
-  size_t raw_len;
-  int error = wl_frame_encode(&f->packet, WL_ENVELOPE_NATIVE_PACKET,
-      f->raw, sizeof(f->raw), &raw_len);
-  if (error != WL_OK) return error;
+  const wl_wire_packet_t *p = &f->packet;
+  const unsigned kind = p->flags != 0U ? 1U : 0U;
+  size_t raw_len = kind != 0U ? 16U : 4U;
+  f->raw[0] = (uint8_t)(0xa4U | kind);
+  f->raw[1] = 0U;
+  write_be(f->raw + 2U, p->message_id, 2U);
+  if (kind != 0U) {
+    write_be(f->raw + 4U, p->session_id, 8U);
+    write_be(f->raw + 12U, p->sequence, 4U);
+  }
+  memcpy(f->raw + raw_len, p->payload, p->payload_len);
+  raw_len += p->payload_len;
+  if (p->integrity != WL_INTEGRITY_NONE) {
+    size_t crc_len = p->integrity == WL_INTEGRITY_CRC16 ? 2U : 4U;
+    uint32_t crc = crc_len == 2U ? wl_crc16_ccitt_false(f->raw, raw_len) : wl_crc32c(f->raw, raw_len);
+    write_be(f->raw + raw_len, crc, crc_len);
+    raw_len += crc_len;
+  }
+  f->raw_len = raw_len;
   if (f->envelope == WL_ENVELOPE_COBS_STREAM) {
-    error = wl_cobs_encode(f->raw, raw_len, f->expected, sizeof(f->expected) - 1U, &f->exact_len);
+    int error = wl_cobs_encode(f->raw, raw_len, f->expected, sizeof(f->expected) - 1U, &f->exact_len);
     if (error != WL_OK) return error;
     f->expected[f->exact_len++] = 0U;
   } else if (f->envelope == WL_ENVELOPE_BUS_LENGTH16) {
@@ -69,6 +91,23 @@ int framing_init(framing_fixture_t *f, unsigned mode, wl_envelope_type_t envelop
 int framing_step(framing_fixture_t *f) {
   wl_event_t event;
   int error;
+  if (f->mode == FRAMING_RAW_DECODE)
+    return wl_frame_decode(f->raw, f->raw_len, f->packet.integrity, &f->rx_view);
+  if (f->mode == FRAMING_COBS_DECODE) {
+    size_t length;
+    memcpy(f->tx_unit, f->expected, f->exact_len);
+    error = wl_cobs_decode_in_place(f->tx_unit, f->exact_len - 1U, &length);
+    return error != WL_OK ? error : wl_frame_decode(f->tx_unit, length, f->packet.integrity, &f->rx_view);
+  }
+  if (f->mode == FRAMING_RECEIVE) {
+    if (f->rx_event.type != WL_EVT_NONE) wl_event_release(&f->link, &f->rx_event);
+    error = wl_feed_unit(&f->link, f->expected, f->exact_len);
+    if (error != WL_OK) return error;
+    error = wl_poll(&f->link, 0U, &f->rx_event);
+    return error != WL_OK ? error : f->rx_event.type == WL_EVT_UNRELIABLE_RX &&
+        f->rx_event.message_id == f->packet.message_id && f->rx_event.payload_len == f->packet.payload_len
+        ? WL_OK : WL_ERR_INVALID_STATE;
+  }
   if (f->mode <= FRAMING_OVERLAP) {
     wl_wire_packet_t packet = f->packet;
     if (f->mode == FRAMING_OVERLAP) {
@@ -103,14 +142,26 @@ int framing_step(framing_fixture_t *f) {
     error = wl_send_unreliable(&f->link, f->packet.message_id, f->payload, f->packet.payload_len);
   }
   if (error != WL_OK) return error;
-  while (f->busy != 0U)
+  while (f->busy != 0U) {
+    if (wl_tx_writable(&f->link) != WL_OK) return WL_ERR_INVALID_STATE;
     if (wl_poll(&f->link, f->now, &event) != WL_ERR_NO_DATA) return WL_ERR_INVALID_STATE;
+  }
+  if (f->mode == FRAMING_BUSY3 && wl_tx_writable(&f->link) != WL_OK)
+    return WL_ERR_INVALID_STATE;
   if (wl_poll(&f->link, f->now, &event) != WL_OK || event.type != WL_EVT_TX_SUCCESS)
     return WL_ERR_INVALID_STATE;
   return WL_OK;
 }
 
 int framing_check(framing_fixture_t *f) {
+  /* RX views keep their lease through this check; avoid adding a payload
+   * comparison to each timed receive operation. */
+  if (f->mode >= FRAMING_RAW_DECODE) {
+    const uint8_t *data = f->mode == FRAMING_RECEIVE ? f->rx_event.payload : f->rx_view.payload.data;
+    size_t length = f->mode == FRAMING_RECEIVE ? f->rx_event.payload_len : f->rx_view.payload.length;
+    return data != NULL && length == f->packet.payload_len && memcmp(data, f->payload, length) == 0
+        ? WL_OK : WL_ERR_CORRUPT_PAYLOAD;
+  }
   int error = reference(f);
   if (error != WL_OK) return error;
   const size_t length = f->mode <= FRAMING_OVERLAP ? f->output_len : f->last_len;

@@ -1,4 +1,4 @@
-# 帧编码与重试 CPU 基准
+# 帧收发与重试 CPU 基准
 
 这个可选基准单独隔离无分配的 frame/link 工作。不需要 WLC、Asio、executor 或网络。
 真实双进程延迟和 executor 争用见 [API 基准](../api/README-cn.md)。
@@ -55,18 +55,31 @@ python3 benchmarks/framing/test_compare.py
 | `claim` | claim、把字节拷进 claim、commit 并轮询完成 |
 | `busy3` | 不可靠发送，三次 BUSY，再同步 SENT |
 | `retry3` | 可靠发送，三次 ACK 超时重试，再 cancel/take 清理 |
+| `raw_decode` | 对已有 raw 帧完整解析并验证完整性 |
+| `cobs_decode` | 从不变的编码源复制，再原地 COBS decode 和完整 raw decode |
+| `receive` | 释放上一事件的 lease，feed、poll 并保留本帧事件供计时外校验 |
 
 `e0/e1/e2` 选择 COBS/native packet/length16。`i0/i1/i2` 选择 NONE/CRC16/CRC32C。
 `p0/p1/p2` 选择全零/非零/每 17 字节一个零的 payload。`bN` 是 payload 大小，不含链路头和完整性字节。
-完整 smoke 矩阵有 1,134 组，包含空 payload 和 254 字节边界。
+v2 完整 host smoke 矩阵有 1,404 组，包含空 payload 和 254 字节边界。
+`raw_decode`／`cobs_decode` 只登记 `e0`，避免重复 raw 负载。
 
 紧缓冲在恰好等于最坏边界时仍可走快路径。`claim` 含一次 setup 拷贝，不是直接 codec 的零拷贝测量。
-`busy3` 和 `retry3` 各做四次 sink 提交；它们测的是工作量，**不是**网络 RTT、丢包率或等待时间。
+`busy3` 在每次 BUSY 后显式发送 writable 通知；`busy3` 和 `retry3` 各做四次 sink 提交。
+它们测的是工作量，**不是**网络 RTT、丢包率或等待时间。
 时钟是模拟的；操作内部没有 sleep、adapter 或真实 I/O。
 
 初始化、预热和最终字节校验都在 Google Benchmark 计时循环外。
-oracle 是 native frame 加独立的 standalone COBS 编码器。每操作返回/事件检查和常数时间计数 sink 计入计时。
+oracle 独立构造 Compact-v1 raw header，调用 standalone CRC／COBS 工具。每操作返回/事件检查和常数时间计数 sink 计入计时。
 协议单元测试另查每次重试的字节、实际编码调用次数、I/O token 新鲜度和 ACK 存储隔离。
+
+RX 的 payload 字节比较在计时外；`cobs_decode` 的 setup 拷贝计入计时，`receive` 则包含真实 ring／fallback 与 lease 生命周期，不能把前者当作纯解码成本。
+`tests/zephyr/unit/framing_workload` 不依赖 Google Benchmark，验证全部负载和独立 bitwise CRC oracle。
+
+host 和 Zephyr 都可传 `-DWIRELINK_FRAMING_COBS_CRC16_ONLY=ON`，仅测 COBS＋CRC16。
+这只筛选诊断负载，**不改变 core 构建能力，也不代表 core 已专门化**。
+v2 Zephyr 输出的 `matrix` 字段记录此筛选：完整矩阵 936 组／4,680 条样本，筛选矩阵 120 组／600 条样本。
+比较器仍能读取历史 v1，但拒绝将 v1 与 v2、不同矩阵或不同 workload hash 作为同一负载比较。
 
 sanitizer smoke 另配一个 Clang 构建，使用
 `-DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'` 和相同的 `CMAKE_CXX_FLAGS`。

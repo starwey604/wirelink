@@ -61,9 +61,9 @@ struct Pair {
     uint64_t identity = 1;
     wl_environment_t env{wirelink::host::monotonic_clock(),
       {[](void *p, uint64_t *out) -> wl_err_t { *out = ++*static_cast<uint64_t *>(p); return WL_OK; }, &identity}};
-    check(perf_endpoint_init(&client, env) == WL_OK);
+    check(perf_endpoint_init(&client, env, wl_link_defaults()) == WL_OK);
     perf_endpoint_config_t config;
-    check(perf_endpoint_config_defaults(&config, env) == WL_OK);
+    check(perf_endpoint_config_defaults(&config, env, wl_link_defaults()) == WL_OK);
     config.on_echo = echo;
     check(perf_endpoint_init_config(&server, &config) == WL_OK);
     check(wl_loopback_connect(&cable, perf_endpoint_handle(&client), perf_endpoint_handle(&server)) == WL_OK);
@@ -83,7 +83,7 @@ struct Pair {
     check(perf_endpoint_close(&p.client) == WL_OK);
     return perf_endpoint_close(&p.server);
   }
-  wl_endpoint_driver_t driver() { return {perf_endpoint_handle(&client), this, step, close, 0U}; }
+  wl_endpoint_driver_t driver() { return {perf_endpoint_handle(&client), this, step, close}; }
 };
 
 struct Latest {

@@ -31,12 +31,17 @@ static void run(benchmark::State &state, unsigned mode, int envelope, int integr
 int main(int argc, char **argv) {
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
-  benchmark::AddCustomContext("workload", "wirelink-framing-v1");
+  benchmark::AddCustomContext("workload", "wirelink-framing-v2");
   for (unsigned mode = 0; mode < FRAMING_MODES; ++mode)
     for (int envelope : {WL_ENVELOPE_COBS_STREAM, WL_ENVELOPE_NATIVE_PACKET, WL_ENVELOPE_BUS_LENGTH16})
       for (int integrity : {WL_INTEGRITY_NONE, WL_INTEGRITY_CRC16, WL_INTEGRITY_CRC32C})
         for (unsigned pattern : {0U, 1U, 2U})
           for (size_t bytes : {0U, 32U, 120U, 254U, 512U, 2048U}) {
+#ifdef WL_FRAMING_COBS_CRC16_ONLY
+            if (envelope != WL_ENVELOPE_COBS_STREAM || integrity != WL_INTEGRITY_CRC16) continue;
+#endif
+            if ((mode == FRAMING_RAW_DECODE || mode == FRAMING_COBS_DECODE) &&
+                envelope != WL_ENVELOPE_COBS_STREAM) continue;
             const std::string name = std::string(framing_mode_name(mode)) + "/e" + std::to_string(envelope) +
                 "/i" + std::to_string(integrity) + "/p" + std::to_string(pattern) + "/b" + std::to_string(bytes);
             benchmark::RegisterBenchmark(name.c_str(), run, mode, envelope, integrity, pattern, bytes);

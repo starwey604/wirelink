@@ -33,7 +33,8 @@ struct Workload {
   std::condition_variable gate;
   bool entered{}, released{};
   bool asynchronous{}, blocked{}, refill{}, application_followup{}, rpc_required{}, rpc_seen{};
-  bool reply_on_rx{}, legacy_service{};
+  bool reply_on_rx{};
+  uint64_t observed_pass{UINT64_MAX};
   std::atomic<bool> unblock{};
   unsigned sent{}, received{}, services{}, applications{}, max_per_pass{}, in_pass{};
   wl_io_token_t token{};
@@ -43,7 +44,7 @@ struct Workload {
 
   static int service(void *p) noexcept {
     auto& w = *static_cast<Workload *>(p);
-    ++w.services; w.in_pass = 0;
+    ++w.services;
     {
       std::unique_lock lock(w.mutex);
       if (!w.released) {
@@ -54,14 +55,21 @@ struct Workload {
     if (w.pending && (!w.blocked || w.unblock.load())) {
       w.consume(w.pending, w.length);
       w.pending = nullptr;
-      CHECK(wl_tx_complete(&w.executor.context(), w.token, WL_OK) == WL_OK);
+      CHECK(wl_tx_consumed(&w.executor.context(), w.token, WL_OK) == WL_OK);
       return WL_OK;
     }
     return WL_ERR_NO_DATA;
   }
-  static uint32_t hint(const void *p, wl_time_ms_t) noexcept {
+  static wl_readiness_t readiness(const void *p, const wl_ctx_t&, wl_time_ms_t) noexcept {
     const auto& w = *static_cast<const Workload *>(p);
-    return w.pending && (!w.blocked || w.unblock.load()) ? 0 : WL_POLL_NO_DEADLINE_MS;
+    wl_readiness_t value = wl_readiness_idle();
+    value.runnable = !w.entered || (w.pending && (!w.blocked || w.unblock.load()));
+    value.blocked = w.pending && !value.runnable;
+    return value;
+  }
+  static wl_readiness_t app_readiness(const void *p, const wl_ctx_t&, wl_time_ms_t) noexcept {
+    const auto& w = *static_cast<const Workload *>(p);
+    return wl_readiness_at(w.applications < (w.application_followup ? 3U : 1U) ? 0U : WL_NO_DEADLINE);
   }
   void consume(const uint8_t *data, size_t size) {
     wl_frame_view_t frame;
@@ -84,6 +92,8 @@ struct Workload {
   }
   static wl_sink_result_t sink(void *p, wl_io_token_t token, const uint8_t *data, size_t size) {
     auto& w = *static_cast<Workload *>(p);
+    const auto pass = w.executor.activity().get(ExecutorActivity::passes);
+    if (pass != w.observed_pass) { w.in_pass = 0; w.observed_pass = pass; }
     ++w.in_pass;
     if (w.max_per_pass < w.in_pass) w.max_per_pass = w.in_pass;
     if (w.asynchronous) {
@@ -119,7 +129,7 @@ struct Workload {
   static bool application(void *p, wl_ctx_t&, wl_time_ms_t) noexcept {
     auto& w = *static_cast<Workload *>(p);
     ++w.applications;
-    return w.application_followup && w.applications < 3;
+    return true;
   }
   void start() {
     wl_config_t config{};
@@ -131,26 +141,29 @@ struct Workload {
       const auto clock = wirelink::host::monotonic_clock();
       wl_pump_hooks_t hooks{};
       hooks.adapter_user_data = hooks.application_user_data = this;
-      hooks.application_progress = [](void *p, wl_ctx_t *ctx, wl_time_ms_t now) -> uint8_t {
+      hooks.application_step = [](void *p, wl_ctx_t *ctx, wl_time_ms_t now) -> uint8_t {
         return application(p, *ctx, now);
       };
       hooks.on_event = [](void *p, wl_ctx_t *ctx, const wl_event_t *e, wl_time_ms_t now) {
         return event(p, *ctx, *e, now);
       };
+      hooks.application_readiness = [](const void *p, const wl_ctx_t *ctx, wl_time_ms_t now) { return app_readiness(p, *ctx, now); };
       CHECK(wl_endpoint_init(&endpoint, &config, &storage, &clock, &hooks) == WL_OK);
       hooks.service = service;
-      hooks.adapter_deadline_hint = hint;
+      hooks.adapter_readiness = [](const void *p, const wl_ctx_t *ctx, wl_time_ms_t now) { return readiness(p, *ctx, now); };
+      hooks.application_readiness = [](const void *p, const wl_ctx_t *ctx, wl_time_ms_t now) { return app_readiness(p, *ctx, now); };
       CHECK(wl_endpoint_attach(&endpoint, &hooks) == WL_OK);
       const wl_endpoint_driver_t driver{&endpoint, &endpoint,
         [](void *p) { return wl_endpoint_step(static_cast<wl_endpoint_t *>(p), 64); },
-        [](void *p) -> wl_err_t { wl_endpoint_close(static_cast<wl_endpoint_t *>(p)); return WL_OK; }, 0U};
+        [](void *p) -> wl_err_t { wl_endpoint_close(static_cast<wl_endpoint_t *>(p)); return WL_OK; }};
       CHECK(executor.initialize(driver) == WL_OK);
     } else {
       CHECK(executor.initialize(config, storage) == WL_OK);
       wirelink::host::ExecutorHooks hooks{};
       hooks.m_user_data = this; hooks.m_service = service; hooks.m_on_event = event;
-      hooks.m_application_progress = application;
-      if (!legacy_service) hooks.m_adapter_deadline_hint = hint;
+      hooks.m_application_step = application;
+      hooks.m_adapter_readiness = readiness;
+      hooks.m_application_readiness = app_readiness;
       CHECK(executor.setHooks(hooks) == WL_OK);
     }
     CHECK(executor.setSink(sink, this) == WL_OK);
@@ -186,7 +199,6 @@ static void scenario(const char *name, unsigned tx, unsigned rx, bool async = fa
   w.application_followup = std::strcmp(name, "application_followup") == 0;
   w.rpc_required = std::strcmp(name, "rpc_refill_stop") == 0;
   w.reply_on_rx = std::strstr(name, "rx_reply") != nullptr;
-  w.legacy_service = std::strstr(name, "legacy") != nullptr;
   w.start();
   std::thread caller;
   if (w.rpc_required) {
@@ -239,7 +251,7 @@ static void scenario(const char *name, unsigned tx, unsigned rx, bool async = fa
   const auto activity = w.executor.activity();
   CHECK(activity.enabled);
   CHECK(activity.get(ExecutorActivity::rpc_empty_collections) == 0);
-  CHECK(w.applications == activity.get(ExecutorActivity::passes));
+  CHECK(w.applications == (w.application_followup ? 3U : 1U));
   if (w.application_followup) CHECK(w.applications >= 3);
   if (w.rpc_required) {
     CHECK(w.rpc_seen);
@@ -285,10 +297,8 @@ int main() {
   scenario("latest_burst", 8, 0);
   scenario("mixed_burst", 8, 8);
   scenario("async_latest", 8, 0, true);
-  scenario("legacy_async_latest", 8, 0, true);
   scenario("blocked_latest", 8, 0, true, true);
   scenario("async_rx_reply", 0, 1, true);
-  scenario("legacy_async_rx_reply", 0, 1, true);
   scenario("empty_feed", 0, 0);
   scenario("refill_stop", 1, 0, false, false, true);
   scenario("application_followup", 0, 0);

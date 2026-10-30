@@ -264,7 +264,7 @@ public:
         auto opened = UsbBulkDevice::open(config);
         if (!opened) throw std::system_error(opened.error());
         m_device = std::make_unique<UsbBulkDevice>(std::move(opened.value()));
-        auto started = m_device->start_reads(
+        auto started = m_device->start_reads_borrowed(
             [this] { return UsbBorrowedBuffer{{m_rx_buffer.data(), m_rx_buffer.size()}, 1}; },
             [this](const std::error_code& error, UsbBorrowedBuffer, std::size_t length)
             {
@@ -333,10 +333,10 @@ struct LinkFixture
 
     LinkFixture()
     {
-        const wl_config_t config{
+        wl_config_t config{
             .max_payload_len = MaxPayload,
             .envelope = WL_ENVELOPE_COBS_STREAM,
-            .integrity = WL_INTEGRITY_NONE,
+            .integrity = {},
             .session_id = UINT64_C(0x484f535442454e43),
             .max_retries = 2,
             .ack_timeout_ms = 20,
@@ -349,6 +349,7 @@ struct LinkFixture
             .rx_fifo = rx_fifo.data(), .rx_fifo_size = rx_fifo.size(),
             .rx_fallback = rx_fallback.data(), .rx_fallback_size = rx_fallback.size(),
         };
+        (void)wl_config_apply_link_defaults(&config, wl_usb_bulk_link_defaults());
         const int result = wl_init(&link, &config, &storage);
         if (result != WL_OK) throw std::runtime_error("wl_init failed");
     }
