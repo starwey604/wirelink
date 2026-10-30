@@ -4,7 +4,12 @@
 #include "wirelink/frame.h"
 #include <stdlib.h>
 #include <string.h>
+#ifdef WL_PACKET_ZTEST
+#include <zephyr/ztest.h>
+#define CHECK(x) zassert_true(x, "%s", #x)
+#else
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
+#endif
 typedef struct {
   wl_packet_port_t port;
   wl_packet_stream_t stream;
@@ -26,7 +31,7 @@ static void init(fixture_t *f, int cobs) {
       .physical_submit = physical, .user = f, .maximum_frame_size = 2052};
   CHECK((cobs ? wl_packet_stream_cobs_crc16_init : wl_packet_stream_length16_none_init)(&f->stream, &c) == WL_OK);
 }
-static void test(int cobs) {
+void wl_test_packet_stream(int cobs) {
   fixture_t f = {0}; init(&f, cobs);
   wl_err_t (*feed)(wl_packet_stream_t *, const uint8_t *, size_t, size_t *) =
       cobs ? wl_packet_stream_cobs_crc16_feed : wl_packet_stream_length16_none_feed;
@@ -83,4 +88,6 @@ static void test(int cobs) {
   CHECK(wl_packet_stream_abort_rx(&f.stream) == WL_OK);
   wl_packet_stop(&f.port); CHECK(wl_packet_quiescent(&f.port));
 }
-int main(void) { test(1); test(0); }
+#ifndef WL_PACKET_ZTEST
+int main(void) { wl_test_packet_stream(1); wl_test_packet_stream(0); }
+#endif
