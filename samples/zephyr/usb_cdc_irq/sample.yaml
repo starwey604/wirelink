@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 sample:
-  name: Wirelink USB CDC interrupt endpoint
-  description: Wirelink protocol echo over the CDC ACM interrupt API
+  name: Wirelink USB CDC IRQ capability probe
+  description: Diagnose missing physical TX completion in the CDC ACM interrupt API
 tests:
   sample.wirelink.usb_cdc_irq:
     build_only: true

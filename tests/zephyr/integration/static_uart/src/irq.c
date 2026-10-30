@@ -206,4 +206,19 @@ ZTEST(static_uart_irq, test_staged_rx_physical_tx_and_old_callback) {
   wl_kernel_uart_irq_stop(&adapter);
   zassert_true(wl_packet_quiescent(&port));
 }
+ZTEST(static_uart_irq, test_rejects_cdc_without_physical_completion) {
+  setup();
+  wl_kernel_uart_irq_stop(&adapter);
+  wl_kernel_uart_irq_config_t config = {.uart = DEVICE_GET(fake_uart_cdc),
+    .port = &port, .fifo = &fifo, .stream = &stream};
+  zassert_equal(wl_kernel_uart_irq_init(&adapter, &config), WL_ERR_NOT_SUPPORTED);
+  zassert_is_null(cdc_data.callback);
+  config.uart = DEVICE_GET(fake_uart_missing);
+  zassert_equal(wl_kernel_uart_irq_init(&adapter, &config), WL_ERR_NOT_SUPPORTED);
+  config.uart = DEVICE_GET(fake_uart_no_callback);
+  zassert_equal(wl_kernel_uart_irq_init(&adapter, &config), WL_ERR_NOT_SUPPORTED);
+  /* Failed admission cannot consume a binding or prevent a later real UART. */
+  setup();
+  wl_kernel_uart_irq_stop(&adapter);
+}
 ZTEST_SUITE(static_uart_irq, NULL, NULL, NULL, NULL, NULL);
