@@ -1,14 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/byte_fifo.h"
 #include "wirelink/kernel_wire.h"
-#include <pthread.h>
+#include "threaded_fixture.h"
 #include <stdlib.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 static wl_byte_fifo_t fifo;
 static uint8_t staging[257];
-static void *produce(void *unused) {
-  (void)unused;
+void wl_test_thread_produce(void) {
   for (unsigned at = 0U; at < 1000000U;) {
     wl_span_t span;
     if (wl_byte_fifo_reserve(&fifo, &span) == WL_ERR_WOULD_BLOCK) continue;
@@ -17,7 +16,6 @@ static void *produce(void *unused) {
     for (size_t i = 0; i < n; ++i) span.data[i] = (uint8_t)(at + i);
     CHECK(wl_byte_fifo_commit(&fifo, n) == WL_OK); at += (unsigned)n;
   }
-  return NULL;
 }
 static uint8_t wire[256]; static size_t wire_length;
 static wl_packet_submit_t sink(void *user, const uint8_t *p, size_t n, wl_packet_token_t token) {
@@ -35,15 +33,18 @@ static void feed(const uint8_t *bytes, size_t n) {
     CHECK(error==WL_OK || error==WL_ERR_IO);
   }
 }
-int main(void) {
+void wl_test_thread_setup(void) {
   CHECK(wl_byte_fifo_init(&fifo,(wl_span_t){staging,sizeof(staging)},NULL,NULL)==WL_OK);
-  pthread_t thread; CHECK(pthread_create(&thread,NULL,produce,NULL)==0);
+}
+void wl_test_thread_consume(void) {
   for (unsigned at=0;at<1000000U;) {
     wl_span_t span=wl_byte_fifo_peek(&fifo);
     for (size_t i=0;i<span.length;++i) CHECK(span.data[i]==(uint8_t)(at+i));
     CHECK(wl_byte_fifo_consume(&fifo,span.length)==WL_OK);at+=(unsigned)span.length;
   }
-  CHECK(pthread_join(thread,NULL)==0 && !wl_byte_fifo_readable(&fifo));
+}
+void wl_test_thread_finish(void) {
+  CHECK(!wl_byte_fifo_readable(&fifo));
   wl_span_t span;CHECK(wl_byte_fifo_reserve(&fifo,&span)==WL_OK);
   CHECK(wl_byte_fifo_commit(&fifo,span.length+1)==WL_ERR_INVALID_ARG);
   CHECK(wl_byte_fifo_commit(&fifo,0)==WL_OK);

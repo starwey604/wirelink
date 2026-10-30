@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/packet_port.h"
-#include <pthread.h>
+#include "threaded_fixture.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,8 +22,7 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t size,
   return WL_PACKET_STARTED;
 }
 
-static void *io_thread(void *unused) {
-  (void)unused;
+void wl_test_thread_produce(void) {
   for (uint32_t i = 1U; i <= COUNT; ++i) {
     wl_packet_claim_t claim;
     wl_err_t status;
@@ -39,10 +38,9 @@ static void *io_thread(void *unused) {
     /* Race a duplicate old completion against the next owner's submit. */
     CHECK(wl_packet_tx_publish(&port, token, WL_PACKET_DRAINED) == WL_ERR_NOT_FOUND);
   }
-  return NULL;
 }
 
-int main(void) {
+void wl_test_thread_setup(void) {
   wl_packet_config_t config = {
       .instance = 77U, .rx_storage = &storage[0][0],
       .rx_unit_size = sizeof(storage[0]), .rx_storage_size = sizeof(storage),
@@ -50,8 +48,8 @@ int main(void) {
   };
   CHECK(wl_packet_init(&port, &config) == WL_OK);
   atomic_init(&submitted, 0U);
-  pthread_t io;
-  CHECK(pthread_create(&io, NULL, io_thread, NULL) == 0);
+}
+void wl_test_thread_consume(void) {
   for (uint32_t i = 1U; i <= COUNT; ++i) {
     wl_packet_borrow_t borrow;
     wl_err_t status;
@@ -68,8 +66,8 @@ int main(void) {
     CHECK((events & WL_PACKET_CONSUMED) != 0U);
     CHECK(wl_packet_rx_release(&port, &borrow) == WL_OK);
   }
-  CHECK(pthread_join(io, NULL) == 0);
+}
+void wl_test_thread_finish(void) {
   wl_packet_stop(&port);
   CHECK(wl_packet_quiescent(&port));
-  return 0;
 }
