@@ -21,7 +21,7 @@ class Server {
 public:
   Server() {
     calculator_endpoint_config_t config;
-    CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+    CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
     config.on_add = [](void* context, const add_request_value_t* request, add_response_value_t* response) {
       auto& self = *static_cast<Server*>(context);
       {
@@ -44,9 +44,9 @@ public:
     owner_ = std::thread([this] {
       while (!stopping_) {
         CHECK(calculator_endpoint_step(&endpoint_) == WL_OK);
-        wl_poll_hint_t hint;
-        CHECK(wl_endpoint_get_hint(calculator_endpoint_handle(&endpoint_), &hint) == WL_OK);
-        if (!hint.work_pending) {
+        wl_readiness_t hint;
+        CHECK(wl_endpoint_get_readiness(calculator_endpoint_handle(&endpoint_), &hint) == WL_OK);
+        if (!hint.runnable) {
           const int status = adapter_->wait_for_activity(
               std::chrono::milliseconds(std::min(hint.next_deadline_ms, 100U)));
           CHECK(status == WL_OK || status == WL_ERR_NO_DATA);

@@ -4,5 +4,5 @@
   "namespace": "device",
   "python_package": "device_sdk",
   "distribution": "wirelink-device-sdk",
-  "version": "0.8.0"
+  "version": "0.12.0"
 }

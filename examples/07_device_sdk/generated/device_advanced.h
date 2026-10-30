@@ -32,8 +32,8 @@ typedef struct {
   int32_t link_result;
   wl_rpc_err_t runtime_error;
   bool response_valid;
-  /* Borrowed fields, if present in the schema, live until call release. */
-  configure_response_t response;
+  /* Owned value borrowed until release/close; assignment copies all fields. */
+  const configure_response_value_t *response;
 } device_configure_result_t;
 
 /* On success out_call identifies this invocation. On failure it is cleared;
@@ -82,7 +82,6 @@ static inline wl_rpc_err_t device_endpoint_configure_inspect(device_endpoint_t *
     const device_configure_call_t *call, device_configure_result_t *out_result) {
   wl_rpc_client_result_t client;
   wl_rpc_err_t error;
-  device_runtime_result_t decoded;
   if (out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
   memset(out_result, 0, sizeof(*out_result));
   error = device_endpoint_configure_call_get(endpoint, call, &client);
@@ -92,11 +91,8 @@ static inline wl_rpc_err_t device_endpoint_configure_inspect(device_endpoint_t *
   out_result->link_result = client.link_result;
   out_result->runtime_error = client.runtime_error;
   if (client.state != WL_RPC_CLIENT_COMPLETED) return WL_RPC_OK;
-  decoded = device_configure_client_decode(&client, &out_result->response);
-  if (!device_runtime_result_ok(&decoded)) {
-    endpoint->private_state.result = decoded;
-    return decoded.detail.rpc.rpc_result != WL_RPC_OK ? decoded.detail.rpc.rpc_result : WL_RPC_ERR_INVALID_STATE;
-  }
+  if (!client.response_valid) return WL_RPC_ERR_INVALID_STATE;
+  out_result->response = &device_endpoint_runtime(endpoint)->rpc_results[client.result_index].configure;
   out_result->response_valid = true;
   return WL_RPC_OK;
 }
@@ -174,8 +170,8 @@ typedef struct {
   int32_t link_result;
   wl_rpc_err_t runtime_error;
   bool response_valid;
-  /* Borrowed fields, if present in the schema, live until call release. */
-  info_response_t response;
+  /* Owned value borrowed until release/close; assignment copies all fields. */
+  const info_response_value_t *response;
 } device_get_info_result_t;
 
 /* On success out_call identifies this invocation. On failure it is cleared;
@@ -224,7 +220,6 @@ static inline wl_rpc_err_t device_endpoint_get_info_inspect(device_endpoint_t *e
     const device_get_info_call_t *call, device_get_info_result_t *out_result) {
   wl_rpc_client_result_t client;
   wl_rpc_err_t error;
-  device_runtime_result_t decoded;
   if (out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
   memset(out_result, 0, sizeof(*out_result));
   error = device_endpoint_get_info_call_get(endpoint, call, &client);
@@ -234,11 +229,8 @@ static inline wl_rpc_err_t device_endpoint_get_info_inspect(device_endpoint_t *e
   out_result->link_result = client.link_result;
   out_result->runtime_error = client.runtime_error;
   if (client.state != WL_RPC_CLIENT_COMPLETED) return WL_RPC_OK;
-  decoded = device_get_info_client_decode(&client, &out_result->response);
-  if (!device_runtime_result_ok(&decoded)) {
-    endpoint->private_state.result = decoded;
-    return decoded.detail.rpc.rpc_result != WL_RPC_OK ? decoded.detail.rpc.rpc_result : WL_RPC_ERR_INVALID_STATE;
-  }
+  if (!client.response_valid) return WL_RPC_ERR_INVALID_STATE;
+  out_result->response = &device_endpoint_runtime(endpoint)->rpc_results[client.result_index].get_info;
   out_result->response_valid = true;
   return WL_RPC_OK;
 }

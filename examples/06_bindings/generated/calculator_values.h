@@ -39,9 +39,13 @@ size_t add_response_value_encoded_size(const add_response_value_t *value);
 wl_codec_status_t add_response_value_encode(const add_response_value_t *value, uint8_t *out, size_t capacity, size_t *length);
 wl_codec_status_t add_response_value_decode(const uint8_t *input, size_t length, add_response_value_t *out);
 
+#define ADD_REQUEST_CODEC_PROFILE 1U
+#define ADD_REQUEST_CODEC_FORMAT "schema-v1"
 #define ADD_REQUEST_MESSAGE_ID 20U
 #define ADD_REQUEST_HAS_MAX_ENCODED_SIZE 1
 #define ADD_REQUEST_MAX_ENCODED_SIZE UINT64_C(12)
+#define ADD_RESPONSE_CODEC_PROFILE 1U
+#define ADD_RESPONSE_CODEC_FORMAT "schema-v1"
 #define ADD_RESPONSE_MESSAGE_ID 21U
 #define ADD_RESPONSE_HAS_MAX_ENCODED_SIZE 1
 #define ADD_RESPONSE_MAX_ENCODED_SIZE UINT64_C(6)

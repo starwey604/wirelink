@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
   calculator_endpoint_config_t config;
   uint16_t local = 49101, peer = 49100;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
 
   config.on_add = add;
   CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);

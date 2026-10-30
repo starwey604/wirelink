@@ -4,6 +4,7 @@
 #include <device/types.hpp>
 #include "native.hpp"
 #include <algorithm>
+#include <cstring>
 
 namespace device::wlc_detail {
 inline bool to_c(const InfoRequest& input, wlc_native::info_request_value_t& output) {
@@ -43,7 +44,7 @@ inline bool to_c(const Settings& input, wlc_native::settings_value_t& output) {
   }
   output.has_gains = true;
   if (output.has_gains) {
-    std::copy(input.gains.begin(), input.gains.end(), output.gains);
+    std::memcpy(output.gains, input.gains.data(), sizeof(output.gains));
   }
   output.has_counters = input.counters.has_value();
   if (output.has_counters) {
@@ -88,7 +89,7 @@ inline Settings from_c(const wlc_native::settings_value_t& input) {
     output.token.assign(input.token.data, input.token.data + input.token.length);
   }
   if (input.has_gains) {
-    std::copy_n(input.gains, 3, output.gains.begin());
+    std::memcpy(output.gains.data(), input.gains, sizeof(input.gains));
   }
   if (input.has_counters) {
     output.counters.emplace();
@@ -267,15 +268,15 @@ inline bool to_c(const Numbers& input, wlc_native::numbers_value_t& output) {
   }
   output.has_single = true;
   if (output.has_single) {
-    output.single = input.single;
+    std::memcpy(&output.single, &(input.single), sizeof(output.single));
   }
   output.has_double_ = true;
   if (output.has_double_) {
-    output.double_ = input.double_;
+    std::memcpy(&output.double_, &(input.double_), sizeof(output.double_));
   }
   output.has_doubles = input.doubles.has_value();
   if (output.has_doubles) {
-    std::copy((*input.doubles).begin(), (*input.doubles).end(), output.doubles);
+    std::memcpy(output.doubles, (*input.doubles).data(), sizeof(output.doubles));
   }
   output.has_words = true;
   if (output.has_words) {
@@ -336,14 +337,14 @@ inline Numbers from_c(const wlc_native::numbers_value_t& input) {
     output.f64 = input.f64;
   }
   if (input.has_single) {
-    output.single = input.single;
+    std::memcpy(&(output.single), &input.single, sizeof(input.single));
   }
   if (input.has_double_) {
-    output.double_ = input.double_;
+    std::memcpy(&(output.double_), &input.double_, sizeof(input.double_));
   }
   if (input.has_doubles) {
     output.doubles.emplace();
-    std::copy_n(input.doubles, 2, (*output.doubles).begin());
+    std::memcpy((*output.doubles).data(), input.doubles, sizeof(input.doubles));
   }
   if (input.has_words) {
     std::copy_n(input.words, 2, output.words.begin());

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-project(CalculatorSdk VERSION 0.8.0 LANGUAGES C CXX)
+project(CalculatorSdk VERSION 0.12.0 LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-find_package(Wirelink 0.8.0 EXACT CONFIG REQUIRED)
+find_package(Wirelink 0.12.0 EXACT CONFIG REQUIRED)
 foreach(dependency cpp_host platform)
   if(NOT TARGET Wirelink::${dependency})
     message(FATAL_ERROR "Install Wirelink with CPP_BINDINGS and PLATFORM enabled")
@@ -32,6 +32,15 @@ target_include_directories(calculator_client PUBLIC
   $<INSTALL_INTERFACE:include>
   PRIVATE generated)
 target_link_libraries(calculator_client PUBLIC Wirelink::cpp_host PRIVATE Wirelink::platform)
+option(CALCULATOR_RPC_LAYOUT_ENABLE "Mark generated RPC ELF sections (rebuild archive to change)"
+  ${WIRELINK_WLC_RPC_LAYOUT_ENABLE})
+wirelink_wlc_configure_rpc_layout(TARGET calculator_client MODULE calculator
+  ENABLE "${CALCULATOR_RPC_LAYOUT_ENABLE}")
+get_target_property(_rpc_layout calculator_client WIRELINK_WLC_RPC_LAYOUT_ENABLE)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/wlc-sdk-build.json"
+  "{\n  \"format\": \"wirelink-sdk-build-v1\",\n  \"namespace\": \"calculator\",\n  \"rpc_layout_enable\": ${_rpc_layout}\n}\n")
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/wlc-sdk-build.json"
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/calculator COMPONENT development)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(calculator_client PRIVATE -Wall -Wextra -Wpedantic)
 endif()
@@ -72,6 +81,8 @@ if(CALCULATOR_BUILD_PYTHON)
   endif()
   install(TARGETS calculator_native LIBRARY DESTINATION calculator_sdk COMPONENT python
     RUNTIME DESTINATION calculator_sdk COMPONENT python)
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/wlc-sdk-build.json"
+    DESTINATION calculator_sdk COMPONENT python)
 endif()
 
 if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")

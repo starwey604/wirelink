@@ -4,6 +4,7 @@
 #include <calculator/types.hpp>
 #include "native.hpp"
 #include <algorithm>
+#include <cstring>
 
 namespace calculator::wlc_detail {
 inline bool to_c(const AddRequest& input, wlc_native::add_request_value_t& output) {

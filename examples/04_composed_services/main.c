@@ -84,16 +84,16 @@ static int32_t status(void *context, const bulk_status_t *message, wl_delivery_t
       message->code, message->next_offset, message->chunk_size};
   return wl_bulk_sender_on_status(&sender, &value, tick);
 }
-static uint8_t receive_progress(void *context, wl_ctx_t *link, wl_time_ms_t time) {
+static wl_work_result_t receive_step(void *context, wl_ctx_t *link, wl_time_ms_t time) {
   (void)context; (void)link;
   assert(wl_bulk_receiver_poll(&receiver, time) == WL_BULK_OK);
   wl_bulk_receiver_status_view_t view;
-  if (wl_bulk_receiver_status_acquire(&receiver, &view) != WL_BULK_OK) return 0U;
+  if (wl_bulk_receiver_status_acquire(&receiver, &view) != WL_BULK_OK) return (wl_work_result_t){0U, 0U};
   if (drop_status_once && view.status.phase == WL_BULK_PHASE_CHUNK &&
       view.status.code == WL_BULK_STATUS_OK) {
     drop_status_once = false; ++status_drops;
     assert(wl_bulk_receiver_status_release(&receiver, &view) == WL_BULK_OK);
-    return 0U; /* Force a real application-status timeout and duplicate chunk. */
+    return (wl_work_result_t){1U, 0U}; /* Force a real application-status timeout and duplicate chunk. */
   }
   bulk_status_t message;
   bulk_status_clear(&message);
@@ -107,13 +107,13 @@ static uint8_t receive_progress(void *context, wl_ctx_t *link, wl_time_ms_t time
     assert(wl_bulk_receiver_status_release(&receiver, &view) == WL_BULK_OK);
   else
     assert(wl_bulk_receiver_status_defer(&receiver, &view) == WL_BULK_OK);
-  return 0U; /* Pending physical TX wakes the owner; deadline covers retry. */
+  return (wl_work_result_t){1U, 0U}; /* Pending physical TX wakes the owner; deadline covers retry. */
 }
-static uint8_t send_progress(void *context, wl_ctx_t *link, wl_time_ms_t time) {
+static wl_work_result_t send_step(void *context, wl_ctx_t *link, wl_time_ms_t time) {
   (void)context; (void)link;
   assert(wl_bulk_sender_poll(&sender, time) == WL_BULK_OK);
   wl_bulk_sender_action_t action;
-  if (wl_bulk_sender_action_acquire(&sender, &action) != WL_BULK_OK) return 0U;
+  if (wl_bulk_sender_action_acquire(&sender, &action) != WL_BULK_OK) return (wl_work_result_t){0U, 0U};
   bulk_command_t message;
   bulk_command_clear(&message);
   message.has_phase = message.has_transfer_id = message.has_total_length = true;
@@ -131,7 +131,7 @@ static uint8_t send_progress(void *context, wl_ctx_t *link, wl_time_ms_t time) {
     assert(wl_bulk_sender_action_submitted(&sender, &action, time) == WL_BULK_OK);
   else
     assert(wl_bulk_sender_action_defer(&sender, &action) == WL_BULK_OK);
-  return 0U;
+  return (wl_work_result_t){sent.domain == PRODUCT_SEND_OK, 0U};
 }
 static uint32_t receive_deadline(const void *context, wl_time_ms_t time) {
   (void)context; wl_bulk_deadline_hint_t hint;
@@ -189,20 +189,21 @@ int main(void) {
   assert(wl_bulk_receiver_init(&receiver, &receiver_config) == WL_BULK_OK);
   assert(wl_bulk_sender_init(&sender, &sender_config) == WL_BULK_OK);
   product_endpoint_config_t a, b;
-  assert(product_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){now, NULL})) == WL_OK);
-  assert(product_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){now, NULL})) == WL_OK);
+  assert(product_endpoint_config_defaults(&a, test_environment_id(1U, (wl_clock_t){now, NULL}), wl_link_defaults()) == WL_OK);
+  assert(product_endpoint_config_defaults(&b, test_environment_id(2U, (wl_clock_t){now, NULL}), wl_link_defaults()) == WL_OK);
   a.on_bulk_status = status;
   b.on_bulk_command = command; b.on_query = query; b.on_reboot = reboot;
   b.on_response_terminal = response_terminal;
   assert(product_endpoint_init_config(&host, &a) == WL_OK);
   assert(product_endpoint_init_config(&device, &b) == WL_OK);
-  const wl_endpoint_service_t host_service = {NULL, send_progress, send_deadline, NULL, NULL};
-  const wl_endpoint_service_t device_service = {NULL, receive_progress, receive_deadline, peer_session, close_receiver};
+  const wl_endpoint_service_t host_service = {NULL, send_step, send_deadline, NULL, NULL};
+  const wl_endpoint_service_t device_service = {NULL, receive_step, receive_deadline, peer_session, close_receiver};
   assert(wl_endpoint_set_services(product_endpoint_handle(&host), &host_service, 1U) == WL_OK);
   assert(wl_endpoint_set_services(product_endpoint_handle(&device), &device_service, 1U) == WL_OK);
   assert(wl_loopback_connect(&cable, product_endpoint_handle(&host), product_endpoint_handle(&device)) == WL_OK);
   wl_bulk_descriptor_t object = {1U, sizeof(source), 256U, wl_crc32c(source, sizeof(source))};
   assert(wl_bulk_sender_start(&sender, &object) == WL_BULK_OK);
+  assert(wl_endpoint_activate_service(product_endpoint_handle(&host), 0U) == WL_OK);
   query_request_t query_request; query_request_clear(&query_request);
   product_query_call_t query_call;
   assert(product_endpoint_query_call(&host, &query_request, 100U, &query_call) == WL_RPC_OK);
@@ -241,6 +242,7 @@ int main(void) {
   assert(wl_bulk_sender_reset(&sender) == WL_BULK_OK);
   ++object.transfer_id;
   assert(wl_bulk_sender_start(&sender, &object) == WL_BULK_OK);
+  assert(wl_endpoint_activate_service(product_endpoint_handle(&host), 0U) == WL_OK);
   for (unsigned i = 0U; i < 8U; ++i) pass();
   assert(product_endpoint_close(&host) == WL_OK);
   assert(product_endpoint_close(&device) == WL_OK);

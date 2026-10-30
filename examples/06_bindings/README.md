@@ -1,6 +1,6 @@
 # CalculatorSdk
 
-Generated C++20 / Python 3.10+ SDK for `calculator`, version `0.8.0`.
+Generated C++20 / Python 3.10+ SDK for `calculator`, version `0.12.0`.
 The source API is binding revision 2. It supports managed,
 synchronous and asynchronous RPC over UDP. Connecting opens local I/O without a peer handshake.
 
@@ -41,7 +41,7 @@ Use a different SDK name for each independently distributed schema package.
 
 ## SDK maintainers
 
-Build/install the matching Wirelink 0.8.0 checkout with
+Build/install the matching Wirelink 0.12.0 checkout with
 `WIRELINK_BUILD_CPP_BINDINGS=ON`, `WIRELINK_BUILD_PLATFORM=ON`,
 `WIRELINK_BUILD_EXAMPLES=OFF`, `BUILD_SHARED_LIBS=OFF` and
 `CMAKE_POSITION_INDEPENDENT_CODE=ON`. Provide standalone Asio headers through
@@ -59,6 +59,16 @@ python -m pip install build
 python -m build --outdir dist \
   -Ccmake.define.CMAKE_PREFIX_PATH=/absolute/path/to/wirelink-install
 ```
+
+RPC ELF layout markers default ON. To disable them, configure
+`-DCALCULATOR_RPC_LAYOUT_ENABLE=OFF` and rebuild the SDK archive/wheel. A macro
+in an application consuming a prebuilt SDK cannot alter its compiled runtime.
+The installed CMake package reports `CalculatorSdk_RPC_LAYOUT_ENABLE`;
+`share/calculator/wlc-sdk-build.json` (or the Python package-local file in a wheel)
+records the actual selection. This build setting does not change API, wire,
+schema/binding identity, replay or ownership. Markers do not promise RAM
+placement or final adjacency; custom link scripts must handle `.text.wlc.*`
+inputs. See WLC's `docs/rpc-layout.md` for grouping and per-function overrides.
 
 The build verifies the paired WLC C ABI using the included manifest. A local
 Linux wheel still needs a supported manylinux build/repair before broad release.

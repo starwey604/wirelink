@@ -28,9 +28,9 @@ public:
     owner_ = std::thread([this] {
       while (!stopping_) {
         CHECK(driver_.step(driver_.context) == WL_OK);
-        wl_poll_hint_t hint;
-        CHECK(wl_endpoint_get_hint(driver_.endpoint, &hint) == WL_OK);
-        if (!hint.work_pending) {
+        wl_readiness_t hint;
+        CHECK(wl_endpoint_get_readiness(driver_.endpoint, &hint) == WL_OK);
+        if (!hint.runnable) {
           const int status = adapter_->wait_for_activity(
               std::chrono::milliseconds(std::min(hint.next_deadline_ms, 100U)));
           CHECK(status == WL_OK || status == WL_ERR_NO_DATA);

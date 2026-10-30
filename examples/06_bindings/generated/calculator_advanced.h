@@ -32,8 +32,8 @@ typedef struct {
   int32_t link_result;
   wl_rpc_err_t runtime_error;
   bool response_valid;
-  /* Borrowed fields, if present in the schema, live until call release. */
-  add_response_t response;
+  /* Owned value borrowed until release/close; assignment copies all fields. */
+  const add_response_value_t *response;
 } calculator_add_result_t;
 
 /* On success out_call identifies this invocation. On failure it is cleared;
@@ -82,7 +82,6 @@ static inline wl_rpc_err_t calculator_endpoint_add_inspect(calculator_endpoint_t
     const calculator_add_call_t *call, calculator_add_result_t *out_result) {
   wl_rpc_client_result_t client;
   wl_rpc_err_t error;
-  calculator_runtime_result_t decoded;
   if (out_result == NULL) return WL_RPC_ERR_INVALID_ARG;
   memset(out_result, 0, sizeof(*out_result));
   error = calculator_endpoint_add_call_get(endpoint, call, &client);
@@ -92,11 +91,8 @@ static inline wl_rpc_err_t calculator_endpoint_add_inspect(calculator_endpoint_t
   out_result->link_result = client.link_result;
   out_result->runtime_error = client.runtime_error;
   if (client.state != WL_RPC_CLIENT_COMPLETED) return WL_RPC_OK;
-  decoded = calculator_add_client_decode(&client, &out_result->response);
-  if (!calculator_runtime_result_ok(&decoded)) {
-    endpoint->private_state.result = decoded;
-    return decoded.detail.rpc.rpc_result != WL_RPC_OK ? decoded.detail.rpc.rpc_result : WL_RPC_ERR_INVALID_STATE;
-  }
+  if (!client.response_valid) return WL_RPC_ERR_INVALID_STATE;
+  out_result->response = &calculator_endpoint_runtime(endpoint)->rpc_results[client.result_index].add;
   out_result->response_valid = true;
   return WL_RPC_OK;
 }

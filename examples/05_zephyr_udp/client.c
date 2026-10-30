@@ -4,7 +4,7 @@
 
 int main(int argc, char **argv) {
   static udp_demo_endpoint_t client;
-  CHECK(udp_demo_endpoint_init(&client, wl_platform_environment()) == WL_OK);
+  CHECK(udp_demo_endpoint_init(&client, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   example_udp_t *udp = peer_open(udp_demo_endpoint_handle(&client), argc, argv);
   if (udp == NULL) {
     (void)udp_demo_endpoint_close(&client);

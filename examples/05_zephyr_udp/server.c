@@ -16,7 +16,7 @@ static int32_t add(void *context, const add_request_value_t *request,
 int main(int argc, char **argv) {
   static udp_demo_endpoint_t server;
   udp_demo_endpoint_config_t config;
-  CHECK(udp_demo_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+  CHECK(udp_demo_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   config.on_add = add;
   CHECK(udp_demo_endpoint_init_config(&server, &config) == WL_OK);
   example_udp_t *udp = peer_open(udp_demo_endpoint_handle(&server), argc, argv);

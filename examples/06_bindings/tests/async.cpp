@@ -156,7 +156,7 @@ struct HeldOwner {
     environment.clock = {[](void* context) -> wl_time_ms_t {
       return static_cast<HeldOwner*>(context)->now.load();
     }, this};
-    CHECK(calculator_endpoint_init(&endpoint, environment) == WL_OK);
+    CHECK(calculator_endpoint_init(&endpoint, environment, wl_link_defaults()) == WL_OK);
     auto driver = calculator_endpoint_driver(&endpoint);
     driver.context = this;
     driver.step = [](void* context) -> wl_err_t {

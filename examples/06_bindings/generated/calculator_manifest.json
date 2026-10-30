@@ -2,27 +2,33 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.8.0",
-    "codegen_contract": {"major": 0, "minor": 8}
+    "version": "0.12.0",
+    "codegen_contract": {"major": 0, "minor": 12}
   },
   "module": "calculator",
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x96a3b1226f6423df",
-    "binding_profile": "0x640b4be3ec30d41c"
+    "binding_profile": "0xc3591689765018b0"
+  },
+  "managed_rpc_wire_format": "managed-rpc-v4-tagged-varuint32",
+  "codec_formats": {
+    "ADD_REQUEST_CODEC_FORMAT": "schema-v1",
+    "ADD_RESPONSE_CODEC_FORMAT": "schema-v1",
+    "CALCULATOR_ADD_RPC_BODY_FORMAT": "managed-rpc-v4-tagged-varuint32"
   },
   "bounded_fields": [
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "calculator.c", "size": 38556, "digest": "0x0e0d52ffa8e57829"},
+    {"path": "calculator.c", "size": 27524, "digest": "0x84d74653b5550745"},
     {"path": "calculator.h", "size": 1837, "digest": "0x9367696aa888af6d"},
-    {"path": "calculator_advanced.h", "size": 7182, "digest": "0xfabc5cd1d2452a8f"},
+    {"path": "calculator_advanced.h", "size": 7039, "digest": "0x24c9dbf05154f4cf"},
     {"path": "calculator_bindings.c", "size": 5418, "digest": "0x8c94b073b1a8f92c"},
     {"path": "calculator_bindings.h", "size": 2654, "digest": "0x3424be565871e450"},
     {"path": "calculator_endpoint.h", "size": 409, "digest": "0x5d887e59dc2edba5"},
-    {"path": "calculator_runtime.c", "size": 55272, "digest": "0x03fa453fa085fa02"},
-    {"path": "calculator_runtime.h", "size": 41603, "digest": "0x719ab9e4e5d6bfba"},
-    {"path": "calculator_values.h", "size": 1986, "digest": "0xc5f8f24fdc224bd5"}
+    {"path": "calculator_runtime.c", "size": 126726, "digest": "0x6d7dfad053351f2c"},
+    {"path": "calculator_runtime.h", "size": 43020, "digest": "0xa4d5df589ae50a86"},
+    {"path": "calculator_values.h", "size": 2152, "digest": "0xc82994b8141e9f8d"}
   ]
 }

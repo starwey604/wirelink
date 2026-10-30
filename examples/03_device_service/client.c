@@ -7,7 +7,9 @@
 static int check_device(device_client_endpoint_t *endpoint) {
   ping_request_value_t ping = {.has_nonce = true, .nonce = 1234};
   ping_response_value_t pong;
-  CHECK(device_client_endpoint_ping_sync(endpoint, &ping, &pong, 1500).status == WL_RPC_SUCCESS);
+  const wl_rpc_completion_t ping_result = device_client_endpoint_ping_sync(endpoint, &ping, &pong, 1500);
+  if (ping_result.status != WL_RPC_SUCCESS) fprintf(stderr, "ping failed status=%d core=%d rpc=%d codec=%d\n", ping_result.status, ping_result.transport_error, ping_result.runtime_error, ping_result.codec_error);
+  CHECK(ping_result.status == WL_RPC_SUCCESS);
   CHECK(pong.nonce == ping.nonce);
 
   get_info_request_value_t query;
@@ -100,7 +102,7 @@ int main(int argc, char **argv) {
   static device_client_endpoint_t endpoint;
   uint16_t local = 49300, peer = 49301;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(device_client_endpoint_init(&endpoint, wl_platform_environment()) == WL_OK);
+  CHECK(device_client_endpoint_init(&endpoint, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   example_udp_t *udp = example_udp_open(device_client_endpoint_handle(&endpoint), local, peer);
   CHECK(udp != NULL);
 
@@ -130,8 +132,17 @@ int main(int argc, char **argv) {
   CHECK(!batch.failed);
   puts("mixed async batch: OK (3 unique completions)");
 
-  device_telemetry_t telemetry;
-  CHECK(device_client_endpoint_read_device_telemetry(&endpoint, &telemetry) == WL_OK);
+  device_telemetry_t telemetry = {0};
+  wl_err_t telemetry_result;
+  wl_time_ms_t telemetry_started, telemetry_now;
+  CHECK(wl_endpoint_now(device_client_endpoint_handle(&endpoint), &telemetry_started) == WL_OK);
+  while ((telemetry_result = device_client_endpoint_read_device_telemetry(&endpoint, &telemetry)) == WL_ERR_NO_DATA) {
+    CHECK(wl_endpoint_now(device_client_endpoint_handle(&endpoint), &telemetry_now) == WL_OK);
+    CHECK(telemetry_now - telemetry_started < 1500U);
+    CHECK(device_client_endpoint_step(&endpoint) == WL_OK);
+    CHECK(example_udp_wait(udp, 1500U - (telemetry_now - telemetry_started)) == WL_OK);
+  }
+  CHECK(telemetry_result == WL_OK);
   CHECK(telemetry.sequence != 0 && telemetry.channels[0] == 1000 && telemetry.channels[99] == 1099);
   puts("outbound-only telemetry: OK (100 channels)");
 

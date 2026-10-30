@@ -2,26 +2,31 @@
 #define WIRELINK_GENERATED_CALCULATOR_RUNTIME_H
 
 #include "calculator_bindings.h"
+#include <wirelink/port.h>
 #include <wirelink/pump.h>
 #include <wirelink/endpoint.h>
+#include <wirelink/link_defaults.h>
 #include <wirelink/allocator.h>
 #include <wirelink/frame.h>
 #include <wirelink/version.h>
 #include <string.h>
 #include <wirelink/rpc.h>
 #include <wirelink/rpc_sync.h>
+#define CALCULATOR_RPC_MANAGED_WIRE_FORMAT "managed-rpc-v4-tagged-varuint32"
+
+#define CALCULATOR_ADD_RPC_BODY_FORMAT "managed-rpc-v4-tagged-varuint32"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define CALCULATOR_SCHEMA_IDENTITY UINT64_C(0x96A3B1226F6423DF)
-#define CALCULATOR_BINDING_PROFILE_IDENTITY UINT64_C(0x640B4BE3EC30D41C)
+#define CALCULATOR_BINDING_PROFILE_IDENTITY UINT64_C(0xC3591689765018B0)
 #define CALCULATOR_BINDING_PROFILE_VERSION 1U
 #define CALCULATOR_IDENTITY_ALGORITHM "fnv1a64-v1"
 
 #define CALCULATOR_CODEGEN_CONTRACT_MAJOR 0U
-#define CALCULATOR_CODEGEN_CONTRACT_MINOR 8U
+#define CALCULATOR_CODEGEN_CONTRACT_MINOR 12U
 #if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(CALCULATOR_CODEGEN_CONTRACT_MAJOR, CALCULATOR_CODEGEN_CONTRACT_MINOR)
 #  error "Generated code requires an incompatible Wirelink core; regenerate with a matching WLC."
 #endif
@@ -130,7 +135,6 @@ typedef void (*calculator_add_completion_fn)(void *user_data,
 #endif
 typedef struct {
   add_request_t *request_scratch;
-  add_response_t *response_scratch;
   calculator_add_rpc_request_handler_fn request_handler;
   void *user_data;
 #if ADD_REQUEST_HAS_VALUE && ADD_RESPONSE_HAS_VALUE
@@ -154,13 +158,22 @@ typedef struct {
   uint16_t responses_deferred;
 } calculator_runtime_service_result_t;
 
+#include "calculator_values.h"
+typedef union {
+  add_response_value_t add;
+} calculator_rpc_result_value_t;
+
 typedef struct {
   uint8_t _reserved;
+  calculator_rpc_result_value_t *rpc_results;
+  size_t rpc_result_count;
   wl_rpc_client_t *rpc_client;
   wl_rpc_server_t *rpc_server;
   wl_rpc_peer_t rpc_peer;
   wl_rpc_peer_observation_t rpc_peer_observation;
   wl_tx_handle_t rpc_retiring_tx;
+  uint32_t rpc_response_retry_generation;
+  uint8_t rpc_response_retry_blocked;
   uint64_t rpc_incarnation;
   wl_rpc_async_t *rpc_async;
   calculator_add_rpc_t add;
@@ -184,13 +197,12 @@ typedef struct {
   uint8_t _reserved;
   uint8_t rpc_client_enabled;
   uint16_t rpc_client_slot_count;
-  uint16_t rpc_client_response_capacity;
   uint32_t rpc_client_next_operation_id;
   uint8_t rpc_server_enabled;
   uint16_t rpc_server_pending_slot_count;
+  uint32_t rpc_server_pending_timeout_ms;
   uint16_t rpc_server_cache_slot_count;
   uint16_t rpc_server_response_capacity;
-  uint32_t rpc_server_pending_timeout_ms;
   uint32_t rpc_server_cache_ttl_ms;
   wl_rpc_cache_policy_t rpc_server_cache_policy;
   calculator_add_rpc_request_handler_fn add_request_handler;
@@ -202,7 +214,7 @@ typedef union {
   uint8_t byte;
   wl_rpc_client_slot_t rpc_client_slot;
   wl_rpc_server_pending_slot_t rpc_server_pending_slot;
-  wl_rpc_server_cache_slot_t rpc_server_cache_slot;
+  wl_rpc_server_cache_slot_t rpc_server_cache_slots;
 } calculator_runtime_default_storage_alignment_t;
 
 #if defined(__cplusplus)
@@ -215,25 +227,30 @@ typedef union {
 #define CALCULATOR_RUNTIME_DEFAULT_STORAGE_CAPACITY \
   (1U + \
    ((CALCULATOR_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_client_slot_t)) + \
-   26U + \
    ((CALCULATOR_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
    ((CALCULATOR_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
-   26U)
+   19U)
 
-typedef union {
+typedef struct {
+  union {
   calculator_runtime_default_storage_alignment_t alignment;
   uint8_t bytes[CALCULATOR_RUNTIME_DEFAULT_STORAGE_CAPACITY];
+  };
+  calculator_rpc_result_value_t rpc_results[1];
 } calculator_runtime_default_storage_t;
 
-typedef union { add_request_t request; add_response_t response; } calculator_runtime_add_decode_detail_t;
+typedef union { add_request_t request; } calculator_runtime_add_decode_detail_t;
 typedef struct {
   size_t storage_size;
   size_t storage_alignment;
+  size_t rpc_result_count;
 } calculator_runtime_requirements_t;
 
 typedef struct {
   void *data;
   size_t size;
+  calculator_rpc_result_value_t *rpc_results;
+  size_t rpc_result_count;
 } calculator_runtime_storage_t;
 
 typedef struct {
@@ -303,7 +320,8 @@ wl_rpc_err_t calculator_runtime_poll(calculator_runtime_t *runtime, wl_time_ms_t
 /* Advance deadlines and submit at most one runtime-owned server response.
  * Link backpressure defers the same cached bytes for a later service call. */
 wl_rpc_err_t calculator_runtime_service(wl_ctx_t *ctx, calculator_runtime_t *runtime, wl_time_ms_t now_ms, calculator_runtime_service_result_t *out_result);
-/* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
+/* Timer-only query. Response availability is in runtime_readiness(). */
+wl_readiness_t calculator_runtime_readiness(const wl_ctx_t *ctx, const calculator_runtime_t *runtime, wl_time_ms_t now_ms);
 wl_rpc_err_t calculator_runtime_get_deadline_hint(const calculator_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
 
 /* Build pump hooks that dispatch events with the owner's time sample. RPC
@@ -313,15 +331,12 @@ wl_err_t calculator_runtime_pump_init(calculator_runtime_pump_t *pump, calculato
 wl_pump_hooks_t calculator_runtime_pump_hooks(calculator_runtime_pump_t *pump);
 
 /* Advanced runtime integration. The default endpoint call API below hides
- * numeric correlation IDs. Managed metadata uses a separate 20-byte header. */
+ * numeric correlation IDs. Managed metadata uses 9..13 bytes (13..17 for rejection). */
 calculator_runtime_result_t calculator_add_client_start(wl_ctx_t *ctx,
     calculator_runtime_t *runtime, const add_request_t *request, uint32_t timeout_ms,
     wl_time_ms_t now_ms);
 wl_rpc_err_t calculator_add_client_inspect(const calculator_runtime_t *runtime,
     uint32_t operation_id, wl_rpc_client_result_t *out_client);
-/* Response fields which borrow bytes remain valid until call release. */
-calculator_runtime_result_t calculator_add_client_decode(const wl_rpc_client_result_t *client,
-    add_response_t *response);
 wl_rpc_err_t calculator_add_client_release(calculator_runtime_t *runtime, uint32_t operation_id);
 calculator_runtime_result_t calculator_add_server_complete(calculator_runtime_t *runtime,
     const calculator_add_request_token_t *token, const add_response_t *response,
@@ -344,11 +359,14 @@ calculator_runtime_result_t calculator_add_server_complete_value(calculator_runt
     const calculator_add_request_token_t *token, const add_response_value_t *response,
     wl_time_ms_t now_ms);
 #endif
+/* Borrow a complete owned value until release/close. Copy *out for independent retention. */
+wl_rpc_err_t calculator_add_client_response(const calculator_runtime_t *runtime, uint32_t operation_id, const add_response_value_t **out_response);
+
 /* Default endpoint assembly. Members named private_state are not application
  * API. Zero-initialize once, keep at a stable address, close before reuse.
  * All profile-selected messages must have finite one-frame bounds. */
 #define CALCULATOR_HAS_DEFAULT_ENDPOINT 1
-#define CALCULATOR_ENDPOINT_MAX_PAYLOAD 32U
+#define CALCULATOR_ENDPOINT_MAX_PAYLOAD 25U
 /* Layout is fixed by the local profile; CRC32C bounds also cover smaller CRCs. */
 #define CALCULATOR_ENDPOINT_RAW_CAPACITY (CALCULATOR_ENDPOINT_MAX_PAYLOAD + WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
 #define CALCULATOR_ENDPOINT_UNIT_CAPACITY (CALCULATOR_ENDPOINT_RAW_CAPACITY + CALCULATOR_ENDPOINT_RAW_CAPACITY / 254U + 2U)
@@ -363,8 +381,8 @@ calculator_runtime_result_t calculator_add_server_complete_value(calculator_runt
 #if CALCULATOR_ENDPOINT_RPC_CAPACITY < 1 || CALCULATOR_ENDPOINT_RPC_CAPACITY > 65535
 #error "endpoint RPC capacity must be 1..65535"
 #endif
-#define CALCULATOR_ENDPOINT_REQUEST_CAPACITY 32U
-#define CALCULATOR_ENDPOINT_RUNTIME_CAPACITY (CALCULATOR_RUNTIME_DEFAULT_STORAGE_CAPACITY + (CALCULATOR_ENDPOINT_RPC_CAPACITY - 1U) * (sizeof(wl_rpc_client_slot_t) + 26U + sizeof(wl_rpc_server_pending_slot_t) + sizeof(wl_rpc_server_cache_slot_t) + 26U))
+#define CALCULATOR_ENDPOINT_REQUEST_CAPACITY 25U
+#define CALCULATOR_ENDPOINT_RUNTIME_CAPACITY (CALCULATOR_RUNTIME_DEFAULT_STORAGE_CAPACITY + (CALCULATOR_ENDPOINT_RPC_CAPACITY - 1U) * (sizeof(wl_rpc_client_slot_t) + sizeof(wl_rpc_server_pending_slot_t) + sizeof(wl_rpc_server_cache_slot_t) + 19U))
 
 typedef struct {
   wl_config_t link;
@@ -400,12 +418,14 @@ typedef struct {
     calculator_runtime_result_fn on_result;
     void *user_data;
     size_t event_budget;
+    calculator_rpc_result_value_t rpc_results[CALCULATOR_ENDPOINT_RPC_CAPACITY];
     uint64_t incarnation;
     bool sync_waiting;
     wl_rpc_async_t async;
     wl_rpc_async_slot_t submissions[CALCULATOR_ENDPOINT_RPC_CAPACITY];
     uint8_t requests[CALCULATOR_ENDPOINT_RPC_CAPACITY][CALCULATOR_ENDPOINT_REQUEST_CAPACITY];
     wl_rpc_completion_t completion;
+    calculator_rpc_result_value_t completion_value;
     union {
       struct { add_request_value_t request; add_response_value_t response; } add;
     } values;
@@ -428,13 +448,15 @@ typedef struct {
 /* Config descriptors can be temporary; callbacks/user_data must outlive use.
  * Ordinary client capability and registered server handlers are assembled by init. */
 static inline wl_err_t calculator_endpoint_config_defaults(
-    calculator_endpoint_config_t *config, wl_environment_t environment) {
+    calculator_endpoint_config_t *config, wl_environment_t environment,
+    wl_link_defaults_t defaults) {
   int result;
   if (config == NULL) return WL_ERR_INVALID_ARG;
   memset(config, 0, sizeof(*config));
   config->link.max_payload_len = CALCULATOR_ENDPOINT_MAX_PAYLOAD;
   config->link.envelope = WL_ENVELOPE_NATIVE_PACKET;
-  config->link.integrity = WL_INTEGRITY_CRC32C;
+  result = wl_config_apply_link_defaults(&config->link, defaults);
+  if (result != WL_OK) return result;
   config->environment = environment;
   config->link.ack_timeout_ms = 100U;
   config->link.max_retries = 4U;
@@ -444,10 +466,11 @@ static inline wl_err_t calculator_endpoint_config_defaults(
   config->advanced.rpc_client_enabled = 1U;
   config->advanced.rpc_client_slot_count = CALCULATOR_ENDPOINT_RPC_CAPACITY;
   config->advanced.rpc_server_pending_slot_count = CALCULATOR_ENDPOINT_RPC_CAPACITY;
-  config->advanced.rpc_server_cache_slot_count = CALCULATOR_ENDPOINT_RPC_CAPACITY;
   config->advanced.rpc_server_pending_timeout_ms = 1000U;
+  config->advanced.rpc_server_cache_slot_count = CALCULATOR_ENDPOINT_RPC_CAPACITY;
   config->advanced.rpc_server_cache_ttl_ms = 10000U;
   config->advanced.rpc_server_cache_policy = WL_RPC_CACHE_EVICT_OLDEST;
+
   return WL_OK;
 }
 
@@ -510,9 +533,9 @@ static inline wl_err_t calculator_endpoint_init_config(
   if (config->on_add != NULL && runtime_config.add_request_handler != NULL) return WL_ERR_INVALID_ARG;
   if (config->on_add != NULL || runtime_config.add_request_handler != NULL) runtime_config.rpc_server_enabled = 1U;
   if (endpoint->private_state.closing) return WL_ERR_REENTRANT;
-  if ((runtime_config.rpc_client_enabled && runtime_config.rpc_client_slot_count > CALCULATOR_ENDPOINT_RPC_CAPACITY) ||
-      (runtime_config.rpc_server_enabled && (runtime_config.rpc_server_pending_slot_count > CALCULATOR_ENDPOINT_RPC_CAPACITY ||
-      runtime_config.rpc_server_cache_slot_count > CALCULATOR_ENDPOINT_RPC_CAPACITY))) return WL_ERR_INVALID_ARG;
+  if (runtime_config.rpc_client_enabled && runtime_config.rpc_client_slot_count > CALCULATOR_ENDPOINT_RPC_CAPACITY) return WL_ERR_INVALID_ARG;
+  if (runtime_config.rpc_server_enabled && runtime_config.rpc_server_pending_slot_count > CALCULATOR_ENDPOINT_RPC_CAPACITY) return WL_ERR_INVALID_ARG;
+  if (runtime_config.rpc_server_enabled && runtime_config.rpc_server_cache_slot_count > CALCULATOR_ENDPOINT_RPC_CAPACITY) return WL_ERR_INVALID_ARG;
 
   link_config = config->link;
   result = wl_session_next(config->environment.session,
@@ -533,6 +556,10 @@ static inline wl_err_t calculator_endpoint_init_config(
   link_storage.rx_fifo_size = sizeof(endpoint->private_state.rx_fifo);
   storage.data = endpoint->private_state.arena.bytes;
   storage.size = sizeof(endpoint->private_state.arena.bytes);
+#if CALCULATOR_RUNTIME_HAS_RPC_CLIENT
+  storage.rpc_results = endpoint->private_state.rpc_results;
+  storage.rpc_result_count = sizeof(endpoint->private_state.rpc_results) / sizeof(endpoint->private_state.rpc_results[0]);
+#endif
   result = calculator_runtime_init(&endpoint->private_state.instance, &runtime_config, &storage);
   if (result != WL_OK) return result;
   endpoint->private_state.instance.runtime.rpc_incarnation = endpoint->private_state.incarnation;
@@ -570,9 +597,10 @@ static inline wl_err_t calculator_endpoint_init_config(
 }
 
 static inline wl_err_t calculator_endpoint_init(calculator_endpoint_t *endpoint,
-                                        wl_environment_t environment) {
+                                        wl_environment_t environment,
+                                        wl_link_defaults_t defaults) {
   calculator_endpoint_config_t config;
-  int result = calculator_endpoint_config_defaults(&config, environment);
+  int result = calculator_endpoint_config_defaults(&config, environment, defaults);
   return result == WL_OK ? calculator_endpoint_init_config(endpoint, &config) : result;
 }
 
@@ -632,7 +660,6 @@ static inline wl_endpoint_driver_t calculator_endpoint_driver(calculator_endpoin
   driver.context = endpoint;
   driver.step = calculator_endpoint_driver_step;
   driver.close = calculator_endpoint_driver_close;
-  driver.readiness_complete = 1U;
   return driver;
 }
 
@@ -699,14 +726,8 @@ static inline void calculator_endpoint_add_prepare(void *context,
   wl_rpc_completion_t *result = &endpoint->private_state.completion;
   wl_rpc_async_completion(client, result);
   if (result->status == WL_RPC_SUCCESS) {
-    if (client->response_length < 20U) {
-      result->status = WL_RPC_FAILED;
-      result->runtime_error = WL_RPC_ERR_MALFORMED_METADATA;
-      return;
-    }
-    result->codec_error = add_response_value_decode(client->response_data + 20U,
-        client->response_length - 20U, &endpoint->private_state.values.add.response);
-    if (result->codec_error != WL_CODEC_OK) result->status = WL_RPC_FAILED;
+    endpoint->private_state.completion_value.add =
+        endpoint->private_state.instance.runtime.rpc_results[client->result_index].add;
   }
 }
 static inline void calculator_endpoint_add_notify(void *context,
@@ -714,7 +735,7 @@ static inline void calculator_endpoint_add_notify(void *context,
   calculator_endpoint_t *endpoint = (calculator_endpoint_t *)context;
   ((calculator_add_completion_fn)callback)(user_data, &endpoint->private_state.completion,
       endpoint->private_state.completion.status == WL_RPC_SUCCESS
-          ? &endpoint->private_state.values.add.response : NULL);
+          ? &endpoint->private_state.completion_value.add : NULL);
 }
 
 /* Snapshot and accept a call; callback is delivered by step or orderly close.
@@ -834,13 +855,20 @@ static inline wl_rpc_completion_t calculator_endpoint_add_sync(calculator_endpoi
       calculator_endpoint_add_sync_done, &state, &call);
   if (error == WL_OK) {
     while (!state.done) {
-      wl_poll_hint_t hint;
+      wl_readiness_t hint;
+      wl_time_ms_t queried_at, wait_now;
       error = calculator_endpoint_step(endpoint);
       if (state.done || error != WL_OK) break;
-      error = wl_endpoint_get_hint(calculator_endpoint_handle(endpoint), &hint);
+      error = wl_endpoint_now(calculator_endpoint_handle(endpoint), &queried_at);
       if (error != WL_OK) break;
-      if (hint.work_pending || hint.next_deadline_ms == 0U) continue;
-      error = waiter.wait(waiter.user_data, hint.next_deadline_ms);
+      error = wl_endpoint_get_readiness_at(calculator_endpoint_handle(endpoint), queried_at, &hint);
+      if (error != WL_OK) break;
+      if (hint.runnable || hint.next_deadline_ms == 0U) continue;
+      error = wl_endpoint_now(calculator_endpoint_handle(endpoint), &wait_now);
+      if (error != WL_OK) break;
+      const uint32_t remaining = wl_wait_remaining(hint.next_deadline_ms, queried_at, wait_now);
+      if (remaining == 0U) continue;
+      error = waiter.wait(waiter.user_data, remaining);
       if (error == WL_ERR_NO_DATA) error = WL_OK;
       if (error != WL_OK) break;
     }

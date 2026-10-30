@@ -2,6 +2,7 @@
 
 #include "wirelink/astrial/serial_adapter.hpp"
 #include "control.h"
+#include "wirelink/detail/coalescing_event.hpp"
 
 #include <array>
 #include <chrono>
@@ -76,7 +77,12 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    wirelink::detail::CoalescingEvent activity;
     wirelink::astrial::SerialConfig serial_config;
+    serial_config.activity_callback = [](void* context) noexcept {
+        static_cast<wirelink::detail::CoalescingEvent*>(context)->notify();
+    };
+    serial_config.activity_user_data = &activity;
     serial_config.port = argv[1];
     serial_config.baud_rate = 3000000;
     auto opened = wirelink::astrial::SerialAdapter::open(memory.context, serial_config);
@@ -135,7 +141,7 @@ int main(int argc, char** argv)
     {
         wl_event_t event{};
         const int polled = wl_poll(&memory.context, 0, &event);
-        const int serviced = adapter->service();
+        const int serviced = adapter->readiness().runnable ? adapter->service() : WL_OK;
         if (serviced != WL_OK && serviced != WL_ERR_WOULD_BLOCK)
         {
             std::cerr << "serial service: " << wl_err_str(serviced) << '\n';
@@ -151,7 +157,11 @@ int main(int argc, char** argv)
             std::cerr << "poll: " << wl_err_str(polled) << '\n';
             return 1;
         }
-        std::this_thread::sleep_for(1ms);
+        wl_readiness_t readiness;
+        (void)wl_link_get_readiness(&memory.context, 0, &readiness);
+        wl_readiness_merge(&readiness, adapter->readiness());
+        if (!readiness.runnable)
+            (void)activity.wait_for(deadline - std::chrono::steady_clock::now());
     }
 
     std::cerr << "timed out waiting for serial TX completion\n";

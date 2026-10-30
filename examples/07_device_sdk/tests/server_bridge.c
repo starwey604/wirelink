@@ -15,7 +15,7 @@ wl_err_t device_test_server_init(void* storage, wl_endpoint_driver_t* driver) {
   device_test_server_t* server = storage;
   device_endpoint_config_t config;
   memset(server, 0, sizeof(*server));
-  wl_err_t status = device_endpoint_config_defaults(&config, wl_platform_environment());
+  wl_err_t status = device_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults());
   if (status != WL_OK) return status;
   config.on_get_info = device_test_get_info;
   config.on_configure = device_test_configure;

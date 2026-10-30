@@ -79,10 +79,10 @@ example_udp_t *example_udp_open_at(wl_endpoint_t *endpoint, const char *local_ad
 }
 
 int example_udp_wait(example_udp_t *udp, uint32_t maximum_ms) {
-  wl_poll_hint_t hint{};
-  const int status = wl_endpoint_get_hint(udp->endpoint, &hint);
+  wl_readiness_t hint{};
+  const int status = wl_endpoint_get_readiness(udp->endpoint, &hint);
   if (status != WL_OK) return status;
-  if (hint.work_pending || !example_running()) return WL_OK;
+  if (hint.runnable || !example_running()) return WL_OK;
   const auto duration = std::min(maximum_ms, hint.next_deadline_ms);
   try {
     const int result = udp->adapter->wait_for_activity(std::chrono::milliseconds(duration));

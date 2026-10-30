@@ -24,7 +24,7 @@ handlers; transport, RPC dispatch and result recycling are not application code.
 
 ## Build and run
 
-Use the matching WLC 0.8.0 / codegen contract 0.8 and standalone Asio. Build the
+Use the matching WLC 0.9.0 / codegen contract 0.9 and standalone Asio. Build the
 paired WLC commit `18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29` in its separate
 workspace with `cargo build --release --locked`, verify `wlc --version` and
 `wlc codegen-contract`, and pass its executable explicitly. No nested WLC

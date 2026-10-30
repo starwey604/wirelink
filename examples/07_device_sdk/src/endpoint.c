@@ -9,7 +9,7 @@ size_t device_sdk_endpoint_alignment(void) { return _Alignof(device_endpoint_t);
 wl_err_t device_sdk_endpoint_init(void* storage, wl_endpoint_driver_t* driver) {
   device_endpoint_t* endpoint = storage;
   memset(endpoint, 0, sizeof(*endpoint));
-  const wl_err_t status = device_endpoint_init(endpoint, wl_platform_environment());
+  const wl_err_t status = device_endpoint_init(endpoint, wl_platform_environment(), wl_link_defaults());
   if (status == WL_OK) *driver = device_endpoint_driver(endpoint);
   return status;
 }

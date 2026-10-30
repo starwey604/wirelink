@@ -4,5 +4,5 @@
   "namespace": "calculator",
   "python_package": "calculator_sdk",
   "distribution": "wirelink-calculator-sdk",
-  "version": "0.8.0"
+  "version": "0.12.0"
 }

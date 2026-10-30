@@ -30,7 +30,7 @@ def peer():
 
 
 def test_values_and_context(peer):
-    assert core_version == "0.8.0" and codegen_contract == "0.8"
+    assert core_version == "0.12.0" and codegen_contract == "0.12"
     with Client.connect(Udp(peer=peer)) as client:
         assert client.is_open and client.local_port > 0
         for i in range(100):

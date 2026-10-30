@@ -9,7 +9,7 @@ size_t calculator_sdk_endpoint_alignment(void) { return _Alignof(calculator_endp
 wl_err_t calculator_sdk_endpoint_init(void* storage, wl_endpoint_driver_t* driver) {
   calculator_endpoint_t* endpoint = storage;
   memset(endpoint, 0, sizeof(*endpoint));
-  const wl_err_t status = calculator_endpoint_init(endpoint, wl_platform_environment());
+  const wl_err_t status = calculator_endpoint_init(endpoint, wl_platform_environment(), wl_link_defaults());
   if (status == WL_OK) *driver = calculator_endpoint_driver(endpoint);
   return status;
 }

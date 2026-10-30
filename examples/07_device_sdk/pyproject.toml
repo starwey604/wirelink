@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "wirelink-device-sdk"
-version = "0.8.0"
+version = "0.12.0"
 description = "Generated synchronous and asynchronous Python/C++ SDK for device"
 readme = "README.md"
 requires-python = ">=3.10"

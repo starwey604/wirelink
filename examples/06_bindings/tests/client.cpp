@@ -84,7 +84,7 @@ static void rollback() {
     [](wl_endpoint_driver_t& driver, wirelink::Error& error) -> void* {
       auto endpoint = std::make_unique<calculator_endpoint_t>();
       ++allocations;
-      const int status = calculator_endpoint_init(endpoint.get(), wl_platform_environment());
+      const int status = calculator_endpoint_init(endpoint.get(), wl_platform_environment(), wl_link_defaults());
       if (status != WL_OK) { error = wirelink::Error::local(status); ++frees; return nullptr; }
       driver = calculator_endpoint_driver(endpoint.get());
       return endpoint.release();

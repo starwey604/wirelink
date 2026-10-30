@@ -2,26 +2,32 @@
 #define WIRELINK_GENERATED_DEVICE_RUNTIME_H
 
 #include "device_bindings.h"
+#include <wirelink/port.h>
 #include <wirelink/pump.h>
 #include <wirelink/endpoint.h>
+#include <wirelink/link_defaults.h>
 #include <wirelink/allocator.h>
 #include <wirelink/frame.h>
 #include <wirelink/version.h>
 #include <string.h>
 #include <wirelink/rpc.h>
 #include <wirelink/rpc_sync.h>
+#define DEVICE_RPC_MANAGED_WIRE_FORMAT "managed-rpc-v4-tagged-varuint32"
+
+#define DEVICE_CONFIGURE_RPC_BODY_FORMAT "managed-rpc-v4-tagged-varuint32"
+#define DEVICE_GET_INFO_RPC_BODY_FORMAT "managed-rpc-v4-tagged-varuint32"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define DEVICE_SCHEMA_IDENTITY UINT64_C(0x5A72C7FA9B968ADD)
-#define DEVICE_BINDING_PROFILE_IDENTITY UINT64_C(0x0C01202B133FDA46)
+#define DEVICE_BINDING_PROFILE_IDENTITY UINT64_C(0x92F906C50720AF46)
 #define DEVICE_BINDING_PROFILE_VERSION 1U
 #define DEVICE_IDENTITY_ALGORITHM "fnv1a64-v1"
 
 #define DEVICE_CODEGEN_CONTRACT_MAJOR 0U
-#define DEVICE_CODEGEN_CONTRACT_MINOR 8U
+#define DEVICE_CODEGEN_CONTRACT_MINOR 12U
 #if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(DEVICE_CODEGEN_CONTRACT_MAJOR, DEVICE_CODEGEN_CONTRACT_MINOR)
 #  error "Generated code requires an incompatible Wirelink core; regenerate with a matching WLC."
 #endif
@@ -130,7 +136,6 @@ typedef void (*device_configure_completion_fn)(void *user_data,
 #endif
 typedef struct {
   configure_request_t *request_scratch;
-  configure_response_t *response_scratch;
   device_configure_rpc_request_handler_fn request_handler;
   void *user_data;
 #if CONFIGURE_REQUEST_HAS_VALUE && CONFIGURE_RESPONSE_HAS_VALUE
@@ -168,7 +173,6 @@ typedef void (*device_get_info_completion_fn)(void *user_data,
 #endif
 typedef struct {
   info_request_t *request_scratch;
-  info_response_t *response_scratch;
   device_get_info_rpc_request_handler_fn request_handler;
   void *user_data;
 #if INFO_REQUEST_HAS_VALUE && INFO_RESPONSE_HAS_VALUE
@@ -192,13 +196,23 @@ typedef struct {
   uint16_t responses_deferred;
 } device_runtime_service_result_t;
 
+#include "device_values.h"
+typedef union {
+  configure_response_value_t configure;
+  info_response_value_t get_info;
+} device_rpc_result_value_t;
+
 typedef struct {
   uint8_t _reserved;
+  device_rpc_result_value_t *rpc_results;
+  size_t rpc_result_count;
   wl_rpc_client_t *rpc_client;
   wl_rpc_server_t *rpc_server;
   wl_rpc_peer_t rpc_peer;
   wl_rpc_peer_observation_t rpc_peer_observation;
   wl_tx_handle_t rpc_retiring_tx;
+  uint32_t rpc_response_retry_generation;
+  uint8_t rpc_response_retry_blocked;
   uint64_t rpc_incarnation;
   wl_rpc_async_t *rpc_async;
   device_configure_rpc_t configure;
@@ -223,13 +237,12 @@ typedef struct {
   uint8_t _reserved;
   uint8_t rpc_client_enabled;
   uint16_t rpc_client_slot_count;
-  uint16_t rpc_client_response_capacity;
   uint32_t rpc_client_next_operation_id;
   uint8_t rpc_server_enabled;
   uint16_t rpc_server_pending_slot_count;
+  uint32_t rpc_server_pending_timeout_ms;
   uint16_t rpc_server_cache_slot_count;
   uint16_t rpc_server_response_capacity;
-  uint32_t rpc_server_pending_timeout_ms;
   uint32_t rpc_server_cache_ttl_ms;
   wl_rpc_cache_policy_t rpc_server_cache_policy;
   device_configure_rpc_request_handler_fn configure_request_handler;
@@ -243,7 +256,7 @@ typedef union {
   uint8_t byte;
   wl_rpc_client_slot_t rpc_client_slot;
   wl_rpc_server_pending_slot_t rpc_server_pending_slot;
-  wl_rpc_server_cache_slot_t rpc_server_cache_slot;
+  wl_rpc_server_cache_slot_t rpc_server_cache_slots;
 } device_runtime_default_storage_alignment_t;
 
 #if defined(__cplusplus)
@@ -256,26 +269,31 @@ typedef union {
 #define DEVICE_RUNTIME_DEFAULT_STORAGE_CAPACITY \
   (1U + \
    ((DEVICE_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_client_slot_t)) + \
-   236U + \
    ((DEVICE_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_pending_slot_t)) + \
    ((DEVICE_RUNTIME_DEFAULT_STORAGE_ALIGNMENT - 1U) + sizeof(wl_rpc_server_cache_slot_t)) + \
-   236U)
+   229U)
 
-typedef union {
+typedef struct {
+  union {
   device_runtime_default_storage_alignment_t alignment;
   uint8_t bytes[DEVICE_RUNTIME_DEFAULT_STORAGE_CAPACITY];
+  };
+  device_rpc_result_value_t rpc_results[1];
 } device_runtime_default_storage_t;
 
-typedef union { configure_request_t request; configure_response_t response; } device_runtime_configure_decode_detail_t;
-typedef union { info_request_t request; info_response_t response; } device_runtime_get_info_decode_detail_t;
+typedef union { configure_request_t request; } device_runtime_configure_decode_detail_t;
+typedef union { info_request_t request; } device_runtime_get_info_decode_detail_t;
 typedef struct {
   size_t storage_size;
   size_t storage_alignment;
+  size_t rpc_result_count;
 } device_runtime_requirements_t;
 
 typedef struct {
   void *data;
   size_t size;
+  device_rpc_result_value_t *rpc_results;
+  size_t rpc_result_count;
 } device_runtime_storage_t;
 
 typedef struct {
@@ -346,7 +364,8 @@ wl_rpc_err_t device_runtime_poll(device_runtime_t *runtime, wl_time_ms_t now_ms,
 /* Advance deadlines and submit at most one runtime-owned server response.
  * Link backpressure defers the same cached bytes for a later service call. */
 wl_rpc_err_t device_runtime_service(wl_ctx_t *ctx, device_runtime_t *runtime, wl_time_ms_t now_ms, device_runtime_service_result_t *out_result);
-/* Side-effect free. Zero is due; WL_RPC_NO_DEADLINE_MS means no deadline. */
+/* Timer-only query. Response availability is in runtime_readiness(). */
+wl_readiness_t device_runtime_readiness(const wl_ctx_t *ctx, const device_runtime_t *runtime, wl_time_ms_t now_ms);
 wl_rpc_err_t device_runtime_get_deadline_hint(const device_runtime_t *runtime, wl_time_ms_t now_ms, wl_rpc_deadline_hint_t *out_hint);
 
 /* Build pump hooks that dispatch events with the owner's time sample. RPC
@@ -356,15 +375,12 @@ wl_err_t device_runtime_pump_init(device_runtime_pump_t *pump, device_runtime_t 
 wl_pump_hooks_t device_runtime_pump_hooks(device_runtime_pump_t *pump);
 
 /* Advanced runtime integration. The default endpoint call API below hides
- * numeric correlation IDs. Managed metadata uses a separate 20-byte header. */
+ * numeric correlation IDs. Managed metadata uses 9..13 bytes (13..17 for rejection). */
 device_runtime_result_t device_configure_client_start(wl_ctx_t *ctx,
     device_runtime_t *runtime, const configure_request_t *request, uint32_t timeout_ms,
     wl_time_ms_t now_ms);
 wl_rpc_err_t device_configure_client_inspect(const device_runtime_t *runtime,
     uint32_t operation_id, wl_rpc_client_result_t *out_client);
-/* Response fields which borrow bytes remain valid until call release. */
-device_runtime_result_t device_configure_client_decode(const wl_rpc_client_result_t *client,
-    configure_response_t *response);
 wl_rpc_err_t device_configure_client_release(device_runtime_t *runtime, uint32_t operation_id);
 device_runtime_result_t device_configure_server_complete(device_runtime_t *runtime,
     const device_configure_request_token_t *token, const configure_response_t *response,
@@ -387,16 +403,16 @@ device_runtime_result_t device_configure_server_complete_value(device_runtime_t 
     const device_configure_request_token_t *token, const configure_response_value_t *response,
     wl_time_ms_t now_ms);
 #endif
+/* Borrow a complete owned value until release/close. Copy *out for independent retention. */
+wl_rpc_err_t device_configure_client_response(const device_runtime_t *runtime, uint32_t operation_id, const configure_response_value_t **out_response);
+
 /* Advanced runtime integration. The default endpoint call API below hides
- * numeric correlation IDs. Managed metadata uses a separate 20-byte header. */
+ * numeric correlation IDs. Managed metadata uses 9..13 bytes (13..17 for rejection). */
 device_runtime_result_t device_get_info_client_start(wl_ctx_t *ctx,
     device_runtime_t *runtime, const info_request_t *request, uint32_t timeout_ms,
     wl_time_ms_t now_ms);
 wl_rpc_err_t device_get_info_client_inspect(const device_runtime_t *runtime,
     uint32_t operation_id, wl_rpc_client_result_t *out_client);
-/* Response fields which borrow bytes remain valid until call release. */
-device_runtime_result_t device_get_info_client_decode(const wl_rpc_client_result_t *client,
-    info_response_t *response);
 wl_rpc_err_t device_get_info_client_release(device_runtime_t *runtime, uint32_t operation_id);
 device_runtime_result_t device_get_info_server_complete(device_runtime_t *runtime,
     const device_get_info_request_token_t *token, const info_response_t *response,
@@ -419,11 +435,14 @@ device_runtime_result_t device_get_info_server_complete_value(device_runtime_t *
     const device_get_info_request_token_t *token, const info_response_value_t *response,
     wl_time_ms_t now_ms);
 #endif
+/* Borrow a complete owned value until release/close. Copy *out for independent retention. */
+wl_rpc_err_t device_get_info_client_response(const device_runtime_t *runtime, uint32_t operation_id, const info_response_value_t **out_response);
+
 /* Default endpoint assembly. Members named private_state are not application
  * API. Zero-initialize once, keep at a stable address, close before reuse.
  * All profile-selected messages must have finite one-frame bounds. */
 #define DEVICE_HAS_DEFAULT_ENDPOINT 1
-#define DEVICE_ENDPOINT_MAX_PAYLOAD 236U
+#define DEVICE_ENDPOINT_MAX_PAYLOAD 229U
 /* Layout is fixed by the local profile; CRC32C bounds also cover smaller CRCs. */
 #define DEVICE_ENDPOINT_RAW_CAPACITY (DEVICE_ENDPOINT_MAX_PAYLOAD + WL_FRAME_HEADER_SIZE + WL_FRAME_MAX_CRC)
 #define DEVICE_ENDPOINT_UNIT_CAPACITY (DEVICE_ENDPOINT_RAW_CAPACITY + DEVICE_ENDPOINT_RAW_CAPACITY / 254U + 2U)
@@ -438,8 +457,8 @@ device_runtime_result_t device_get_info_server_complete_value(device_runtime_t *
 #if DEVICE_ENDPOINT_RPC_CAPACITY < 1 || DEVICE_ENDPOINT_RPC_CAPACITY > 65535
 #error "endpoint RPC capacity must be 1..65535"
 #endif
-#define DEVICE_ENDPOINT_REQUEST_CAPACITY 230U
-#define DEVICE_ENDPOINT_RUNTIME_CAPACITY (DEVICE_RUNTIME_DEFAULT_STORAGE_CAPACITY + (DEVICE_ENDPOINT_RPC_CAPACITY - 1U) * (sizeof(wl_rpc_client_slot_t) + 236U + sizeof(wl_rpc_server_pending_slot_t) + sizeof(wl_rpc_server_cache_slot_t) + 236U))
+#define DEVICE_ENDPOINT_REQUEST_CAPACITY 223U
+#define DEVICE_ENDPOINT_RUNTIME_CAPACITY (DEVICE_RUNTIME_DEFAULT_STORAGE_CAPACITY + (DEVICE_ENDPOINT_RPC_CAPACITY - 1U) * (sizeof(wl_rpc_client_slot_t) + sizeof(wl_rpc_server_pending_slot_t) + sizeof(wl_rpc_server_cache_slot_t) + 229U))
 
 typedef struct {
   wl_config_t link;
@@ -477,12 +496,14 @@ typedef struct {
     device_runtime_result_fn on_result;
     void *user_data;
     size_t event_budget;
+    device_rpc_result_value_t rpc_results[DEVICE_ENDPOINT_RPC_CAPACITY];
     uint64_t incarnation;
     bool sync_waiting;
     wl_rpc_async_t async;
     wl_rpc_async_slot_t submissions[DEVICE_ENDPOINT_RPC_CAPACITY];
     uint8_t requests[DEVICE_ENDPOINT_RPC_CAPACITY][DEVICE_ENDPOINT_REQUEST_CAPACITY];
     wl_rpc_completion_t completion;
+    device_rpc_result_value_t completion_value;
     union {
       struct { configure_request_value_t request; configure_response_value_t response; } configure;
       struct { info_request_value_t request; info_response_value_t response; } get_info;
@@ -506,13 +527,15 @@ typedef struct {
 /* Config descriptors can be temporary; callbacks/user_data must outlive use.
  * Ordinary client capability and registered server handlers are assembled by init. */
 static inline wl_err_t device_endpoint_config_defaults(
-    device_endpoint_config_t *config, wl_environment_t environment) {
+    device_endpoint_config_t *config, wl_environment_t environment,
+    wl_link_defaults_t defaults) {
   int result;
   if (config == NULL) return WL_ERR_INVALID_ARG;
   memset(config, 0, sizeof(*config));
   config->link.max_payload_len = DEVICE_ENDPOINT_MAX_PAYLOAD;
   config->link.envelope = WL_ENVELOPE_NATIVE_PACKET;
-  config->link.integrity = WL_INTEGRITY_CRC32C;
+  result = wl_config_apply_link_defaults(&config->link, defaults);
+  if (result != WL_OK) return result;
   config->environment = environment;
   config->link.ack_timeout_ms = 100U;
   config->link.max_retries = 4U;
@@ -522,10 +545,11 @@ static inline wl_err_t device_endpoint_config_defaults(
   config->advanced.rpc_client_enabled = 1U;
   config->advanced.rpc_client_slot_count = DEVICE_ENDPOINT_RPC_CAPACITY;
   config->advanced.rpc_server_pending_slot_count = DEVICE_ENDPOINT_RPC_CAPACITY;
-  config->advanced.rpc_server_cache_slot_count = DEVICE_ENDPOINT_RPC_CAPACITY;
   config->advanced.rpc_server_pending_timeout_ms = 1000U;
+  config->advanced.rpc_server_cache_slot_count = DEVICE_ENDPOINT_RPC_CAPACITY;
   config->advanced.rpc_server_cache_ttl_ms = 10000U;
   config->advanced.rpc_server_cache_policy = WL_RPC_CACHE_EVICT_OLDEST;
+
   return WL_OK;
 }
 
@@ -590,9 +614,9 @@ static inline wl_err_t device_endpoint_init_config(
   if (config->on_get_info != NULL && runtime_config.get_info_request_handler != NULL) return WL_ERR_INVALID_ARG;
   if (config->on_get_info != NULL || runtime_config.get_info_request_handler != NULL) runtime_config.rpc_server_enabled = 1U;
   if (endpoint->private_state.closing) return WL_ERR_REENTRANT;
-  if ((runtime_config.rpc_client_enabled && runtime_config.rpc_client_slot_count > DEVICE_ENDPOINT_RPC_CAPACITY) ||
-      (runtime_config.rpc_server_enabled && (runtime_config.rpc_server_pending_slot_count > DEVICE_ENDPOINT_RPC_CAPACITY ||
-      runtime_config.rpc_server_cache_slot_count > DEVICE_ENDPOINT_RPC_CAPACITY))) return WL_ERR_INVALID_ARG;
+  if (runtime_config.rpc_client_enabled && runtime_config.rpc_client_slot_count > DEVICE_ENDPOINT_RPC_CAPACITY) return WL_ERR_INVALID_ARG;
+  if (runtime_config.rpc_server_enabled && runtime_config.rpc_server_pending_slot_count > DEVICE_ENDPOINT_RPC_CAPACITY) return WL_ERR_INVALID_ARG;
+  if (runtime_config.rpc_server_enabled && runtime_config.rpc_server_cache_slot_count > DEVICE_ENDPOINT_RPC_CAPACITY) return WL_ERR_INVALID_ARG;
 
   link_config = config->link;
   result = wl_session_next(config->environment.session,
@@ -613,6 +637,10 @@ static inline wl_err_t device_endpoint_init_config(
   link_storage.rx_fifo_size = sizeof(endpoint->private_state.rx_fifo);
   storage.data = endpoint->private_state.arena.bytes;
   storage.size = sizeof(endpoint->private_state.arena.bytes);
+#if DEVICE_RUNTIME_HAS_RPC_CLIENT
+  storage.rpc_results = endpoint->private_state.rpc_results;
+  storage.rpc_result_count = sizeof(endpoint->private_state.rpc_results) / sizeof(endpoint->private_state.rpc_results[0]);
+#endif
   result = device_runtime_init(&endpoint->private_state.instance, &runtime_config, &storage);
   if (result != WL_OK) return result;
   endpoint->private_state.instance.runtime.rpc_incarnation = endpoint->private_state.incarnation;
@@ -654,9 +682,10 @@ static inline wl_err_t device_endpoint_init_config(
 }
 
 static inline wl_err_t device_endpoint_init(device_endpoint_t *endpoint,
-                                        wl_environment_t environment) {
+                                        wl_environment_t environment,
+                                        wl_link_defaults_t defaults) {
   device_endpoint_config_t config;
-  int result = device_endpoint_config_defaults(&config, environment);
+  int result = device_endpoint_config_defaults(&config, environment, defaults);
   return result == WL_OK ? device_endpoint_init_config(endpoint, &config) : result;
 }
 
@@ -716,7 +745,6 @@ static inline wl_endpoint_driver_t device_endpoint_driver(device_endpoint_t *end
   driver.context = endpoint;
   driver.step = device_endpoint_driver_step;
   driver.close = device_endpoint_driver_close;
-  driver.readiness_complete = 1U;
   return driver;
 }
 
@@ -783,14 +811,8 @@ static inline void device_endpoint_configure_prepare(void *context,
   wl_rpc_completion_t *result = &endpoint->private_state.completion;
   wl_rpc_async_completion(client, result);
   if (result->status == WL_RPC_SUCCESS) {
-    if (client->response_length < 20U) {
-      result->status = WL_RPC_FAILED;
-      result->runtime_error = WL_RPC_ERR_MALFORMED_METADATA;
-      return;
-    }
-    result->codec_error = configure_response_value_decode(client->response_data + 20U,
-        client->response_length - 20U, &endpoint->private_state.values.configure.response);
-    if (result->codec_error != WL_CODEC_OK) result->status = WL_RPC_FAILED;
+    endpoint->private_state.completion_value.configure =
+        endpoint->private_state.instance.runtime.rpc_results[client->result_index].configure;
   }
 }
 static inline void device_endpoint_configure_notify(void *context,
@@ -798,7 +820,7 @@ static inline void device_endpoint_configure_notify(void *context,
   device_endpoint_t *endpoint = (device_endpoint_t *)context;
   ((device_configure_completion_fn)callback)(user_data, &endpoint->private_state.completion,
       endpoint->private_state.completion.status == WL_RPC_SUCCESS
-          ? &endpoint->private_state.values.configure.response : NULL);
+          ? &endpoint->private_state.completion_value.configure : NULL);
 }
 
 /* Snapshot and accept a call; callback is delivered by step or orderly close.
@@ -918,13 +940,20 @@ static inline wl_rpc_completion_t device_endpoint_configure_sync(device_endpoint
       device_endpoint_configure_sync_done, &state, &call);
   if (error == WL_OK) {
     while (!state.done) {
-      wl_poll_hint_t hint;
+      wl_readiness_t hint;
+      wl_time_ms_t queried_at, wait_now;
       error = device_endpoint_step(endpoint);
       if (state.done || error != WL_OK) break;
-      error = wl_endpoint_get_hint(device_endpoint_handle(endpoint), &hint);
+      error = wl_endpoint_now(device_endpoint_handle(endpoint), &queried_at);
       if (error != WL_OK) break;
-      if (hint.work_pending || hint.next_deadline_ms == 0U) continue;
-      error = waiter.wait(waiter.user_data, hint.next_deadline_ms);
+      error = wl_endpoint_get_readiness_at(device_endpoint_handle(endpoint), queried_at, &hint);
+      if (error != WL_OK) break;
+      if (hint.runnable || hint.next_deadline_ms == 0U) continue;
+      error = wl_endpoint_now(device_endpoint_handle(endpoint), &wait_now);
+      if (error != WL_OK) break;
+      const uint32_t remaining = wl_wait_remaining(hint.next_deadline_ms, queried_at, wait_now);
+      if (remaining == 0U) continue;
+      error = waiter.wait(waiter.user_data, remaining);
       if (error == WL_ERR_NO_DATA) error = WL_OK;
       if (error != WL_OK) break;
     }
@@ -950,14 +979,8 @@ static inline void device_endpoint_get_info_prepare(void *context,
   wl_rpc_completion_t *result = &endpoint->private_state.completion;
   wl_rpc_async_completion(client, result);
   if (result->status == WL_RPC_SUCCESS) {
-    if (client->response_length < 20U) {
-      result->status = WL_RPC_FAILED;
-      result->runtime_error = WL_RPC_ERR_MALFORMED_METADATA;
-      return;
-    }
-    result->codec_error = info_response_value_decode(client->response_data + 20U,
-        client->response_length - 20U, &endpoint->private_state.values.get_info.response);
-    if (result->codec_error != WL_CODEC_OK) result->status = WL_RPC_FAILED;
+    endpoint->private_state.completion_value.get_info =
+        endpoint->private_state.instance.runtime.rpc_results[client->result_index].get_info;
   }
 }
 static inline void device_endpoint_get_info_notify(void *context,
@@ -965,7 +988,7 @@ static inline void device_endpoint_get_info_notify(void *context,
   device_endpoint_t *endpoint = (device_endpoint_t *)context;
   ((device_get_info_completion_fn)callback)(user_data, &endpoint->private_state.completion,
       endpoint->private_state.completion.status == WL_RPC_SUCCESS
-          ? &endpoint->private_state.values.get_info.response : NULL);
+          ? &endpoint->private_state.completion_value.get_info : NULL);
 }
 
 /* Snapshot and accept a call; callback is delivered by step or orderly close.
@@ -1085,13 +1108,20 @@ static inline wl_rpc_completion_t device_endpoint_get_info_sync(device_endpoint_
       device_endpoint_get_info_sync_done, &state, &call);
   if (error == WL_OK) {
     while (!state.done) {
-      wl_poll_hint_t hint;
+      wl_readiness_t hint;
+      wl_time_ms_t queried_at, wait_now;
       error = device_endpoint_step(endpoint);
       if (state.done || error != WL_OK) break;
-      error = wl_endpoint_get_hint(device_endpoint_handle(endpoint), &hint);
+      error = wl_endpoint_now(device_endpoint_handle(endpoint), &queried_at);
       if (error != WL_OK) break;
-      if (hint.work_pending || hint.next_deadline_ms == 0U) continue;
-      error = waiter.wait(waiter.user_data, hint.next_deadline_ms);
+      error = wl_endpoint_get_readiness_at(device_endpoint_handle(endpoint), queried_at, &hint);
+      if (error != WL_OK) break;
+      if (hint.runnable || hint.next_deadline_ms == 0U) continue;
+      error = wl_endpoint_now(device_endpoint_handle(endpoint), &wait_now);
+      if (error != WL_OK) break;
+      const uint32_t remaining = wl_wait_remaining(hint.next_deadline_ms, queried_at, wait_now);
+      if (remaining == 0U) continue;
+      error = waiter.wait(waiter.user_data, remaining);
       if (error == WL_ERR_NO_DATA) error = WL_OK;
       if (error != WL_OK) break;
     }
