@@ -15,14 +15,16 @@ extern "C" {
 #define WL_KERNEL_TX_COUNT 9U
 #define WL_KERNEL_BUDGET 16U
 
-typedef enum {
+typedef int32_t wl_kernel_outcome_t;
+/* Stable C ABI even when a consumer uses -fshort-enums. */
+enum {
   WL_KERNEL_SUCCESS,
   WL_KERNEL_REJECTED,
   WL_KERNEL_LOCAL_ERROR,
   WL_KERNEL_TIMED_OUT,
   WL_KERNEL_CANCELLED,
   WL_KERNEL_CLOSED
-} wl_kernel_outcome_t;
+};
 
 typedef struct {
   wl_kernel_outcome_t outcome;

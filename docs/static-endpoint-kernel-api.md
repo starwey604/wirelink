@@ -70,6 +70,8 @@ exhaust at `UINT32_MAX`; TX at `WL_PACKET_SEQUENCE_MAX` (28 bits). Initializatio
 can reject a platform without the required lock-free primitive. Ordinary ring
 cursors may wrap; identity counters may not.
 
+Public `wl_packet_submit_t` and `wl_kernel_outcome_t` use fixed `int32_t`
+storage/returns, including when a consumer uses `-fshort-enums`.
 C++ sees opaque packet/FIFO objects. Define their storage in C and pass pointers
 to C++ adapters; `std::atomic` is not a C11 atomic ABI substitute. Generated
 kernel storage itself contains no C atomic members.

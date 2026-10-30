@@ -38,8 +38,11 @@ int main(void) {
       wl_frame_decode(bytes, length, WL_INTEGRITY_CRC16, &view) != WL_OK ||
       view.type != WL_PACKET_ACK || view.sequence != 17 || view.session_id != session) return 3;
   char output[128]; wl_diag_writer_t writer;
-  wl_kernel_result_t rejected = {WL_KERNEL_REJECTED, -31};
+  wl_kernel_result_t rejected;
+  /* Poison padding so mixed enum-width ABI reads cannot accidentally pass. */
+  memset(&rejected, 0xa5, sizeof(rejected));
+  rejected.outcome = WL_KERNEL_REJECTED; rejected.status = -31;
   if (wl_diag_writer_init(&writer, output, sizeof(output)) != WL_OK ||
-      wl_diag_format_kernel_result(&writer, &rejected) != WL_OK || !strstr(output, "-31")) return 4;
+      wl_diag_format_kernel_result(&writer, &rejected) != WL_OK || (!strstr(output, "status=-31") || !strstr(output, "outcome=1"))) return 4;
   return WL_KERNEL_CALLS != 4 || WL_KERNEL_REPLIES != 4 || WL_KERNEL_TX_COUNT != 9;
 }

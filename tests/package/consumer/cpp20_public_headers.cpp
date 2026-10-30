@@ -28,6 +28,8 @@
 #include <type_traits>
 template<class T> concept Complete = requires { sizeof(T); };
 static_assert(!Complete<wl_packet_port_t> && !Complete<wl_byte_fifo_t>);
+static_assert(std::is_same_v<wl_kernel_outcome_t, int32_t>);
+static_assert(std::is_same_v<wl_packet_submit_t, int32_t>);
 static_assert(std::is_standard_layout_v<wl_kernel_result_t>);
 static_assert(std::is_standard_layout_v<wl_kernel_call_handle_t>);
 static_assert(std::is_standard_layout_v<wl_packet_token_t>);

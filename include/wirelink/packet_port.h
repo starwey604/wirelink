@@ -33,12 +33,14 @@ typedef struct {
   wl_packet_token_t token;
 } wl_packet_borrow_t;
 
-typedef enum {
+typedef int32_t wl_packet_submit_t;
+/* Stable C ABI even when a consumer uses -fshort-enums. */
+enum {
   WL_PACKET_SENT,    /* Source consumed and physical transfer drained. */
   WL_PACKET_STARTED, /* Completion will be published, possibly before return. */
   WL_PACKET_BUSY,    /* Nothing accepted; adapter must publish resource activity. */
   WL_PACKET_FAILED  /* Nothing accepted; no future completion. */
-} wl_packet_submit_t;
+};
 
 enum {
   WL_PACKET_CONSUMED = 2U,

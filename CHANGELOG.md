@@ -26,6 +26,10 @@ versioning after 1.0; compatibility expectations for pre-1.0 releases are descri
   shutdown and removed interfaces. Historical measurements remain scoped to
   their recorded builds; final-product confirmation is separately identified.
 
+- Keep new packet-sink results and kernel outcomes fixed-width (`int32_t`)
+  across C/C++ and short-enum consumers; verify with poisoned result storage
+  against a normally compiled installed library.
+
 ### Earlier development notes (before the static kernel)
 
 - **Breaking USB wire/configuration change:** USB Bulk now uses only
