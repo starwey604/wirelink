@@ -1,12 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-
-#ifndef INCLUDE_WIRELINK_WIRELINK_H_
-#define INCLUDE_WIRELINK_WIRELINK_H_
-
-/* Compatibility umbrella. Applications should include link.h; platform
- * integrations additionally include port.h. */
-#include "wirelink/link.h"
-#include "wirelink/link_defaults.h"
-#include "wirelink/port.h"
-
-#endif /* INCLUDE_WIRELINK_WIRELINK_H_ */
+#ifndef WIRELINK_H_
+#define WIRELINK_H_
+#include "wirelink/version.h"
+#include "wirelink/kernel.h"
+/* Include selected transport or independent data-tool headers explicitly. */
+#endif

@@ -1,0 +1,19 @@
+{
+  "format": "wirelink-static-kernel-manifest-v1",
+  "kernel_contract": 1,
+  "profile_version": 2,
+  "envelope": "native_packet",
+  "integrity": "none",
+  "rpc_role": "both",
+  "call_slots": 4,
+  "reply_slots": 4,
+  "event_budget": 16,
+  "request_frame_capacity": 23,
+  "reply_frame_capacity": 23,
+  "message_frame_capacity": 15,
+  "messages": [
+    {"id": 40, "codec": "managed-rpc-v4-tagged-varuint32", "body_max": 6, "frame_max": 23},
+    {"id": 41, "codec": "managed-rpc-v4-tagged-varuint32", "body_max": 6, "frame_max": 23},
+    {"id": 42, "codec": "schema-v1", "body_max": 11, "frame_max": 15}
+  ]
+}

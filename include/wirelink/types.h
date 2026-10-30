@@ -33,11 +33,11 @@ enum {
   WL_ERR_FRAME_TOO_LONG =
       -23, /**< 帧长度超限 (超过了 BipBuffer 或单包的最大限制) */
 
-  /* --- 可靠传输与状态机错误 (ARQ/Transport) (-30 ~ -39) --- */
+  /* --- 有界通信与状态机错误 (-30 ~ -39) --- */
   WL_ERR_BUSY =
-      -30, /**< 设备忙 (例如停等协议中，前一个 Reliable 包还未收到 ACK) */
-  WL_ERR_TIMEOUT = -31,       /**< 可靠传输超时 (未在规定时间内收到 ACK) */
-  WL_ERR_TX_FAILED = -32,     /**< 传输失败 (重试次数已达最大上限) */
+      -30, /**< 资源正忙，尚未接收新操作 */
+  WL_ERR_TIMEOUT = -31,       /**< 本地调用截止时间已到 */
+  WL_ERR_TX_FAILED = -32,     /**< 传输失败；基础内核不自动重试 */
   WL_ERR_INVALID_STATE = -33, /**< 状态机处于非法状态，无法执行此操作 */
   WL_ERR_WOULD_BLOCK = -34, /**< 操作暂时无法完成，稍后重试 */
   WL_ERR_QUEUE_FULL = -35,  /**< 队列/槽位已满 */

@@ -29,3 +29,13 @@ K4 的 18 份完整采集及独立重放通过，见 [结果与限制](static-en
 默认 C11 core 不读取时钟、不创建线程、不分配 heap；只把 K3 合格实现迁到正式路径，不为已有结果调整缓存、IRAM、队列容量、优化或业务负载。八份原有 dirty 文档和既有未跟踪研究资料保留；必要的文档修改分别记录，不将用户改动整块提交。WLC 与 benchmark 独立提交。
 
 最终源码必须重新构建并复核：旧执行符号／生成模板不可达、默认安装包 C/C++ 与 SDK、所有保留 core／adapter 合同、主要 RPC/Sample 与 32 B 保护。若 native core 机器码／队列或 host 工作量实质改变，扩大到受影响完整矩阵；不能拿删除前原型成绩替代最终确认。
+
+## 默认 C core 与正式源文件收口
+
+已将隔离目录代码迁至正式 `src/`、`include/wirelink/`、各 adapter 和 `tests/core/`／`tests/fixtures/static_kernel/`，移除原型 CMake／包，根 CMake 仅构建新内核；根 `Wirelink` 安装包及 `Wirelink::wirelink`、独立工具导出已切换。删除 19 份旧 C 引擎源／内部头和旧公开 owner／RPC API，保留原始 error 数值及 framing 格式。frame 工具剥离 `wl_config_t` 和旧 link profile 依赖，保留独立 CRC／COBS／ACK wire 向量。FIFO/LATEST/outbox 仍为独立纯数据目标，不进入基础内核。
+
+默认 C 例程使用确定性的 checked-in WLC 输出，双端各发起四并发 RPC 并发送 telemetry，调用返回后销毁源值，最终 close/drain 到 quiescent。源码核对确认 14 份 native core／USB 源与头字节等同 K4 冻结输入；最终机器码与性能确认仍待完成。
+
+验证：默认 GCC **11/11**；含真实 host adapter 的 GCC 与 Clang ASan/UBSan 各 **14/14**；安装后 C/C++/COBS **3/3**；纯 C-only 配置／安装没有启用 C++ 编译器；Zephyr 纯核心、独立容器与 frozen-v1 framing 向量 **50/50**；真实 UART/UDP/USB focused adapter 在 native_sim、Cortex-M3、RISC-V 合计 **15/15**，四个不支持组合正常过滤。WLC 的 5 项生成检查在迁入正式路径后以 Clang sanitizer 通过。日志在新证据目录的 `core-*`、`all-adapters-*`、`asan-*`、`consumer-*`、`c-only-*`、`twister-*`。
+
+本点不代表 K5 完成：WLC 默认生成／SDK、Zephyr 默认模块、host executor、其余消费者和公开文档仍在后续迁移范围；不能用旧执行生成物作新产品交付。八份原有 dirty 文档未修改或整块提交。

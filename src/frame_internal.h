@@ -2,12 +2,9 @@
 #ifndef WIRELINK_SRC_FRAME_INTERNAL_H_
 #define WIRELINK_SRC_FRAME_INTERNAL_H_
 #include "wirelink/frame.h"
-#include "wirelink/link.h"
 #include "wirelink/crc.h"
 #include "crc_internal.h"
-/* Two entry points share these kernels: public checked tools and owner-local
- * link framing. Inline at that boundary so each keeps only its own validation
- * and integrity work under -Os, without interprocedural/LTO build changes. */
+/* Standalone framing primitives shared by the checked public frame utilities. */
 #if defined(__GNUC__) || defined(__clang__)
 #define WL_FRAME_INLINE static inline __attribute__((always_inline))
 #else
@@ -211,23 +208,13 @@ WL_FRAME_INLINE int frame_parse(const uint8_t *in, size_t in_len, wl_integrity_t
 /* Both builds use this same complete, checked COBS + CRC16 implementation.
  * Encoding callers supply a validated packet; decoding publishes only after
  * COBS, structure and residue validation. No public skip-check option exists. */
-int wl_frame_encode_cobs_crc16(const wl_config_t *config, const wl_wire_packet_t *packet,
+int wl_frame_encode_cobs_crc16(const wl_wire_packet_t *packet,
                               uint8_t *out, size_t out_cap, size_t *out_len);
-int wl_frame_decode_cobs_crc16(const wl_config_t *config, uint8_t *encoded, size_t encoded_len,
+int wl_frame_decode_cobs_crc16(uint8_t *encoded, size_t encoded_len,
                               wl_frame_view_t *out_view);
 /* Shared cold writer for aliases, exact buffers and other available modes. */
 int wl_frame_encode_bounded(const wl_wire_packet_t *packet,
                            wl_envelope_type_t envelope, wl_integrity_t integrity,
                            const uint8_t *header, size_t header_len, size_t raw_len,
                            uint8_t *out, size_t out_cap, size_t *out_len);
-void wl_frame_process_stream(wl_ctx_t *ctx);
-void wl_frame_process_units(wl_ctx_t *ctx);
-int wl_frame_receive_unit(wl_ctx_t *ctx, const uint8_t *unit, size_t length);
-/* Owner-private: callers supply only a fully verified frame view. */
-int wl_frame_route_view(wl_ctx_t *ctx, const wl_frame_view_t *view);
-int wl_frame_bad_frame(wl_ctx_t *ctx, int error);
-int wl_frame_decode_cobs_generic(const wl_config_t *config, uint8_t *encoded,
-                                 size_t length, wl_frame_view_t *view);
-int wl_frame_encode_generic(const wl_config_t *config, const wl_wire_packet_t *packet,
-                            uint8_t *out, size_t out_cap, size_t *out_len);
 #endif

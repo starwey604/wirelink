@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-/* Link-profile selectors shared by the link API and framing utilities. */
+/* Wire-format selectors for standalone framing utilities. Endpoints select one transport. */
 typedef int32_t wl_envelope_type_t;
 enum {
   WL_ENVELOPE_COBS_STREAM = 0,

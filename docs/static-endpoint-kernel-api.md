@@ -1,8 +1,8 @@
-# Static endpoint kernel prototype
+# Static endpoint kernel API
 
-This is the isolated K1 work area for the [refactor plan](../../docs/static-endpoint-kernel-refactor-plan-20261030-cn.md).
-It is not an installed product mode. Its standalone CMake target does not link
-the old Wirelink library.
+This is the default portable C11 implementation, promoted after K3/K4 qualification.
+See the [refactor plan](static-endpoint-kernel-refactor-plan-20261030-cn.md).
+The old link/RPC/pump engine is removed; no alternate engine or fallback is built.
 
 The first component is the allocation-free C11 packet port. A serialized I/O
 producer claims, commits or aborts RX storage; the owner borrows and releases
@@ -36,7 +36,7 @@ bit can be atomically consumed without losing a concurrent publication.
 Build and test:
 
 ```sh
-cmake -S experimental/static_kernel -B build/static-kernel
+cmake -S . -B build/static-kernel
 cmake --build build/static-kernel --parallel
 ctest --test-dir build/static-kernel --output-on-failure
 ```
@@ -72,8 +72,8 @@ Build the matching generator and enable this fixture explicitly:
 
 ```sh
 cargo build --manifest-path wlc/Cargo.toml
-cmake -S experimental/static_kernel -B build/static-kernel \
-  -DWIRELINK_KERNEL_WLC_EXECUTABLE="$PWD/wlc/target/debug/wlc"
+cmake -S . -B build/static-kernel \
+  -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/debug/wlc"
 cmake --build build/static-kernel --parallel
 ctest --test-dir build/static-kernel --output-on-failure
 ```
@@ -103,11 +103,10 @@ million metadata cases and all 2,049 legal native payload sizes against frozen
 A's helpers and framing tool. The Xtensa `-Os` native connector has no undefined
 symbols; this is a code dependency check, not a device performance measurement.
 
-The isolated Zephyr product binding lives in `adapters/zephyr/usb_bulk.c` and
+The Zephyr product binding lives in `adapters/zephyr/usb_bulk/src/kernel_usb_bulk.c` and
 `wirelink/zephyr/kernel_usb_bulk.h`. It preserves the existing descriptor,
-net_buf, ZLP and explicit reconfiguration mechanisms. Build it instead of the
-legacy USB adapter with `CONFIG_WIRELINK=n`; it has no old core dependency.
-This temporary copied binding is to converge with product adapters in K5.
+net_buf, ZLP and explicit reconfiguration mechanisms. It has no old core dependency. Zephyr module build integration is being
+migrated separately in K5; the focused fixture compiles this actual driver directly.
 
 Initialize the packet port first with `wl_kernel_usb_bulk_submit`,
 `wl_kernel_usb_bulk_notify`, and `user=adapter`, then bind the adapter with the
@@ -139,7 +138,7 @@ endpoint storage contains no C atomics and can be instantiated in C++. The
 `kernel_cpp` fixture links C storage, C core and generated C with a C++20
 caller, typed completion, cancellation, close and new-instance reuse.
 
-The K3 host binding `adapters/astrial/packet_usb.cpp` uses the same C packet
+The K3 host binding `adapters/astrial_usb/src/packet_usb.cpp` uses the same C packet
 port directly. It preserves the Astrial borrowed-read/write API, one in-flight
 read and write, and the read-terminator gap. Construct the adapter before port
 initialization, configure port submit/notify with the adapter as user, then
@@ -150,7 +149,7 @@ worker before acknowledging that adapter and port storage can be reclaimed.
 The owner drains queued RX/final TX completion and closes its kernel before
 reinitialization. Do not call stop/destruction from a USB callback.
 
-Enable `WIRELINK_KERNEL_BUILD_ASTRIAL_USB=ON` for this standalone target and its
+Enable `WIRELINK_BUILD_ASTRIAL_USB_ADAPTER=ON` for this standalone target and its
 controlled Astrial fixture. The fixture links the real adapter and C port,
 checks two-slot backpressure and borrowed RX, inline/asynchronous TX, late
 completion rejection, latched wakes, boundary/disconnect faults and stop/reinit.
@@ -214,7 +213,7 @@ suspended during shutdown with a full byte FIFO. Shutdown waits for its exit
 without requiring unpublished bytes to be parsed. These are software adapter
 fixtures; UART hardware throughput and physical timing have not been measured.
 
-K3 packet UDP bindings are `adapters/asio/packet_udp.cpp` and the Zephyr
+K3 packet UDP bindings are `adapters/asio_udp/src/packet_udp.cpp` and the Zephyr
 `kernel_udp` / `kernel_udp_socket` modules. Both receive into caller-owned
 packet claims with a guard byte, reject empty/foreign/truncated datagrams,
 retain two-slot backpressure and preserve latched waits. A selected in-place
@@ -248,9 +247,8 @@ confirms cancellation without a driver thread. The generated fixture runs four
 calls in each direction concurrently with budget-one core passes, then closes
 and drains both endpoints. No old link objects are involved.
 
-K3 has a standalone local installation check, pending K5 default-package
-convergence. Set `BUILD_TESTING=OFF WIRELINK_KERNEL_INSTALL=ON` to build/install
-the new core without enabling a C++ compiler. The `WirelinkKernel` CMake package
+The default installation contains only the new-contract core. Set `BUILD_TESTING=OFF WIRELINK_INSTALL=ON` to build/install
+the new core without enabling a C++ compiler. The `Wirelink` CMake package
 exports only the new kernel, port, stream/FIFO/loopback and independent framing
 tools. It installs the required codec/tool headers without the old endpoint/RPC
 API. Matching WLC remains an independently built tool.
@@ -258,6 +256,4 @@ API. Matching WLC remains an independently built tool.
 `tests/package/static_kernel` finds only that installed package and generates
 its own non-benchmark schema. It verifies eight bidirectional native calls,
 a C++ typed consumer with C-owned atomics, and real COBS/CRC16 RPC. No source-tree
-include directory or legacy library is supplied to these consumers. This
-package name is temporary evaluation infrastructure, not a second product mode
-or a published release.
+include directory or legacy library is supplied to these consumers. This is the default product package; no second engine or release publication is involved.

@@ -1,0 +1,32 @@
+{
+  "format": "wirelink-codegen-manifest-v1",
+  "compiler": {
+    "name": "wlc",
+    "version": "0.12.0",
+    "codegen_contract": {"major": 0, "minor": 12}
+  },
+  "module": "demo",
+  "identity": {
+    "algorithm": "fnv1a64-v1",
+    "schema": "0x9aab12843114b9ea",
+    "binding_profile": "0xabebd00732d48b43"
+  },
+  "codec_formats": {
+    "EVENT_CODEC_FORMAT": "schema-v1",
+    "REQUEST_CODEC_FORMAT": "schema-v1",
+    "RESPONSE_CODEC_FORMAT": "schema-v1"
+  },
+  "bounded_fields": [
+    {"message": "Event", "message_id": 42, "field": "data", "field_number": 1, "kind": "bytes", "max_length": 9}
+  ],
+  "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
+  "artifacts": [
+    {"path": "demo.c", "size": 29863, "digest": "0x50b0e7d83b7e36fd"},
+    {"path": "demo.h", "size": 2328, "digest": "0x4015370b3f25699e"},
+    {"path": "demo_kernel.c", "size": 5097, "digest": "0xf3816e3f4d1de2e2"},
+    {"path": "demo_kernel.h", "size": 1647, "digest": "0x9a2f33823025cd97"},
+    {"path": "demo_kernel_codecs.h", "size": 27321, "digest": "0x49b3843e89e6585a"},
+    {"path": "demo_kernel_deployment.json", "size": 607, "digest": "0xd8cd5a4c64ef59a3"},
+    {"path": "demo_values.h", "size": 2649, "digest": "0xbd2b0ca373913cb7"}
+  ]
+}

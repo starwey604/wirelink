@@ -1,480 +1,285 @@
+# SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-
-project(wirelink VERSION 0.12.0 LANGUAGES C)
-
+project(wirelink VERSION 0.13.0 LANGUAGES C)
 include(CTest)
 include(GNUInstallDirs)
-include(CMakePackageConfigHelpers)
+function(wl_warnings target)
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(${target} ${ARGN})
+  elseif(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX /UNDEBUG)
+  endif()
+endfunction()
+option(WIRELINK_INSTALL "Install the new-contract core and selected components" ${PROJECT_IS_TOP_LEVEL})
+option(WIRELINK_BUILD_EXAMPLES "Build static endpoint examples" ${PROJECT_IS_TOP_LEVEL})
+option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER "Build packet USB" OFF)
+option(WIRELINK_BUILD_ASTRIAL_ADAPTER "Build packet serial" OFF)
+option(WIRELINK_BUILD_ASIO_UDP_ADAPTER "Build packet UDP" OFF)
+option(WIRELINK_BUILD_PLATFORM "Build native environment providers" OFF)
+if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER OR WIRELINK_BUILD_ASTRIAL_ADAPTER OR WIRELINK_BUILD_ASIO_UDP_ADAPTER)
+  enable_language(CXX)
+endif()
+if(DEFINED WIRELINK_LINK_PROFILE)
+  message(FATAL_ERROR "WIRELINK_LINK_PROFILE was removed: select one transport in a version2 binding profile; use a fresh build directory")
+endif()
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
-
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
-include(WirelinkWlc)
-
-set(WIRELINK_SOURCES
-  src/bulk_receiver.c
-  src/bulk_sender.c
-  src/cobs.c
-  src/crc.c
-  src/endpoint.c
-  src/fifo.c
-  src/frame.c
-  src/frame_cobs_crc16.c
-  src/init.c
-  src/latest.c
-  src/outbox.c
-  src/pump.c
-  src/protocol.c
-  src/unit_frame.c
-  src/rpc.c
-  src/rpc_async.c
-  src/rx_ring_bipbuf.c
-  src/schedule.c
-  src/transport.c
-  src/types.c
-  src/unit_rx.c
-)
-
-add_library(wirelink ${WIRELINK_SOURCES})
-add_library(Wirelink::wirelink ALIAS wirelink)
-
-set(WIRELINK_LINK_PROFILE "multi" CACHE STRING "Core link capability: multi or cobs-crc16")
-set_property(CACHE WIRELINK_LINK_PROFILE PROPERTY STRINGS multi cobs-crc16)
-include(WirelinkLinkProfile)
-wirelink_target_link_profile(wirelink "${WIRELINK_LINK_PROFILE}")
-
-target_include_directories(wirelink PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-set_target_properties(wirelink PROPERTIES EXPORT_NAME wirelink)
-
-# The portable in-memory adapter is a separate target so embedded consumers
-# pay no code or state cost unless they explicitly link it.
-add_subdirectory(adapters/loopback)
-add_subdirectory(diagnostics)
-
-# Header-only USB integration policy; usable from C without a USB driver.
-add_library(wirelink_usb_bulk_defaults INTERFACE)
-add_library(Wirelink::usb_bulk_defaults ALIAS wirelink_usb_bulk_defaults)
-set_target_properties(wirelink_usb_bulk_defaults PROPERTIES EXPORT_NAME usb_bulk_defaults)
-target_link_libraries(wirelink_usb_bulk_defaults INTERFACE wirelink)
-target_include_directories(wirelink_usb_bulk_defaults INTERFACE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/common/include>
-  $<INSTALL_INTERFACE:include>)
-
-if(MSVC)
-  target_compile_options(wirelink PUBLIC /utf-8)
-  target_compile_options(wirelink PRIVATE /experimental:c11atomics)
-endif()
-
-option(WIRELINK_BUILD_FUZZERS
-  "Build Clang libFuzzer targets" OFF)
-
+add_library(wirelink_packet_port src/packet_port.c)
+function(wl_kernel_headers target)
+  target_include_directories(${target} PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+endfunction()
+wl_kernel_headers(wirelink_packet_port)
+add_library(wirelink_kernel_wire src/native_none.c src/rpc_wire.c)
+wl_kernel_headers(wirelink_kernel_wire)
+add_library(wirelink_packet_loopback src/packet_loopback.c)
+target_link_libraries(wirelink_packet_loopback PUBLIC wirelink_packet_port)
+add_library(wirelink_kernel src/kernel.c)
+target_link_libraries(wirelink_kernel PUBLIC wirelink_packet_port wirelink_kernel_wire)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(wirelink PRIVATE -Wall -Wextra -Wpedantic)
-  # Sanitizer instrumentation adds artificial compiler-managed stack state,
-  # so enforce the embedded frame budget only on regular builds.
-  string(CONCAT _wirelink_c_flags
-    "${CMAKE_C_FLAGS} ${CMAKE_C_FLAGS_DEBUG} ${CMAKE_C_FLAGS_RELEASE} "
-    "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${CMAKE_C_FLAGS_MINSIZEREL}")
-  if(NOT WIRELINK_BUILD_FUZZERS AND NOT _wirelink_c_flags MATCHES "-fsanitize")
-    # wl_frame_encode() and wl_poll() run on small embedded stacks. Keep their
-    # translation units' fixed frames within a predictable hot-path budget.
-    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
-      set_property(SOURCE src/frame.c src/frame_cobs_crc16.c src/unit_frame.c APPEND PROPERTY COMPILE_OPTIONS
-        -Werror=frame-larger-than=256)
-      set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
-        -Werror=frame-larger-than=256)
-      set_property(SOURCE src/bulk_receiver.c APPEND PROPERTY COMPILE_OPTIONS
-        -Werror=frame-larger-than=256)
-      set_property(SOURCE src/bulk_sender.c APPEND PROPERTY COMPILE_OPTIONS
-        -Werror=frame-larger-than=256)
-    else()
-      set_property(SOURCE src/frame.c src/frame_cobs_crc16.c src/unit_frame.c APPEND PROPERTY COMPILE_OPTIONS
-        -Wframe-larger-than=256
-        -Werror=frame-larger-than)
-      set_property(SOURCE src/protocol.c APPEND PROPERTY COMPILE_OPTIONS
-        -Wframe-larger-than=256
-        -Werror=frame-larger-than)
-      set_property(SOURCE src/bulk_receiver.c APPEND PROPERTY COMPILE_OPTIONS
-        -Wframe-larger-than=256
-        -Werror=frame-larger-than)
-      set_property(SOURCE src/bulk_sender.c APPEND PROPERTY COMPILE_OPTIONS
-        -Wframe-larger-than=256
-        -Werror=frame-larger-than)
-    endif()
+  wl_warnings(wirelink_packet_port PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  wl_warnings(wirelink_kernel_wire PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  wl_warnings(wirelink_kernel PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  wl_warnings(wirelink_packet_loopback PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(BUILD_TESTING)
+  enable_language(CXX)
+  add_executable(packet_port_test tests/core/packet_port.c)
+  target_link_libraries(packet_port_test PRIVATE wirelink_packet_port)
+  add_test(NAME packet_port COMMAND packet_port_test)
+  find_package(Threads REQUIRED)
+  add_executable(packet_port_concurrent_test tests/core/packet_port_concurrent.c)
+  target_link_libraries(packet_port_concurrent_test PRIVATE wirelink_packet_port Threads::Threads)
+  add_test(NAME packet_port_concurrent COMMAND packet_port_concurrent_test)
+  add_executable(kernel_wire_test tests/core/kernel_wire.c)
+  target_link_libraries(kernel_wire_test PRIVATE wirelink_kernel_wire)
+  add_test(NAME kernel_wire COMMAND kernel_wire_test)
+  add_executable(kernel_test tests/core/kernel.c)
+  target_link_libraries(kernel_test PRIVATE wirelink_kernel)
+  add_test(NAME kernel COMMAND kernel_test)
+  set(WIRELINK_WLC_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/wlc/target/debug/wlc" CACHE FILEPATH "Matching WLC compiler")
+  if(NOT EXISTS "${WIRELINK_WLC_EXECUTABLE}")
+    set(WIRELINK_WLC_EXECUTABLE "")
   endif()
-  unset(_wirelink_c_flags)
-endif()
-
-option(WIRELINK_BUILD_ASTRIAL_ADAPTER
-  "Build the optional Astrial desktop serial adapter" OFF)
-option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER
-  "Build the optional Astrial USB bulk adapter" OFF)
-option(WIRELINK_BUILD_HOST_BENCHMARKS
-  "Build host USB Bulk and CDC latency benchmarks" OFF)
-option(WIRELINK_BUILD_FIFO_BENCHMARK
-  "Build the host SPSC FIFO and command-flow benchmark" OFF)
-option(WIRELINK_BUILD_BULK_BENCHMARK
-  "Build the host sequential bulk runtime benchmark" OFF)
-option(WIRELINK_BUILD_RPC_PEER_BENCHMARK
-  "Build the host generated-RPC peer fast-path benchmark" OFF)
-option(WIRELINK_BUILD_API_BENCHMARKS
-  "Build generated endpoint CPU and localhost UDP regression benchmarks" OFF)
-option(WIRELINK_BUILD_FRAMING_BENCHMARK
-  "Build frame encoding and TX retry CPU benchmarks (Google Benchmark)" OFF)
-option(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK
-  "Build generated request validation/conversion CPU benchmarks" OFF)
-option(WIRELINK_BUILD_EXECUTOR_BENCHMARK
-  "Build multithreaded executor contention benchmarks (enables API benchmarks)" OFF)
-option(WIRELINK_BUILD_OWNER_PASS_TESTS
-  "Build deterministic owner-pass accounting workloads (requires host activity counters)" OFF)
-option(WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK
-  "Build the deterministic reliable-path packet-loss benchmark" OFF)
-option(WIRELINK_BUILD_ASIO_UDP_ADAPTER
-  "Build the optional standalone-Asio UDP adapter" OFF)
-option(WIRELINK_BUILD_HOST_RUNTIME
-  "Build the optional C++20 threaded session runtime" OFF)
-option(WIRELINK_BUILD_CPP_BINDINGS
-  "Build the optional C++20 owning UDP session support" OFF)
-option(WIRELINK_HOST_PROFILING
-  "Enable bounded desktop timing diagnostics (no hot-path logging)" OFF)
-option(WIRELINK_HOST_LOCK_PROFILING
-  "Measure mutex wall times and notification latency without broad CPU probes" OFF)
-if(WIRELINK_HOST_PROFILING)
-  target_compile_definitions(wirelink INTERFACE WIRELINK_HOST_PROFILING=1)
-endif()
-if(WIRELINK_HOST_LOCK_PROFILING)
-  target_compile_definitions(wirelink INTERFACE WIRELINK_HOST_LOCK_PROFILING=1)
-endif()
-option(WIRELINK_BUILD_STORAGE
-  "Build the optional fixed-block endpoint allocator" OFF)
-option(WIRELINK_BUILD_EXAMPLES
-  "Build Wirelink usage examples" ${PROJECT_IS_TOP_LEVEL})
-option(WIRELINK_BUILD_GETTING_STARTED
-  "Build the WLC-generated UDP tutorials (requires compatible WLC and Asio)" OFF)
-option(WIRELINK_BUILD_COMPOSED_SERVICES
-  "Build the static RPC/telemetry/bulk composition example (requires matching WLC)" OFF)
-option(WIRELINK_BUILD_DOCS
-  "Build the Astro/Starlight documentation site" OFF)
-option(WIRELINK_INSTALL
-  "Generate Wirelink install and package metadata" ${PROJECT_IS_TOP_LEVEL})
-set(WIRELINK_ASTRIAL_SOURCE_DIR "" CACHE PATH
-  "Astrial source tree used when no astrial target is already available")
-set(WIRELINK_ASIO_INCLUDE_DIR "" CACHE PATH
-  "Directory containing standalone Asio's asio.hpp")
-
-set(_wirelink_platform_default OFF)
-if(PROJECT_IS_TOP_LEVEL AND CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$")
-  set(_wirelink_platform_default ON)
-endif()
-option(WIRELINK_BUILD_PLATFORM "Build the native clock/session provider" ${_wirelink_platform_default})
-unset(_wirelink_platform_default)
-if(WIRELINK_BUILD_PLATFORM OR WIRELINK_BUILD_GETTING_STARTED)
-  add_subdirectory(runtime/platform)
-endif()
-
-if(WIRELINK_BUILD_STORAGE)
-  add_subdirectory(runtime/storage)
-endif()
-
-if(WIRELINK_BUILD_CPP_BINDINGS)
-  set(WIRELINK_BUILD_HOST_RUNTIME ON)
-  set(WIRELINK_BUILD_ASIO_UDP_ADAPTER ON)
-endif()
-if(WIRELINK_BUILD_EXECUTOR_BENCHMARK)
-  set(WIRELINK_BUILD_API_BENCHMARKS ON)
-  set(WIRELINK_BUILD_HOST_RUNTIME ON)
-endif()
-if(WIRELINK_BUILD_HOST_RUNTIME)
-  enable_language(CXX)
-  add_subdirectory(runtime/host)
-endif()
-
-if(WIRELINK_BUILD_HOST_BENCHMARKS)
-  set(WIRELINK_BUILD_ASTRIAL_ADAPTER ON)
-  set(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER ON)
-endif()
-
-if(WIRELINK_BUILD_ASTRIAL_ADAPTER OR WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
-  enable_language(CXX)
-  if(NOT TARGET astrial)
-    if(WIRELINK_ASTRIAL_SOURCE_DIR STREQUAL "")
-      message(FATAL_ERROR
-        "WIRELINK_BUILD_ASTRIAL_ADAPTER requires an existing astrial target "
-        "or WIRELINK_ASTRIAL_SOURCE_DIR")
-    endif()
-    set(_WIRELINK_SAVED_ASTRIAL_BUILD_EXAMPLES
-      "${ASTRIAL_BUILD_EXAMPLES}")
-    set(_WIRELINK_SAVED_ASTRIAL_BUILD_TESTS "${ASTRIAL_BUILD_TESTS}")
-    set(_WIRELINK_SAVED_ASTRIAL_BUILD_USB "${ASTRIAL_BUILD_USB}")
-    set(ASTRIAL_BUILD_EXAMPLES OFF)
-    set(ASTRIAL_BUILD_TESTS OFF)
-    if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
-      set(ASTRIAL_BUILD_USB ON)
-    endif()
-    add_subdirectory("${WIRELINK_ASTRIAL_SOURCE_DIR}"
-      "${CMAKE_CURRENT_BINARY_DIR}/_deps/astrial" EXCLUDE_FROM_ALL)
-    set(ASTRIAL_BUILD_EXAMPLES
-      "${_WIRELINK_SAVED_ASTRIAL_BUILD_EXAMPLES}")
-    set(ASTRIAL_BUILD_TESTS "${_WIRELINK_SAVED_ASTRIAL_BUILD_TESTS}")
-    set(ASTRIAL_BUILD_USB "${_WIRELINK_SAVED_ASTRIAL_BUILD_USB}")
-    unset(_WIRELINK_SAVED_ASTRIAL_BUILD_EXAMPLES)
-    unset(_WIRELINK_SAVED_ASTRIAL_BUILD_TESTS)
-    unset(_WIRELINK_SAVED_ASTRIAL_BUILD_USB)
+  if(WIRELINK_WLC_EXECUTABLE)
+    set(_generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    add_custom_command(OUTPUT ${_generated}/usb.c ${_generated}/usb.h
+        ${_generated}/usb_values.h ${_generated}/usb_kernel.c ${_generated}/usb_kernel.h
+        ${_generated}/usb_kernel_codecs.h
+        ${_generated}/usb_kernel_manifest.json ${_generated}/usb_kernel_deployment.json
+      COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/usb.wl
+        --profile ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/usb.bind.wl --out-dir ${_generated}
+      DEPENDS ${WIRELINK_WLC_EXECUTABLE} tests/fixtures/static_kernel/usb.wl tests/fixtures/static_kernel/usb.bind.wl VERBATIM)
+    add_library(kernel_usb_fixture_codec ${_generated}/usb.c ${_generated}/usb_kernel.c)
+    target_include_directories(kernel_usb_fixture_codec PUBLIC ${_generated})
+    target_link_libraries(kernel_usb_fixture_codec PUBLIC wirelink_kernel)
+    wl_warnings(kernel_usb_fixture_codec PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    add_executable(generated_usb_test tests/core/generated_usb.c)
+    target_link_libraries(generated_usb_test PRIVATE kernel_usb_fixture_codec)
+    add_test(NAME generated_usb COMMAND generated_usb_test)
+    add_executable(kernel_cpp_test tests/core/cpp_owner.c tests/core/cpp_consumer.cpp)
+    target_compile_features(kernel_cpp_test PRIVATE cxx_std_20)
+    wl_warnings(kernel_cpp_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(kernel_cpp_test PRIVATE kernel_usb_fixture_codec)
+    add_test(NAME kernel_cpp COMMAND kernel_cpp_test)
+    add_executable(generated_loopback_test tests/core/generated_loopback.c)
+    wl_warnings(generated_loopback_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(generated_loopback_test PRIVATE kernel_usb_fixture_codec wirelink_packet_loopback)
+    add_test(NAME generated_loopback COMMAND generated_loopback_test)
+    set(_instrument "${CMAKE_CURRENT_BINARY_DIR}/instrument")
+    add_custom_command(OUTPUT ${_instrument}/instrument.c ${_instrument}/instrument.h
+        ${_instrument}/instrument_values.h ${_instrument}/instrument_kernel.c
+        ${_instrument}/instrument_kernel.h ${_instrument}/instrument_kernel_codecs.h
+        ${_instrument}/instrument_kernel_manifest.json ${_instrument}/instrument_kernel_deployment.json
+      COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/instrument.wl
+        --profile ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/instrument.bind.wl --out-dir ${_instrument}
+      DEPENDS ${WIRELINK_WLC_EXECUTABLE} tests/fixtures/static_kernel/instrument.wl tests/fixtures/static_kernel/instrument.bind.wl VERBATIM)
+    add_executable(generated_instrument_test tests/core/generated_instrument.c
+      ${_instrument}/instrument.c ${_instrument}/instrument_kernel.c)
+    target_include_directories(generated_instrument_test PRIVATE ${_instrument})
+    wl_warnings(generated_instrument_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(generated_instrument_test PRIVATE wirelink_kernel)
+    add_test(NAME generated_instrument COMMAND generated_instrument_test)
+  else()
+    message(STATUS "Generated endpoint tests need WIRELINK_WLC_EXECUTABLE")
   endif()
 endif()
 
-if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
-  add_subdirectory(adapters/astrial)
-endif()
-
+option(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER "Build packet USB host adapter" OFF)
 if(WIRELINK_BUILD_ASTRIAL_USB_ADAPTER)
   if(NOT TARGET astrial_usb)
-    message(FATAL_ERROR
-      "WIRELINK_BUILD_ASTRIAL_USB_ADAPTER requires the Astrial USB target")
+    set(WIRELINK_ASTRIAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../astrial"
+      CACHE PATH "Astrial source")
+    set(ASTRIAL_BUILD_USB ON CACHE BOOL "" FORCE)
+    set(ASTRIAL_ENABLE_IPO OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${WIRELINK_ASTRIAL_SOURCE_DIR} astrial EXCLUDE_FROM_ALL)
   endif()
-  add_subdirectory(adapters/astrial_usb)
+  add_library(wirelink_astrial_usb adapters/astrial_usb/src/packet_usb.cpp)
+  target_compile_features(wirelink_astrial_usb PUBLIC cxx_std_20)
+  target_include_directories(wirelink_astrial_usb PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/astrial_usb/include>
+    $<INSTALL_INTERFACE:include>)
+  target_link_libraries(wirelink_astrial_usb PUBLIC wirelink_packet_port astrial_usb)
+  wl_warnings(wirelink_astrial_usb PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  if(BUILD_TESTING)
+    add_executable(kernel_packet_usb_test tests/core/packet_usb_owner.c tests/core/packet_usb.cpp)
+    wl_warnings(kernel_packet_usb_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(kernel_packet_usb_test PRIVATE wirelink_astrial_usb)
+    add_test(NAME kernel_packet_usb COMMAND kernel_packet_usb_test)
+    set_tests_properties(kernel_packet_usb PROPERTIES TIMEOUT 10)
+  endif()
 endif()
 
-if(WIRELINK_BUILD_GETTING_STARTED OR WIRELINK_BUILD_API_BENCHMARKS)
-  set(WIRELINK_BUILD_ASIO_UDP_ADAPTER ON)
+add_library(wirelink_packet_stream src/packet_stream.c)
+target_link_libraries(wirelink_packet_stream PUBLIC wirelink_packet_port)
+add_library(wirelink_framing_primitives src/cobs.c src/crc.c)
+wl_kernel_headers(wirelink_framing_primitives)
+add_library(wirelink_frame_tools src/frame.c src/frame_cobs_crc16.c)
+target_link_libraries(wirelink_frame_tools PUBLIC wirelink_framing_primitives)
+add_library(wirelink_stream_cobs_crc16 src/cobs_crc16_stream.c)
+target_link_libraries(wirelink_stream_cobs_crc16 PUBLIC wirelink_packet_stream wirelink_kernel_wire
+  PRIVATE wirelink_framing_primitives)
+add_library(wirelink_stream_length16_none src/length16_none_stream.c)
+target_link_libraries(wirelink_stream_length16_none PUBLIC wirelink_packet_stream wirelink_kernel_wire)
+foreach(target wirelink_packet_stream wirelink_stream_cobs_crc16 wirelink_stream_length16_none)
+  wl_warnings(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endforeach()
+if(BUILD_TESTING)
+  # Frozen public framing utility is an independent oracle, not an engine dependency.
+  add_executable(packet_stream_test tests/core/packet_stream.c)
+  target_link_libraries(packet_stream_test PRIVATE wirelink_stream_cobs_crc16 wirelink_stream_length16_none wirelink_frame_tools)
+  wl_warnings(packet_stream_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_test(NAME packet_stream COMMAND packet_stream_test)
+endif()
+add_library(wirelink_byte_fifo src/byte_fifo.c)
+target_link_libraries(wirelink_byte_fifo PUBLIC wirelink_packet_port)
+add_library(wirelink_byte_fifo_cobs src/byte_fifo_cobs.c)
+target_link_libraries(wirelink_byte_fifo_cobs PUBLIC wirelink_byte_fifo wirelink_stream_cobs_crc16)
+foreach(target wirelink_byte_fifo wirelink_byte_fifo_cobs)
+  wl_warnings(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endforeach()
+if(BUILD_TESTING)
+  add_executable(byte_fifo_test tests/core/byte_fifo.c)
+  wl_warnings(byte_fifo_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_link_libraries(byte_fifo_test PRIVATE wirelink_byte_fifo_cobs Threads::Threads)
+  add_test(NAME byte_fifo COMMAND byte_fifo_test)
+  set_tests_properties(byte_fifo PROPERTIES TIMEOUT 10)
 endif()
 
+option(WIRELINK_BUILD_ASIO_UDP_ADAPTER "Build packet UDP adapter" OFF)
 if(WIRELINK_BUILD_ASIO_UDP_ADAPTER)
   enable_language(CXX)
-  add_subdirectory(adapters/asio_udp)
-endif()
-
-if(WIRELINK_BUILD_CPP_BINDINGS)
-  add_subdirectory(bindings/cpp)
-endif()
-
-if(WIRELINK_BUILD_HOST_BENCHMARKS)
-  add_subdirectory(benchmarks/host)
-endif()
-
-if(WIRELINK_BUILD_FIFO_BENCHMARK)
-  add_subdirectory(benchmarks/fifo)
-endif()
-
-if(WIRELINK_BUILD_BULK_BENCHMARK)
-  add_subdirectory(benchmarks/bulk)
-endif()
-
-if(WIRELINK_BUILD_RPC_PEER_BENCHMARK)
-  add_subdirectory(benchmarks/rpc_peer)
-endif()
-
-if(WIRELINK_BUILD_API_BENCHMARKS)
-  add_subdirectory(benchmarks/api)
-endif()
-if(WIRELINK_BUILD_OWNER_PASS_TESTS)
-  add_subdirectory(benchmarks/owner_pass)
-endif()
-
-if(WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK)
-  add_subdirectory(benchmarks/reliable_loss)
-endif()
-
-# Pure-Python benchmark tooling (shared report library, bench.py, presets)
-# and its tests; not opt-in benchmark targets, so registered whenever testing
-# is enabled.
-if(BUILD_TESTING)
-  add_subdirectory(benchmarks)
-endif()
-
-if(WIRELINK_BUILD_FUZZERS)
-  if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
-    message(FATAL_ERROR "WIRELINK_BUILD_FUZZERS requires Clang")
+  find_path(WIRELINK_ASIO_INCLUDE_DIR asio.hpp
+    HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../astrial/3rdparty/asio/include)
+  if(NOT WIRELINK_ASIO_INCLUDE_DIR)
+    message(FATAL_ERROR "Set WIRELINK_ASIO_INCLUDE_DIR to standalone Asio headers")
   endif()
-  target_compile_options(wirelink PRIVATE
-    # Instrument the core as well as the harness so fuzz feedback explores
-    # frame/protocol branches, not only the oracle's success/error checks.
-    -fsanitize=fuzzer-no-link,address,undefined
-    -fno-omit-frame-pointer)
-  # Any executable consuming the instrumented static archive must also link
-  # the sanitizer runtimes, including the examples built by default.
-  target_link_options(wirelink INTERFACE
-    -fsanitize=address,undefined)
-  add_subdirectory(fuzz)
+  find_package(Threads REQUIRED)
+  add_library(wirelink_asio_udp adapters/asio_udp/src/packet_udp.cpp)
+  target_compile_features(wirelink_asio_udp PUBLIC cxx_std_20)
+  target_compile_definitions(wirelink_asio_udp PRIVATE ASIO_STANDALONE)
+  target_include_directories(wirelink_asio_udp PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/asio_udp/include>
+    $<INSTALL_INTERFACE:include>
+    PRIVATE ${WIRELINK_ASIO_INCLUDE_DIR})
+  target_link_libraries(wirelink_asio_udp PUBLIC wirelink_packet_port PRIVATE wirelink_kernel_wire Threads::Threads)
+  wl_warnings(wirelink_asio_udp PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  if(WIN32)
+    target_compile_definitions(wirelink_asio_udp PRIVATE _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(wirelink_asio_udp PRIVATE ws2_32 mswsock)
+  endif()
+  if(BUILD_TESTING)
+    add_executable(kernel_packet_udp_test tests/core/packet_udp_owner.c tests/core/packet_udp.cpp)
+    wl_warnings(kernel_packet_udp_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(kernel_packet_udp_test PRIVATE wirelink_asio_udp wirelink_stream_cobs_crc16)
+    add_test(NAME kernel_packet_udp COMMAND kernel_packet_udp_test)
+    set_tests_properties(kernel_packet_udp PROPERTIES TIMEOUT 10)
+  endif()
 endif()
 
+option(WIRELINK_BUILD_ASTRIAL_ADAPTER "Build packet serial adapter" OFF)
+if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
+  if(NOT TARGET astrial)
+    set(WIRELINK_ASTRIAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../astrial"
+      CACHE PATH "Astrial source")
+    set(ASTRIAL_ENABLE_IPO OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${WIRELINK_ASTRIAL_SOURCE_DIR} astrial EXCLUDE_FROM_ALL)
+  endif()
+  add_library(wirelink_astrial adapters/astrial/src/packet_serial.cpp)
+  target_compile_features(wirelink_astrial PUBLIC cxx_std_20)
+  wl_warnings(wirelink_astrial PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_include_directories(wirelink_astrial PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/astrial/include>
+    $<INSTALL_INTERFACE:include>)
+  target_link_libraries(wirelink_astrial PUBLIC wirelink_byte_fifo_cobs astrial)
+  if(BUILD_TESTING AND UNIX)
+    add_executable(kernel_packet_serial_test tests/core/packet_serial_owner.c tests/core/packet_serial.cpp)
+    wl_warnings(kernel_packet_serial_test PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(kernel_packet_serial_test PRIVATE wirelink_astrial)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      target_link_libraries(kernel_packet_serial_test PRIVATE util)
+    endif()
+    add_test(NAME kernel_packet_serial COMMAND kernel_packet_serial_test)
+    set_tests_properties(kernel_packet_serial PROPERTIES TIMEOUT 10)
+  endif()
+endif()
+
+# Default public core and independent tools use this one implementation.
+add_library(wirelink_types src/types.c)
+wl_kernel_headers(wirelink_types)
+add_library(wirelink_containers src/fifo.c src/latest.c src/outbox.c)
+wl_kernel_headers(wirelink_containers)
+target_link_libraries(wirelink_containers PUBLIC wirelink_types)
+target_link_libraries(wirelink_frame_tools PUBLIC wirelink_types)
+foreach(_tool wirelink_types wirelink_containers wirelink_framing_primitives wirelink_frame_tools)
+  wl_warnings(${_tool} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endforeach()
+target_link_libraries(wirelink_kernel PUBLIC wirelink_types)
+add_library(wirelink INTERFACE)
+target_link_libraries(wirelink INTERFACE wirelink_kernel wirelink_types)
+add_library(Wirelink::wirelink ALIAS wirelink)
+if(WIRELINK_BUILD_PLATFORM)
+  add_subdirectory(runtime/platform)
+endif()
 if(WIRELINK_BUILD_EXAMPLES)
-  if(WIRELINK_LINK_PROFILE STREQUAL "multi")
-    add_subdirectory(examples)
-  else()
-    message(STATUS "Native-packet examples require the multi link profile; omitted")
-  endif()
+  add_subdirectory(examples)
 endif()
 
-if(WIRELINK_BUILD_DOCS)
-  find_program(WIRELINK_NPM_EXECUTABLE npm REQUIRED)
-  set(_wirelink_site_dir "${PROJECT_SOURCE_DIR}/site")
-  set(_wirelink_docs_deps_stamp
-    "${CMAKE_CURRENT_BINARY_DIR}/wirelink-docs-deps.stamp")
-
-  add_custom_command(
-    OUTPUT "${_wirelink_docs_deps_stamp}"
-    COMMAND "${WIRELINK_NPM_EXECUTABLE}" ci
-    COMMAND "${CMAKE_COMMAND}" -E touch "${_wirelink_docs_deps_stamp}"
-    DEPENDS
-      "${_wirelink_site_dir}/package.json"
-      "${_wirelink_site_dir}/package-lock.json"
-    WORKING_DIRECTORY "${_wirelink_site_dir}"
-    COMMENT "Installing Wirelink documentation dependencies"
-    VERBATIM)
-
-  add_custom_target(wirelink_docs
-    COMMAND "${WIRELINK_NPM_EXECUTABLE}" run build
-    COMMAND "${CMAKE_COMMAND}" -E remove_directory
-      "${CMAKE_CURRENT_BINARY_DIR}/docs"
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-      "${_wirelink_site_dir}/dist" "${CMAKE_CURRENT_BINARY_DIR}/docs"
-    DEPENDS "${_wirelink_docs_deps_stamp}"
-    BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/docs/wirelink/index.html"
-    WORKING_DIRECTORY "${_wirelink_site_dir}"
-    COMMENT "Building Wirelink documentation"
-    USES_TERMINAL
-    VERBATIM)
-
-  unset(_wirelink_docs_deps_stamp)
-  unset(_wirelink_site_dir)
-endif()
-
-if(WIRELINK_BUILD_FRAMING_BENCHMARK)
-  enable_language(CXX)
-  add_subdirectory(benchmarks/framing)
-endif()
-
-if(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK)
-  enable_language(CXX)
-  add_subdirectory(benchmarks/rpc_validation)
-endif()
-
+foreach(_component packet_port kernel_wire kernel packet_stream stream_cobs_crc16
+    stream_length16_none byte_fifo byte_fifo_cobs packet_loopback framing_primitives frame_tools containers types)
+  add_library(Wirelink::${_component} ALIAS wirelink_${_component})
+endforeach()
 if(WIRELINK_INSTALL)
-  install(TARGETS wirelink_usb_bulk_defaults EXPORT WirelinkTargets)
-  install(FILES adapters/common/include/wirelink/usb_bulk_defaults.h
+  include(GNUInstallDirs)
+  include(CMakePackageConfigHelpers)
+  set(_kernel_targets wirelink wirelink_types wirelink_containers wirelink_packet_port wirelink_kernel_wire wirelink_kernel
+    wirelink_packet_stream wirelink_stream_cobs_crc16 wirelink_stream_length16_none
+    wirelink_byte_fifo wirelink_byte_fifo_cobs wirelink_packet_loopback
+    wirelink_framing_primitives wirelink_frame_tools)
+  foreach(target IN LISTS _kernel_targets)
+    string(REGEX REPLACE "^wirelink_" "" name ${target})
+    set_target_properties(${target} PROPERTIES EXPORT_NAME ${name})
+  endforeach()
+  install(TARGETS ${_kernel_targets} EXPORT WirelinkTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(DIRECTORY include/wirelink DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  install(FILES include/wirelink/codec.h include/wirelink/types.h
+    include/wirelink/span.h include/wirelink/profile.h
+    include/wirelink/clock.h include/wirelink/frame.h
+    include/wirelink/cobs.h include/wirelink/crc.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
-  install(TARGETS wirelink
-    EXPORT WirelinkTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-  install(TARGETS wirelink_loopback
-    EXPORT WirelinkTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-  install(TARGETS wirelink_diagnostics
-    EXPORT WirelinkTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-
-  if(TARGET wirelink_host)
-    install(TARGETS wirelink_host
-      EXPORT WirelinkTargets
-      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-      INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-    install(FILES runtime/host/include/wirelink/host/executor.hpp
-      runtime/host/include/wirelink/host/rpc_task.hpp
-      runtime/host/include/wirelink/host/executor_activity.hpp
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
-    install(FILES include/wirelink/detail/coalescing_event.hpp
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/detail)
-    install(FILES include/wirelink/diagnostics/host_profile.hpp
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/diagnostics)
-  endif()
-
-  if(TARGET wirelink_asio_udp OR TARGET wirelink_host)
-    install(FILES runtime/host/include/wirelink/host/clock.hpp
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/host)
-  endif()
-  if(TARGET wirelink_asio_udp)
-    install(TARGETS wirelink_asio_udp EXPORT WirelinkTargets
-      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    install(FILES adapters/asio_udp/include/wirelink/asio/udp_adapter.hpp
-      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/asio)
-  endif()
-
-  install(FILES
-    include/wirelink/adapter.h
-    include/wirelink/alignment.h
-    include/wirelink/bulk.h
-    include/wirelink/clock.h
-    include/wirelink/environment.h
-    include/wirelink/platform.h
-    include/wirelink/cobs.h
-    include/wirelink/codec.h
-    include/wirelink/crc.h
-    include/wirelink/diagnostics.h
-    include/wirelink/endpoint.h
-    include/wirelink/fifo.h
-    include/wirelink/frame.h
-    include/wirelink/latest.h
-    include/wirelink/link.h
-    include/wirelink/link_defaults.h
-    include/wirelink/loopback.h
-    include/wirelink/outbox.h
-    include/wirelink/port.h
-    include/wirelink/profile.h
-    include/wirelink/pump.h
-    include/wirelink/rpc.h
-    include/wirelink/rpc_async.h
-    include/wirelink/rpc_result.h
-    include/wirelink/rpc_sync.h
-    include/wirelink/allocator.h
-    include/wirelink/span.h
-    include/wirelink/types.h
-    include/wirelink/version.h
-    include/wirelink/wait.h
-    include/wirelink/wirelink.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
-
-  install(EXPORT WirelinkTargets
-    FILE WirelinkTargets.cmake
-    NAMESPACE Wirelink::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
-
-  set(WIRELINK_PACKAGE_HAS_HOST_RUNTIME OFF)
-  set(WIRELINK_PACKAGE_HAS_ASIO_UDP_ADAPTER OFF)
-  if(TARGET wirelink_asio_udp)
-    set(WIRELINK_PACKAGE_HAS_ASIO_UDP_ADAPTER ON)
-  endif()
-  if(TARGET wirelink_host)
-    set(WIRELINK_PACKAGE_HAS_HOST_RUNTIME ON)
-  endif()
-  configure_package_config_file(
-    cmake/WirelinkConfig.cmake.in
+  set(_kernel_cmake ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
+  configure_package_config_file(cmake/WirelinkConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
-  write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMinorVersion)
-  configure_file(cmake/wirelink.pc.in wirelink.pc @ONLY)
-
-  install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
-    cmake/WirelinkWlc.cmake
-    cmake/WirelinkWlcBootstrap.cmake
-    cmake/WirelinkWlcVerifyManifest.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
-  install(FILES LICENSE DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/wirelink)
+    INSTALL_DESTINATION ${_kernel_cmake})
+  write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
+    VERSION ${PROJECT_VERSION} COMPATIBILITY ExactVersion)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake DESTINATION ${_kernel_cmake})
+  install(EXPORT WirelinkTargets NAMESPACE Wirelink:: DESTINATION ${_kernel_cmake})
 endif()

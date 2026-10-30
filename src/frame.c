@@ -7,7 +7,7 @@
 #include "wirelink/frame.h"
 
 #include "crc_internal.h"
-#include "link_profile.h"
+#include "frame_profile.h"
 #include "frame_internal.h"
 
 typedef struct {
@@ -34,9 +34,7 @@ static size_t frame_write_integrity(const wl_wire_packet_t *packet,
                                     size_t header_len,
                                     uint8_t integrity[WL_FRAME_MAX_CRC]) {
   (void)integrity_kind;
-#if !WL_LINK_PROFILE_COBS_CRC16
   if (integrity_kind == WL_INTEGRITY_CRC16)
-#endif
   {
     uint16_t state = wl_crc16_ccitt_false_update(
         0xFFFFu, header, header_len);
@@ -46,7 +44,6 @@ static size_t frame_write_integrity(const wl_wire_packet_t *packet,
     return 2U;
   }
 
-#if !WL_LINK_PROFILE_COBS_CRC16
   if (integrity_kind == WL_INTEGRITY_CRC32C) {
     uint32_t state =
         wl_crc32c_update(0xFFFFFFFFu, header, header_len);
@@ -56,7 +53,6 @@ static size_t frame_write_integrity(const wl_wire_packet_t *packet,
   }
 
   return 0U;
-#endif
 }
 
 static void cobs_count_span(wl_cobs_count_state_t *state, const uint8_t *data,
@@ -127,7 +123,6 @@ static size_t frame_cobs_encode(const uint8_t *header,
   return state.write_index;
 }
 
-#if !WL_LINK_PROFILE_COBS_CRC16
 static inline void frame_write_raw(const uint8_t *header,
                             size_t header_len,
                             const wl_wire_packet_t *packet,
@@ -149,7 +144,6 @@ static inline void frame_write_raw(const uint8_t *header,
            integrity_len);
   }
 }
-#endif
 
 size_t wl_frame_overhead(wl_integrity_t integrity) {
   if (!wl_profile_integrity_valid(integrity) ||
@@ -173,12 +167,9 @@ size_t wl_frame_encode_overhead(wl_envelope_type_t envelope,
     return 0;
   }
 
-#if !WL_LINK_PROFILE_COBS_CRC16
   switch (envelope) {
   case WL_ENVELOPE_COBS_STREAM:
-#endif
     return wl_cobs_encoded_max_size(raw_size) + 1;
-#if !WL_LINK_PROFILE_COBS_CRC16
   case WL_ENVELOPE_BUS_LENGTH16:
     return raw_size + 2;
   case WL_ENVELOPE_NATIVE_PACKET:
@@ -186,7 +177,6 @@ size_t wl_frame_encode_overhead(wl_envelope_type_t envelope,
   default:
     return 0U;
   }
-#endif
 }
 
 size_t wl_frame_raw_size(size_t payload_len, wl_integrity_t integrity) {
@@ -289,26 +279,17 @@ int wl_frame_encode_bounded(const wl_wire_packet_t *packet,
                                 const uint8_t *header, size_t header_len,
                                 size_t raw_len, uint8_t *out, size_t out_cap,
                                 size_t *out_len);
-#if !WL_LINK_PROFILE_COBS_CRC16
-int wl_frame_encode_generic(const wl_config_t *config, const wl_wire_packet_t *packet,
+static int frame_encode_generic(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
                             uint8_t *out, size_t out_cap, size_t *out_len) {
   uint8_t header[WL_FRAME_HEADER_SIZE];
   const size_t header_len = packet->type == WL_PACKET_ACK || packet->flags != 0U
       ? WL_FRAME_RELIABLE_HEADER_SIZE : WL_FRAME_BASE_HEADER_SIZE;
-  const size_t raw_len = header_len + packet->payload_len + wl_profile_crc_size(config->integrity);
+  const size_t raw_len = header_len + packet->payload_len + wl_profile_crc_size(packet->integrity);
   *out_len = 0U;
   frame_write_header(packet, header_len, header);
-  return wl_frame_encode_bounded(packet, config->envelope, config->integrity,
+  return wl_frame_encode_bounded(packet, envelope, packet->integrity,
                                  header, header_len, raw_len, out, out_cap, out_len);
 }
-int wl_frame_decode_cobs_generic(const wl_config_t *config, uint8_t *encoded,
-                                 size_t length, wl_frame_view_t *view) {
-  size_t decoded_len;
-  int ret = wl_cobs_decode_in_place(encoded, length, &decoded_len);
-  if (ret == WL_OK && decoded_len == 0U) return WL_ERR_INVALID_ARG;
-  return ret == WL_OK ? wl_frame_decode(encoded, decoded_len, config->integrity, view) : ret;
-}
-#endif
 
 int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
                    wl_frame_view_t *out_view) {
@@ -318,8 +299,8 @@ int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,
   return frame_parse(in, in_len, integrity, wl_profile_crc_size(integrity), NULL, out_view);
 }
 
-/* Public selector validation and bounded encoding are outside the normal
- * initialized-link path, and reuse the same packet and byte primitives. */
+/* Standalone tools support the frozen framing formats. The selected endpoint
+ * transports do not dispatch through this generic utility. */
 int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
                    uint8_t *out, size_t out_cap, size_t *out_len) {
   if (out_len == NULL) return WL_ERR_INVALID_ARG;
@@ -330,14 +311,9 @@ int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
   const int header_len = frame_header_size(packet);
   if (header_len < 0) return header_len;
   if (!wl_profile_supported(envelope, packet->integrity)) return WL_ERR_NOT_SUPPORTED;
-#if !WL_LINK_PROFILE_COBS_CRC16
   if (envelope == WL_ENVELOPE_COBS_STREAM && packet->integrity == WL_INTEGRITY_CRC16)
-#endif
-    return wl_frame_encode_cobs_crc16(NULL, packet, out, out_cap, out_len);
-#if !WL_LINK_PROFILE_COBS_CRC16
-  const wl_config_t config = {.envelope = envelope, .integrity = packet->integrity};
-  return wl_frame_encode_generic(&config, packet, out, out_cap, out_len);
-#endif
+    return wl_frame_encode_cobs_crc16(packet, out, out_cap, out_len);
+  return frame_encode_generic(packet, envelope, out, out_cap, out_len);
 }
 
 int wl_frame_encode_bounded(const wl_wire_packet_t *packet,
@@ -350,10 +326,8 @@ int wl_frame_encode_bounded(const wl_wire_packet_t *packet,
   (void)integrity_kind;
   size_t crc_len = frame_write_integrity(packet, integrity_kind, header, header_len, integrity);
 
-#if !WL_LINK_PROFILE_COBS_CRC16
   switch (envelope) {
   case WL_ENVELOPE_COBS_STREAM:
-#endif
   {
     const uint8_t *payload = packet->payload;
     size_t cobs_len = wl_cobs_encoded_max_size(raw_len);
@@ -388,7 +362,6 @@ int wl_frame_encode_bounded(const wl_wire_packet_t *packet,
     *out_len = cobs_len + 1U;
     return WL_OK;
   }
-#if !WL_LINK_PROFILE_COBS_CRC16
   case WL_ENVELOPE_BUS_LENGTH16:
     if (raw_len > UINT16_MAX) {
       return WL_ERR_FRAME_TOO_LONG;
@@ -415,23 +388,4 @@ int wl_frame_encode_bounded(const wl_wire_packet_t *packet,
     *out_len = raw_len;
     return WL_OK;
   }
-#endif
 }
-
-#if WL_LINK_PROFILE_COBS_CRC16
-/* Fixed builds retain the shared owner's rejection boundary, with no omitted
- * envelope/integrity implementation behind it. This keeps optional mode size
- * from changing the owner's normal COBS/CRC16 instruction layout. */
-int wl_frame_encode_generic(const wl_config_t *config,
-                            const wl_wire_packet_t *packet, uint8_t *out,
-                            size_t cap, size_t *length) {
-  (void)config; (void)packet; (void)out; (void)cap;
-  *length = 0U;
-  return WL_ERR_NOT_SUPPORTED;
-}
-int wl_frame_decode_cobs_generic(const wl_config_t *config, uint8_t *encoded,
-                                 size_t length, wl_frame_view_t *view) {
-  (void)config; (void)encoded; (void)length; (void)view;
-  return WL_ERR_NOT_SUPPORTED;
-}
-#endif

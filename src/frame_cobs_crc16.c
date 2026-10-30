@@ -18,9 +18,8 @@ static uint16_t cobs_crc16_encode_span(wl_cobs_encode_state_t *state,
   state->code = code;
   return crc;
 }
-int wl_frame_encode_cobs_crc16(const wl_config_t *config, const wl_wire_packet_t *packet,
+int wl_frame_encode_cobs_crc16(const wl_wire_packet_t *packet,
                               uint8_t *out, size_t out_cap, size_t *out_len) {
-  (void)config;
   uint8_t header[WL_FRAME_HEADER_SIZE];
   const size_t header_len = packet->type == WL_PACKET_ACK || packet->flags != 0U
       ? WL_FRAME_RELIABLE_HEADER_SIZE : WL_FRAME_BASE_HEADER_SIZE;
@@ -49,9 +48,8 @@ int wl_frame_encode_cobs_crc16(const wl_config_t *config, const wl_wire_packet_t
   return WL_OK;
 }
 
-int wl_frame_decode_cobs_crc16(const wl_config_t *config, uint8_t *encoded, size_t encoded_len,
+int wl_frame_decode_cobs_crc16(uint8_t *encoded, size_t encoded_len,
                               wl_frame_view_t *out_view) {
-  (void)config;
   size_t read = 0U, write = 0U;
   uint16_t crc = 0xffffU;
   if (encoded == NULL || out_view == NULL) return WL_ERR_INVALID_ARG;

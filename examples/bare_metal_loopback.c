@@ -1,97 +1,78 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-
-#include <stdint.h>
+#include "demo_kernel.h"
+#include "wirelink/packet_loopback.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include "wirelink/loopback.h"
+static demo_kernel_t endpoints[2];
+static wl_packet_port_t ports[2];
+static uint8_t receive_storage[2][2][256];
+static wl_packet_loopback_t transport;
+static unsigned completions, messages, executions;
 
-#define EXAMPLE_MAX_PAYLOAD 64U
-#define EXAMPLE_STORAGE_SIZE 128U
-
-typedef struct {
-  wl_ctx_t link;
-  uint8_t tx_payload[EXAMPLE_MAX_PAYLOAD];
-  uint8_t tx_unit[EXAMPLE_STORAGE_SIZE];
-  uint8_t control_unit[EXAMPLE_STORAGE_SIZE];
-  uint8_t rx_fallback[EXAMPLE_STORAGE_SIZE];
-} endpoint_t;
-
-static int endpoint_init(endpoint_t *endpoint, uint64_t session_id) {
-  const wl_config_t config = {
-      .max_payload_len = EXAMPLE_MAX_PAYLOAD,
-      .envelope = WL_ENVELOPE_NATIVE_PACKET,
-      .integrity = WL_INTEGRITY_CRC32C,
-      .session_id = session_id,
-      .max_retries = 2U,
-      .ack_timeout_ms = 20U,
-      .max_transmission_unit = sizeof(endpoint->tx_unit),
-  };
-  const wl_storage_t storage = {
-      .tx_payload = endpoint->tx_payload,
-      .tx_payload_size = sizeof(endpoint->tx_payload),
-      .tx_unit = endpoint->tx_unit,
-      .tx_unit_size = sizeof(endpoint->tx_unit),
-      .control_unit = endpoint->control_unit,
-      .control_unit_size = sizeof(endpoint->control_unit),
-      .rx_fallback = endpoint->rx_fallback,
-      .rx_fallback_size = sizeof(endpoint->rx_fallback),
-  };
-  int result;
-
-  memset(endpoint, 0, sizeof(*endpoint));
-  result = wl_init(&endpoint->link, &config, &storage);
-  return result;
+static void require(int condition) {
+  if (!condition) {
+    fputs("loopback contract failed\n", stderr);
+    exit(EXIT_FAILURE);
+  }
 }
-
+static int32_t execute(void *user, const request_t *request, response_value_t *response) {
+  (void)user;
+  ++executions;
+  response->has_output = true;
+  response->output = request->input;
+  return 0;
+}
+static void completed(void *user, wl_kernel_result_t result, const response_t *response) {
+  (void)user;
+  /* response is borrowed only until this callback returns. */
+  require(result.outcome == WL_KERNEL_SUCCESS && response && response->output == INT32_MIN);
+  ++completions;
+}
+static void received(void *user, const event_t *event) {
+  (void)user;
+  require(event->data.length == 3U && memcmp(event->data.data, "abc", 3U) == 0);
+  ++messages;
+}
 int main(void) {
-  endpoint_t controller;
-  endpoint_t actuator;
-  wl_loopback_t loopback;
-  wl_loopback_service_result_t service;
-  const uint8_t command[] = {0x01U, 0x02U, 0x00U, 0x04U};
-  wl_tx_handle_t handle;
-  wl_tx_result_t tx_result;
-  wl_event_t event;
-
-  if (endpoint_init(&controller, UINT64_C(0x1001)) != WL_OK ||
-      endpoint_init(&actuator, UINT64_C(0x2002)) != WL_OK ||
-      wl_loopback_init(&loopback, &controller.link, &actuator.link) != WL_OK) {
-    return 1;
+  require(wl_packet_loopback_init(&transport, &ports[0], &ports[1], NULL, NULL) == WL_OK);
+  for (unsigned side = 0; side < 2U; ++side) {
+    /* A real integration supplies a fresh nonzero instance at each restart. */
+    wl_packet_config_t config = {.instance = 1001U + side,
+        .rx_storage = &receive_storage[side][0][0], .rx_unit_size = 256U,
+        .rx_storage_size = sizeof(receive_storage[side]),
+        .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
+        .user = &transport.directions[side]};
+    require(wl_packet_init(&ports[side], &config) == WL_OK);
+    demo_kernel_handlers_t handlers = {.on_rpc_execute = execute, .on_message_event = received};
+    require(demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, NULL) == WL_OK);
+    for (unsigned slot = 0; slot < 4U; ++slot) {
+      request_value_t request = {.has_input = true, .input = INT32_MIN};
+      wl_kernel_call_handle_t call;
+      require(demo_kernel_execute_start(&endpoints[side], &request, 0U, 500U,
+          completed, NULL, &call) == WL_OK);
+      /* Admission copied the request; this object is no longer borrowed. */
+      memset(&request, 0, sizeof(request));
+    }
+    event_value_t event = {.has_data = true, .data = {.length = 3U, .data = {'a', 'b', 'c'}}};
+    require(demo_kernel_send_event(&endpoints[side], &event) == WL_OK);
+    memset(&event, 0, sizeof(event));
   }
-
-  if (wl_send_reliable(&controller.link, 0x42U, command, sizeof(command), 0U,
-                       &handle) != WL_OK ||
-      wl_loopback_service(&loopback, 1U, &service) != WL_OK ||
-      service.delivered != 1U) {
-    return 2;
+  for (uint32_t now = 0; now < 500U && (completions != 8U || messages != 2U); ++now) {
+    /* All endpoint operations/callbacks share this owner. No core clock/thread. */
+    require(demo_kernel_step(&endpoints[0], now) == WL_OK);
+    require(demo_kernel_step(&endpoints[1], now) == WL_OK);
+    require(wl_packet_loopback_service(&transport, 2U) == WL_OK);
   }
-
-  memset(&event, 0, sizeof(event));
-  if (wl_poll(&actuator.link, 1U, &event) != WL_OK ||
-      event.type != WL_EVT_RELIABLE_RX || event.message_id != 0x42U ||
-      event.payload_len != sizeof(command) ||
-      memcmp(event.payload, command, sizeof(command)) != 0) {
-    return 3;
+  require(completions == 8U && executions == 8U && messages == 2U);
+  for (unsigned side = 0; side < 2U; ++side)
+    require(wl_kernel_close(&endpoints[side].core) == WL_OK);
+  wl_packet_loopback_stop(&transport);
+  for (unsigned side = 0; side < 2U; ++side) {
+    require(demo_kernel_step(&endpoints[side], 500U) == WL_OK);
+    require(wl_kernel_quiescent(&endpoints[side].core));
   }
-  /* The borrowed payload remains valid until this explicit release. */
-  wl_event_release(&actuator.link, &event);
-
-  if (wl_loopback_service(&loopback, 1U, &service) != WL_OK ||
-      service.delivered != 1U) {
-    return 4;
-  }
-  memset(&event, 0, sizeof(event));
-  if (wl_poll(&controller.link, 2U, &event) != WL_OK ||
-      event.type != WL_EVT_TX_SUCCESS || event.handle != handle) {
-    return 5;
-  }
-  if (wl_tx_take(&controller.link, handle, &tx_result) != WL_OK ||
-      tx_result.state != WL_TX_STATE_SUCCESS) {
-    return 6;
-  }
-
-  wl_loopback_quiesce(&loopback);
-  puts("reliable native-packet round trip succeeded");
+  puts("8 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent");
   return 0;
 }

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/types.h"
 
 const char *wl_err_str(int err) {
