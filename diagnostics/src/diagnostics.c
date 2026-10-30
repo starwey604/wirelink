@@ -229,7 +229,8 @@ wl_diag_format_rpc_client_result(wl_diag_writer_t *writer,
   wl_diag_field_i64(writer, "runtime_error", result->runtime_error);
   wl_diag_field_u64(writer, "link_delivery_confirmed",
                     result->link_delivery_confirmed);
-  wl_diag_field_u64(writer, "response_length", result->response_length);
+  wl_diag_field_u64(writer, "result_index", result->result_index);
+  wl_diag_field_u64(writer, "response_valid", result->response_valid);
   wl_diag_append_char(writer, '\n');
   return wl_diag_result(writer);
 }

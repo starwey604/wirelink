@@ -33,7 +33,8 @@ int main(void) {
       .application_status = INT32_MIN,
       .runtime_error = WL_RPC_ERR_RESPONSE_MISMATCH,
       .link_delivery_confirmed = 1U,
-      .response_length = 123U,
+      .result_index = 1U,
+      .response_valid = 0U,
   };
 
   CHECK(wl_diag_writer_init(&writer, output, sizeof(output)) == WL_OK);

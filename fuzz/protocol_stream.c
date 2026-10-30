@@ -22,7 +22,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   wl_config_t config = {
       .max_payload_len = MAX_PAYLOAD,
       .envelope = WL_ENVELOPE_COBS_STREAM,
-      .integrity = WL_INTEGRITY_CRC32C,
+      .integrity = WL_INTEGRITY_CRC16,
       .session_id = UINT64_C(0xF00D1234),
       .max_retries = 1U,
       .ack_timeout_ms = 10U,
@@ -47,6 +47,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   };
   size_t offset = 0U;
   wl_time_ms_t now = 0U;
+  if (size != 0U) config.integrity = (wl_integrity_t)(data[0] % 3U);
 
   if (size > MAX_INPUT || wl_init(&context, &config, &storage) != WL_OK ||
       wl_set_sink(&context, discard_sink, NULL) != WL_OK) {

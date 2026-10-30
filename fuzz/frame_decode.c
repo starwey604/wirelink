@@ -6,9 +6,10 @@
 #include <string.h>
 
 #include "wirelink/frame.h"
+#include "wirelink/cobs.h"
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  uint8_t encoded[WL_FRAME_MAX_RAW_LEN];
+  uint8_t encoded[WL_FRAME_MAX_COBS_LEN];
   wl_frame_view_t view = {0};
   wl_wire_packet_t packet;
   wl_integrity_t integrity;
@@ -31,8 +32,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       .payload = view.payload.data,
       .payload_len = view.payload.length,
   };
-  if (wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, encoded,
+  if (wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM, encoded,
                       sizeof(encoded), &encoded_len) != WL_OK ||
+      wl_cobs_decode_in_place(encoded, encoded_len - 1U, &encoded_len) != WL_OK ||
       encoded_len != size - 1U ||
       memcmp(encoded, data + 1U, encoded_len) != 0) {
     abort();
