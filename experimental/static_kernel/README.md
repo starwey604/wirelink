@@ -49,3 +49,19 @@ completion publication racing the next submit.
 Still pending: compact endpoint call/reply ownership, WLC-generated routing,
 product USB adapter integration and the K1 end-to-end matrix. Passing these
 port tests does not establish K1 completion or any performance improvement.
+
+The native/NONE connector now writes the four-byte ordinary DATA prefix in
+place and validates incoming packets without a general frame encoder, selector,
+CRC or COBS dependency. Managed RPC metadata uses the existing v4 session,
+tagged operation and rejection encoding. It supplies wire primitives only;
+there is no replay, ARQ or server execution layer here.
+
+`kernel_wire` tests include 50 vectors generated from frozen old-A
+`managed_rpc_helpers.c.in` (SHA-256
+`60f79894bd57c2e0e30b9da4618d087b6dd4caf94eae16d73a9c8d36afcdf8d0`),
+truncated/noncanonical/overflow metadata, signed rejection statuses, native
+payload bounds and unsupported reliable frames followed by ordinary DATA.
+The same tests run in Ztest. External K1 evidence additionally compares one
+million metadata cases and all 2,049 legal native payload sizes against frozen
+A's helpers and framing tool. The Xtensa `-Os` native connector has no undefined
+symbols; this is a code dependency check, not a device performance measurement.
