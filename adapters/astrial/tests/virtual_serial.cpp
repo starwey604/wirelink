@@ -279,7 +279,7 @@ void test_wirelink_round_trip()
             "common serial lifecycle statistics mismatch");
     require(activity_count.load(std::memory_order_relaxed) >= 2,
             "RX/TX completions did not notify the owner");
-    require(adapter->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS,
+    require(adapter->readiness().next_deadline_ms == WL_NO_DEADLINE,
             "event-driven serial adapter exposed a polling deadline");
     adapter->quiesce();
     adapter->get_common_stats(common);

@@ -8,6 +8,7 @@
  * No function parses Wirelink frames or dispatches application callbacks. */
 #include "wirelink/zephyr/detail/udp_socket.h"
 #include "wirelink/port.h"
+#include <zephyr/net/socket.h>
 
 typedef wl_zephyr_udp_socket_state_t wl_udp_socket_t;
 
@@ -24,6 +25,8 @@ wl_err_t wl_udp_socket_request_stop(wl_udp_socket_t *io);
 /* receive_ready=false masks level-triggered RX while core slots are full.
  * UINT32_MAX means unbounded. Temporary TX pressure is NOT a POLLOUT loop:
  * the future adapter supplies a bounded retry deadline through maximum_ms. */
+/* Owner-only level query; does not consume packets or wake notifications. */
+bool wl_udp_socket_readable(const wl_udp_socket_t *io);
 wl_err_t wl_udp_socket_wait(wl_udp_socket_t *io, bool receive_ready,
                            uint32_t maximum_ms);
 /* Receive directly into caller's claim, with ONE guard byte past maximum_frame.

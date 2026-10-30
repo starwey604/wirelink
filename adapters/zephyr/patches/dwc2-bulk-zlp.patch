@@ -1,0 +1,40 @@
+--- a/drivers/usb/udc/udc_dwc2.c
++++ b/drivers/usb/udc/udc_dwc2.c
+@@ -724,7 +724,7 @@
+ 		return dwc2_tx_fifo_write(dev, cfg, buf);
+ 	}
+ 
+-	if (cfg->addr == USB_CONTROL_EP_IN && udc_ep_buf_has_zlp(buf)) {
++	if (udc_ep_buf_has_zlp(buf)) {
+ 		udc_ep_buf_clear_zlp(buf);
+ 		return dwc2_tx_fifo_write(dev, cfg, buf);
+ 	}
+@@ -2435,6 +2435,7 @@
+ 	struct udc_dwc2_data *const priv = udc_get_private(dev);
+ 	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
+ 	uint32_t bcnt;
++	uint32_t received_packets;
+ 	struct net_buf *buf;
+ 	uint32_t doeptsiz;
+ 	const bool is_iso = dwc2_ep_is_iso(ep_cfg);
+@@ -2453,6 +2454,8 @@
+ 	 */
+ 	bcnt = usb_dwc2_get_doeptsizn_xfersize(priv->rx_siz[ep_idx]) -
+ 	       usb_dwc2_get_doeptsizn_xfersize(doeptsiz);
++	received_packets = usb_dwc2_get_doeptsizn_pktcnt(priv->rx_siz[ep_idx]) -
++			   usb_dwc2_get_doeptsizn_pktcnt(doeptsiz);
+ 
+ 	if (is_iso) {
+ 		uint32_t pkts;
+@@ -2493,7 +2496,11 @@
+ 		net_buf_add(buf, bcnt);
+ 	}
+ 
++	/* An additional received packet with no payload terminates a full-packet
++	 * transfer. Do not rearm over that ZLP merely because bcnt is MPS-aligned.
++	 */
+ 	if (!is_iso && bcnt && (bcnt % udc_mps_ep_size(ep_cfg)) == 0 &&
++	    received_packets == bcnt / udc_mps_ep_size(ep_cfg) &&
+ 	    net_buf_tailroom(buf)) {
+ 		dwc2_prep_rx(dev, buf, ep_cfg);
+ 	} else {

@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -77,7 +78,7 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_ctx_t& link,
     wl_config_t link_config{};
     wl_storage_requirements_t requirements{};
     error.clear();
-    if (config.poll_interval.count() <= 0 || config.service_budget == 0 ||
+    if (config.service_budget == 0 ||
         config.receive_slots < 2 || config.receive_slots > WL_RX_UNIT_QUEUE_MAX_SLOTS ||
         wl_get_config(&link, &link_config) != WL_OK ||
         (link_config.envelope != WL_ENVELOPE_COBS_STREAM &&
@@ -159,8 +160,8 @@ std::unique_ptr<UdpAdapter> UdpAdapter::open(wl_endpoint_t& endpoint,
         self->quiesce();
         self->m_impl->endpoint = nullptr;
     };
-    hooks.adapter_deadline_hint = [](const void* context, wl_time_ms_t now) {
-        return static_cast<const UdpAdapter*>(context)->deadline_hint(now);
+    hooks.adapter_readiness = [](const void* context, const wl_ctx_t*, wl_time_ms_t now) {
+        return static_cast<const UdpAdapter*>(context)->readiness(now);
     };
     if (wl_endpoint_attach(&endpoint, &hooks) != WL_OK)
     {
@@ -193,6 +194,8 @@ int UdpAdapter::set_peer(std::string_view address, std::uint16_t port)
     if (m_impl->have_peer && peer != m_impl->peer) return WL_ERR_INVALID_STATE;
     m_impl->peer = peer;
     m_impl->have_peer = true;
+    (void)wl_tx_writable(&m_impl->link);
+    m_impl->more_pending = true;
     return WL_OK;
 }
 
@@ -316,11 +319,13 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
     auto& impl = *m_impl;
     if (impl.quiesced) return WL_ERR_INVALID_STATE;
     if (maximum_wait.count() < 0) return WL_ERR_INVALID_ARG;
-    if (maximum_wait.count() == 0 || impl.more_pending) return WL_OK;
+    if (maximum_wait.count() == 0 || readiness(0).runnable) return WL_OK;
     ++impl.stats.wait_calls;
     bool ready = false;
     bool failed = false;
+    bool expired = false;
     unsigned pending = 0;
+    std::optional<::asio::steady_timer> timer{std::in_place, impl.io};
     const auto completion = [&](const std::error_code& error) {
         --pending;
         if (!error) ready = true;
@@ -329,6 +334,7 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
     const auto drain = [&] {
         std::error_code error;
         impl.socket.cancel(error);
+        timer.reset(); // Destruction cancels its pending handler without throwing.
         if (error) quiesce();
         // Drain cancelled handlers before stack references leave scope,
         // including when initiation of the second wait throws.
@@ -343,16 +349,33 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
     try
     {
         impl.io.restart();
-        impl.socket.async_wait(::asio::ip::udp::socket::wait_read, completion);
+        // A timer is real outstanding work even when backpressure excludes
+        // both socket waits. Its handler is cancelled and drained with them.
+        if (maximum_wait == std::chrono::milliseconds(WL_NO_DEADLINE))
+            timer->expires_at(::asio::steady_timer::time_point::max());
+        else timer->expires_after(maximum_wait);
+        timer->async_wait([&](const std::error_code& error) {
+            --pending;
+            if (!error) expired = true;
+            if (error && error != ::asio::error::operation_aborted) failed = true;
+        });
         ++pending;
+        if (impl.stream ? wl_rx_has_space(&impl.link) : wl_rx_can_accept_unit(&impl.link)) {
+            impl.socket.async_wait(::asio::ip::udp::socket::wait_read, completion);
+            ++pending;
+        }
         if (impl.tx_blocked) {
             impl.socket.async_wait(::asio::ip::udp::socket::wait_write, completion);
             ++pending;
         }
         // restart happens BEFORE consuming the latch. A notification before
-        // this check is observed here; one after it interrupts run_one_for.
+        // this check is observed here; one after it interrupts run_one().
         if (impl.wake_pending.exchange(false, std::memory_order_acquire)) ready = true;
-        else impl.io.run_one_for(maximum_wait);
+        // An unrelated Asio completion is not socket activity or our deadline.
+        while (!ready && !failed && !expired &&
+               !impl.wake_pending.load(std::memory_order_acquire)) {
+            impl.io.run_one();
+        }
     }
     catch (...)
     {
@@ -362,7 +385,11 @@ int UdpAdapter::wait_for_activity(std::chrono::milliseconds maximum_wait)
     const auto error = drain();
     if (impl.wake_pending.exchange(false, std::memory_order_acquire)) ready = true;
     if (failed || error) return WL_ERR_IO;
-    if (ready) ++impl.stats.activity_notifications;
+    if (ready) {
+        impl.more_pending = true;
+        if (impl.tx_blocked) (void)wl_tx_writable(&impl.link);
+        ++impl.stats.activity_notifications;
+    }
     else ++impl.stats.wait_timeouts;
     return ready ? WL_OK : WL_ERR_NO_DATA;
 }
@@ -373,15 +400,21 @@ void UdpAdapter::notify() noexcept
     m_impl->io.stop();
 }
 
-std::uint32_t UdpAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept
+wl_readiness_t UdpAdapter::readiness(wl_time_ms_t now_ms) const noexcept
 {
     (void)now_ms;
-    if (m_impl->quiesced) return WL_POLL_NO_DEADLINE_MS;
-    if (m_impl->more_pending) return 0;
-    if (m_impl->endpoint != nullptr) return WL_POLL_NO_DEADLINE_MS;
-    const auto count = m_impl->config.poll_interval.count();
-    return static_cast<std::uint32_t>(std::min<std::int64_t>(count,
-        std::numeric_limits<std::uint32_t>::max() - 1U));
+    wl_readiness_t value = wl_readiness_idle();
+    if (m_impl->quiesced) return value;
+    std::error_code error;
+    const bool input = m_impl->more_pending || m_impl->socket.available(error) != 0;
+    if (input) {
+        const bool room = m_impl->stream ? wl_rx_has_space(&m_impl->link)
+                                        : wl_rx_can_accept_unit(&m_impl->link);
+        value.runnable = room;
+        value.blocked = !room;
+    }
+    value.blocked |= m_impl->tx_blocked;
+    return value;
 }
 
 std::uint16_t UdpAdapter::local_port() const

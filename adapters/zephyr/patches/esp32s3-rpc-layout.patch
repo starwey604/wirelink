@@ -1,0 +1,11 @@
+--- a/soc/espressif/esp32s3/default.ld
++++ b/soc/espressif/esp32s3/default.ld
+@@ -1026,6 +1026,8 @@
+     *(.fini.literal)
+     *(.fini)
+     *(.gnu.version)
++    /* Optional executable input fragments; preserve per-function GC. */
++    #include <snippets-rom-start.ld>
+     *(.literal .text .literal.* .text.*)
+ 
+     /* CPU will try to prefetch up to 16 bytes of

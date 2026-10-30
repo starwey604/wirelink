@@ -3,7 +3,7 @@
 #define WIRELINK_ZEPHYR_DETAIL_UDP_SOCKET_H_
 
 #include <stdbool.h>
-#include <zephyr/net/socket.h>
+#include <zephyr/net/net_ip.h>
 #include <zephyr/sys/atomic.h>
 
 /* Layout only, shared with the private socket implementation. Not application

@@ -236,7 +236,7 @@ int SerialAdapter::service()
         m_impl->tx_active.store(false, std::memory_order_release);
         m_impl->tx_completions.fetch_add(1, std::memory_order_relaxed);
 
-        const int result = wl_tx_complete(
+        const int result = wl_tx_consumed(
             &m_impl->link, token,
             completion == TxCompletion::Done ? WL_OK : WL_ERR_IO);
         if (result != WL_OK)
@@ -264,10 +264,15 @@ void SerialAdapter::quiesce() noexcept
     m_impl->started.store(false, std::memory_order_release);
 }
 
-std::uint32_t SerialAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept
+wl_readiness_t SerialAdapter::readiness() const noexcept
 {
-    (void)now_ms;
-    return WL_POLL_NO_DEADLINE_MS;
+    wl_readiness_t value = wl_readiness_idle();
+    if (!m_impl || m_impl->stopping.load(std::memory_order_acquire)) return value;
+    value.runnable = m_impl->tx_completion.load(std::memory_order_acquire) != TxCompletion::None ||
+        (m_impl->rx_paused.load(std::memory_order_acquire) && wl_rx_has_space(&m_impl->link));
+    value.blocked = m_impl->tx_active.load(std::memory_order_acquire) ||
+        m_impl->rx_paused.load(std::memory_order_acquire);
+    return value;
 }
 
 void SerialAdapter::get_stats(SerialAdapterStats& out_stats) const

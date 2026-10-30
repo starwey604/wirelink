@@ -12,6 +12,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/port.h"
+#include "wirelink/endpoint.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,11 @@ typedef struct {
   int32_t tx_timeout_us;
   /* Work around DMA drivers whose TX_DONE precedes physical line idle. */
   bool wait_for_tx_idle;
+  uint32_t drain_check_ms;
+  /* Async UART has no generic writable event for a rejected submission. */
+  uint32_t tx_retry_ms; /* 0 selects a bounded 1 ms retry deadline. */
+  void (*notify)(void *user_data); /* ISR-safe, nonblocking, latched. */
+  void *notify_user_data;
   void *cache_user_data;
   wl_zephyr_uart_dma_cache_fn prepare_for_dma;
   wl_zephyr_uart_dma_cache_fn complete_from_dma;
@@ -50,6 +56,13 @@ typedef struct {
 
 typedef struct {
   wl_zephyr_uart_dma_config_t config;
+  wl_endpoint_t *endpoint;
+  struct k_sem wake;
+  atomic_t service_pending;
+  wl_time_ms_t drain_due, tx_retry_due;
+  uint8_t tx_retry_pending, detached;
+  uint8_t drain_pending;
+  uint8_t binding;
   wl_zephyr_uart_dma_slot_t slots[2];
   wl_io_token_t tx_token;
   const uint8_t *tx_data;
@@ -66,9 +79,10 @@ typedef struct {
   atomic_t tx_completion;
   /* Serializes callback and owner-side copies into the SPSC RX producer. */
   struct k_spinlock rx_lock;
+  struct k_spinlock tx_lock;
   uint64_t rx_next_order;
   uint8_t buffer_request_pending;
-  uint8_t gap_pending;
+  atomic_t gap_pending;
   atomic_t buffer_requests;
   atomic_t rx_ready_events;
   atomic_t published_bytes;
@@ -112,6 +126,8 @@ int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter);
  * Begin an asynchronous stop. New sink submissions fail immediately. The
  * driver may still own RX buffers or an active TX until callbacks hand them
  * back; keep calling service() until stats report started=0 and stopping=0.
+ * Unpublished staging bytes are discarded once the driver returns its buffers;
+ * stopping never requires the closing owner to drain the core RX ring.
  */
 int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter);
 
@@ -123,7 +139,17 @@ int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter);
  * WL_ERR_WOULD_BLOCK is transient: call service again from a later main-loop
  * iteration after the UART callback has handed buffer ownership back.
  */
-int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter);
+int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, wl_time_ms_t now_ms);
+wl_readiness_t wl_zephyr_uart_dma_readiness(const void *adapter,
+    const wl_ctx_t *link, wl_time_ms_t now_ms);
+int wl_zephyr_uart_dma_attach(wl_zephyr_uart_dma_t *adapter,
+    wl_endpoint_t *endpoint, const wl_zephyr_uart_dma_config_t *config);
+/* Business wait: stop interrupts it with CANCELLED. Driver buffer returns and
+ * callbacks are still joined separately by quiesce before storage is freed. */
+wl_err_t wl_zephyr_uart_dma_wait(wl_zephyr_uart_dma_t *adapter, k_timeout_t timeout);
+/* Stops driver ownership, discards unpublished staging bytes, synchronizes
+ * dispatched callbacks, and detaches the sink. */
+void wl_zephyr_uart_dma_quiesce(wl_zephyr_uart_dma_t *adapter);
 
 /* Clear benchmark/telemetry counters without changing RX ownership. */
 void wl_zephyr_uart_dma_reset_stats(wl_zephyr_uart_dma_t *adapter);

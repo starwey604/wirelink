@@ -15,6 +15,7 @@
 
 #include "wirelink/port.h"
 #include "wirelink/adapter.h"
+#include "wirelink/usb_bulk_defaults.h"
 
 namespace wirelink::astrial
 {
@@ -29,6 +30,8 @@ struct UsbBulkAdapterConfig
     using ActivityCallback = void (*)(void* user_data) noexcept;
 
     UsbBulkConfig usb;
+    // Native: strictly greater than the link's maximum raw frame. Failed or
+    // full requests latch RX stopped; reset the USB transport and reopen.
     std::size_t maximum_read_size{512};
     std::uint8_t unit_queue_slots{4};
     UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
@@ -72,7 +75,7 @@ public:
     // Call from Wirelink's single-consumer context after wl_poll().
     int service();
     void quiesce() noexcept;
-    [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
+    [[nodiscard]] wl_readiness_t readiness() const noexcept;
     // Blocks the single-consumer context until RX/TX activity or timeout.
     // Notifications coalesce into at most one pending wake even when only the
     // external activity callback is used. This does not count RX/TX units.

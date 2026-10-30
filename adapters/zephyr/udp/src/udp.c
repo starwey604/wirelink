@@ -42,12 +42,17 @@ static uint32_t retry_remaining(const wl_zephyr_udp_t *adapter, wl_time_ms_t now
   return remaining > 0 ? (uint32_t)remaining : 0U;
 }
 
-static uint32_t deadline(const void *context, wl_time_ms_t now) {
+static wl_readiness_t readiness(const void *context, const wl_ctx_t *ctx, wl_time_ms_t now) {
   const wl_zephyr_udp_t *adapter = context;
-  if (atomic_get(&adapter->private_state.io.stopped) ||
-      adapter->private_state.stats.last_error != WL_OK || adapter->private_state.more_rx)
-    return 0;
-  return adapter->private_state.retry_pending ? retry_remaining(adapter, now) : UINT32_MAX;
+  wl_readiness_t value = wl_readiness_idle();
+  if (adapter->private_state.more_rx || adapter->private_state.rx_paused ||
+      wl_udp_socket_readable(&adapter->private_state.io)) {
+    if (wl_rx_can_accept_unit(ctx)) value.runnable = 1U;
+    else value.blocked = 1U;
+  }
+  if (adapter->private_state.retry_pending)
+    wl_readiness_merge(&value, wl_readiness_at(retry_remaining(adapter, now)));
+  return value;
 }
 
 static wl_sink_result_t sink(void *context, wl_io_token_t token,
@@ -100,7 +105,10 @@ static int receive_service(void *context) {
     wl_time_ms_t now;
     (void)wl_endpoint_now(adapter->private_state.endpoint, &now);
     /* Clear even if a cancelled transaction no longer calls the sink. */
-    if (retry_remaining(adapter, now) == 0U) adapter->private_state.retry_pending = false;
+    if (retry_remaining(adapter, now) == 0U) {
+      adapter->private_state.retry_pending = false;
+      (void)wl_tx_writable(wl_endpoint_link(adapter->private_state.endpoint));
+    }
   }
   wl_ctx_t *link = wl_endpoint_link(adapter->private_state.endpoint);
   for (size_t i = 0; i < adapter->private_state.service_budget; ++i) {
@@ -169,21 +177,15 @@ static wl_err_t wait_relative(void *context, uint32_t maximum_ms) {
   wl_err_t result = active(adapter);
   if (result != WL_OK) return result;
   if (adapter->private_state.rx_paused) {
-    /* A preceding step may have released slots AFTER service saw a full queue.
-     * Probe one empty claim; no receive, parsing or callback is performed. */
-    wl_ctx_t *link = wl_endpoint_link(adapter->private_state.endpoint);
-    wl_rx_unit_claim_t claim;
-    result = wl_rx_unit_claim(link, adapter->private_state.maximum_frame + 1U, &claim);
-    if (result == WL_OK) {
-      (void)wl_rx_unit_abort(link, &claim);
+    if (wl_rx_can_accept_unit(wl_endpoint_link(adapter->private_state.endpoint)))
       adapter->private_state.rx_paused = false;
-    } else if (result != WL_ERR_WOULD_BLOCK) return failed(adapter, result);
   }
   ++adapter->private_state.stats.wait_calls;
   result = wl_udp_socket_wait(&adapter->private_state.io,
                               !adapter->private_state.rx_paused, maximum_ms);
   if (result == WL_ERR_NO_DATA) ++adapter->private_state.stats.wait_timeouts;
   else if (result != WL_OK && result != WL_ERR_CANCELLED) return failed(adapter, result);
+  if (result == WL_OK) adapter->private_state.more_rx = true;
   return result;
 }
 
@@ -268,13 +270,14 @@ wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *adapter, wl_endpoint_t *endpoint,
   adapter->private_state.endpoint = endpoint;
   adapter->private_state.maximum_frame = maximum;
   adapter->private_state.service_budget = config->service_budget == 0 ? 8U : config->service_budget;
+  adapter->private_state.more_rx = true;
   adapter->private_state.retry_ms = config->tx_retry_ms == 0 ? 1U : config->tx_retry_ms;
   adapter->private_state.local_port = net_ntohs(local.sin_port);
   adapter->private_state.retry_pending = false;
   adapter->private_state.more_rx = false;
   adapter->private_state.rx_paused = false;
   const wl_pump_hooks_t hooks = {.adapter_user_data = adapter, .service = service,
-    .quiesce = quiesce, .adapter_deadline_hint = deadline};
+    .quiesce = quiesce, .adapter_readiness = readiness};
   /* All remaining binds are infallible on the checked, fresh owner endpoint:
    * no callbacks or other owner calls can run between preflight and attach. */
   (void)wl_set_sink(link, sink, adapter);
@@ -283,12 +286,12 @@ wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *adapter, wl_endpoint_t *endpoint,
 }
 
 wl_err_t wl_zephyr_udp_wait(wl_zephyr_udp_t *adapter, uint32_t maximum_ms) {
-  wl_poll_hint_t hint;
+  wl_readiness_t hint;
   wl_err_t result = active(adapter);
   if (result != WL_OK) return result;
-  result = wl_endpoint_get_hint(adapter->private_state.endpoint, &hint);
+  result = wl_endpoint_get_readiness(adapter->private_state.endpoint, &hint);
   if (result != WL_OK) return result;
-  if (hint.work_pending || hint.next_deadline_ms == 0U) maximum_ms = 0;
+  if (hint.runnable || hint.next_deadline_ms == 0U) maximum_ms = 0;
   else if (hint.next_deadline_ms < maximum_ms) maximum_ms = hint.next_deadline_ms;
   return wait_relative(adapter, maximum_ms);
 }

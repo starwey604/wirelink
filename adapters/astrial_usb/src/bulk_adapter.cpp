@@ -4,6 +4,7 @@
 #include "wirelink/diagnostics/host_profile.hpp"
 #include "wirelink/detail/coalescing_event.hpp"
 #include "wirelink/detail/usb_stream_rx.h"
+#include "wirelink/frame.h"
 
 #include <atomic>
 #include <span>
@@ -37,6 +38,9 @@ public:
 
     UsbBorrowedBuffer acquire_rx_buffer()
     {
+        // Native framing cannot resynchronize a suffix after a failed/full
+        // request. The application must reset the transport and reopen.
+        if (native_unit_mode && rx_faulted.load(std::memory_order_acquire)) return {};
         if (claim_active)
         {
             errors.fetch_add(1, std::memory_order_relaxed);
@@ -82,6 +86,7 @@ public:
         if (!claim_active || buffer.token != active_token ||
             buffer.bytes.data() != active.data || length > active.length)
         {
+            if (native_unit_mode) rx_faulted.store(true, std::memory_order_release);
             if (claim_active)
             {
                 if (native_unit_mode)
@@ -96,10 +101,28 @@ public:
             return;
         }
 
+        if (native_unit_mode)
+        {
+            const bool cancelled_at_stop = error == make_error_code(UsbError::TransferCancelled) &&
+                                           stopping.load(std::memory_order_acquire);
+            const bool boundary_lost = error || length >= active.length;
+            if (boundary_lost || length == 0)
+            {
+                (void)wl_rx_unit_abort(&link, &unit_claim);
+                claim_active = false;
+                unit_claim = {};
+                if (boundary_lost && !cancelled_at_stop)
+                {
+                    rx_faulted.store(true, std::memory_order_release);
+                    errors.fetch_add(1, std::memory_order_relaxed);
+                }
+                notify_activity();
+                return;
+            }
+        }
         bool failed = false;
         if (native_unit_mode)
-            failed = error || length == 0 ||
-                     wl_rx_unit_commit(&link, &unit_claim, length) != WL_OK;
+            failed = wl_rx_unit_commit(&link, &unit_claim, length) != WL_OK;
         else
             failed = wl_usb_stream_rx_complete(&stream_rx, active_token,
                                                 buffer.bytes.data(), length) != WL_OK;
@@ -107,7 +130,10 @@ public:
         if (failed)
         {
             if (native_unit_mode)
+            {
                 (void)wl_rx_unit_abort(&link, &unit_claim);
+                rx_faulted.store(true, std::memory_order_release);
+            }
             else
                 wl_usb_stream_rx_abort(&stream_rx);
             claim_active = false;
@@ -186,6 +212,7 @@ public:
     std::uint64_t last_rx_ns{}; // USB event producer only; profiling clock, not protocol time.
     diagnostics::PendingTimestamp rx_profile;
     std::atomic<bool> rx_paused{false};
+    std::atomic<bool> rx_faulted{false};
     bool claim_active{};
     bool native_unit_mode{};
     wl_usb_stream_rx_t stream_rx{};
@@ -241,6 +268,10 @@ UsbBulkAdapter::open(wl_ctx_t& link, const UsbBulkAdapterConfig& config)
     {
         return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));
     }
+    if (link_config.envelope == WL_ENVELOPE_NATIVE_PACKET &&
+        config.maximum_read_size <=
+            wl_frame_raw_size(link_config.max_payload_len, link_config.integrity))
+        return tl::make_unexpected(make_error_code(UsbError::InvalidArgument));
 
     // A short USB transfer can only finish the latest direct ring claim.
     // Force one outstanding transfer so a successor can never leave a hole.
@@ -283,7 +314,7 @@ int UsbBulkAdapter::start()
     if (result != WL_OK) return result;
 
     m_impl->started.store(true, std::memory_order_release);
-    auto read_result = m_impl->device.start_reads(
+    auto read_result = m_impl->device.start_reads_borrowed(
         [this] { return m_impl->acquire_rx_buffer(); },
         [this](const std::error_code& error, UsbBorrowedBuffer buffer,
                std::size_t length)
@@ -360,7 +391,7 @@ int UsbBulkAdapter::service()
         m_impl->tx_token = 0;
         m_impl->tx_active.store(false, std::memory_order_release);
         m_impl->tx_completions.fetch_add(1, std::memory_order_relaxed);
-        const int result = wl_tx_complete(
+        const int result = wl_tx_consumed(
             &m_impl->link, token,
             completion == TxCompletion::Done ? WL_OK : WL_ERR_IO);
         if (result != WL_OK)
@@ -371,7 +402,8 @@ int UsbBulkAdapter::service()
     }
 
     if (m_impl->rx_paused.exchange(false, std::memory_order_acq_rel) &&
-        !m_impl->stopping.load(std::memory_order_acquire))
+        !m_impl->stopping.load(std::memory_order_acquire) &&
+        !m_impl->rx_faulted.load(std::memory_order_acquire))
     {
         m_impl->device.resume_reads();
     }
@@ -395,10 +427,17 @@ void UsbBulkAdapter::quiesce() noexcept
     m_impl->started.store(false, std::memory_order_release);
 }
 
-std::uint32_t UsbBulkAdapter::deadline_hint(wl_time_ms_t now_ms) const noexcept
+wl_readiness_t UsbBulkAdapter::readiness() const noexcept
 {
-    (void)now_ms;
-    return WL_POLL_NO_DEADLINE_MS;
+    wl_readiness_t value = wl_readiness_idle();
+    if (!m_impl || m_impl->stopping.load(std::memory_order_acquire)) return value;
+    value.runnable = m_impl->tx_completion.load(std::memory_order_acquire) != TxCompletion::None ||
+        (!m_impl->rx_faulted.load(std::memory_order_acquire) &&
+         m_impl->rx_paused.load(std::memory_order_acquire) &&
+         (m_impl->native_unit_mode ? wl_rx_can_accept_unit(&m_impl->link) : wl_rx_has_space(&m_impl->link)));
+    value.blocked = m_impl->tx_active.load(std::memory_order_acquire) ||
+        m_impl->rx_paused.load(std::memory_order_acquire);
+    return value;
 }
 
 bool UsbBulkAdapter::wait_for_activity(std::chrono::nanoseconds timeout)

@@ -14,6 +14,13 @@ static wl_err_t check_open(const wl_udp_socket_t *io) {
   return WL_OK;
 }
 
+bool wl_udp_socket_readable(const wl_udp_socket_t *io) {
+  if (io == NULL || !io->opened || atomic_get(&io->stopped)) return false;
+  struct zsock_pollfd descriptor = {.fd = io->socket_fd, .events = ZSOCK_POLLIN};
+  return zsock_poll(&descriptor, 1, 0) > 0 &&
+      (descriptor.revents & (ZSOCK_POLLIN | ZSOCK_POLLERR | ZSOCK_POLLHUP | ZSOCK_POLLNVAL));
+}
+
 wl_err_t wl_udp_socket_open(wl_udp_socket_t *io,
     const struct net_sockaddr_in *local, const struct net_sockaddr_in *peer) {
   int socket_fd, wake_fd;

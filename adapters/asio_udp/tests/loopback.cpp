@@ -4,6 +4,7 @@
 #include "wirelink/frame.h"
 
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
@@ -79,7 +80,7 @@ void legacy_stream(wl_integrity_t integrity)
                                                        learning_config, error);
     CHECK(right_udp && !error);
     CHECK(left_udp->set_peer("127.0.0.1", right_udp->local_port()) == WL_OK);
-    CHECK(right_udp->deadline_hint(0) == 1);
+    CHECK(right_udp->readiness(0).next_deadline_ms == WL_NO_DEADLINE);
 
     constexpr std::array<std::uint8_t, 5> payload{1, 3, 5, 7, 9};
     CHECK(wl_send_unreliable(&left.context, 0x42, payload.data(),
@@ -131,7 +132,7 @@ void legacy_stream(wl_integrity_t integrity)
     right_udp->quiesce();
     right_udp->get_common_stats(common);
     CHECK(common.started == 0);
-    CHECK(right_udp->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS);
+    CHECK(right_udp->readiness(0).next_deadline_ms == WL_NO_DEADLINE);
     CHECK(right_udp->service() == WL_ERR_INVALID_STATE);
 }
 
@@ -194,7 +195,10 @@ void native_packets(wl_integrity_t integrity)
     CHECK(b->set_peer("127.0.0.1", a->local_port()) == WL_OK);
     CHECK(a->set_peer("127.0.0.1", 1) == WL_ERR_INVALID_STATE);
     CHECK(!wirelink::asio::UdpAdapter::open(left.endpoint, config, error));
-    CHECK(a->deadline_hint(0) == WL_POLL_NO_DEADLINE_MS);
+    CHECK(a->readiness(0).next_deadline_ms == WL_NO_DEADLINE);
+    CHECK(b->readiness(0).runnable);
+    CHECK(b->service() == WL_ERR_NO_DATA);
+    CHECK(!b->readiness(0).runnable);
     CHECK(b->wait_for_activity(std::chrono::milliseconds(10)) == WL_ERR_NO_DATA);
     CHECK(b->wait_for_activity(std::chrono::milliseconds(-1)) == WL_ERR_INVALID_ARG);
 
@@ -217,7 +221,7 @@ void native_packets(wl_integrity_t integrity)
     CHECK(right.received == 5 && right.value == 5);
     CHECK((right.now = 30, wl_endpoint_step(&right.endpoint, 16)) == WL_OK);
     b->get_stats(stats);
-    CHECK(stats.activity_notifications >= 1 && stats.wait_timeouts == 1);
+    CHECK(stats.wait_timeouts == 1);
     CHECK(stats.rx_pauses >= 1);
 
     // A wrong source, even with a valid frame, must not enter the endpoint.
@@ -298,6 +302,7 @@ void notification_latch()
     CHECK(waiter && waiter->notify);
     waiter->notify(waiter->user_data);
     CHECK(waiter->wait(waiter->user_data, 1000) == WL_OK);
+    CHECK(adapter->service() == WL_ERR_NO_DATA);
     CHECK(waiter->wait(waiter->user_data, 1) == WL_ERR_NO_DATA);
     for (unsigned i = 0; i < 100; ++i) {
         std::atomic<bool> entering{false};
@@ -311,8 +316,100 @@ void notification_latch()
         adapter->notify();
         owner.join();
         CHECK(result == WL_OK);
+        CHECK(adapter->service() == WL_ERR_NO_DATA);
+        const int remaining = waiter->wait(waiter->user_data, 0);
+        CHECK(remaining == WL_OK || remaining == WL_ERR_NO_DATA);
+        if (remaining == WL_OK) CHECK(adapter->service() == WL_ERR_NO_DATA);
     }
+    CHECK(adapter->service() == WL_ERR_NO_DATA);
     CHECK(waiter->wait(waiter->user_data, 1) == WL_ERR_NO_DATA);
+}
+
+void full_queue_wait()
+{
+    NativeEndpoint endpoint;
+    wirelink::asio::UdpAdapterConfig config;
+    config.bind_address = "127.0.0.1";
+    config.receive_slots = 2;
+    std::error_code error;
+    auto adapter = wirelink::asio::UdpAdapter::open(endpoint.endpoint, config, error);
+    CHECK(adapter && !error);
+    auto* link = wl_endpoint_link(&endpoint.endpoint);
+    const auto* waiter = wl_endpoint_waiter(&endpoint.endpoint);
+    std::array<std::uint8_t, 128> frame{};
+    std::size_t length{};
+    const std::uint8_t payload = 42;
+    const wl_wire_packet_t packet{.type = WL_PACKET_DATA, .integrity = WL_INTEGRITY_CRC32C,
+        .message_id = 1, .payload = &payload, .payload_len = 1};
+    CHECK(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET, frame.data(),
+                         frame.size(), &length) == WL_OK);
+    wl_event_t lease{};
+    for (unsigned i = 0; i < 2; ++i) {
+        wl_rx_unit_claim_t claim{};
+        CHECK(wl_rx_unit_claim(link, length, &claim) == WL_OK);
+        std::copy_n(frame.data(), length, claim.span.data);
+        CHECK(wl_rx_unit_commit(link, &claim, length) == WL_OK);
+        if (i == 0) CHECK(wl_poll(link, 0, &lease) == WL_OK);
+    }
+    CHECK(!wl_rx_can_accept_unit(link));
+    wl_readiness_t core{};
+    CHECK(wl_link_get_readiness(link, 0, &core) == WL_OK);
+    CHECK(!core.runnable && core.blocked);
+
+    // Leave an additional valid datagram on the socket. It cannot be consumed
+    // while the retained lease and the second queue slot occupy both buffers.
+    ::asio::io_context io;
+    ::asio::ip::udp::socket sender(io, {::asio::ip::udp::v4(), 0});
+    CHECK(adapter->set_peer("127.0.0.1", sender.local_endpoint().port()) == WL_OK);
+    sender.send_to(::asio::buffer(frame.data(), length),
+        {::asio::ip::make_address("127.0.0.1"), adapter->local_port()});
+    CHECK(adapter->readiness(0).blocked && !adapter->readiness(0).runnable);
+    for (unsigned i = 0; i < 3; ++i) {
+        const auto start = std::chrono::steady_clock::now();
+        CHECK(waiter->wait(waiter->user_data, 25) == WL_ERR_NO_DATA);
+        const auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed < std::chrono::milliseconds(20))
+            std::cerr << "full-queue wait returned after "
+                      << std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count()
+                      << " us\n";
+        CHECK(elapsed >= std::chrono::milliseconds(20));
+    }
+    // The pre-wait latch must work even with no socket wait registered.
+    adapter->notify();
+    CHECK(waiter->wait(waiter->user_data, WL_NO_DEADLINE) == WL_OK);
+    for (unsigned i = 0; i < 20; ++i) {
+        std::atomic<bool> entering{false}, finished{false};
+        int result = WL_ERR_INVALID_STATE;
+        std::thread owner([&] {
+            entering.store(true);
+            result = waiter->wait(waiter->user_data, WL_NO_DEADLINE);
+            finished.store(true);
+        });
+        while (!entering.load()) std::this_thread::yield();
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        CHECK(!finished.load());
+        adapter->notify();
+        owner.join();
+        CHECK(result == WL_OK);
+    }
+    // A stop request wakes the blocked owner; socket shutdown stays owner-only.
+    std::atomic<bool> entering{false}, stop{false}, finished{false};
+    std::thread owner([&] {
+        entering.store(true);
+        CHECK(waiter->wait(waiter->user_data, WL_NO_DEADLINE) == WL_OK);
+        CHECK(stop.load());
+        wl_event_release(link, &lease);
+        wl_endpoint_close(&endpoint.endpoint);
+        finished.store(true);
+    });
+    while (!entering.load()) std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    CHECK(!finished.load());
+    stop.store(true);
+    adapter->notify();
+    owner.join();
+    CHECK(finished.load());
+    CHECK(adapter->wait_for_activity(std::chrono::milliseconds(1)) == WL_ERR_INVALID_STATE);
 }
 
 int main()
@@ -323,5 +420,6 @@ int main()
     }
     invalid_datagrams();
     notification_latch();
+    full_queue_wait();
     std::cout << "UDP: legacy stream, native queue, readiness, peer filtering, bounds, lifetime OK\n";
 }

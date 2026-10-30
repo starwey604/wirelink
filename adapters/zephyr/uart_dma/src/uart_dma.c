@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "wirelink/zephyr/uart_dma.h"
+#include "wirelink/zephyr/detail/timeout.h"
 
 #include <errno.h>
 #include <string.h>
@@ -55,22 +56,30 @@ find_free_slot(wl_zephyr_uart_dma_t *adapter) {
   return NULL;
 }
 
-static bool driver_owns_any_slot(const wl_zephyr_uart_dma_t *adapter) {
+static bool driver_owns_any_slot(wl_zephyr_uart_dma_t *adapter) {
+  bool owned = false;
+  k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
   for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
     if (adapter->slots[i].driver_owned != 0U) {
-      return true;
+      owned = true;
+      break;
     }
   }
-  return false;
+  k_spin_unlock(&adapter->rx_lock, key);
+  return owned;
 }
 
-static bool any_slot_is_active(const wl_zephyr_uart_dma_t *adapter) {
+static bool any_slot_is_active(wl_zephyr_uart_dma_t *adapter) {
+  bool active = false;
+  k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
   for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
     if (adapter->slots[i].order != 0U) {
-      return true;
+      active = true;
+      break;
     }
   }
-  return false;
+  k_spin_unlock(&adapter->rx_lock, key);
+  return active;
 }
 
 static void mark_abort(wl_zephyr_uart_dma_t *adapter) {
@@ -108,6 +117,11 @@ static void retire_forwarded_slots(wl_zephyr_uart_dma_t *adapter) {
  * remain in a released staging slot when the ring is full; that is
  * backpressure, not an overflow, until the UART actually has to stop. */
 static int drain_ready_slots_locked(wl_zephyr_uart_dma_t *adapter) {
+  /* Shutdown discards unpublished staging bytes after driver ownership ends.
+   * The closing owner must not have to consume the core ring to return them. */
+  if (atomic_get(&adapter->stopping) != 0) {
+    return WL_OK;
+  }
   for (;;) {
     wl_zephyr_uart_dma_slot_t *slot;
     wl_span_t span = {0};
@@ -209,7 +223,9 @@ static wl_sink_result_t uart_dma_sink(void *user_data, wl_io_token_t token,
       atomic_get(&adapter->stopping) != 0) {
     return WL_SINK_FAILED;
   }
+  k_spinlock_key_t tx_key = k_spin_lock(&adapter->tx_lock);
   if (!atomic_cas(&adapter->tx_active, 0, 1)) {
+    k_spin_unlock(&adapter->tx_lock, tx_key);
     atomic_inc(&adapter->tx_busy);
     return WL_SINK_BUSY;
   }
@@ -218,6 +234,7 @@ static wl_sink_result_t uart_dma_sink(void *user_data, wl_io_token_t token,
   adapter->tx_length = length;
   atomic_set(&adapter->tx_completion, TX_COMPLETION_NONE);
 
+  k_spin_unlock(&adapter->tx_lock, tx_key);
   ret = uart_tx(adapter->config.uart, data, length,
                 adapter->config.tx_timeout_us);
   if (ret == 0) {
@@ -225,16 +242,39 @@ static wl_sink_result_t uart_dma_sink(void *user_data, wl_io_token_t token,
     return WL_SINK_STARTED;
   }
 
+  tx_key = k_spin_lock(&adapter->tx_lock);
   adapter->tx_token = 0U;
   adapter->tx_data = NULL;
   adapter->tx_length = 0U;
   atomic_set(&adapter->tx_active, 0);
+  k_spin_unlock(&adapter->tx_lock, tx_key);
   if (ret == -EBUSY || ret == -EAGAIN) {
     atomic_inc(&adapter->tx_busy);
+    wl_time_ms_t now = k_uptime_get_32();
+    if (adapter->endpoint != NULL) (void)wl_endpoint_now(adapter->endpoint, &now);
+    adapter->tx_retry_due = now + (adapter->config.tx_retry_ms ? adapter->config.tx_retry_ms : 1U);
+    adapter->tx_retry_pending = 1U;
     return WL_SINK_BUSY;
   }
   atomic_inc(&adapter->errors);
   return WL_SINK_FAILED;
+}
+
+#define DMA_BINDINGS 8U
+static struct k_spinlock dma_binding_lock;
+static struct {
+  wl_zephyr_uart_dma_t *adapter;
+  unsigned callbacks;
+  uintptr_t generation;
+  struct k_sem idle;
+} dma_bindings[DMA_BINDINGS];
+static uintptr_t dma_next_generation = DMA_BINDINGS;
+
+static void dma_wake(wl_zephyr_uart_dma_t *adapter) {
+  atomic_set(&adapter->service_pending, 1);
+  k_sem_give(&adapter->wake);
+  if (adapter->config.notify != NULL)
+    adapter->config.notify(adapter->config.notify_user_data);
 }
 
 static void record_tx_completion(wl_zephyr_uart_dma_t *adapter,
@@ -245,39 +285,47 @@ static void record_tx_completion(wl_zephyr_uart_dma_t *adapter,
   }
 }
 
-static int service_tx_completion(wl_zephyr_uart_dma_t *adapter) {
-  atomic_val_t completion = atomic_get(&adapter->tx_completion);
-  wl_io_token_t token;
-  int ret;
-
-  if (completion == TX_COMPLETION_NONE) {
-    return WL_OK;
+static int service_tx_completion(wl_zephyr_uart_dma_t *adapter, wl_time_ms_t now_ms) {
+  k_spinlock_key_t tx_key = k_spin_lock(&adapter->tx_lock);
+  atomic_val_t completion = atomic_set(&adapter->tx_completion, TX_COMPLETION_NONE);
+  int ret = WL_OK;
+  if (completion != TX_COMPLETION_NONE) {
+    wl_io_token_t token = adapter->tx_token;
+    adapter->tx_data = NULL;
+    adapter->tx_length = 0U;
+    if (completion == TX_COMPLETION_DONE && adapter->config.wait_for_tx_idle &&
+        !atomic_get(&adapter->stopping)) {
+      adapter->drain_pending = 1U;
+      adapter->drain_due = now_ms;
+    } else {
+      adapter->tx_token = 0U;
+      atomic_set(&adapter->tx_active, 0);
+    }
+    k_spin_unlock(&adapter->tx_lock, tx_key);
+    ret = wl_tx_consumed(adapter->config.link, token,
+        completion == TX_COMPLETION_DONE ? WL_OK : WL_ERR_IO);
+    /* A stop can retire memory without needing an unavailable physical idle. */
+    if (completion == TX_COMPLETION_DONE && adapter->config.wait_for_tx_idle &&
+        atomic_get(&adapter->stopping))
+      (void)wl_tx_drained(adapter->config.link, token, WL_ERR_IO);
+  } else {
+    k_spin_unlock(&adapter->tx_lock, tx_key);
   }
-  if (completion == TX_COMPLETION_DONE && adapter->config.wait_for_tx_idle) {
-    /* Some DMA-backed drivers raise UART_TX_DONE when DMA has filled the UART
-     * FIFO, before the final byte has left the peripheral. Where the optional
-     * IRQ query exists, keep the core's buffer/transaction ownership until
-     * the UART reports physically idle. */
-    ret = uart_irq_tx_complete(adapter->config.uart);
-    if (ret == 0) {
-      return WL_ERR_WOULD_BLOCK;
+  if (adapter->drain_pending && ((int32_t)(now_ms - adapter->drain_due) >= 0 ||
+      atomic_get(&adapter->stopping))) {
+    int idle = atomic_get(&adapter->stopping) ? -ECANCELED :
+        uart_irq_tx_complete(adapter->config.uart);
+    if (idle == 0) adapter->drain_due = now_ms +
+        (adapter->config.drain_check_ms ? adapter->config.drain_check_ms : 1U);
+    else {
+      wl_io_token_t token = adapter->tx_token;
+      adapter->drain_pending = 0U;
+      adapter->tx_token = 0U;
+      atomic_set(&adapter->tx_active, 0);
+      ret = wl_tx_drained(adapter->config.link, token, idle > 0 ? WL_OK : WL_ERR_IO);
     }
   }
-  if (!atomic_cas(&adapter->tx_completion, completion, TX_COMPLETION_NONE)) {
-    return WL_OK;
-  }
-
-  token = adapter->tx_token;
-  adapter->tx_token = 0U;
-  adapter->tx_data = NULL;
-  adapter->tx_length = 0U;
-  /* wl_tx_complete() may synchronously submit a retry or pending ACK. */
-  atomic_set(&adapter->tx_active, 0);
-  ret = wl_tx_complete(adapter->config.link, token,
-                       completion == TX_COMPLETION_DONE ? WL_OK : WL_ERR_IO);
-  if (ret != WL_OK) {
-    atomic_inc(&adapter->errors);
-  }
+  if (ret != WL_OK) atomic_inc(&adapter->errors);
   return ret;
 }
 
@@ -289,26 +337,35 @@ static void uart_dma_callback(const struct device *dev,
     return;
   }
   switch (event->type) {
-  case UART_TX_DONE:
+  case UART_TX_DONE: {
+    k_spinlock_key_t key = k_spin_lock(&adapter->tx_lock);
     atomic_inc(&adapter->tx_done_events);
     if (event->data.tx.buf != adapter->tx_data ||
         event->data.tx.len != adapter->tx_length) {
       atomic_inc(&adapter->errors);
-      record_tx_completion(adapter, TX_COMPLETION_ABORTED);
+      k_spin_unlock(&adapter->tx_lock, key);
+      break; /* A stale/mismatched report cannot terminate a new transfer. */
     } else {
       record_tx_completion(adapter, TX_COMPLETION_DONE);
     }
+    k_spin_unlock(&adapter->tx_lock, key);
     break;
-  case UART_TX_ABORTED:
+  }
+  case UART_TX_ABORTED: {
+    k_spinlock_key_t key = k_spin_lock(&adapter->tx_lock);
     atomic_inc(&adapter->tx_aborted_events);
     if (event->data.tx.buf != adapter->tx_data ||
         event->data.tx.len > adapter->tx_length) {
       atomic_inc(&adapter->errors);
+      k_spin_unlock(&adapter->tx_lock, key);
+      break;
     }
     record_tx_completion(adapter, TX_COMPLETION_ABORTED);
+    k_spin_unlock(&adapter->tx_lock, key);
     break;
+  }
   case UART_RX_RDY: {
-    wl_zephyr_uart_dma_slot_t *slot = find_slot(adapter, event->data.rx.buf);
+    wl_zephyr_uart_dma_slot_t *slot;
     size_t end;
     size_t cache_offset;
     size_t cache_length;
@@ -321,13 +378,15 @@ static void uart_dma_callback(const struct device *dev,
       started =
           adapter->config.cycle_counter(adapter->config.cycle_counter_user_data);
     }
+    key = k_spin_lock(&adapter->rx_lock);
+    slot = find_slot(adapter, event->data.rx.buf);
     if (slot == NULL || event->data.rx.offset > slot->buffer.length ||
         event->data.rx.len > slot->buffer.length - event->data.rx.offset) {
+      k_spin_unlock(&adapter->rx_lock, key);
       mark_abort(adapter);
       break;
     }
     end = event->data.rx.offset + event->data.rx.len;
-    key = k_spin_lock(&adapter->rx_lock);
     if (event->data.rx.offset > slot->received) {
       k_spin_unlock(&adapter->rx_lock, key);
       mark_abort(adapter);
@@ -381,25 +440,20 @@ static void uart_dma_callback(const struct device *dev,
     }
     break;
   case UART_RX_BUF_RELEASED: {
-    wl_zephyr_uart_dma_slot_t *slot =
-        find_slot(adapter, event->data.rx_buf.buf);
-
+    k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
+    wl_zephyr_uart_dma_slot_t *slot = find_slot(adapter, event->data.rx_buf.buf);
     if (slot == NULL) {
+      k_spin_unlock(&adapter->rx_lock, key);
       mark_abort(adapter);
       break;
     }
-    {
-      k_spinlock_key_t key = k_spin_lock(&adapter->rx_lock);
-      int ret;
-
-      slot->driver_owned = 0U;
-      slot->released = 1U;
-      ret = drain_ready_slots_locked(adapter);
-      k_spin_unlock(&adapter->rx_lock, key);
-      if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
-        mark_abort(adapter);
-        break;
-      }
+    slot->driver_owned = 0U;
+    slot->released = 1U;
+    int ret = drain_ready_slots_locked(adapter);
+    k_spin_unlock(&adapter->rx_lock, key);
+    if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
+      mark_abort(adapter);
+      break;
     }
     (void)submit_requested_buffer(adapter);
     break;
@@ -424,7 +478,7 @@ static void uart_dma_callback(const struct device *dev,
                 !atomic_cas(&adapter->expected_disabled, 1, 0))) {
       mark_abort(adapter);
     } else if (atomic_get(&adapter->paused) != 0) {
-      adapter->gap_pending = 1U;
+      atomic_set(&adapter->gap_pending, 1);
     }
     /* Publish this last: service may touch slot progress once running is zero. */
     atomic_set(&adapter->running, 0);
@@ -432,6 +486,21 @@ static void uart_dma_callback(const struct device *dev,
   default:
     break;
   }
+}
+
+static void uart_dma_dispatch(const struct device *dev, struct uart_event *event, void *context) {
+  const uintptr_t generation = (uintptr_t)context;
+  const size_t index = generation & (DMA_BINDINGS - 1U);
+  k_spinlock_key_t key = k_spin_lock(&dma_binding_lock);
+  wl_zephyr_uart_dma_t *adapter = dma_bindings[index].adapter;
+  if (dma_bindings[index].generation != generation || adapter == NULL) { k_spin_unlock(&dma_binding_lock, key); return; }
+  ++dma_bindings[index].callbacks;
+  k_spin_unlock(&dma_binding_lock, key);
+  uart_dma_callback(dev, event, adapter);
+  dma_wake(adapter); /* Every state/data publication wakes the single owner. */
+  key = k_spin_lock(&dma_binding_lock);
+  if (--dma_bindings[index].callbacks == 0U) k_sem_give(&dma_bindings[index].idle);
+  k_spin_unlock(&dma_binding_lock, key);
 }
 
 int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
@@ -446,18 +515,53 @@ int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
       spans_overlap(&config->rx_buffers[0], &config->rx_buffers[1]) ||
       (config->timeout_us < 0 && config->timeout_us != SYS_FOREVER_US) ||
       (config->tx_timeout_us < 0 && config->tx_timeout_us != SYS_FOREVER_US) ||
+      config->drain_check_ms > INT32_MAX || config->tx_retry_ms > INT32_MAX ||
       !device_is_ready(config->uart)) {
     return WL_ERR_INVALID_ARG;
   }
+  k_spinlock_key_t bind_key = k_spin_lock(&dma_binding_lock);
+  size_t binding = DMA_BINDINGS;
+  for (size_t i = 0U; i < DMA_BINDINGS; ++i) {
+    if (dma_bindings[i].adapter != NULL && dma_bindings[i].adapter->config.uart == config->uart) {
+      k_spin_unlock(&dma_binding_lock, bind_key);
+      return WL_ERR_BUSY;
+    }
+    if (dma_bindings[i].adapter == NULL && dma_bindings[i].callbacks == 0U) binding = i;
+  }
+  if (binding == DMA_BINDINGS || dma_next_generation > UINTPTR_MAX - DMA_BINDINGS) {
+    k_spin_unlock(&dma_binding_lock, bind_key);
+    return WL_ERR_NO_SPACE;
+  }
   memset(adapter, 0, sizeof(*adapter));
+  adapter->binding = (uint8_t)binding;
+  k_sem_init(&adapter->wake, 0, 1);
+  k_sem_init(&dma_bindings[binding].idle, 0, 1);
   adapter->config = *config;
   adapter->slots[0].buffer = config->rx_buffers[0];
   adapter->slots[1].buffer = config->rx_buffers[1];
-  ret = uart_callback_set(config->uart, uart_dma_callback, adapter);
+  dma_bindings[binding].adapter = adapter;
+  dma_bindings[binding].generation = dma_next_generation | binding;
+  dma_next_generation += DMA_BINDINGS;
+  k_spin_unlock(&dma_binding_lock, bind_key);
+  ret = uart_callback_set(config->uart, uart_dma_dispatch, (void *)dma_bindings[binding].generation);
   if (ret != 0) {
+    bind_key = k_spin_lock(&dma_binding_lock);
+    dma_bindings[binding].adapter = NULL;
+    adapter->detached = 1U;
+    unsigned pending = dma_bindings[binding].callbacks;
+    k_spin_unlock(&dma_binding_lock, bind_key);
+    while (pending != 0U) {
+      (void)k_sem_take(&dma_bindings[binding].idle, K_FOREVER);
+      bind_key = k_spin_lock(&dma_binding_lock);
+      pending = dma_bindings[binding].callbacks;
+      k_spin_unlock(&dma_binding_lock, bind_key);
+    }
     return WL_ERR_NOT_SUPPORTED;
   }
-  return wl_set_sink(config->link, uart_dma_sink, adapter);
+  ret = wl_set_tx_drain_required(config->link, config->wait_for_tx_idle);
+  if (ret == WL_OK) ret = wl_set_sink(config->link, uart_dma_sink, adapter);
+  if (ret != WL_OK) wl_zephyr_uart_dma_quiesce(adapter);
+  return ret;
 }
 
 static int start_rx(wl_zephyr_uart_dma_t *adapter) {
@@ -471,7 +575,7 @@ static int start_rx(wl_zephyr_uart_dma_t *adapter) {
   /* uart_rx_enable() may synchronously request its look-ahead buffer. */
   atomic_set(&adapter->paused, 0);
   atomic_set(&adapter->expected_disabled, 0);
-  adapter->gap_pending = 0U;
+  atomic_set(&adapter->gap_pending, 0);
   key = k_spin_lock(&adapter->rx_lock);
   slot = arm_free_slot_locked(adapter);
   k_spin_unlock(&adapter->rx_lock, key);
@@ -502,7 +606,7 @@ static int start_rx(wl_zephyr_uart_dma_t *adapter) {
 int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
   int ret;
 
-  if (adapter == NULL || adapter->config.link == NULL) {
+  if (adapter == NULL || adapter->config.link == NULL || adapter->detached) {
     return WL_ERR_INVALID_ARG;
   }
   if (atomic_get(&adapter->started) != 0 ||
@@ -520,7 +624,7 @@ int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
 int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
   int ret;
 
-  if (adapter == NULL || adapter->config.link == NULL) {
+  if (adapter == NULL || adapter->config.link == NULL || adapter->detached) {
     return WL_ERR_INVALID_ARG;
   }
   if (atomic_get(&adapter->started) == 0 &&
@@ -540,17 +644,9 @@ int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
   if (atomic_get(&adapter->running) != 0) {
     ret = uart_rx_disable(adapter->config.uart);
     if (ret == -EFAULT) {
-      k_spinlock_key_t key;
-
       atomic_set(&adapter->running, 0);
-      key = k_spin_lock(&adapter->rx_lock);
-      for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
-        if (adapter->slots[i].order != 0U) {
-          adapter->slots[i].driver_owned = 0U;
-          adapter->slots[i].released = 1U;
-        }
-      }
-      k_spin_unlock(&adapter->rx_lock, key);
+      /* Disabled is not a buffer-return event. A queued callback may still
+       * owe RX_BUF_RELEASED even though another disable returns EFAULT. */
     } else if (ret != 0) {
       atomic_inc(&adapter->errors);
       return WL_ERR_IO;
@@ -567,19 +663,48 @@ int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
       return WL_ERR_IO;
     }
   }
+  dma_wake(adapter);
   return WL_OK;
 }
 
-int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
+int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, wl_time_ms_t now_ms) {
   k_spinlock_key_t key;
   int ret;
 
   if (adapter == NULL || adapter->config.link == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  ret = service_tx_completion(adapter);
+  (void)k_sem_take(&adapter->wake, K_NO_WAIT);
+  atomic_set(&adapter->service_pending, 0);
+  if (adapter->tx_retry_pending && (int32_t)(now_ms - adapter->tx_retry_due) >= 0) {
+    adapter->tx_retry_pending = 0U;
+    (void)wl_tx_writable(adapter->config.link);
+  }
+  ret = service_tx_completion(adapter, now_ms);
   if (ret != WL_OK) {
     return ret;
+  }
+  if (atomic_get(&adapter->stopping) != 0) {
+    if (atomic_get(&adapter->running) != 0 ||
+        atomic_get(&adapter->tx_active) != 0 || driver_owns_any_slot(adapter)) {
+      return WL_ERR_WOULD_BLOCK;
+    }
+    key = k_spin_lock(&adapter->rx_lock);
+    for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+      reset_slot(&adapter->slots[i]);
+    }
+    adapter->buffer_request_pending = 0U;
+    k_spin_unlock(&adapter->rx_lock, key);
+    atomic_set(&adapter->abort_pending, 0);
+    atomic_set(&adapter->abort_disable_requested, 0);
+    atomic_set(&adapter->recovery_barrier, 0);
+    atomic_set(&adapter->gap_pending, 0);
+    adapter->tx_retry_pending = 0U;
+    atomic_set(&adapter->started, 0);
+    atomic_set(&adapter->stopping, 0);
+    atomic_set(&adapter->paused, 0);
+    atomic_set(&adapter->expected_disabled, 0);
+    return WL_OK;
   }
   if (atomic_get(&adapter->abort_pending) != 0) {
     if (atomic_get(&adapter->running) != 0) {
@@ -587,14 +712,6 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
         ret = uart_rx_disable(adapter->config.uart);
         if (ret == -EFAULT) {
           atomic_set(&adapter->running, 0);
-          key = k_spin_lock(&adapter->rx_lock);
-          for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
-            if (adapter->slots[i].order != 0U) {
-              adapter->slots[i].driver_owned = 0U;
-              adapter->slots[i].released = 1U;
-            }
-          }
-          k_spin_unlock(&adapter->rx_lock, key);
         } else if (ret != 0) {
           atomic_inc(&adapter->errors);
           return WL_ERR_IO;
@@ -617,6 +734,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
     atomic_set(&adapter->expected_disabled, 0);
     atomic_set(&adapter->paused, 1);
     atomic_set(&adapter->recovery_barrier, 1);
+    atomic_set(&adapter->service_pending, 1);
     return WL_ERR_WOULD_BLOCK;
   }
   key = k_spin_lock(&adapter->rx_lock);
@@ -636,31 +754,123 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter) {
     atomic_set(&adapter->recovery_barrier, 0);
     return WL_ERR_WOULD_BLOCK;
   }
-  if (atomic_get(&adapter->stopping) != 0) {
-    if (atomic_get(&adapter->running) != 0 ||
-        atomic_get(&adapter->tx_active) != 0 || any_slot_is_active(adapter)) {
-      return WL_ERR_WOULD_BLOCK;
-    }
-    atomic_set(&adapter->started, 0);
-    atomic_set(&adapter->stopping, 0);
-    atomic_set(&adapter->paused, 0);
-    atomic_set(&adapter->expected_disabled, 0);
-    return WL_OK;
-  }
   if (atomic_get(&adapter->started) != 0 &&
       atomic_get(&adapter->running) == 0 && atomic_get(&adapter->paused) != 0) {
     if (any_slot_is_active(adapter)) {
       return WL_ERR_WOULD_BLOCK;
     }
-    if (adapter->gap_pending != 0U) {
-      adapter->gap_pending = 0U;
+    if (atomic_set(&adapter->gap_pending, 0) != 0) {
       wl_rx_note_overflow(adapter->config.link);
       atomic_set(&adapter->recovery_barrier, 1);
+      atomic_set(&adapter->service_pending, 1);
       return WL_ERR_WOULD_BLOCK;
     }
     return start_rx(adapter);
   }
   return WL_OK;
+}
+
+wl_readiness_t wl_zephyr_uart_dma_readiness(const void *context,
+    const wl_ctx_t *link, wl_time_ms_t now_ms) {
+  const wl_zephyr_uart_dma_t *adapter = context;
+  wl_readiness_t value = wl_readiness_idle();
+  value.runnable = atomic_get(&adapter->service_pending) ||
+      atomic_get(&adapter->tx_completion) != TX_COMPLETION_NONE;
+  value.blocked = atomic_get(&adapter->tx_active) || atomic_get(&adapter->paused) ||
+      atomic_get(&adapter->stopping) || atomic_get(&adapter->abort_pending);
+  if (adapter->tx_retry_pending)
+    wl_readiness_merge(&value, wl_readiness_at((int32_t)(now_ms - adapter->tx_retry_due) >= 0
+        ? 0U : adapter->tx_retry_due - now_ms));
+  if (adapter->drain_pending)
+    wl_readiness_merge(&value, wl_readiness_at((int32_t)(now_ms - adapter->drain_due) >= 0
+        ? 0U : adapter->drain_due - now_ms));
+  wl_zephyr_uart_dma_t *owner = (wl_zephyr_uart_dma_t *)(void *)adapter;
+  k_spinlock_key_t key = k_spin_lock(&owner->rx_lock);
+  bool waiting_bytes = false, slots_active = false, slots_owned = false;
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    waiting_bytes |= owner->slots[i].received > owner->slots[i].forwarded;
+    slots_active |= owner->slots[i].order != 0U;
+    slots_owned |= owner->slots[i].driver_owned != 0U;
+  }
+  if (atomic_get(&adapter->stopping)) {
+    value.runnable |= !atomic_get(&adapter->running) &&
+        !atomic_get(&adapter->tx_active) && !slots_owned;
+  } else if (atomic_get(&adapter->abort_pending)) {
+    value.runnable |= !atomic_get(&adapter->running) && !slots_owned;
+  } else if (wl_rx_has_space(link) && (waiting_bytes ||
+      (atomic_get(&adapter->started) && atomic_get(&adapter->paused) &&
+       !atomic_get(&adapter->running) && !slots_active))) value.runnable = 1U;
+  k_spin_unlock(&owner->rx_lock, key);
+  return value;
+}
+
+static wl_err_t dma_wait_activity(wl_zephyr_uart_dma_t *adapter, k_timeout_t timeout) {
+  return k_sem_take(&adapter->wake, timeout) == 0 ? WL_OK : WL_ERR_NO_DATA;
+}
+wl_err_t wl_zephyr_uart_dma_wait(wl_zephyr_uart_dma_t *adapter, k_timeout_t timeout) {
+  if (adapter == NULL) return WL_ERR_INVALID_ARG;
+  if (!atomic_get(&adapter->started) || atomic_get(&adapter->stopping))
+    return WL_ERR_CANCELLED;
+  wl_err_t result = dma_wait_activity(adapter, timeout);
+  if (!atomic_get(&adapter->started) || atomic_get(&adapter->stopping))
+    return WL_ERR_CANCELLED;
+  return result;
+}
+static wl_err_t dma_wait_owner(void *context, uint32_t maximum) {
+  return wl_zephyr_uart_dma_wait(context, wl_zephyr_timeout_ms(maximum));
+}
+static void dma_notify_owner(void *context) { k_sem_give(&((wl_zephyr_uart_dma_t *)context)->wake); }
+static int dma_service_owner(void *context) {
+  wl_zephyr_uart_dma_t *adapter = context;
+  wl_time_ms_t now;
+  int result = wl_endpoint_now(adapter->endpoint, &now);
+  return result == WL_OK ? wl_zephyr_uart_dma_service(adapter, now) : result;
+}
+static void dma_quiesce_owner(void *context) { wl_zephyr_uart_dma_quiesce(context); }
+int wl_zephyr_uart_dma_attach(wl_zephyr_uart_dma_t *adapter,
+    wl_endpoint_t *endpoint, const wl_zephyr_uart_dma_config_t *config) {
+  if (config == NULL || wl_endpoint_link(endpoint) == NULL) return WL_ERR_INVALID_ARG;
+  if (wl_endpoint_has_adapter(endpoint)) return WL_ERR_BUSY;
+  wl_zephyr_uart_dma_config_t port = *config;
+  port.link = wl_endpoint_link(endpoint);
+  int result = wl_zephyr_uart_dma_init(adapter, &port);
+  if (result != WL_OK) return result;
+  adapter->endpoint = endpoint;
+  const wl_waiter_t waiter = {dma_wait_owner, adapter, dma_notify_owner};
+  const wl_pump_hooks_t hooks = {.adapter_user_data = adapter, .service = dma_service_owner,
+    .quiesce = dma_quiesce_owner, .adapter_readiness = wl_zephyr_uart_dma_readiness};
+  result = wl_endpoint_set_waiter(endpoint, &waiter);
+  if (result == WL_OK) result = wl_endpoint_attach(endpoint, &hooks);
+  if (result != WL_OK) wl_zephyr_uart_dma_quiesce(adapter);
+  return result;
+}
+void wl_zephyr_uart_dma_quiesce(wl_zephyr_uart_dma_t *adapter) {
+  if (adapter == NULL || adapter->config.link == NULL || adapter->detached) return;
+  (void)wl_set_sink(adapter->config.link, NULL, NULL);
+  (void)wl_zephyr_uart_dma_stop(adapter);
+  while (atomic_get(&adapter->started) || atomic_get(&adapter->stopping)) {
+    wl_time_ms_t now = k_uptime_get_32();
+    if (adapter->endpoint != NULL) (void)wl_endpoint_now(adapter->endpoint, &now);
+    (void)wl_zephyr_uart_dma_service(adapter, now);
+    if (!atomic_get(&adapter->started) && !atomic_get(&adapter->stopping)) break;
+    wl_readiness_t ready = wl_zephyr_uart_dma_readiness(adapter, adapter->config.link, now);
+    if (!ready.runnable) (void)dma_wait_activity(adapter,
+        wl_zephyr_timeout_ms(ready.next_deadline_ms));
+  }
+  (void)uart_callback_set(adapter->config.uart, NULL, NULL);
+  const size_t binding = adapter->binding;
+  k_spinlock_key_t key = k_spin_lock(&dma_binding_lock);
+  dma_bindings[binding].adapter = NULL;
+  unsigned pending = dma_bindings[binding].callbacks;
+  k_spin_unlock(&dma_binding_lock, key);
+  while (pending != 0U) {
+    (void)k_sem_take(&dma_bindings[binding].idle, K_FOREVER);
+    key = k_spin_lock(&dma_binding_lock);
+    pending = dma_bindings[binding].callbacks;
+    k_spin_unlock(&dma_binding_lock, key);
+  }
+  adapter->config.notify = NULL;
+  adapter->detached = 1U;
 }
 
 void wl_zephyr_uart_dma_reset_stats(wl_zephyr_uart_dma_t *adapter) {

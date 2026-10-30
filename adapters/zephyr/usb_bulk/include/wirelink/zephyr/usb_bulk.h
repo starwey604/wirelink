@@ -9,6 +9,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/port.h"
+#include "wirelink/usb_bulk_defaults.h"
 #include "wirelink/detail/usb_stream_rx.h"
 
 #ifdef __cplusplus
@@ -26,6 +27,8 @@ typedef void (*wl_zephyr_usb_bulk_wake_fn)(void *user_data);
 
 typedef struct wl_zephyr_usb_bulk_config {
   wl_ctx_t *link;
+  /* Native: strictly greater than the link's maximum raw frame. A failed or
+   * full request stops RX until USBD is reset/reconfigured and enabled. */
   size_t maximum_rx_size;
   /* Required only for WL_ENVELOPE_NATIVE_PACKET zero-copy RX. */
   uint8_t *unit_queue_storage;
@@ -104,6 +107,7 @@ int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
 
 /* Call from Wirelink's single-consumer context after wl_poll(). */
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter);
+wl_readiness_t wl_zephyr_usb_bulk_readiness(const wl_zephyr_usb_bulk_t *adapter);
 /* Clear telemetry counters without changing endpoint ownership. */
 void wl_zephyr_usb_bulk_reset_stats(wl_zephyr_usb_bulk_t *adapter);
 void wl_zephyr_usb_bulk_get_stats(const wl_zephyr_usb_bulk_t *adapter,

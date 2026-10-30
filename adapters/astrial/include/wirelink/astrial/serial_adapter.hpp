@@ -64,7 +64,7 @@ public:
     // forwards deferred TX completion and re-arms RX after ring backpressure.
     int service();
     void quiesce() noexcept;
-    [[nodiscard]] std::uint32_t deadline_hint(wl_time_ms_t now_ms) const noexcept;
+    [[nodiscard]] wl_readiness_t readiness() const noexcept;
     void get_stats(SerialAdapterStats& out_stats) const;
     void get_common_stats(wl_adapter_stats_t& out_stats) const noexcept;
     Serial& serial();

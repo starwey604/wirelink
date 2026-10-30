@@ -55,11 +55,22 @@ static void loopback_endpoint_close(void *context) {
   wl_loopback_quiesce(context);
 }
 
-static uint32_t loopback_endpoint_hint(const void *context, wl_time_ms_t now_ms) {
-  const wl_loopback_impl_t *impl = loopback_impl_const(context);
+wl_readiness_t wl_loopback_readiness(const wl_loopback_t *loopback) {
+  wl_readiness_t value = wl_readiness_idle();
+  if (loopback == NULL) return value;
+  const wl_loopback_impl_t *impl = loopback_impl_const(loopback);
+  if (impl->magic != WL_LOOPBACK_MAGIC) return value;
+  if (impl->started) for (size_t i = 0U; i < WL_LOOPBACK_ENDPOINT_COUNT; ++i) {
+    if (!impl->directions[i].pending) continue;
+    if (wl_rx_can_accept_unit(impl->links[1U - i])) value.runnable = 1U;
+    else value.blocked = 1U;
+  }
+  return value;
+}
+static wl_readiness_t loopback_endpoint_hint(const void *context, const wl_ctx_t *ctx, wl_time_ms_t now_ms) {
   (void)now_ms;
-  return impl->started && (impl->directions[0].pending || impl->directions[1].pending)
-             ? 0U : WL_POLL_NO_DEADLINE_MS;
+  (void)ctx;
+  return wl_loopback_readiness(context);
 }
 
 wl_err_t wl_loopback_connect(wl_loopback_t *loopback, wl_endpoint_t *endpoint_a,
@@ -77,7 +88,7 @@ wl_err_t wl_loopback_connect(wl_loopback_t *loopback, wl_endpoint_t *endpoint_a,
   hooks.adapter_user_data = loopback;
   hooks.service = loopback_endpoint_service;
   hooks.quiesce = loopback_endpoint_close;
-  hooks.adapter_deadline_hint = loopback_endpoint_hint;
+  hooks.adapter_readiness = loopback_endpoint_hint;
   /* Preflight above makes attachment infallible on this single owner. */
   (void)wl_endpoint_attach(endpoint_a, &hooks);
   (void)wl_endpoint_attach(endpoint_b, &hooks);
@@ -261,7 +272,7 @@ wl_err_t wl_loopback_service(wl_loopback_t *loopback, size_t unit_budget,
       }
     }
 
-    completion = wl_tx_complete(source, token, WL_OK);
+    completion = wl_tx_consumed(source, token, WL_OK);
     source_stats->tx_completions++;
     if (completion != WL_OK) {
       source_stats->errors++;
@@ -310,7 +321,7 @@ void wl_loopback_quiesce(wl_loopback_t *loopback) {
       impl->stats[index].tx_active = 0U;
       impl->stats[index].tx_completions++;
       impl->stats[index].errors++;
-      (void)wl_tx_complete(impl->links[index], token, WL_ERR_IO);
+      (void)wl_tx_consumed(impl->links[index], token, WL_ERR_IO);
     }
   }
 }
