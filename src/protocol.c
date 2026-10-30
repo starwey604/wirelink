@@ -631,12 +631,13 @@ wl_err_t wl_tx_payload_commit(wl_ctx_t *ctx,
     return WL_ERR_NOT_FOUND;
   }
   reliable = wl_ctx_impl(ctx)->tx_claim_reliable;
+  const size_t capacity = wl_ctx_impl(ctx)->tx_claim_payload.length;
   wl_ctx_impl(ctx)->tx_claim_active = 0U;
   wl_ctx_impl(ctx)->tx_claim_payload = (wl_span_t){0};
   if (out_handle != NULL) {
     *out_handle = 0U;
   }
-  if (payload_len > claim->span.length ||
+  if (payload_len > capacity ||
       (reliable != 0U && out_handle == NULL)) {
     return WL_ERR_INVALID_ARG;
   }

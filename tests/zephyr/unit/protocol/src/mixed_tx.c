@@ -412,3 +412,17 @@ ZTEST(wirelink_protocol_unit, test_ack_before_drain_releases_logical_handle_once
   zassert_ok(wl_send_unreliable(&f.ctx, 22U, NULL, 0U));
   zassert_equal(wl_tx_consumed(&f.ctx, token, WL_ERR_IO), WL_ERR_NOT_FOUND);
 }
+
+ZTEST(wirelink_protocol_unit, test_commit_uses_active_claim_capacity) {
+  fixture_t f;
+  const wl_sink_result_t script[] = {WL_SINK_SENT};
+  init(&f, WL_ENVELOPE_NATIVE_PACKET, script, ARRAY_SIZE(script));
+  wl_tx_payload_claim_t claim;
+  zassert_ok(wl_tx_payload_claim(&f.ctx, 21U, WL_DELIVERY_UNRELIABLE, &claim));
+  claim.span.length = SIZE_MAX;
+  zassert_equal(wl_tx_payload_commit(&f.ctx, &claim, sizeof(f.payload) + 1U,
+                                   0U, NULL), WL_ERR_INVALID_ARG);
+  zassert_equal(f.calls, 0U);
+  zassert_equal(wl_tx_payload_abort(&f.ctx, &claim), WL_ERR_NOT_FOUND);
+  zassert_true(wl_tx_can_submit(&f.ctx, WL_DELIVERY_UNRELIABLE));
+}
