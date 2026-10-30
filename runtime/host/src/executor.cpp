@@ -93,6 +93,9 @@ int Executor::initialize(wl_endpoint_driver_t driver) {
 int Executor::setHooks(const ExecutorHooks& s_hooks) {
     if (state() != State::kReady) return WL_ERR_INVALID_STATE;
     if (m_driver.endpoint != nullptr) return WL_ERR_NOT_SUPPORTED;
+    if ((s_hooks.m_service != nullptr && s_hooks.m_adapter_readiness == nullptr) ||
+        (s_hooks.m_application_step != nullptr && s_hooks.m_application_readiness == nullptr))
+        return WL_ERR_INVALID_ARG;
     m_hooks = s_hooks;
     return WL_OK;
 }
@@ -258,28 +261,27 @@ void Executor::s_quiesceBridge(void* s_user_data) noexcept {
     s_self.m_hooks.m_quiesce(s_self.m_hooks.m_user_data);
 }
 
-std::uint8_t Executor::s_applicationProgressBridge(
+std::uint8_t Executor::s_applicationStepBridge(
     void* s_user_data, wl_ctx_t* s_context,
     wl_time_ms_t s_now_ms) noexcept {
     Scope profile(Stage::application);
     auto& s_self = *static_cast<Executor*>(s_user_data);
-    s_self.m_application_pending = s_self.m_hooks.m_application_progress(
+    return s_self.m_hooks.m_application_step(
+        s_self.m_hooks.m_user_data, *s_context, s_now_ms) ? 1U : 0U;
+}
+
+wl_readiness_t Executor::s_applicationReadinessBridge(
+    const void* s_user_data, const wl_ctx_t* s_context, wl_time_ms_t s_now_ms) noexcept {
+    const auto& s_self = *static_cast<const Executor*>(s_user_data);
+    return s_self.m_hooks.m_application_readiness(
         s_self.m_hooks.m_user_data, *s_context, s_now_ms);
-    return s_self.m_application_pending ? 1U : 0U;
 }
 
-std::uint32_t Executor::s_applicationDeadlineBridge(
-    const void* s_user_data, wl_time_ms_t s_now_ms) noexcept {
+wl_readiness_t Executor::s_adapterReadinessBridge(
+    const void* s_user_data, const wl_ctx_t* s_context, wl_time_ms_t s_now_ms) noexcept {
     const auto& s_self = *static_cast<const Executor*>(s_user_data);
-    return s_self.m_hooks.m_application_deadline_hint(
-        s_self.m_hooks.m_user_data, s_now_ms);
-}
-
-std::uint32_t Executor::s_adapterDeadlineBridge(
-    const void* s_user_data, wl_time_ms_t s_now_ms) noexcept {
-    const auto& s_self = *static_cast<const Executor*>(s_user_data);
-    return s_self.m_hooks.m_adapter_deadline_hint(
-        s_self.m_hooks.m_user_data, s_now_ms);
+    return s_self.m_hooks.m_adapter_readiness(
+        s_self.m_hooks.m_user_data, *s_context, s_now_ms);
 }
 
 wl_pump_event_disposition_t Executor::s_eventBridge(
@@ -297,18 +299,18 @@ wl_pump_hooks_t Executor::s_pumpHooks() noexcept {
                                                 : nullptr,
         .quiesce = m_hooks.m_quiesce != nullptr ? &Executor::s_quiesceBridge
                                                 : nullptr,
-        .adapter_deadline_hint =
-            m_hooks.m_adapter_deadline_hint != nullptr
-                ? &Executor::s_adapterDeadlineBridge
+        .adapter_readiness =
+            m_hooks.m_adapter_readiness != nullptr
+                ? &Executor::s_adapterReadinessBridge
                 : nullptr,
         .application_user_data = this,
-        .application_progress =
-            m_hooks.m_application_progress != nullptr
-                ? &Executor::s_applicationProgressBridge
+        .application_step =
+            m_hooks.m_application_step != nullptr
+                ? &Executor::s_applicationStepBridge
                 : nullptr,
-        .application_deadline_hint =
-            m_hooks.m_application_deadline_hint != nullptr
-                ? &Executor::s_applicationDeadlineBridge
+        .application_readiness =
+            m_hooks.m_application_readiness != nullptr
+                ? &Executor::s_applicationReadinessBridge
                 : nullptr,
         .on_event = m_hooks.m_on_event != nullptr ? &Executor::s_eventBridge
                                                   : nullptr,
@@ -328,7 +330,6 @@ void Executor::s_run() noexcept {
         wl_pump_result_t s_pump_result{};
         const auto rpc_jobs = s_dispatchRpc();
         Scope profile_pump(Stage::pump);
-        m_application_pending = false;
         int s_step_result;
         if (m_driver.endpoint != nullptr) {
             s_step_result = m_driver.step(m_driver.context);
@@ -351,7 +352,7 @@ void Executor::s_run() noexcept {
                                         std::memory_order_relaxed);
         m_stats.m_service_errors.fetch_add(s_pump_result.service_errors,
                                            std::memory_order_relaxed);
-        bool s_progress = s_pump_result.progress != 0U;
+        bool s_progress = s_pump_result.did_work != 0U;
         m_activity.add(ExecutorActivity::core_events, s_pump_result.events);
         m_activity.add(ExecutorActivity::rx_events, s_pump_result.rx_events);
         if (m_stop_requested.load(std::memory_order_acquire)) break;
@@ -366,48 +367,24 @@ void Executor::s_run() noexcept {
         }
         if (!s_progress && rpc_jobs == 0)
             m_activity.add(ExecutorActivity::no_reported_work);
-        // Raw hooks explicitly report whether another application pass is
-        // needed. Consumed events alone are history, not a reason to spin.
-        // Custom endpoint drivers may aggregate several steps/peers; preserve
-        // their existing progress contract instead of inferring from the last
-        // endpoint result that their entire driver is idle.
-        const bool application_pending = m_driver.endpoint != nullptr
-            ? !m_driver.readiness_complete && s_pump_result.progress != 0U
-            : m_application_pending;
-        // Without a readiness hint, a legacy service hook may need a follow-up
-        // after RX/TX callbacks start adapter work. Do not infer that such an
-        // adapter is idle merely because the core has consumed its events.
-        const bool legacy_service_progress = m_driver.endpoint == nullptr &&
-            m_hooks.m_service != nullptr && m_hooks.m_adapter_deadline_hint == nullptr &&
-            s_pump_result.progress != 0U;
-        if (application_pending || legacy_service_progress) {
-            m_activity.add(ExecutorActivity::continue_progress);
-            continue;
-        }
-
-        wl_poll_hint_t s_hint{};
+        wl_readiness_t s_hint{};
+        const auto queried_at = nowMs();
         const int s_hint_result = m_driver.endpoint != nullptr
-            ? wl_endpoint_get_hint(m_driver.endpoint, &s_hint)
-            : wl_pump_get_hint(m_link, nowMs(), &s_pump_hooks, &s_hint);
+            ? wl_endpoint_get_readiness_at(m_driver.endpoint, queried_at, &s_hint)
+            : wl_pump_get_readiness(m_link, queried_at, &s_pump_hooks, &s_hint);
         if (s_hint_result != WL_OK) {
             m_stats.m_poll_errors.fetch_add(1, std::memory_order_relaxed);
-        } else if (s_hint.work_pending != 0) {
+        } else if (s_hint.runnable != 0) {
             m_activity.add(ExecutorActivity::continue_hint);
             continue;
         }
 
-        // A send accepted after this pass's service may have started async
-        // adapter work. Give service one opportunity before sleeping. If it
-        // is still blocked, dispatch makes no progress on the next pass and
-        // we wait for readiness instead of spinning on a nonempty outbox.
-        if (latest_progress) {
-            m_activity.add(ExecutorActivity::continue_progress);
-            continue;
-        }
+        if (m_commands_pending.load(std::memory_order_acquire) &&
+            wl_tx_can_submit(m_link, WL_DELIVERY_UNRELIABLE)) continue;
 
         std::uint32_t s_next_deadline =
             s_hint_result == WL_OK ? s_hint.next_deadline_ms
-                                   : WL_POLL_NO_DEADLINE_MS;
+                                   : WL_NO_DEADLINE;
         if (s_next_deadline == 0) {
             m_activity.add(ExecutorActivity::continue_deadline);
             continue;
@@ -421,18 +398,24 @@ void Executor::s_run() noexcept {
         }
         profile_owner.finish();
         Scope profile_wait(Stage::wait);
-        m_activity.add(ExecutorActivity::waits);
+        if (s_next_deadline != WL_NO_DEADLINE) {
+            s_next_deadline = wl_wait_remaining(s_next_deadline, queried_at, nowMs());
+            if (s_next_deadline == 0U) continue;
+        }
         if (m_platform_waiter.wait != nullptr) {
+            m_activity.add(ExecutorActivity::waits);
             const int waited = m_platform_waiter.wait(m_platform_waiter.user_data, s_next_deadline);
             if (waited != WL_OK && waited != WL_ERR_NO_DATA) {
                 m_stats.m_service_errors.fetch_add(1, std::memory_order_relaxed);
                 if (waited != WL_ERR_CANCELLED) m_stop_error = waited;
                 requestStop();
             }
-        } else if (s_next_deadline != WL_POLL_NO_DEADLINE_MS) {
+        } else if (s_next_deadline != WL_NO_DEADLINE) {
+            m_activity.add(ExecutorActivity::waits);
             (void)m_wake.wait_for(
                 std::chrono::milliseconds(s_next_deadline));
         } else {
+            m_activity.add(ExecutorActivity::waits);
             m_wake.wait();
         }
     }
@@ -444,7 +427,8 @@ void Executor::s_run() noexcept {
 
 bool Executor::s_dispatchOne() noexcept {
     Scope profile(Stage::command);
-    if (!m_commands_pending.load(std::memory_order_acquire)) return false;
+    if (!m_commands_pending.load(std::memory_order_acquire) ||
+        !wl_tx_can_submit(m_link, WL_DELIVERY_UNRELIABLE)) return false;
     // acquire_copy initializes exactly payload_length bytes; no full 512-byte
     // zero fill is needed for an empty queue or a short command.
     std::array<std::uint8_t, s_kMaximumCommandPayload> s_payload;

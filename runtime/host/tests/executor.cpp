@@ -96,7 +96,7 @@ std::vector<std::uint8_t> makeCobsFrame(std::uint16_t s_message_id,
 }
 
 struct RxCapture {
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::condition_variable cv;
     std::vector<std::vector<std::uint8_t>> payloads;
     std::thread::id callback_thread{};
@@ -106,9 +106,11 @@ struct RxCapture {
     bool hold_after_final_release{true};
     bool continue_after_final_release{};
     std::atomic<std::size_t> service_calls{};
+    std::atomic<bool> service_due{true};
 
     static int service(void* s_user_data) noexcept {
         auto& s_self = *static_cast<RxCapture*>(s_user_data);
+        s_self.service_due.store(false, std::memory_order_release);
         s_self.service_calls.fetch_add(1, std::memory_order_relaxed);
         s_self.cv.notify_all();
         return WL_ERR_NO_DATA;
@@ -161,6 +163,10 @@ void testFeedOnlyWakesOwner() {
     WirelinkExecutorHooks s_hooks{};
     s_hooks.m_user_data = &s_capture;
     s_hooks.m_service = RxCapture::service;
+    s_hooks.m_adapter_readiness = [](const void* p, const wl_ctx_t&, wl_time_ms_t) noexcept {
+        return wl_readiness_at(static_cast<const RxCapture*>(p)->service_due.load(std::memory_order_acquire)
+            ? 0U : WL_NO_DEADLINE);
+    };
     s_hooks.m_on_event = RxCapture::onEvent;
     s_hooks.m_quiesce = RxCapture::quiesce;
     require(s_executor.setHooks(s_hooks) == WL_OK, "setHooks failed");
@@ -213,6 +219,7 @@ void testFeedOnlyWakesOwner() {
     // can arrive after the sample point.
     const auto s_service_calls_before_barrier =
         s_capture.service_calls.load(std::memory_order_relaxed);
+    s_capture.service_due.store(true, std::memory_order_release);
     s_executor.notify();
     {
         std::lock_guard<std::mutex> s_lock(s_capture.mutex);
@@ -262,7 +269,7 @@ void testFeedOnlyWakesOwner() {
 
 struct AsyncSink {
     WirelinkExecutor* executor{};
-    std::mutex mutex;
+    mutable std::mutex mutex;
     std::condition_variable cv;
     std::vector<std::vector<std::uint8_t>> payloads;
     std::vector<std::uint16_t> message_ids;
@@ -312,7 +319,7 @@ struct AsyncSink {
             s_self.release_requested = false;
             s_token = s_self.token;
         }
-        return wl_tx_complete(&s_self.executor->context(), s_token, WL_OK);
+        return wl_tx_consumed(&s_self.executor->context(), s_token, WL_OK);
     }
 };
 
@@ -330,6 +337,11 @@ void testLatestLanesCoalesceWithoutCrossMessageLoss() {
     WirelinkExecutorHooks s_hooks{};
     s_hooks.m_user_data = &s_sink;
     s_hooks.m_service = AsyncSink::service;
+    s_hooks.m_adapter_readiness = [](const void* p, const wl_ctx_t&, wl_time_ms_t) noexcept {
+        const auto& state = *static_cast<const AsyncSink*>(p);
+        std::lock_guard lock(state.mutex);
+        return wl_readiness_at(state.first_in_flight && state.release_requested ? 0U : WL_NO_DEADLINE);
+    };
     require(s_executor.setHooks(s_hooks) == WL_OK, "setHooks failed");
     require(s_executor.setSink(AsyncSink::sink, &s_sink) == WL_OK,
             "setSink failed");
@@ -474,7 +486,7 @@ struct ShutdownCapture {
             s_self.token = 0;
         }
         if (s_token != 0) {
-            (void)wl_tx_complete(&s_self.executor->context(), s_token, WL_OK);
+            (void)wl_tx_consumed(&s_self.executor->context(), s_token, WL_OK);
         }
     }
 };
@@ -542,7 +554,7 @@ struct SchedulerCapture {
     mutable std::mutex mutex;
     std::condition_variable cv;
     std::uint32_t application_delay_ms{50};
-    std::uint32_t adapter_delay_ms{WL_POLL_NO_DEADLINE_MS};
+    std::uint32_t adapter_delay_ms{WL_NO_DEADLINE};
     wl_time_ms_t started_ms{};
     std::chrono::steady_clock::time_point started_at{};
     std::chrono::steady_clock::time_point application_fired_at{};
@@ -590,8 +602,9 @@ struct SchedulerCapture {
         const auto& s_self =
             *static_cast<const SchedulerCapture*>(s_user_data);
         std::lock_guard<std::mutex> s_lock(s_self.mutex);
-        if (!s_self.started || s_self.application_fired) {
-            return WL_POLL_NO_DEADLINE_MS;
+        if (!s_self.started) return 0U;
+        if (s_self.application_fired) {
+            return WL_NO_DEADLINE;
         }
         return remaining(s_now_ms, s_self.started_ms,
                          s_self.application_delay_ms);
@@ -604,7 +617,7 @@ struct SchedulerCapture {
         {
             std::lock_guard<std::mutex> s_lock(s_self.mutex);
             if (s_self.started && !s_self.adapter_fired &&
-                s_self.adapter_delay_ms != WL_POLL_NO_DEADLINE_MS &&
+                s_self.adapter_delay_ms != WL_NO_DEADLINE &&
                 std::chrono::steady_clock::now() - s_self.started_at >=
                     std::chrono::milliseconds(s_self.adapter_delay_ms)) {
                 s_self.adapter_fired = true;
@@ -622,8 +635,8 @@ struct SchedulerCapture {
             *static_cast<const SchedulerCapture*>(s_user_data);
         std::lock_guard<std::mutex> s_lock(s_self.mutex);
         if (!s_self.started || s_self.adapter_fired ||
-            s_self.adapter_delay_ms == WL_POLL_NO_DEADLINE_MS) {
-            return WL_POLL_NO_DEADLINE_MS;
+            s_self.adapter_delay_ms == WL_NO_DEADLINE) {
+            return WL_NO_DEADLINE;
         }
         return remaining(s_now_ms, s_self.started_ms,
                          s_self.adapter_delay_ms);
@@ -642,10 +655,13 @@ void runApplicationDeadlineTest(SchedulerCapture& s_capture) {
     WirelinkExecutorHooks s_hooks{};
     s_hooks.m_user_data = &s_capture;
     s_hooks.m_service = SchedulerCapture::service;
-    s_hooks.m_application_progress = SchedulerCapture::applicationProgress;
-    s_hooks.m_application_deadline_hint =
-        SchedulerCapture::applicationDeadline;
-    s_hooks.m_adapter_deadline_hint = SchedulerCapture::adapterDeadline;
+    s_hooks.m_application_step = SchedulerCapture::applicationProgress;
+    s_hooks.m_application_readiness = [](const void* p, const wl_ctx_t&, wl_time_ms_t now) noexcept {
+        return wl_readiness_at(SchedulerCapture::applicationDeadline(p, now));
+    };
+    s_hooks.m_adapter_readiness = [](const void* p, const wl_ctx_t&, wl_time_ms_t now) noexcept {
+        return wl_readiness_at(SchedulerCapture::adapterDeadline(p, now));
+    };
     require(s_executor.setHooks(s_hooks) == WL_OK, "deadline hooks failed");
     require(s_executor.start() == WL_OK, "deadline executor start failed");
 
@@ -660,7 +676,7 @@ void runApplicationDeadlineTest(SchedulerCapture& s_capture) {
     require(s_application_elapsed < std::chrono::milliseconds(500),
             "application timeout missed its scheduler deadline");
 
-    if (s_capture.adapter_delay_ms != WL_POLL_NO_DEADLINE_MS) {
+    if (s_capture.adapter_delay_ms != WL_NO_DEADLINE) {
         require(s_capture.adapter_fired,
                 "adapter policy deadline was not serviced");
         const auto s_adapter_elapsed =
@@ -735,7 +751,12 @@ void testInjectedClockOwnership() {
     require(capture.reads == 0, "initialization read the clock");
     WirelinkExecutorHooks hooks{};
     hooks.m_user_data = &capture;
-    hooks.m_application_progress = ClockCapture::progress;
+    hooks.m_application_step = ClockCapture::progress;
+    hooks.m_application_readiness = [](const void* p, const wl_ctx_t&, wl_time_ms_t) noexcept {
+        auto& state = *const_cast<ClockCapture*>(static_cast<const ClockCapture*>(p));
+        std::lock_guard lock(state.mutex);
+        return wl_readiness_at(state.progressed ? WL_NO_DEADLINE : 0U);
+    };
     require(executor.setHooks(hooks) == WL_OK, "setHooks failed");
     require(executor.start() == WL_OK, "start failed");
     waitFor(capture.cv, capture.mutex, [&] { return capture.progressed; },
@@ -751,10 +772,123 @@ void testInjectedClockOwnership() {
     require(capture.reads == reads, "stopped executor read the clock");
 }
 
+// The fake clock advances during the query, including across uint32 wrap.
+// Wait arguments are observed directly; no wall-clock timing threshold is used.
+struct BudgetCapture {
+    WirelinkExecutor* owner{};
+    wl_endpoint_t endpoint{};
+    std::mutex mutex;
+    std::condition_variable cv;
+    wl_time_ms_t now{UINT32_MAX - 4U};
+    std::uint32_t deadline{}, delay{}, waited{};
+    unsigned reads{}, steps{}, waits{};
+    bool queried{}, notify_during_query{}, finished{};
+
+    static wl_time_ms_t clock(void* context) {
+        auto& self = *static_cast<BudgetCapture*>(context);
+        ++self.reads;
+        return self.now;
+    }
+    void finish() {
+        owner->requestStop();
+        std::lock_guard lock(mutex);
+        finished = true;
+        cv.notify_all();
+    }
+    static std::uint8_t step(void* context, wl_ctx_t*, wl_time_ms_t) {
+        auto& self = *static_cast<BudgetCapture*>(context);
+        if (++self.steps == 2U) self.finish();
+        return 0U;
+    }
+    static wl_readiness_t readiness(const void* context, const wl_ctx_t*, wl_time_ms_t) {
+        auto& self = *const_cast<BudgetCapture*>(static_cast<const BudgetCapture*>(context));
+        if (self.steps == 0U || self.queried) {
+            wl_readiness_t hint = wl_readiness_idle();
+            hint.runnable = 1U;
+            return hint;
+        }
+        self.queried = true;
+        self.now += self.delay;
+        if (self.notify_during_query) self.owner->notify();
+        return wl_readiness_at(self.deadline);
+    }
+    static wl_err_t wait(void* context, std::uint32_t maximum) {
+        auto& self = *static_cast<BudgetCapture*>(context);
+        ++self.waits;
+        self.waited = maximum;
+        self.finish();
+        return WL_ERR_CANCELLED;
+    }
+};
+
+void testWaitBudgetSnapshot() {
+    struct Case { std::uint32_t deadline, delay, expected; unsigned reads; bool notify; };
+    for (const auto test : {
+        Case{10U, 7U, 3U, 3U, false},
+        Case{10U, 10U, 0U, 4U, false},
+        Case{0U, 7U, 0U, 3U, false},
+        Case{WL_NO_DEADLINE, 7U, WL_NO_DEADLINE, 2U, false},
+        Case{UINT32_MAX - 1U, 7U, UINT32_MAX - 8U, 3U, false},
+        Case{10U, 7U, 0U, 3U, true},
+    }) {
+        LinkStorage storage;
+        BudgetCapture capture;
+        WirelinkExecutor executor;
+        capture.owner = &executor;
+        capture.deadline = test.deadline;
+        capture.delay = test.delay;
+        capture.notify_during_query = test.notify;
+        const auto config = makeConfig(WL_ENVELOPE_COBS_STREAM, 1U);
+        const auto buffers = storage.descriptor();
+        const wl_clock_t clock{BudgetCapture::clock, &capture};
+        const wl_pump_hooks_t hooks{.application_user_data = &capture,
+            .application_step = BudgetCapture::step,
+            .application_readiness = BudgetCapture::readiness};
+        require(wl_endpoint_init(&capture.endpoint, &config, &buffers, &clock, &hooks) == WL_OK,
+                "budget endpoint initialization failed");
+        const wl_waiter_t waiter{BudgetCapture::wait, &capture, [](void*) {}};
+        require(wl_endpoint_set_waiter(&capture.endpoint, &waiter) == WL_OK, "set budget waiter failed");
+        const wl_endpoint_driver_t driver{&capture.endpoint, &capture,
+            [](void* p) { return wl_endpoint_step(&static_cast<BudgetCapture*>(p)->endpoint, 8U); },
+            [](void* p) -> wl_err_t { wl_endpoint_close(&static_cast<BudgetCapture*>(p)->endpoint); return WL_OK; }};
+        require(executor.initialize(driver) == WL_OK, "budget driver failed");
+        require(executor.start() == WL_OK, "budget executor start failed");
+        waitFor(capture.cv, capture.mutex, [&] { return capture.finished; }, "budget owner did not finish");
+        executor.stop();
+        require(capture.waits == (test.expected != 0U ? 1U : 0U), "expired/notified budget entered waiter");
+        if (capture.waits != 0U) require(capture.waited == test.expected, "query time renewed the wait budget");
+        require(capture.reads == test.reads, "budget clock read count changed");
+    }
+    // Exercise the local finite wait branch with the same delayed query.
+    LinkStorage storage;
+    BudgetCapture capture;
+    WirelinkExecutor executor;
+    capture.owner = &executor;
+    capture.deadline = 10U;
+    capture.delay = 7U;
+    require(executor.initialize(makeConfig(WL_ENVELOPE_COBS_STREAM, 1U), storage.descriptor(),
+        {BudgetCapture::clock, &capture}) == WL_OK, "local budget initialize failed");
+    WirelinkExecutorHooks hooks{};
+    hooks.m_user_data = &capture;
+    hooks.m_application_step = [](void* p, wl_ctx_t& link, wl_time_ms_t now) noexcept {
+        return BudgetCapture::step(p, &link, now) != 0U;
+    };
+    hooks.m_application_readiness = [](const void* p, const wl_ctx_t& link, wl_time_ms_t now) noexcept {
+        return BudgetCapture::readiness(p, &link, now);
+    };
+    require(executor.setHooks(hooks) == WL_OK, "local budget hooks failed");
+    require(executor.start() == WL_OK, "local budget start failed");
+    waitFor(capture.cv, capture.mutex, [&] { return capture.finished; }, "local budget owner did not finish");
+    executor.stop();
+    require(capture.reads == 4U && capture.steps == 2U, "local budget did not share finite deduction");
+}
+
 } // namespace
 
 int main() {
     try {
+        testWaitBudgetSnapshot();
+        std::puts("PASS: wait budgets retain query snapshots and notification priority");
         testInjectedClockOwnership();
         std::puts("PASS: injected clock is copied and runs only on the owner");
         testFeedOnlyWakesOwner();

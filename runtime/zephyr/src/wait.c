@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/zephyr/wait.h"
+#include "wirelink/zephyr/detail/timeout.h"
 #include <errno.h>
 
 wl_err_t wl_zephyr_waiter_init(wl_zephyr_waiter_t *waiter) {
@@ -14,8 +15,7 @@ static wl_err_t wait_activity(void *context, uint32_t maximum_ms) {
   if (waiter == NULL) return WL_ERR_INVALID_ARG;
   if (k_is_in_isr()) return WL_ERR_REENTRANT;
   if (atomic_get(&waiter->private_stopped)) return WL_ERR_CANCELLED;
-  result = k_sem_take(&waiter->private_activity,
-      maximum_ms == UINT32_MAX ? K_FOREVER : K_MSEC(maximum_ms));
+  result = k_sem_take(&waiter->private_activity, wl_zephyr_timeout_ms(maximum_ms));
   if (atomic_get(&waiter->private_stopped)) return WL_ERR_CANCELLED;
   return result == 0 ? WL_OK : result == -EAGAIN || result == -EBUSY ? WL_ERR_NO_DATA : WL_ERR_IO;
 }

@@ -51,7 +51,7 @@ struct Gate {
     }, [](void* p) -> wl_err_t {
       auto& self = *static_cast<Gate*>(p);
       return self.generated.close(self.generated.context);
-    }, 0U};
+    }};
   }
   void hold(Executor& executor) {
     std::unique_lock lock(mutex);
@@ -76,6 +76,91 @@ static int32_t add(void* p, const add_request_value_t* request, add_response_val
   return 0;
 }
 
+static void earlier_external_deadline() {
+  Executor executor;
+  calculator_endpoint_t endpoint{};
+  std::atomic<wl_time_ms_t> now{UINT32_MAX - 5U};
+  const wl_clock_t clock{[](void* p) {
+    return static_cast<std::atomic<wl_time_ms_t>*>(p)->load();
+  }, &now};
+  CHECK(calculator_endpoint_init(&endpoint, test_environment_id(92, clock), wl_link_defaults()) == WL_OK);
+  wirelink::asio::UdpAdapterConfig config;
+  config.bind_address = "127.0.0.1";
+  std::error_code error;
+  auto udp = UdpAdapter::open(*calculator_endpoint_handle(&endpoint), config, error);
+  CHECK(udp && !error);
+  ::asio::io_context io;
+  ::asio::ip::udp::socket blackhole(io, {::asio::ip::udp::v4(), 0});
+  CHECK(udp->set_peer("127.0.0.1", blackhole.local_endpoint().port()) == WL_OK);
+  struct Wait {
+    wl_waiter_t underlying;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool held{}, released{}, saw_earlier{};
+  } wait{*wl_endpoint_waiter(calculator_endpoint_handle(&endpoint)), {}, {}};
+  const wl_waiter_t descriptor{
+    [](void* p, uint32_t maximum) -> wl_err_t {
+      auto& self = *static_cast<Wait*>(p);
+      {
+        std::unique_lock lock(self.mutex);
+        if (!self.held && maximum > 10U && maximum != UINT32_MAX) {
+          self.held = true;
+          self.cv.notify_all();
+          self.cv.wait(lock, [&self] { return self.released; });
+        }
+        if (maximum > 0U && maximum <= 10U) {
+          self.saw_earlier = true;
+          self.cv.notify_all();
+        }
+      }
+      return self.underlying.wait(self.underlying.user_data, maximum);
+    }, &wait, [](void* p) {
+      auto& self = *static_cast<Wait*>(p);
+      self.underlying.notify(self.underlying.user_data);
+    }
+  };
+  CHECK(wl_endpoint_set_waiter(calculator_endpoint_handle(&endpoint), &descriptor) == WL_OK);
+  CHECK(executor.initialize(calculator_endpoint_driver(&endpoint)) == WL_OK);
+  CHECK(executor.start() == WL_OK);
+  std::atomic<bool> long_finished{};
+  std::thread long_call([&] {
+    add_request_value_t request{};
+    request.has_left = request.has_right = true;
+    add_response_value_t response{};
+    CHECK(calculator_endpoint_add_sync(&endpoint, &request, &response, 1000000).status == WL_RPC_CANCELLED);
+    long_finished = true;
+  });
+  {
+    std::unique_lock lock(wait.mutex);
+    CHECK(wait.cv.wait_for(lock, 5s, [&wait] { return wait.held; }));
+  }
+  // Publish through the proxy queue while the owner is between its old
+  // readiness query and platform wait. Its notification must remain latched.
+  std::thread short_call([&] {
+    add_request_value_t request{};
+    request.has_left = request.has_right = true;
+    add_response_value_t response{};
+    response.sum = 123;
+    CHECK(calculator_endpoint_add_sync(&endpoint, &request, &response, 10).status == WL_RPC_TIMED_OUT);
+    CHECK(response.sum == 123);
+  });
+  eventually([&] { return executor.stats().m_rpc_submitted == 2; });
+  {
+    std::unique_lock lock(wait.mutex);
+    wait.released = true;
+    wait.cv.notify_all();
+    CHECK(wait.cv.wait_for(lock, 5s, [&wait] { return wait.saw_earlier; }));
+  }
+  now.fetch_add(11U); // The same endpoint clock crosses wrap; explicitly notify.
+  executor.notify();
+  short_call.join();
+  CHECK(!long_finished.load());
+  executor.requestStop();
+  long_call.join();
+  executor.stop();
+  CHECK(executor.stats().m_rpc_completed == 2);
+}
+
 static void active_call_shutdown(bool fail_wait) {
   Executor executor;
   struct Counts { unsigned allocated{}, freed{}; } counts;
@@ -91,7 +176,7 @@ static void active_call_shutdown(bool fail_wait) {
   calculator_endpoint_t* endpoint = nullptr;
   calculator_endpoint_config_t endpoint_config;
   CHECK(calculator_endpoint_config_defaults(&endpoint_config,
-      test_environment_id(91, wirelink::host::monotonic_clock())) == WL_OK);
+      test_environment_id(91, wirelink::host::monotonic_clock()), wl_link_defaults()) == WL_OK);
   CHECK(calculator_endpoint_create(&endpoint, &endpoint_config, &allocator) == WL_OK);
   wirelink::asio::UdpAdapterConfig config;
   config.bind_address = "127.0.0.1";
@@ -150,9 +235,9 @@ int main() {
   Executor client_executor, server_executor;
   calculator_endpoint_t client{}, server{};
   const wl_clock_t clock{[](void*) { return manual_time.load(); }, nullptr};
-  CHECK(calculator_endpoint_init(&client, test_environment_id(71, clock)) == WL_OK);
+  CHECK(calculator_endpoint_init(&client, test_environment_id(71, clock), wl_link_defaults()) == WL_OK);
   calculator_endpoint_config_t config;
-  CHECK(calculator_endpoint_config_defaults(&config, test_environment_id(72, clock)) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&config, test_environment_id(72, clock), wl_link_defaults()) == WL_OK);
   config.on_add = add; config.add_user_data = &server;
   CHECK(calculator_endpoint_init_config(&server, &config) == WL_OK);
   wirelink::asio::UdpAdapterConfig udp_config;
@@ -234,5 +319,6 @@ int main() {
   CHECK(response.sum == 42);
   active_call_shutdown(false);
   active_call_shutdown(true);
+  earlier_external_deadline();
   std::puts("RPC executor: typed proxy/concurrency/queue deadlines/wrap/stop/idle PASS");
 }

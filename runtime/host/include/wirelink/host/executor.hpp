@@ -29,13 +29,13 @@ struct ExecutorHooks {
     using QuiesceFn = void (*)(void* s_user_data) noexcept;
     // Runs on the owner thread after core events have been dispatched. Return
     // true only when another immediate bounded application pass is required.
-    using ApplicationProgressFn = bool (*)(void* s_user_data,
+    using ApplicationStepFn = bool (*)(void* s_user_data,
                                             wl_ctx_t& s_context,
                                             wl_time_ms_t s_now_ms) noexcept;
     // Side-effect-free relative deadline query. Zero means due now and
-    // WL_POLL_NO_DEADLINE_MS disables timed wakeups for this source.
-    using DeadlineHintFn = std::uint32_t (*)(const void* s_user_data,
-                                             wl_time_ms_t s_now_ms) noexcept;
+    // WL_NO_DEADLINE disables timed wakeups for this source.
+    using ReadinessFn = wl_readiness_t (*)(const void* s_user_data,
+        const wl_ctx_t& s_context, wl_time_ms_t s_now_ms) noexcept;
     // Return CONSUMED after releasing an RX event or taking a terminal TX
     // handle. UNHANDLED delegates that owner action to the executor.
     using EventFn = wl_pump_event_disposition_t (*)(
@@ -50,9 +50,9 @@ struct ExecutorHooks {
     // event-driven sleep.
     ServiceFn m_service{};
     QuiesceFn m_quiesce{};
-    ApplicationProgressFn m_application_progress{};
-    DeadlineHintFn m_application_deadline_hint{};
-    DeadlineHintFn m_adapter_deadline_hint{};
+    ApplicationStepFn m_application_step{};
+    ReadinessFn m_application_readiness{};
+    ReadinessFn m_adapter_readiness{};
     EventFn m_on_event{};
 };
 
@@ -178,13 +178,13 @@ private:
     void s_cancelQueuedRpc() noexcept;
     static int s_serviceBridge(void* s_user_data) noexcept;
     static void s_quiesceBridge(void* s_user_data) noexcept;
-    static std::uint8_t s_applicationProgressBridge(
+    static std::uint8_t s_applicationStepBridge(
         void* s_user_data, wl_ctx_t* s_context,
         wl_time_ms_t s_now_ms) noexcept;
-    static std::uint32_t s_applicationDeadlineBridge(
-        const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
-    static std::uint32_t s_adapterDeadlineBridge(
-        const void* s_user_data, wl_time_ms_t s_now_ms) noexcept;
+    static wl_readiness_t s_applicationReadinessBridge(
+        const void* s_user_data, const wl_ctx_t* s_context, wl_time_ms_t s_now_ms) noexcept;
+    static wl_readiness_t s_adapterReadinessBridge(
+        const void* s_user_data, const wl_ctx_t* s_context, wl_time_ms_t s_now_ms) noexcept;
     static wl_pump_event_disposition_t s_eventBridge(
         void* s_user_data, wl_ctx_t* s_context,
         const wl_event_t* s_event, wl_time_ms_t s_now_ms) noexcept;
@@ -203,7 +203,6 @@ private:
     std::atomic<bool> m_rpc_pending{false};
     wl_clock_t m_clock{};
     ExecutorHooks m_hooks{};
-    bool m_application_pending{}; // Owner-only, not historical event progress.
     std::atomic<State> m_state{State::kUninitialized};
     std::atomic<bool> m_accepting{false};
     std::atomic<bool> m_stop_requested{false};
