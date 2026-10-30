@@ -360,15 +360,60 @@ static void test_tx_admission_order(void) {
   }
 }
 
+static void test_budget_deadline_and_response_boundary(void) {
+  fixture_t f = {.sink_result = WL_PACKET_BUSY};
+  init(&f, 903U);
+  for (unsigned i = 0U; i < 4U; ++i) CHECK(start(&f, i, i, 0U, 10U) == WL_OK);
+  run(&f, 0U);
+  CHECK(f.submitted == 0U && !ready(&f, 0U));
+  inject(&f, 102U, 700U, 1U, 0, 99U);
+  inject(&f, 102U, 700U, 2U, 0, 99U);
+  /* Even a one-event pass makes deadlines progress ahead of a full RX queue.
+   * Requests have never reached the sink: timeout includes queue residence. */
+  for (unsigned i = 0U; i < 4U; ++i) {
+    CHECK(ready(&f, 10U));
+    CHECK(wl_kernel_step(&f.kernel, 10U, 1U) == WL_OK);
+    CHECK(f.completions[i].count == 1U && f.completions[i].result.outcome == WL_KERNEL_TIMED_OUT);
+    CHECK(f.messages == 0U);
+  }
+  CHECK(wl_kernel_step(&f.kernel, 10U, 1U) == WL_OK && ready(&f, 10U));
+  CHECK(wl_kernel_step(&f.kernel, 10U, 1U) == WL_OK && !ready(&f, 10U));
+  CHECK(f.messages == 2U && f.submitted == 0U);
+  CHECK(wl_kernel_close(&f.kernel) == WL_OK);
+  uint32_t value = 7U;
+  CHECK(start(&f, 4U, 1U, 10U, 10U) == WL_ERR_INVALID_STATE);
+  CHECK(wl_kernel_send(&f.kernel, 102U, &value, encode) == WL_ERR_INVALID_STATE);
+  CHECK(wl_kernel_step(&f.kernel, 10U, 16U) == WL_OK && wl_kernel_quiescent(&f.kernel));
+
+  fixture_t g = {0};
+  init(&g, 904U);
+  CHECK(start(&g, 0U, 1U, 0U, 10U) == WL_OK);run(&g, 0U);
+  inject(&g, 101U, 904U, g.completions[0].handle.operation, 0, 99U);
+  /* The owner's exact deadline wins over a response still queued at that
+   * snapshot. Terminal is delivered once, before processing the same RX. */
+  run(&g, 10U);
+  CHECK(g.completions[0].count == 1U && g.completions[0].result.outcome == WL_KERNEL_TIMED_OUT);
+  CHECK(start(&g, 1U, 2U, 10U, 100U) == WL_OK);run(&g, 10U);
+  inject(&g, 101U, 904U, g.completions[0].handle.operation, 0, 99U);run(&g, 11U);
+  CHECK(g.completions[0].count == 1U && g.completions[1].count == 0U);
+  inject(&g, 101U, 904U, g.completions[1].handle.operation, 0, 42U);run(&g, 11U);
+  CHECK(g.completions[1].count == 1U && g.completions[1].value == 42U);
+  fixture_t h = {0};init(&h, 905U);
+  for (unsigned i = 0U; i < 4U; ++i) h.kernel.calls[i].generation = UINT32_MAX;
+  CHECK(start(&h, 0U, 1U, 0U, 10U) == WL_ERR_ID_EXHAUSTED && h.kernel.operation == 0U);
+}
+
 #ifdef WL_PACKET_ZTEST
 ZTEST(static_kernel, calls) { test_calls(); }
 ZTEST(static_kernel, physical_lease_and_callbacks) { test_physical_lease_and_callbacks(); }
 ZTEST(static_kernel, reply_backpressure) { test_reply_backpressure(); }
 ZTEST(static_kernel, errors_close_and_wrap) { test_errors_close_and_wrap(); }
 ZTEST(static_kernel, tx_admission_order) { test_tx_admission_order(); }
+ZTEST(static_kernel, budget_deadline_and_response_boundary) { test_budget_deadline_and_response_boundary(); }
 ZTEST_SUITE(static_kernel, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_budget_deadline_and_response_boundary();
   test_tx_admission_order();
   test_calls();
   test_physical_lease_and_callbacks();

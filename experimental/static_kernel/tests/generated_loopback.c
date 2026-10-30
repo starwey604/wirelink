@@ -56,6 +56,12 @@ int main(void) {
     CHECK(wl_kernel_step(&endpoints[0].core, 0, 1) == WL_OK);
     CHECK(wl_kernel_step(&endpoints[1].core, 0, 1) == WL_OK);
     CHECK(wl_packet_loopback_service(&pair, 2) == WL_OK);
+    if (callbacks < 8U) {
+      int has; uint32_t deadline;
+      CHECK(wl_kernel_ready(&endpoints[0].core, 0U, &has, &deadline) ||
+            wl_kernel_ready(&endpoints[1].core, 0U, &has, &deadline) ||
+            wl_packet_loopback_ready(&pair));
+    }
   }
   CHECK(callbacks == 8 && effects == 8);
   CHECK(pair.directions[0].delivered == 8 && pair.directions[1].delivered == 8);

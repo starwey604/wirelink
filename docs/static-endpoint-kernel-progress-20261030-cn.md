@@ -1,6 +1,6 @@
 # 静态端点内核重构：实施记录
 
-开始日期：2026-10-30；最近更新：2026-10-31。对应 [计划](static-endpoint-kernel-refactor-plan-20261030-cn.md) 和 [K0 合同](static-endpoint-kernel-contract-20261030-cn.md)。当前为 **K0、K1、K2 阶段完成，主要继续条件满足；K3–K5 尚未完成**。保护项限制与原始数据见阶段结果，不能当作 K6 整体交付。以下保留各批完成时的记录。
+开始日期：2026-10-30；最近更新：2026-10-31。对应 [计划](static-endpoint-kernel-refactor-plan-20261030-cn.md) 和 [K0 合同](static-endpoint-kernel-contract-20261030-cn.md)。当前为 **K0、K1、K2 阶段完成，主要继续条件满足；K3 软件／集成验证通过，K4 准备登记，K5 尚未完成**。保护项限制与原始数据见阶段结果，不能当作 K6 整体交付。以下保留各批完成时的记录。
 
 ## 已完成并提交的点
 
@@ -121,3 +121,8 @@ K2 使用另外冻结的旧执行引擎 host，仅在外围 harness 加入 warmu
 首轮及唯一完整补充共 20 份捕获，全部通过独立重放。CPU-off RTT p50 配对下降 69.58% / 70.91%，CPU-on MCU RPC active/call 下降 74.38% / 74.06%，MCU Sample active/frame 下降 47.66% / 50.26%。主要继续条件满足；没有可判定的重复保护回退，但有一份 host Sample CPU/frame +7.62% 的异常，部分保护项因 A 波动仍不可判定。未追加第三块。
 
 完整数字、解释范围、资源、提交及最终固件状态见 [K0–K2 阶段结果](static-endpoint-kernel-refactor-result-20261031-cn.md)。板卡已恢复本轮新冻结 A-o0 参考并再次 smoke，所有 I/O 已关闭。默认产品和既有用户修改保留；下一阶段为 K3 的新 host 与完整合同迁移。
+
+
+## K3 收口（2026-10-31）
+
+同一内核的新 host、跨类型 TX FIFO 正确性、非 benchmark 嵌套消息、选定 stream framing、所有受影响 adapter 的软件绑定和安装后消费已通过，详见 [K3 实施记录](static-endpoint-kernel-k3-progress-20261031-cn.md)。当前只允许进入 K4 完整对照，默认产品与全部消费者迁移仍留 K5，不能称为 K6 完成交付。

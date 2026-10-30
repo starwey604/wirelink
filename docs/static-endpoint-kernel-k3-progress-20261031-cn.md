@@ -34,3 +34,13 @@ GCC 和 Clang ASan/UBSan 的原有核心／生成消费者、混合 C/C++、真�
 UART 的实际 IRQ、DMA、polling adapter 在 native_sim、Cortex-M3、RISC-V 共 12 个 case/platform 执行通过。覆盖 ISR 只暂存、分片与背压、物理 consumed/drained、DMA 两缓冲真实归还、旧 callback、满 FIFO 关闭及已进入 callback 的 join。Polling 新合同要求平台 idle 查询，停止时无法确认 drain 就保留存储并返回 WOULD_BLOCK。尚无 UART 硬件吞吐或物理时序结论。
 
 正在完成 UDP、串口 host、剩余生命周期／安装消费和迁移清单。K3 完整保留合同与 adapter 验证之后登记 K4：冻结旧 A、新 host/new device B、当前 libcsp C，off/on 三轮 18 份完整捕获；保留 K2 的 host Sample CPU 单次异常和尾部不可判定项。再进入 K5 默认产品与消费者收敛，最后完成 K6 独立重放及交回。
+
+## K3 软件与集成收口
+
+补充提交：`2a3fb38` 纯核心 Ztest；`83a239f` Asio/Zephyr UDP；`9f3662f` Astrial serial；`4d014a1` packet loopback；`43b4770` 只启用 C 的独立安装包及安装后 C/C++/COBS 消费。源码仍隔离，默认入口／旧路径删除与消费者替换属于 K5，未提前宣称产品迁移完成。
+
+最终软件检查：GCC 与 Clang ASan/UBSan 各 **13/13** host checks，安装后消费者 **3/3**，纯核心 unit_testing **15/15**，真实 UART/UDP/USB adapter 的 native_sim、Cortex-M3、RISC-V 合计 **15/15 case/platform**，WLC 完整 **198 tests／44 executables**、clippy 全 target/feature 及 Clang sanitizer 的 5 项生成检查通过。C++ 使用 C-owned atomics；独立新合同包不安装旧 endpoint/RPC API。新小预算回归明确验证：队列中的四调用依次 timeout、持续 RX 不饿死 deadline、精确截止快照的 timeout 优先于仍排队的响应，以及 generation 耗尽不回绕。
+
+旧 A/new host 的 smoke、新 B/冻结旧 host 的双向帧边界也通过。K3 保留合同及受影响 adapter 已有软件／集成证据，允许进入 K4。UART 与真实网络硬件未测，不能把软件 fixture 或 USB 性能代表这些物理链路。
+
+当前 libcsp 的 279 个普通源码文件逐字节匹配原冻结输入；K0 快照脚本漏掉了指向目录的 `zephyr -> contrib/zephyr` symlink。已仅在新的 C 输入快照恢复该链接并登记，未修改旧封存目录、libcsp 源码或业务。C 的 off/on device/host 已构建，下一步做资格及事前登记。完整 K4 数据尚未采集，K2 的保护项限制继续有效。
