@@ -240,3 +240,10 @@ so borrowed storage and callback context remain live until their actual exit.
 The real PTY fixture covers partial RX, a tiny staging FIFO, borrowed TX source
 snapshot, distinct consumed/drained, latched waiting and stop; it is not a
 physical serial-line timing measurement. GCC and Clang ASan/UBSan pass it.
+
+`wirelink_packet_loopback` is a single-owner in-process adapter for the same
+packet ports. It retains the submitted source until bounded owner service can
+copy it into the peer's RX claim. Full peer slots apply backpressure; stop
+confirms cancellation without a driver thread. The generated fixture runs four
+calls in each direction concurrently with budget-one core passes, then closes
+and drains both endpoints. No old link objects are involved.
