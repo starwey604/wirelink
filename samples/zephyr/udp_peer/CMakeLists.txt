@@ -6,10 +6,9 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_udp_peer LANGUAGES C)
 include(${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake)
 set(UDP_DEMO_SCHEMA "${WIRELINK_ROOT}/examples/05_zephyr_udp")
-wirelink_wlc_generate_codec(TARGET udp_demo_codec SCHEMA "${UDP_DEMO_SCHEMA}/udp_demo.wl")
-wirelink_wlc_generate_runtime(TARGET udp_demo_protocol CODEC_TARGET udp_demo_codec
+wirelink_wlc_generate(TARGET udp_demo_protocol SCHEMA "${UDP_DEMO_SCHEMA}/udp_demo.wl"
   PROFILE "${UDP_DEMO_SCHEMA}/udp_demo.bind.wl")
-target_link_libraries(udp_demo_codec PUBLIC zephyr_interface)
+target_include_directories(app PRIVATE "${UDP_DEMO_SCHEMA}")
 target_link_libraries(app PRIVATE udp_demo_protocol)
 if(CONFIG_SAMPLE_WIRELINK_UDP_CLIENT)
   target_sources(app PRIVATE src/client.c)

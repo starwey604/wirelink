@@ -1,45 +1,35 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "udp_demo_endpoint.h"
+#include "business.h"
 #include "network.h"
-
-static udp_demo_endpoint_t client;
-WL_ZEPHYR_UDP_DEFINE(udp, UDP_DEMO_ENDPOINT_MAX_PAYLOAD, 2);
-
+#include <string.h>
+static udp_demo_kernel_t client;
+static sample_udp_t udp;
 int main(void) {
   if (sample_network_init() < 0) { printk("network unavailable\n"); return 1; }
-  wl_err_t error = udp_demo_endpoint_init(&client, wl_platform_environment(), wl_link_defaults());
-  if (error != WL_OK) { printk("endpoint init: %d\n", error); return 1; }
-  error = sample_udp_open(&udp, udp_demo_endpoint_handle(&client));
-  if (error != WL_OK) {
-    printk("UDP open: %d\n", error);
-    (void)udp_demo_endpoint_close(&client);
-    return 1;
+  wl_err_t error = sample_udp_open(&udp);
+  if (error != WL_OK) { printk("UDP open: %d\n", error); return 1; }
+  peer_client_t state = {0};
+  const udp_demo_kernel_handlers_t handlers = {.on_rpc_add = peer_add, .on_message_telemetry = peer_sample};
+  error = udp_demo_kernel_init(&client, &udp.port, &handlers, NULL, &state);
+  if (error != WL_OK) { (void)wl_kernel_udp_close(&udp.adapter); return 1; }
+  add_request_value_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  wl_kernel_call_handle_t call;
+  error = udp_demo_kernel_add_start(&client, &request, k_uptime_get_32(), 1500, peer_completed, &state, &call);
+  memset(&request, 0, sizeof(request));
+  while (error == WL_OK && !state.completions) {
+    error = peer_z_step(&udp.adapter, &client.core, k_uptime_get_32());
+    if (error == WL_OK) error = peer_z_wait(&udp.adapter, &client.core, 100);
   }
-  add_request_value_t request;
-  add_request_value_clear(&request);
-  request.has_left = request.has_right = true;
-  request.left = 20;
-  request.right = 22;
-  add_response_value_t response;
-  wl_rpc_completion_t result = udp_demo_endpoint_add_sync(&client, &request, &response, 1500);
   int status = 1;
-  if (result.status == WL_RPC_SUCCESS) {
-    printk("20 + 22 = %ld\n", (long)response.sum);
+  if (error == WL_OK && state.result.outcome == WL_KERNEL_SUCCESS) {
+    printk("20 + 22 = %ld\n", (long)state.response.sum);
     uint32_t started = k_uptime_get_32();
-    while ((uint32_t)(k_uptime_get_32() - started) < 500) {
-      error = udp_demo_endpoint_step(&client);
-      if (error != WL_OK) break;
-      telemetry_t sample;
-      if (udp_demo_endpoint_read_telemetry(&client, &sample) == WL_OK) {
-        printk("telemetry sample=%lu\n", (unsigned long)sample.sample);
-        status = response.sum == 42 ? 0 : 1;
-        break;
-      }
-      error = wl_zephyr_udp_wait(&udp, 100);
-      if (error != WL_OK && error != WL_ERR_NO_DATA) break;
+    while (error == WL_OK && !state.samples && (uint32_t)(k_uptime_get_32() - started) < 500) {
+      error = peer_z_step(&udp.adapter, &client.core, k_uptime_get_32());
+      if (error == WL_OK) error = peer_z_wait(&udp.adapter, &client.core, 100);
     }
-  } else printk("RPC: %s\n", wl_rpc_status_str(result.status));
-  if (udp_demo_endpoint_close(&client) != WL_OK) status = 1;
-  if (wl_zephyr_udp_close(&udp) != WL_OK) status = 1;
+    if (state.samples && state.response.sum == 42) { printk("telemetry sample=%u\n", state.sample); status = 0; }
+  } else printk("RPC: outcome=%d status=%d io=%d\n", state.result.outcome, state.result.status, error);
+  if (peer_z_close(&udp.adapter, &client.core) != WL_OK) status = 1;
   return status;
 }

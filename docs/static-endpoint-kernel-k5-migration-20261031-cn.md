@@ -99,3 +99,9 @@ telemetry、calculator、device-info 均使用正式 WLC v2 endpoint 与一个�
 05 的 C client/server 改用 typed kernel、ordinary telemetry 和真实 packet UDP；common C++ 支持仅持有 socket/wait，不建线程／RPC 关联表。C 持有 port 原子对象和两份完整 RX unit，外层一次取 fresh instance，owner 显式提供 now，wait 合并 deadline 且重算耗时；close 停真实 I/O 后 quiescent 再释放。client 入队后销毁请求，借用回调内保存响应。
 
 三个新 client 进程重用同一地址／端口，RPC/telemetry 实际成功；server 退出后 client 本地 timeout。含全部当前教程／UDP adapter 的 GCC **21/21**；Clang ASan/UBSan 对应双进程测试 **1/1**。不改变已封存 benchmark 或板卡。Zephyr UDP peer／validation 及其他旧消费者继续单独迁移，不能据此宣称其已完成。日志 `udp-tutorial-*`。
+
+## Zephyr UDP peer 与生成 API regression
+
+peer client/server 共用 desktop 的业务 schema／typed handler／v2 profile，C 显式持有 port/core/RX storage，网络与 fresh identity 在应用配置。owner helper 只合并 UDP I/O、core deadline、业务期限及 close/drain，没有 RPC 表或 adapter thread。native32/64 的四个 peer 配置 **仅构建通过**；首次 Twister 因从仓库而非 west workspace 启动被拒，修正目录后通过，失败日志保留。
+
+udp_validation 移除旧 ARQ／CRC selector／replay／inspect-release 用例，改为新生成端点与两真实 UDP socket：每端四并发／第五次 WOULD_BLOCK、请求失效后快照、ordinary telemetry、close 后 owned response、业务拒绝、本地取消、UINT32_MAX 回绕 timeout、迟到响应不二次完成、close CLOSED、旧 handle 拒绝、有限 idle wait／锁存通知。native32／native64／Cortex-M3 合计 **9/9** 真实运行通过。独立 frozen-wire／完整 adapter socket/guard/stop 合同仍在原测试中；没有声称两块真实 Ethernet/Wi-Fi 板卡已互通。日志 `twister-udp-peer*`、`twister-udp-generated*`。
