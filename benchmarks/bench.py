@@ -400,7 +400,8 @@ def _compare_native(name, suite, before, after, gate_table, out_json):
     """Run one suite comparator in-process; returns (exit code, crash reason).
     Its own tested invariants (workload hash, context, case sets) apply."""
     from report import normalize
-    module = normalize._suite_module(name)
+    entry = next((Path(value).name for value in suite.get("compare", []) if value.endswith(".py")), "compare.py")
+    module = normalize._suite_module(name, entry)
     argv = [str(before), str(after), "--json-out", str(out_json),
             *_gate_argv(suite, gate_table)]
     captured = io.StringIO()

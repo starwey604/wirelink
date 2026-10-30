@@ -1,81 +1,20 @@
-# 发布前 benchmark checklist
+# 发布前 benchmark 清单
 
 [English](RELEASE.md).
 
-必须在 release commit 上完成本 checklist，之后才能创建发布 tag。本比较回答
-candidate 相对上一版本是否退化；它不是正确性测试，也不是性能承诺。
+选择产品合同与工作负载兼容的两个已提交版本。0.13 裁剪前后的发布版不能直接用当前 preset 重建混比，应使用封存工具并明确语义变化。运行 benchmark 不授权 push 或发布。
 
-## 政策
-
-- 普通 push 与 PR 不运行性能测量。
-- base 使用上一个 release tag，candidate 使用干净、已提交的 release
-  commit。
-- base 与 candidate 必须在同一机器、工具链、电源策略和开发板上运行；不
-  比较来自不同 testbed 的结果。
-- smoke 回归或退出码 `2` 必须在打 tag 前排查。主机 timing 与 API/UDP 在
-  固定专用 testbed 完成阈值标定前只作诊断。
-- 保存完整输出目录，不能只保存 Markdown 摘要。
-
-## 推荐的本地运行方式
-
-权威结果应在空闲、稳定的主机上生成。先配置固定版本的 WLC 与 Google
-Benchmark 源码：
+1. 先完成正确性、包和编译器检查。设置匹配的本地 `WIRELINK_WLC_EXECUTABLE`（0.13）和 `WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR`（1.9+）。
+2. 执行 `python3 benchmarks/bench.py doctor --preset full`。使用同一台已标识的空闲主机，固定编译器、flags、电源策略和 affinity；构建/测试并行时的计时不能作为合格性能证据。
+3. 选择兼容的 base/candidate，保留完整输出目录。七个套件分别由 smoke、quick、api 覆盖一次：
 
 ```sh
-export WIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc
-export WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/absolute/path/to/google-benchmark
-
-python3 benchmarks/bench.py doctor --preset full
+python3 benchmarks/bench.py pair --preset smoke --base BASE --candidate CANDIDATE --out out/release-smoke
+python3 benchmarks/bench.py pair --preset quick --base BASE --candidate CANDIDATE --out out/release-quick
+python3 benchmarks/bench.py pair --suite api --preset full --base BASE --candidate CANDIDATE --out out/release-api
 ```
 
-确认 candidate 已提交，并选择上一个发布 tag：
+4. 核对 raw、manifest、normalized、comparison、Markdown 与 JUnit。退出 0 表示有效且启用门槛通过，1 表示有效回退，2 表示无效/不可比较。smoke 失败或退出 2 必须调查；主机计时在固定 testbed 校准前保持诊断性质。模型是模拟时间/计数；footprint objects 不是链接后产品 RAM；API pair 包含真实 RAM 传递与 owner 工作量。
+5. 影响物理路径时执行对应固件/HIL 流程，保存源码、配置、二进制、observer 设置、原始采集、失败尝试及最终板卡状态。硬件数据与主机微基准分开；工作负载变更后重新判断可比性。
 
-```sh
-git status --short
-base=v0.8.0
-candidate=$(git rev-parse HEAD)
-release_out=out/release-candidate
-```
-
-以下三次比较覆盖当前全部 8 个主机套件，且不会重复运行套件：
-
-```sh
-python3 benchmarks/bench.py pair --preset smoke --order ab \
-  --base "$base" --candidate "$candidate" --out "$release_out/smoke"
-
-python3 benchmarks/bench.py pair --preset quick \
-  --base "$base" --candidate "$candidate" --out "$release_out/quick"
-
-python3 benchmarks/bench.py pair --preset full --suite api \
-  --base "$base" --candidate "$candidate" --out "$release_out/api"
-```
-
-每次尝试都要使用新的 `release_out`；证据目录采用独占创建，绝不覆盖。
-
-## 可选的 GitHub 运行
-
-`Benchmarks` workflow 只支持手工触发。在 release commit 上选择 `release`
-模式，并把 `base` 设置为上一个 tag；留空时 workflow 会选择 candidate 可达
-的最新旧 tag。它在一个 job 中运行 smoke、quick 与 API，并把全部证据保留
-30 天。
-
-GitHub 托管 runner 的 timing 可以提供诊断性的第二意见，但不能代替固定的
-本地或 self-hosted testbed 结果。
-
-## 审核与归档
-
-创建 tag 前：
-
-1. 确认每次比较都有效；退出码 `2` 表示必须重跑或修复 testbed。
-2. 排查每个 smoke 回归。修复回归，或记录为什么该变化是有意的产品取舍。
-3. 审核同时超过 10% 与 5 ns 的 quick timing 行，以及 API 内存和 UDP
-   分布；在非专用主机上这些结果只作建议。
-4. 归档三次比较的 `manifest.json`、`raw/`、`artifacts/`、
-   `comparison.json`、`summary.md` 与 `junit.xml`。
-5. 在 release notes 或发布跟踪 issue 中记录 base tag、candidate commit、
-   testbed ID，以及每个被接受回归的处理结论。
-6. 完成上述审核后才能创建 release tag。
-
-硬件 benchmark/HIL 尚未统一自动化。发布需要固件测量时，按对应的
-`benchmarks/zephyr/` 套件说明运行，并把 ELF、map、config、原始串口日志和
-开发板身份与主机证据一起归档。
+普通 push/PR 不运行性能测量。手动 benchmark workflow 使用当前 preset；远程 CI、硬件实测和版本发布均需各自真实执行记录，不能推定通过。

@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import bench  # noqa: E402
 
-ALL_SUITES = ("owner_pass", "reliable_loss", "mixed_traffic", "footprint",
+ALL_SUITES = ("owner_pass", "mixed_traffic", "footprint",
               "framing", "codec_plan", "rpc_validation", "api")
 
 

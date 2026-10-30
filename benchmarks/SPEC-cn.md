@@ -10,6 +10,15 @@
 Benchmark 保持 opt-in，永远不是正确性门。本文件增加的是：让*性能回归门*
 以可预测的方式失败——在同一 testbed 上、带着人类可审计的证据。
 
+
+## 当前工作负载边界（0.13）
+
+注册表有七个套件：smoke 跑 owner 命令/stop、显式应用重试模型及静态 footprint；quick 跑独立 framing、codec planning 和公开 codec validation；full 增加 kernel API pair。ARQ/replay/框架 Bulk 及旧 executor 可执行负载已经删除，历史读取器保留在当前注册表之外。
+
+比较器取自注册表，API/mixed 使用 `compare_kernel.py`。当前 raw 身份分别为 `wirelink-kernel-api-v1`、mixed `format: 2`、`wirelink-owner-kernel-v1`、`wirelink-framing-v3`、`wirelink-codec-validation-v3`、`wirelink-footprint-v2`。归一化 case 对当前 framing/validation 加 `v3/`、mixed 加 `kernel-v2/`、footprint 加 `v2/`，防止旧报告同名指标被当成可比较数据。全部 repetition 保留；owner 启动服务次数只是诊断，命令/stop 合同先严格验证再归一化。
+
+使用匹配的本地 WLC 0.13。当前 profile 无法构建裁剪前发布版，历史报告应使用封存工具。API pair 包含两个 kernel、真实 RAM 传递、admission/step/结果检查，不等于物理 USB/串口、C++ Session 或 Sample 单次提交成本。对象重试与重复行为属于应用；模拟毫秒不能解释为 CPU 性能证据。
+
 ## 统一入口
 
 所有套件通过一个 Python 3.11+ 入口驱动（无第三方依赖，`tomllib` 读取预设
@@ -107,7 +116,7 @@ out/<run-id>/
   "measurements": [
     {
       "suite": "framing",
-      "case": "retry3/e0/i2/p2/b512",
+      "case": "v3/spare/e0/i2/p2/b512",
       "metric": "cpu_ns",
       "unit": "ns",
       "direction": "lower",
@@ -137,7 +146,7 @@ out/<run-id>/
 ```json
 {
   "suite": "framing",
-  "case": "retry3/e0/i2/p2/b512",
+  "case": "v3/spare/e0/i2/p2/b512",
   "metric": "cpu_ns",
   "direction": "lower",
   "before": 120.1, "after": 126.5,

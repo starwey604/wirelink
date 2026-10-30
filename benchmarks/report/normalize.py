@@ -20,10 +20,12 @@ GB_SUITES = ("framing", "codec_plan", "rpc_validation")
 OWNER_PASS_METRICS = ("budget", "delivered", "received")
 
 
-def _suite_module(name):
+def _suite_module(name, filename="compare.py"):
     """Load benchmarks/<name>/compare.py under a unique module name."""
-    path = BENCH / name / "compare.py"
-    spec = importlib.util.spec_from_file_location(f"wirelink_bench_{name}_compare",
+    if filename not in ("compare.py", "compare_kernel.py"):
+        raise ValueError("unsupported comparator entry")
+    path = BENCH / name / filename
+    spec = importlib.util.spec_from_file_location(f"wirelink_bench_{name}_{Path(filename).stem}",
                                                   path)
     if spec is None or spec.loader is None:
         raise ValueError(f"no comparator for suite {name!r}")
@@ -45,11 +47,12 @@ def _gb(suite, raw_dir):
     module = _suite_module(suite)
     rows = []
     for path in _reports(raw_dir, ".json"):
-        _context, groups = module.read(path)
+        context, groups = module.read(path)
+        prefix = "v3/" if context.get("workload") in ("wirelink-framing-v3", "wirelink-codec-validation-v3") else ""
         for case in sorted(groups):
             for metric in ("cpu_ns", "wall_ns"):
                 rows.append(schema.measurement(
-                    suite, case, metric, "ns", "lower", groups[case][metric]))
+                    suite, prefix + case, metric, "ns", "lower", groups[case][metric]))
     return rows
 
 
@@ -57,6 +60,20 @@ def _api(raw_dir):
     module = _suite_module("api")
     paths = _reports(raw_dir, ".json")
     report = json.loads(paths[0].read_text(encoding="utf-8"))
+    if report.get("context", {}).get("workload") == "wirelink-kernel-api-v1":
+        current = _suite_module("api", "compare_kernel.py")
+        rows = []
+        for path in paths:
+            _context, groups = current.load(path)
+            for case, metrics in sorted(groups.items()):
+                for metric, values in metrics.items():
+                    rows.append(schema.measurement("api", case, metric, current.UNITS[metric],
+                        "exact" if metric.endswith("_bytes") else "lower", values))
+        return rows
+    if report.get("format") != "wirelink-performance-v1":
+        raise ValueError("unsupported API report workload")
+    if len(paths) != 1:
+        raise ValueError("historical API aggregate requires exactly one report")
     # Group exactly like api measurements(): same filters, units and keys,
     # but keep every repetition instead of collapsing to the median.
     groups = {}
@@ -102,7 +119,7 @@ def _footprint(raw_dir):
         for row in module.compare(report, report):
             exact = row.group in module.EXACT_GROUPS or row.group.startswith("storage ")
             rows.append(schema.measurement(
-                "footprint", row.group, row.item, module.UNITS.get(row.item, "bytes"),
+                "footprint", ("v2/" if report.get("schema") == "wirelink-footprint-v2" else "") + row.group, row.item, module.UNITS.get(row.item, "bytes"),
                 "exact" if exact else "lower", [float(row.after)]))
     return rows
 
@@ -122,14 +139,16 @@ def _reliable_loss(raw_dir):
 
 
 def _mixed_traffic(raw_dir):
-    module = _suite_module("mixed_traffic")
     rows = []
     for path in _reports(raw_dir, ".jsonl"):
-        capture = module.load(path)
+        raw = [json.loads(line) for line in path.read_text().splitlines()]
+        current = bool(raw and raw[0].get("format") == 2)
+        module = _suite_module("mixed_traffic", "compare_kernel.py" if current else "compare.py")
+        capture = module.validate(raw)
         for scenario in module.SCENARIOS:
             for metric in module.SUMMARY_METRICS:
                 rows.append(schema.measurement(
-                    "mixed_traffic", scenario, metric, "ms", "lower",
+                    "mixed_traffic", ("kernel-v2/" if current else "") + scenario, metric, "ms", "lower",
                     [float(module.summary(capture, scenario, metric))]))
     return rows
 
@@ -137,10 +156,21 @@ def _mixed_traffic(raw_dir):
 def _owner_pass(raw_dir):
     rows = []
     for path in _reports(raw_dir, ".jsonl"):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
+        capture = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        if any("format" in row for row in capture):
+            expected = {
+                "kernel_command_burst": {"budget": 8, "delivered": 32, "received": 1,
+                    "queue_full": 1, "maximum_command_batch": 8},
+                "kernel_stop_reject": {"budget": 8, "delivered": 0, "received": 0,
+                    "rejected": 32, "stop_calls": 1}}
+            if len(capture) != 2 or {row.get("case") for row in capture} != set(expected):
+                raise ValueError("incomplete current owner model")
+            for row in capture:
+                if row.get("format") != "wirelink-owner-kernel-v1" or any(
+                    type(row.get(key)) is not int or row[key] != value
+                    for key, value in expected[row["case"]].items()):
+                    raise ValueError("invalid current owner contract")
+        for row in capture:
             case = row.get("case")
             if not isinstance(case, str) or not case:
                 raise ValueError(f"{path}: row without case")

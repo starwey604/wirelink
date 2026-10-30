@@ -11,6 +11,32 @@ Benchmarks remain opt-in and are never correctness gates. What this document
 adds is a uniform way for a *performance regression gate* to fail
 predictably, on an identified testbed, with evidence a human can audit.
 
+
+## Current workload boundary (0.13)
+
+The registry has seven suites. `smoke` runs the owner command/stop model,
+explicit application retry model and static footprint; `quick` runs independent
+framing, codec planning and public codec validation; `full` adds the kernel API
+pair workload. ARQ/replay/framework-Bulk and old executor executables are
+retired. Historical readers are retained outside the current registry.
+
+Native comparators are selected from each registry entry, including
+`compare_kernel.py` for API and mixed traffic. Current raw identities are
+`wirelink-kernel-api-v1`, mixed `format: 2`, `wirelink-owner-kernel-v1`,
+`wirelink-framing-v3`, `wirelink-codec-validation-v3` and
+`wirelink-footprint-v2`. Normalized current framing/validation cases carry `v3/`,
+mixed cases `kernel-v2/`, and footprint cases `v2/`; this prevents historical
+cases with the same spelling from becoming an apparent comparable result.
+All repetitions remain in normalized reports. Owner startup service counts are
+diagnostic; complete command/stop contracts are validated before normalization.
+
+Use a matching local WLC 0.13. Current profiles cannot build a pre-cut release;
+use archived tools for its historical reports. The API pair includes two
+kernels, real RAM delivery, admission, steps and checked outcomes, and does not
+measure physical USB/serial or C++ Session timing. Sample submission alone is a
+different measurement. Object retries and duplicate behavior belong to the
+application. Simulated milliseconds are not CPU/performance evidence.
+
 ## Entry point
 
 All suites are driven through one Python 3.11+ entry point (no third-party
@@ -114,7 +140,7 @@ Suite-native formats stay in `raw/`; only this layer is uniform.
   "measurements": [
     {
       "suite": "framing",
-      "case": "retry3/e0/i2/p2/b512",
+      "case": "v3/spare/e0/i2/p2/b512",
       "metric": "cpu_ns",
       "unit": "ns",
       "direction": "lower",
@@ -145,7 +171,7 @@ Rules:
 ```json
 {
   "suite": "framing",
-  "case": "retry3/e0/i2/p2/b512",
+  "case": "v3/spare/e0/i2/p2/b512",
   "metric": "cpu_ns",
   "direction": "lower",
   "before": 120.1, "after": 126.5,
@@ -174,7 +200,7 @@ Threshold classes by metric type:
 | Metric type | Rule |
 | --- | --- |
 | Storage contract, public struct size | `exact`; any change is a finding |
-| Deterministic protocol metrics (reliable loss, mixed traffic, owner pass) | exact or very tight relative bound |
+| Deterministic model metrics (explicit application retry, owner pass) | exact or very tight relative bound |
 | Linked flash/RAM (footprint `--elf`) | absolute bytes **and** percent |
 | Host CPU timing | PR: `warn` only; dedicated runner: may `fail` |
 | UDP/USB p99 | trend and report; never blocks a PR |

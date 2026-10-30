@@ -2,87 +2,38 @@
 
 [中文](RELEASE-cn.md).
 
-Run this checklist on the release commit **before** creating the release tag.
-The comparison answers whether the candidate regressed from the previous
-release; it is not a correctness test or a performance guarantee.
+Choose two committed revisions with the same product and workload contract.
+The 0.13 cut cannot be compared to a pre-cut release by rebuilding both with
+current presets. Use its sealed historical tools and explicitly report the
+semantic difference. No benchmark run authorizes publishing or pushing.
 
-## Policy
-
-- Ordinary pushes and pull requests do not run performance measurements.
-- The base is the previous release tag and the candidate is the clean release
-  commit.
-- Base and candidate run on the same machine, toolchain, power policy, and
-  attached board. Do not compare results from different testbeds.
-- A smoke regression or exit `2` must be investigated before tagging. Host
-  timing and API/UDP results remain diagnostic until a stable dedicated
-  testbed has calibrated thresholds.
-- Preserve the complete output directories, not just the Markdown summary.
-
-## Preferred local run
-
-Use a quiet, stable host for the authoritative result. Configure the pinned
-WLC and Google Benchmark source first:
+1. Run correctness/package/compiler checks first. Set matching local
+   `WIRELINK_WLC_EXECUTABLE` (0.13) and
+   `WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR` (1.9+).
+2. Run `python3 benchmarks/bench.py doctor --preset full`. Use one identified,
+   quiet host, identical compiler/flags, power policy and affinity. Timing
+   during builds or correctness tests is not a qualified performance run.
+3. Choose a compatible committed base and candidate; preserve the complete
+   output directories. The seven suites are covered once by smoke, quick and
+   the api suite:
 
 ```sh
-export WIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc
-export WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/absolute/path/to/google-benchmark
-
-python3 benchmarks/bench.py doctor --preset full
+python3 benchmarks/bench.py pair --preset smoke --base BASE --candidate CANDIDATE --out out/release-smoke
+python3 benchmarks/bench.py pair --preset quick --base BASE --candidate CANDIDATE --out out/release-quick
+python3 benchmarks/bench.py pair --suite api --preset full --base BASE --candidate CANDIDATE --out out/release-api
 ```
 
-Verify that the candidate is committed and choose the previous release tag:
+4. Inspect raw, manifest, normalized reports, comparisons, Markdown and JUnit.
+   Exit 0 means valid/enabled gates pass, 1 a valid regression, 2 invalid or
+   incomparable evidence. Investigate a smoke failure or exit 2. Timing gates
+   stay diagnostic until calibrated on the identified testbed. Model results
+   are simulated time/counts, footprint objects are not linked-product RAM,
+   and API pair results include real RAM delivery and owner work.
+5. For affected physical paths, use the matching firmware/HIL procedure and
+   preserve binaries, sources, configuration, captures, observer settings,
+   failed attempts and final board state. Hardware measurements stay separate
+   from host microbenchmarks. Re-evaluate compatibility when a workload changes.
 
-```sh
-git status --short
-base=v0.8.0
-candidate=$(git rev-parse HEAD)
-release_out=out/release-candidate
-```
-
-The three comparisons below cover all eight registered host suites without
-running any suite twice:
-
-```sh
-python3 benchmarks/bench.py pair --preset smoke --order ab \
-  --base "$base" --candidate "$candidate" --out "$release_out/smoke"
-
-python3 benchmarks/bench.py pair --preset quick \
-  --base "$base" --candidate "$candidate" --out "$release_out/quick"
-
-python3 benchmarks/bench.py pair --preset full --suite api \
-  --base "$base" --candidate "$candidate" --out "$release_out/api"
-```
-
-Use a new `release_out` for every attempt; evidence directories are exclusive
-and are never overwritten.
-
-## Optional GitHub run
-
-The `Benchmarks` workflow is manual-only. Dispatch it on the release commit
-with profile `release`. Set `base` to the previous tag; when blank, the
-workflow selects the newest older tag reachable from the candidate. The
-workflow runs smoke, quick, and API in one job and retains all evidence for 30
-days.
-
-GitHub-hosted timing is useful for a diagnostic second opinion, but it does
-not replace the stable local or self-hosted testbed result.
-
-## Review and archive
-
-Before creating the tag:
-
-1. Confirm every comparison is valid; exit `2` means rerun or fix the testbed.
-2. Investigate each smoke regression. Fix it or record why the change is an
-   intentional product tradeoff.
-3. Review quick timing rows that exceed 10% and 5 ns together, plus API memory
-   and UDP distributions. These are advisory on non-dedicated hosts.
-4. Archive `manifest.json`, `raw/`, `artifacts/`, `comparison.json`,
-   `summary.md`, and `junit.xml` for all three comparisons.
-5. Record the base tag, candidate commit, testbed ID, and disposition of every
-   accepted regression in the release notes or release tracking issue.
-6. Create the release tag only after this review is complete.
-
-Hardware benchmark/HIL automation is not unified yet. When a release requires
-firmware measurements, follow the relevant `benchmarks/zephyr/` suite guide
-and archive its ELF, map, config, raw serial log, and board identity alongside
-the host evidence.
+Ordinary pushes/PRs do not run performance measurements. The manual benchmark
+workflow uses these current presets; remote CI, hardware runs and release
+publication require their own recorded execution, never an inferred pass.

@@ -427,3 +427,7 @@ if(WIRELINK_BUILD_FIFO_BENCHMARK)
   endif()
   add_subdirectory(benchmarks/fifo)
 endif()
+
+if(BUILD_TESTING)
+  add_subdirectory(benchmarks)
+endif()

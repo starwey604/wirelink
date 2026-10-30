@@ -7,22 +7,19 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 
 | 基准 | 测量内容 | 运行位置 |
 | --- | --- | --- |
-| [api](api/README-cn.md) | 生成端点的 CPU 与内存、loopback RPC、双进程 UDP 延迟 | 主机 |
-| [api/EXECUTOR-cn.md](api/EXECUTOR-cn.md) | 多生产者 executor 的交接、唤醒与 LATEST 替换 | 主机 |
-| [rpc_validation](rpc_validation/README-cn.md) | 解码、规范指纹与 owned 转换成本 | 主机、ESP32-S3 |
+| [api](api/README-cn.md) | 两个 C-owned kernel 的 idle、8 次 RPC/拒绝与 Sample pair；含真实 RAM copy 和 owner step | 主机 |
+| [rpc_validation](rpc_validation/README-cn.md) | 公开 codec 解码、canonical bytes 摘要与 owned 转换 | 主机、ESP32-S3 |
 | [codec_plan](codec_plan/README-cn.md) | 字段查找与定长 packed array 的 codec 入口成本 | 主机、ESP32-S3 |
-| [mixed_traffic](mixed_traffic/README-cn.md) | ACK 丢失与背压下遥测年龄和 RPC 完成 | 主机、ESP32-S3 |
-| [framing](framing/README-cn.md) | 单趟 COBS 编码与已编码重传复用 | 主机、ESP32-S3 |
-| [owner_pass](owner_pass/README-cn.md) | 有界 dispatch、空检查和交接（靠计数而非计时） | 主机 |
-| [rpc_peer](rpc_peer/README-cn.md) | 可靠 RPC 请求前生成的 steady-session 守卫 | 主机 |
-| [bulk](../docs/bulk-performance-cn.md) | 顺序 bulk 状态机与配对 raw sink 的对照 | 主机 |
+| [mixed_traffic](mixed_traffic/README-cn.md) | 请求/响应丢失与背压下，遥测年龄和显式应用重试 | 主机、ESP32-S3 |
+| [framing](framing/README-cn.md) | 独立 framing 编码/alias/decode 工具 | 主机、ESP32-S3 |
+| [owner_pass](owner_pass/README-cn.md) | 32 命令槽、8 命令预算与 stop 拒绝（计数验证） | 主机 |
 | [fifo](../docs/fifo-performance.md) | 有序 SPSC FIFO runtime | 主机 |
 | [footprint](footprint/README-cn.md) | 各模块静态代码大小与调用方存储契约 | 主机 |
-| [reliable_loss](reliable_loss/README-cn.md) | 丢包下可靠路径的收敛、尝试次数与失败数 | 主机 |
-| [zephyr/rx_backend](zephyr/rx_backend/README-cn.md) | RX ring backend 行为 | ESP32-S3 |
 
 `benchmarks/zephyr/` 下的[固件变体](zephyr/README-cn.md)在 ESP32-S3 DevKitC 上跑同一批负载，
 两侧必须使用同一份冻结生成产物。
+
+当前注册表有七个套件：smoke = owner_pass/mixed_traffic/footprint，quick = framing/codec_plan/rpc_validation，full 再加 api。需要代码生成时，使用匹配的本地 WLC 0.13；不能假定已经发布。ARQ、框架 Bulk、replay peer hook、旧 RX backend 与旧 executor 工作负载已删除，逐文件替代见 [删除表](retired-execution-workloads.csv)。历史报告读取器保留，但新旧工作负载不混比。物理 USB/串口工具见 [host](host/README.md)，它们不属于统一计时预设。
 
 ## 统一入口
 
