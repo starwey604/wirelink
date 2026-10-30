@@ -10,8 +10,8 @@ network or security layer. Version 1 does not provide node addressing,
 discovery, routing, broadcast, authentication, encryption, or access control.
 Use an authenticated transport when the physical link is not trusted.
 
-This release is `0.8.0`, a pre-1.0 library using wire protocol v1. Exact wire
-bytes are frozen by the
+This development tree is `0.12.0`, paired with WLC/codegen contract `0.12`.
+It uses wire protocol v1; the link envelope bytes are frozen by the
 [v1 conformance vectors](docs/conformance-v1.md); compatibility guarantees and
 pre-1.0 limits are in [`docs/compatibility.md`](docs/compatibility.md); the C
 surface contract is in [`docs/api-boundary.md`](docs/api-boundary.md).
@@ -34,12 +34,13 @@ Chinese mirrors: [getting started](docs/getting-started-cn.md),
 ## Install
 
 Wirelink needs a matching WLC compiler to generate payload code. See
-[environment setup](docs/installation.md) ([中文](docs/installation-cn.md)); no
-nested WLC checkout is required. CMake downloads the verified host package
-automatically, or you can build WLC from source.
+[environment setup](docs/installation.md) ([中文](docs/installation-cn.md)); build WLC from the matching local source
+checkout. No published 0.12
+archive/source pair is pinned; automatic download fails explicitly until one is
+available. Pass `WIRELINK_WLC_EXECUTABLE` for reproducible builds.
 
 ```cmake
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 target_link_libraries(my_firmware PRIVATE Wirelink::wirelink)
 ```
 
@@ -65,7 +66,7 @@ The installed package exposes separate codec and runtime generation targets.
 WLC always runs as a host executable, including during a cross-build.
 
 ```cmake
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 
 wirelink_wlc_generate_codec(
   TARGET myapp_codec
@@ -82,14 +83,18 @@ Generate additional role runtimes against the same codec; set a distinct
 `wirelink_wlc_generate()` remains a single-runtime convenience wrapper.
 
 WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
-`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. If none names the
-pinned compatible version, Wirelink fetches the pinned host archive into
-`WIRELINK_WLC_CACHE_DIR` and verifies its SHA256. Set
+`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. For released versions with a published pair, Wirelink can fetch
+the verified
+host archive into `WIRELINK_WLC_CACHE_DIR`. The 0.12 development contract
+requires a matching local compiler. Set
 `WIRELINK_WLC_AUTO_DOWNLOAD=OFF` for offline or hermetic builds. The generated
 manifest must match the pinned compiler version and codegen contract before any
 generated translation unit is compiled.
 
-Payload rules are in [`docs/schema-v1.md`](docs/schema-v1.md). A compatible
+Default tagged payload rules are in [`docs/schema-v1.md`](docs/schema-v1.md).
+Explicit positional codecs use [`positional-v1`](docs/positional-v1.md).
+See the [0.12 migration guide](docs/migration-0.12.md) for ownership, guarantees
+and regeneration requirements. A compatible
 schema pair and its checked-in generated C artifacts live under
 [`tests/fixtures/wlc`](tests/fixtures/wlc).
 
@@ -211,3 +216,20 @@ ctest --test-dir build/fuzz --output-on-failure
 The conformance Ztest compares every envelope and integrity combination against
 exact v1 bytes. CI runs it with the full unit and integration matrix on native
 simulation and three QEMU architectures, plus hardware runs on ESP32-S3.
+
+### Link build capability
+
+Generated endpoint factories using `wl_link_defaults()` select CRC-16/CCITT-FALSE. Update
+both peers together; to keep the previous link integrity, explicitly set
+`config.link.integrity = WL_INTEGRITY_CRC32C` before initialization. Raw core
+configuration keeps the caller's selectors. See [0.12 migration](docs/migration-0.12.md).
+
+Generated `*_endpoint_init()` and `*_endpoint_config_defaults()` require an
+explicit defaults argument: `wl_link_defaults()` selects CRC16, while
+`wl_usb_bulk_link_defaults()` from the USB integration header selects NONE.
+User overrides after defaults remain authoritative. See
+[USB setup](docs/adapters.md#select-usb-defaults-before-initialization).
+
+The default `WIRELINK_LINK_PROFILE=multi` supports all existing envelope/integrity combinations. Use `-DWIRELINK_LINK_PROFILE=cobs-crc16` for a core that accepts only COBS + CRC16; Zephyr provides `CONFIG_WIRELINK_LINK_PROFILE_COBS_CRC16=y`. Both builds share the fused normal TX/RX kernels and preserve reliable DATA/ACK, retries and ownership. Omitted legal selectors return `WL_ERR_NOT_SUPPORTED`, invalid enum values return `WL_ERR_INVALID_ARG`, and size helpers return zero for unavailable modes. Configure endpoints explicitly; requested selectors are never rewritten.
+
+Installed CMake packages expose `Wirelink_LINK_PROFILE`; pkg-config exposes `link_profile`. Independent CRC/COBS tools remain available. The fixed build omits native-packet examples and the native loopback test, and limits the default framing diagnostic matrix to its supported combination. Wire bytes, public ABI and WLC contract remain unchanged. See [link build profiles](docs/link-profiles.md) / [链路构建配置](docs/link-profiles-cn.md).

@@ -3,6 +3,184 @@
 All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for pre-1.0 releases are described in [`docs/compatibility.md`](docs/compatibility.md).
 
+## Unreleased
+
+- Require native USB Bulk read capacity to exceed the maximum raw frame.
+  Return successful empty completions without a business unit or IO error;
+  abort failed/full requests and stop RX until transport reset instead of
+  accepting a possible frame suffix. Expected shutdown cancellations return
+  their claims without an error. COBS remains the default deployment.
+
+- Add a local Zephyr DWC2 correction and regression fixture for Bulk IN ZLP
+  requests and OUT transfers ending with full packets plus a ZLP. The USB FS
+  benchmark requires this common stack fix; check applicability against the
+  selected Zephyr version before applying it.
+
+- Preserve the Zephyr USB Bulk OUT rearm request when completion runs before
+  `usbd_ep_enqueue()` returns. Clear the previous request before submission;
+  an inline completion must schedule the next receive. Add a deterministic
+  regression for the continuous-stream receive stall.
+
+- **Breaking API:** generated `*_endpoint_config_defaults()` and quick
+  `*_endpoint_init()` now require a `wl_link_defaults_t` argument. Generic
+  `wl_link_defaults()` selects CRC16; the shared USB integration preset
+  `wl_usb_bulk_link_defaults()` selects NONE. Explicit overrides and complete
+  configs remain authoritative. Regenerate current SDKs with matching WLC;
+  envelope/storage bounds, wire version and schema identities are unchanged.
+
+- **Breaking default:** generated ordinary endpoints using generic defaults use CRC16 (CCITT-FALSE).
+  Update both peers together or explicitly select CRC32C before initialization.
+  Maximum storage bounds, explicit CRC32C support, ABI and identities are unchanged.
+
+- Keep explicit-time endpoint readiness code and literals in the ESP32 UART
+  owner IRAM fragment when callers migrate to `wl_endpoint_get_readiness_at`.
+
+- Reuse endpoint readiness aggregation and deduct elapsed query time once before
+  host waits. Migrate Zephyr RPC, clock and USB bulk owners to sampled budgets,
+  preserving notification/stop behavior and finite timeout conversion.
+
+
+- Batch UART IRQ notifications within each bounded callback, preserving partial
+  RX, errors, completion and stop wakes. Add opt-in notification diagnostics.
+- Bind waits to their readiness-query timestamp, including generated synchronous
+  RPC and host execution. Add an explicit-snapshot endpoint query and pure wait
+  rebasing helper; keep protocol bytes and ownership boundaries unchanged.
+- Keep finite Zephyr timeouts finite on 32-bit timeout kernels. Cancel public
+  UART DMA waits on stop while quiesce still joins driver buffers and callbacks.
+- Add Zephyr timeout rebasing against a saved kernel tick snapshot, including
+  finite microsecond conversion outside owner loops. Validate concurrent IRQ
+  stop on SMP and earlier external RPC deadlines across clock wrap.
+- Remove `wl_zephyr_uart_irq_wait_ready` without a compatibility wrapper. The
+  CDC IRQ sample now uses endpoint clock snapshots and its attached waiter; raw
+  wait, notification/stop behavior and the Zephyr timeout helpers remain available.
+
+- Fix WLC layout OFF for keyword-escaped runtime names and reject nonliteral
+  configuration values, including arithmetic expressions and C enum constants.
+- Add an optional literal-colocation boundary to RPC linker fragments while
+  preserving per-function GC and placement overrides.
+- Record ESP32-S3 multi/fixed three-round layout acceptance and OFF costs in
+  [`Round 3.5 results`](docs/wlc-elf-layout-round-3-5-result-cn.md).
+
+- Make WLC RPC ELF layout default ON with global/module OFF controls, independent
+  function input sections, module/function placement hooks and optional linker
+  grouping. Add native SDK build metadata; changing a prebuilt SDK's layout
+  requires rebuilding its archive/wheel. Preserve codegen 0.12, SDK binding API 2
+  and schema/binding/wire identities.
+- Supply Zephyr UART IRQ memory attributes from the platform build, removing
+  the generic adapter's ESP-IDF header and SoC dependency.
+
+- Add `multi` / `cobs-crc16` core build capabilities for CMake and Zephyr,
+  with installed-package metadata and explicit rejection of unavailable modes.
+  Share fused normal CRC16/COBS TX/RX kernels, bounded alias/exact TX handling
+  and fully checked routing; preserve reliable images, public ABI, wire bytes
+  and the 0.12 WLC contract.
+
+- Add independent RX framing workloads and byte/ownership regression coverage;
+  notify writable in the BUSY benchmark and validate versioned diagnostic
+  matrices. Record rejected envelope/integrity specialization candidates and
+  retain the measured state-only production implementation.
+
+- Reduce async RPC readiness to a validated state-only handle query, avoiding
+  full completion metadata construction while retaining owner/generation checks.
+  Record per-change measurements, the server CPU tradeoff, and unchanged replay,
+  wire, codegen and IRAM budgets in the instruction working-set report.
+
+- Recover default replay server CPU by emitting small scalar canonical hashes
+  at the validated runtime consumer, avoiding duplicate pump readiness queries
+  and skipping empty client/async slot scans. Preserve Schema-v1 bytes, replay
+  guarantees, retiring TX collection and storage sizes; record matched stage,
+  unprobed and mixed-peer measurements in the server recovery report.
+
+- Fix WLC shared-child codec plan overwrites: a positional-v1 child route or
+  RPC method no longer changes its enclosing tagged message or runtime bounds.
+  Preserve Schema-v1 nested bytes and canonical replay fingerprints.
+
+- Match the pinned Zephyr USB descriptor callback's const return type and
+  preserve descriptor-array constness in integration tests.
+
+- Finish the 0.12 migration across documentation/site and SDK/package workflows.
+  Emit private codecs only for managed messages and nested dependencies; remove
+  unused private wire fingerprints, retaining canonical Schema-v1 replay hashing.
+  Keep default tagged/replay and the existing 0.12 API/wire contract.
+
+- Advance the development API/codegen contract to 0.12. Generate explicit
+  positional-v1 RPC and ordinary-message codecs from the shared field plan,
+  preserve default tagged/replay wire bytes and canonical fingerprints,
+  reject generated source/header profile mismatches, and regenerate matching
+  SDKs. Remove private codec schema cloning/regeneration/namespace rewriting.
+  Measure RPC codecs and guarantees separately from Sample codec changes.
+
+- Advance the development API/codegen contract to 0.11. Keep replay as the
+  default; enable explicit per-method correlate with independent execution
+  generations, shared pending admission and a separate 64-byte response-slot
+  pool. Prune its fingerprints/history/TTL paths, size mixed replay history
+  from replay methods only, and regenerate matching SDKs and fixtures.
+
+- Decode bounded owned fields in place internally, keep public decoding transactional,
+  and prepare RPC response authority with one lookup. Group generated managed RPC
+  execution code in ELF Flash sections without changing wire bytes or IRAM coverage.
+
+- Break the development API/codegen contract to 0.10: RPC client slots retain
+  generated owned values, decoded once in RX. Async completion copies the value;
+  advanced results borrow it until release. Remove client encoded response pools
+  and decoding accessors; server replay bytes and managed wire v4 stay unchanged.
+
+- Add WLC static codec/RPC plans, policy identities and a reviewable plan
+  manifest in P1; positional execution and artifact migration follow in P4.
+- Reject ESP32 UART RX timeout settings that exceed the requested format's
+  SoC/clock threshold before modifying format registers or FIFOs; bound the
+  fixed ESP32-S3 8N1 benchmark builder to 1..102 character periods.
+- Add opt-in UART IRQ callback counts/timing and a local Zephyr ESP32 RX timeout
+  configuration patch; record the separate 22/8/4/2 latency and streaming study.
+- Fix UART DMA shutdown with a full RX ring by retiring actual driver ownership
+  and discarding unpublished staging bytes; synchronize entered callbacks.
+- Keep Asio UDP blocked on notification/deadline when RX capacity is exhausted,
+  and drain its timer and socket handlers during cancellation.
+- Place ESP32 UART IRQ and owner execution bridge code in IRAM; record its RAM
+  cost and matched latency/CPU measurements in the round-1 execution report.
+
+- Break execution API/ABI and generated contract to 0.9: unify runnable,
+  blocked and real deadlines; separate pass `did_work`; gate adapter/runtime
+  work and activate static services explicitly. Remove host legacy follow-up.
+- Separate TX memory consumed from optional physical drained. Add public UART
+  IRQ/DMA endpoint attach and latched waiters, bounded physical-idle deadlines,
+  and generation-safe callback detachment; migrate adapters and examples.
+- Cache consumer delimiter searches, gate BUSY retries by actual resources,
+  and run generated RPC expiry only when due. Regenerate matching SDKs and
+  fixtures; preserve protocol-v1 and codec bytes. Performance acceptance and
+  measured regressions are recorded in the round-1 execution report.
+- Require the matching local development WLC 0.9 compiler; no published 0.9
+  source/archive pair is pinned yet. Keep the published 0.8 digests historical.
+
+- Cache the verified Zephyr UART IRQ driver API during initialization, preserving
+  optional-operation behavior and system assertions. Rebuild adapter consumers
+  for the additional API pointer in the adapter context.
+- Keep large RPC dispatch and frame parsing boundaries out of caller fusion,
+  including LTO builds, to bound the instruction working set on small caches.
+
+- Decode frames directly without an intermediate header or repeated header
+  validation; preserve frozen Compact-v1 bytes, rejection precedence and
+  untouched output on failure.
+- Keep direct native-packet event delivery in a small poll path; call the
+  unchanged transport/control/retry progression only when it has work.
+
+- Prune the generated shared codec and canonical fingerprint engine to the field
+  types used by the complete schema, including imports. Omit unused UTF-8,
+  nested-message, packed and scalar helpers at generation time. Preserve wire
+  bytes, canonical fingerprints, unknown-field validation and public layouts;
+  initialize the empty owned-to-view placeholder. Regenerate checked-in SDKs.
+
+- Generate direct codecs and canonical fingerprint paths for small scalar
+  messages, preserving public TLV bytes and codec semantics while avoiding
+  descriptor type/cardinality dispatch on their hot paths.
+- Replace unreleased managed RPC wire encoding with BE64 originating sessions
+  and varuint33 correlation/rejection metadata (9–13 bytes; rejection 13–17).
+  Encode scalar fixed32 RPC business fields as full-range tagged uint32 varints
+  in a runtime-private codec; retain public codecs, canonical fingerprints,
+  mapped RPC and Compact-v1. Preserve full operation/session IDs, replay,
+  deferred completion and stale-response isolation. Include private maximum
+  sizes and wire-format provenance; regenerate both peers without fallback.
+
 ## 0.8.0 — 2026-09-13
 
 - Follow Zephyr USB descriptor endpoint reassignment in the USB Bulk adapter
