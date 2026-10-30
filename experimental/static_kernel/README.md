@@ -163,3 +163,20 @@ Progress marker and then submits a Control STOP RPC. A fixed nine-index queue
 refers to the existing TX owners; it adds no second call table or payload pool.
 Cancel/timeout removes an unsent index before its storage can be reused; BUSY
 keeps the head, and an asynchronous source stays leased until completion.
+
+The independent stream connectors `wirelink_stream_cobs_crc16` and
+`wirelink_stream_length16_none` wrap canonical ordinary DATA packets. Each has
+its own translation unit and direct entry points, with no runtime envelope
+selector or old link engine. COBS uses unchanged CRC16 and COBS primitives;
+length16 has no CRC/COBS dependency. Caller-owned wire TX bytes remain alive
+through physical drain. RX claims persist across fragments and backpressure;
+malformed/oversized units release claims and resynchronize at their framing
+boundary. Only a serialized byte producer calls feed; core/typed callbacks run
+later on owner step. Integrations where callbacks only publish I/O should stage
+bytes and call feed from owner service.
+
+`packet_stream` compares both connectors against the independent public frame
+tool for every payload length 0–2048, varying fragments and two-slot pressure,
+bad CRC, partial abort and recovery. The public frame tool is only a test oracle,
+not a kernel dependency. WLC additionally generates a non-benchmark RPC endpoint
+for each connector and runs real request/handler/typed completion loopback.
