@@ -11,7 +11,7 @@
 
 static calculator_endpoint_t client;
 wl_err_t initialize_client(void) {
-  return calculator_endpoint_init(&client, wl_platform_environment());
+  return calculator_endpoint_init(&client, wl_platform_environment(), wl_link_defaults());
 }
 ```
 
@@ -54,7 +54,7 @@ session 标识一次通信实例，不是设备地址、密钥或可比较大小
 它在同一初始化生命周期中保持不变，重传沿用原身份；普通断连不自动重建端点。
 关闭/停止 producer 后可重新初始化，Wirelink 自动取得新身份。不能复制活跃端点。
 
-托管 RPC v2 在请求/成功响应/拒绝中携带原客户端身份，并与调用编号共同关联响应。
+紧凑托管 RPC 在请求/成功响应/拒绝中携带原客户端身份，并与调用编号共同关联响应。
 因此旧客户端响应不能完成新实例的同号调用；可靠/不可靠请求响应均覆盖。
 可靠请求的元数据身份还必须与链路头一致。旧响应只留下 SESSION_MISMATCH 诊断，
 不终止其他调用；这不是认证，也不保证任意旧请求不会再次执行或持久 exactly-once。
@@ -69,6 +69,7 @@ session 标识一次通信实例，不是设备地址、密钥或可比较大小
 `config.clock` 改为 `config.environment.clock`，普通配置的 `link.session_id` 保持零，
 由初始化时的来源填入内部副本。不要在创建配置时自己生成随机 ID。
 
-请重新生成全部消费者。托管 RPC 元数据版本 2 从 12 增至 20 字节；旧版本不自动
-探测或回退，两端须成对升级，最大单帧业务容量减少 8 字节。显式字段映射 RPC、普通
-codec 和 Compact-v1 帧格式不变；字段映射模式不会自动获得托管响应的新保护。
+请重新生成全部消费者。managed wire v4 请求／成功响应元数据为 9–13 字节，拒绝为 13–17 字节，
+保留完整调用编号及客户端 session。本轮未发布格式直接替换原有 20 字节元数据，
+两端配套重编译，不提供旧格式回退。容量须包含 metadata 及所选业务 codec 的完整域上界。mapped RPC、业务 codec
+与 Compact-v1 基础帧不变；mapped 响应不会自动获得此身份隔离保障。

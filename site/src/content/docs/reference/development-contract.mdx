@@ -1,0 +1,50 @@
+---
+title: Development contract 0.12
+description: Regeneration, owned RPC results, explicit guarantees and positional codecs.
+sidebar:
+  order: 3
+---
+
+This development tree pairs Wirelink 0.12.0 with WLC 0.12.0 and codegen contract `0.12`. Build the matching local WLC source and regenerate codecs, runtimes and SDKs together. Binding API revision 2 is a separate compatibility identifier. Native SDKs and wheels must be rebuilt; no published 0.12 compiler/source archive pair is pinned yet.
+
+```sh
+wlc --version
+wlc codegen-contract
+```
+
+Expected output is `wlc 0.12.0` and `0.12`. Installed CMake consumers use `find_package(Wirelink 0.12 CONFIG REQUIRED)` and can set `WIRELINK_WLC_EXECUTABLE` to the local compiler.
+
+## Owned results
+
+Successful client responses decode once into a generated owned value per call. Async completion copies that value, releases capacity, then notifies. Sync copies the completion. Advanced inspection borrows a typed value until release/close; copying the value retains its bytes independently.
+
+Client encoded response pools, raw response access and completion-time decode helpers have been removed. Custom storage must supply the generated typed result array. Advanced codec views and deferred-handler request fields still expire at their documented borrow boundary.
+
+## Explicit guarantees
+
+| Policy | RPC duplicate handling |
+| --- | --- |
+| `replay` (default) | Canonical duplicate suppression and bounded response history within session/expiry limits |
+| `correlate` | Each valid arrival can execute independently; no completed history |
+
+Both policies reserve pending/response capacity before invoking the handler. Link ARQ is independent. Neither cancellation nor timeout rolls back peer effects; durable business idempotency needs an application key/state machine.
+
+## Explicit codecs
+
+```text
+rpc Setpoint {
+  request = SetpointRequest;
+  response = SetpointResponse;
+  guarantee = replay;
+  codec = positional_v1;
+}
+latest Sample { delivery = unreliable; codec = schema_v1; }
+```
+
+RPC defaults to `managed_tagged`; ordinary routes default to `schema_v1`. Each can independently select `positional_v1`. Pass the same profile to codec and runtime generation, including the codec target's CMake `PROFILE` argument for positional ordinary routes.
+
+Managed wire v4 uses BE64 originating sessions and varuint33 call/rejection metadata: 9–13 bytes for normal requests/responses, 13–17 for rejection. The old fixed 20-byte metadata has no fallback. Positional bodies use field-ID order and optional presence bits; their evolution rules differ from tagged bodies. Only supported scalar/fixed numeric packed shapes are accepted. Maximum sizes cover the full numeric domains.
+
+Peers must verify schema/profile identities at deployment. There is no negotiation or format sniffing, and successful decoding alone does not prove matching profiles. See the [format specification](https://github.com/starwey604/wirelink/blob/main/docs/positional-v1.md) and [migration guide](https://github.com/starwey604/wirelink/blob/main/docs/migration-0.12.md).
+
+Latest storage may replace multiple publications in one owner pass. To consume each publication, read/release in the result observer or use an appropriate FIFO.

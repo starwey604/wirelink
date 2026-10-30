@@ -1,5 +1,22 @@
 # Lesson three: use your own project and hardware
 
+Endpoint setup now takes a `wl_link_defaults_t` value explicitly:
+`*_endpoint_config_defaults(&config, environment, wl_link_defaults())` and
+`*_endpoint_init(&endpoint, environment, wl_link_defaults())` select CRC16.
+USB integrations can pass `wl_usb_bulk_link_defaults()` from
+`<wirelink/usb_bulk_defaults.h>` to select NONE instead. Both peers must use the
+same integrity; there is no negotiation or fallback. Apply application overrides
+such as `config.link.integrity = WL_INTEGRITY_CRC32C` after defaults and before
+`*_endpoint_init_config()` or `*_endpoint_create()`. Complete configs remain
+final. Envelope selection still follows the profile (`any` defaults to native
+packets), and storage still reserves the maximum CRC32C trailer. The default
+core build remains `multi`; fixed `cobs-crc16` rejects USB NONE with
+`WL_ERR_NOT_SUPPORTED`. Raw core configurations can use
+`wl_config_apply_link_defaults(&config, defaults)` without resetting other
+fields. These signatures replace the old two-argument entry points; regenerate
+current code with the matching WLC. Protocol version and schema identities do
+not change.
+
 You can now [receive temperature](getting-started.md) and
 [request a calculation](tutorial-rpc.md). This lesson moves that code into an
 independent project, then explains replacing the localhost UDP connection.
@@ -88,7 +105,7 @@ Windows multi-configuration builds add `Release/` and `.exe` to executable paths
 
 The independent consumer needs no Asio source include path: the installed adapter
 is already compiled and hides Asio headers. WLC runs only at build time; use
-WLC 0.8.0 with codegen contract 0.8 as pinned in [installation](installation.md).
+WLC 0.12.0 with codegen contract 0.12 as pinned in [installation](installation.md).
 Codec-only consumers need neither runtime nor UDP. For shared codecs and
 `RUNTIME_NAME`, consult the
 [WLC guide](https://github.com/starwey604/wlc/blob/18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29/README.md).
@@ -175,7 +192,7 @@ Wirelink packets. Choose an [existing adapter](adapters.md) and check its input 
 
 A custom adapter registers a send entry with `wl_set_sink()`.
 Return `WL_SINK_SENT` for synchronous consumption, or `WL_SINK_STARTED` while
-the driver borrows the bytes, followed by exactly one owner-side `wl_tx_complete()`.
+the driver borrows the bytes, followed by exactly one owner-side `wl_tx_consumed()`.
 `WL_SINK_BUSY` means temporary backpressure; `WL_SINK_FAILED` reports I/O failure.
 
 Publish packets using `wl_feed_unit()`, or streams using `wl_feed_bytes()`.
@@ -185,7 +202,7 @@ DMA and reduced-copy ingress are later optimizations after this path works.
 
 The default path calls only `*_endpoint_step()`: attached adapter service, event
 cleanup, and runtime progress are included. `*_endpoint_handle()` supplies the
-common endpoint; use `wl_endpoint_get_hint()` before sleeping. LATEST/FIFO
+common endpoint; use `wl_endpoint_get_readiness()` before sleeping. LATEST/FIFO
 `endpoint_read_*()` returns an owned copy. Advanced zero-copy reading remains
 available through `endpoint_runtime()` and existing acquire/release calls.
 
@@ -212,7 +229,7 @@ Only when deliberately assembling the advanced link/runtime path, each round:
 2. Run `wl_pump_step()` with adapter completions connected through service hooks;
    the pump establishes the pass time before the adapter reports completion.
 3. Read latest values or RPC states and perform bounded application work.
-4. Before sleeping, call `wl_pump_get_hint()` for immediate work and timeout timing.
+4. Before sleeping, call `wl_pump_get_readiness()` for immediate work and timeout timing.
    Also wake on external reception, TX completion, and writability events.
 
 Generated `runtime_pump_hooks()` connects dispatch, receive-event release,
@@ -261,3 +278,37 @@ Use references as needed:
 - [RPC runtime](rpc-runtime.md) for failures and retries.
 - Bulk in [application-layer](application-layer.md) for large objects.
 - [Protocol](protocol.md) and [compatibility](compatibility.md) for wire changes and upgrades.
+
+
+## Select USB defaults before initialization
+
+The generated config factory and quick init now require a third argument:
+`wl_link_defaults()` selects CRC16; `wl_usb_bulk_link_defaults()` from
+`<wirelink/usb_bulk_defaults.h>` selects NONE. Generic generated SDKs depend
+only on the portable C defaults header. CMake consumers of the USB header link
+`Wirelink::usb_bulk_defaults`; the Astrial USB target and Zephyr module supply
+its include path automatically.
+
+```c
+#include <wirelink/usb_bulk_defaults.h>
+
+int err = task_endpoint_config_defaults(
+    &config, environment, wl_usb_bulk_link_defaults());
+if (err != WL_OK) return err;
+/* Optional expert override: config.link.integrity = WL_INTEGRITY_CRC32C; */
+return task_endpoint_init_config(&endpoint, &config);
+```
+
+Quick init accepts the same defaults value. `create()` consumes the final config.
+Raw core users call `wl_config_apply_link_defaults(&config,
+wl_usb_bulk_link_defaults())`; only integrity changes. Apply defaults, apply
+user overrides, initialize, then bind the adapter. Binding never rewrites the
+configuration. Both peers must agree. Invalid selectors fail, and fixed
+`cobs-crc16` rejects NONE with `WL_ERR_NOT_SUPPORTED` without fallback.
+
+The preset preserves the profile envelope, payload/session/MTU/retry settings,
+length checks, RPC deadlines, replay and business validation. The CDC IRQ sample
+explicitly opts into the same trusted direct USB defaults, matching the host
+CDC tool; the generic UART IRQ adapter does not infer the medium. Ordinary UART
+uses the generic CRC16 defaults. The Bulk example already used NONE before this
+change, so this API change makes no new performance claim.

@@ -11,7 +11,7 @@ is published; both managed-RPC peers must use matching builds.
 #include "wirelink/platform.h"
 static calculator_endpoint_t client;
 wl_err_t initialize_client(void) {
-  return calculator_endpoint_init(&client, wl_platform_environment());
+  return calculator_endpoint_init(&client, wl_platform_environment(), wl_link_defaults());
 }
 ```
 
@@ -50,7 +50,7 @@ unchanged through retransmission and ordinary link disconnection. After stopping
 producers and orderly close, reinitialization obtains a fresh identity. Do not
 copy/move a live endpoint.
 
-Managed RPC v2 carries the originating client identity in requests and all replies,
+Compact managed RPC carries the originating client identity in requests and all replies,
 including rejection, cached replay and deferred completion. Responses match both
 that identity and the call number for all delivery combinations. Reliable request
 metadata must also match the link sender identity. Stale responses are observable
@@ -67,7 +67,10 @@ Advanced raw link/runtime integrations still explicitly own their identity polic
 Replace `init(endpoint, session_id, clock)` with `init(endpoint, environment)` and
 `config.clock` with `config.environment.clock`. Leave the ordinary configuration's
 `link.session_id` zero: initialization fills an internal copy. Regenerate all
-consumers. Managed metadata v2 is 20 rather than 12 bytes and does not
-interoperate with v1: upgrade both peers. Maximum one-frame business capacity
-shrinks by eight bytes. Mapped RPC, business codec bytes and Compact-v1 frames are
-unchanged; mapped responses do not automatically acquire this new protection.
+consumers. Managed wire v4 metadata uses a BE64 originating session and a
+varuint33 call/rejection field: 9–13 bytes for requests/success, or 13–17 for
+rejection, retaining full operation32 and int32 status. Regenerate both peers;
+there is no fallback to the replaced 20-byte metadata. Capacity must include the
+full-domain metadata and selected business codec bounds. Mapped RPC and
+Compact-v1 frames are unchanged; mapped responses do not automatically acquire
+this identity protection.

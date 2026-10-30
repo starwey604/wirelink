@@ -123,7 +123,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 if(NOT TARGET Wirelink::asio_udp)
   message(FATAL_ERROR "Wirelink was installed without its Asio UDP adapter")
 endif()
@@ -193,10 +193,10 @@ static wl_err_t wait_for_next_pass(
     temperature_endpoint_t& endpoint,
     UdpAdapter& adapter,
     std::chrono::milliseconds maximum_wait) {
-  wl_poll_hint_t hint{};
-  const auto hint_result = wl_endpoint_get_hint(
+  wl_readiness_t hint{};
+  const auto hint_result = wl_endpoint_get_readiness(
       temperature_endpoint_handle(&endpoint), &hint);
-  if (hint_result != WL_OK || hint.work_pending) return hint_result;
+  if (hint_result != WL_OK || hint.runnable) return hint_result;
 
   const auto protocol_wait = std::chrono::milliseconds(
       static_cast<std::chrono::milliseconds::rep>(hint.next_deadline_ms));
@@ -274,7 +274,7 @@ int main(int argc, char** argv) {
   const std::uint16_t peer_port = publish ? 49001 : 49000;
   static temperature_endpoint_t endpoint;
   CHECK(temperature_endpoint_init(
-          &endpoint, wl_platform_environment()) == WL_OK);
+          &endpoint, wl_platform_environment(), wl_link_defaults()) == WL_OK);
 
   UdpAdapterConfig config;
   config.bind_address = "127.0.0.1";
@@ -327,7 +327,7 @@ endpoint_step() → inspect or submit application data → get the next hint →
 advances protocol deadlines, and dispatches generated behavior. It performs a
 bounded amount of work and returns control to the application.
 
-`wl_endpoint_get_hint()` reports whether another pass is already needed and how
+`wl_endpoint_get_readiness()` reports whether another pass is already needed and how
 long remains before the nearest protocol deadline. `wait_for_activity()` waits
 for socket readiness for no longer than that deadline or the application's own
 limit. A readiness wake does not parse data or invoke a callback; the next
@@ -468,3 +468,13 @@ address and checksum do not authenticate the sender.
 [Move the subscriber to Zephyr](../zephyr-udp-subscriber/) while preserving the
 same schema and link profile. The device will use fixed adapter storage and
 configure its network interface separately from Wirelink.
+
+
+The defaults argument is selected before initialization. UDP tutorials use
+`wl_link_defaults()` (CRC16). USB Bulk callers can instead include
+`<wirelink/usb_bulk_defaults.h>` and pass `wl_usb_bulk_link_defaults()` (NONE).
+The generated profile still selects the envelope. Override `config.link.integrity`
+after defaults and before `init_config()` or `create()` when additional CRC16 or
+CRC32C protection is desired; adapters never change an initialized link's mode.
+Both peers must agree. Fixed `cobs-crc16` builds reject NONE. The USB header is
+provided by `Wirelink::usb_bulk_defaults`, without a libusb or platform dependency.

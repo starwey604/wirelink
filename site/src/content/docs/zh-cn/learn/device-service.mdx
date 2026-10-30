@@ -185,7 +185,7 @@ device_server_endpoint_config_t config;
 device_service_init(&device);
 job.endpoint = &endpoint;
 CHECK(device_server_endpoint_config_defaults(
-        &config, wl_platform_environment()) == WL_OK);
+        &config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
 config.user_data = &device;
 device_service_bind(&config);
 calculator_service_bind(&config);

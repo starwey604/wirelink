@@ -36,7 +36,7 @@ socket readiness waiting and shutdown; concurrent close is not supported.
 | Explicit legacy COBS stream | One COBS-framed unit | Stage and validate datagram size, then copy into a stream DMA claim |
 
 The initialized link selects framing and integrity; neither mode forces
-`WL_INTEGRITY_NONE`. Tutorials retain generated native-packet/CRC32C defaults.
+`WL_INTEGRITY_NONE`. Tutorials retain generated native-packet/CRC16 defaults.
 COBS is an explicit compatibility path, not the natural UDP default. A transport
 mode change must be coordinated with the peer; nothing auto-detects the format.
 
@@ -57,7 +57,7 @@ Unknown sources are dropped diagnostically without failing unrelated calls.
 
 ## Waiting and deadlines
 
-Use the generated `endpoint_step()`, obtain `wl_endpoint_get_hint()`, then wait
+Use the generated `endpoint_step()`, obtain `wl_endpoint_get_readiness()`, then wait
 no longer than the nearest link, RPC or application deadline. `wait_for_activity()`
 uses Asio socket readiness with a bounded `io_context` wait; it does not call
 Wirelink or business callbacks, and creates no background thread. Readiness only

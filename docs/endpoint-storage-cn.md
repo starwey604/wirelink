@@ -9,7 +9,7 @@
 ```c
 calculator_endpoint_t *client = NULL;
 calculator_endpoint_config_t config;
-calculator_endpoint_config_defaults(&config, wl_platform_environment());
+calculator_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults());
 wl_err_t error = calculator_endpoint_create(&client, &config, &allocator);
 ```
 

@@ -10,8 +10,8 @@ Each step reads the endpoint clock once, then runs:
 1. Adapter service (including product pre-dispatch safety deadlines).
 2. Bounded event polling. Policy observes each event **before** generated
    dispatch. It must not release that event or take its TX handle.
-3. Policy progress, then generated runtime/RPC service.
-4. Statically bound `wl_endpoint_service_t` progress callbacks, in rotating order.
+3. Active/due policy step, then readiness-gated generated runtime/RPC service.
+4. Statically bound active/due `wl_endpoint_service_t` step callbacks, in rotating order.
 
 `wl_endpoint_set_services()` borrows one immutable array before the first step.
 Its deadline hints merge with the existing hints. Session hooks see nonzero RX
@@ -28,15 +28,15 @@ RPC admission and telemetry during upload in product policy; an unbounded RPC
 producer can starve bulk. A blocked callback must not report immediate work
 without a possible transition: use transport wakeups or a future deadline.
 
-Policy progress must not wait or run another event loop. Report follow-up work
-only when another pass is needed; consuming the current work alone is not a
-reason. The policy deadline is merged with generated and transport deadlines.
-No callback may recursively step or close the endpoint.
+Policy/service step returns `wl_work_result_t`: `did_work` records this pass;
+`runnable` requests bounded further work. Owner-local jobs explicitly activate
+policy/service and notify the waiter. Events and core resource-generation changes
+activate bound services; timer callbacks contribute real deadlines. A blocked
+service returns runnable zero and waits for that resource or its timer. No callback
+may recursively step or close. See [the execution contract](execution-contract.md).
 
-Generated drivers mark readiness as complete. Executors therefore consult the
-merged hint instead of requesting another pass just because RX was consumed.
-Custom drivers leave `readiness_complete` zero unless their endpoint hint also
-accounts for all driver-local follow-up work.
+Custom and generated drivers both provide complete readiness. The executor has
+no `readiness_complete` switch or conservative legacy follow-up path.
 
 Adapter quiesce stops producers before generated close cancels and delivers
 accepted client calls. Keep call contexts alive until close completes. For

@@ -28,7 +28,7 @@
 | native packet，教程默认 | 一个完整 Wirelink 帧 | 直接接收到 core unit-queue claim |
 | 显式旧 COBS stream | 一个 COBS 单元 | 暂存并检查数据报长度，再复制进 stream DMA claim |
 
-封装和校验来自已初始化连接，不再强制 `NONE`。教程沿用默认的 native packet／CRC32C。
+封装和校验来自已初始化连接，不再强制 `NONE`。教程沿用默认的 native packet／CRC16。
 切换传输模式需同步对端，不自动识别或回退。COBS 只是显式兼容路径。
 
 `maximum_datagram_size=0` 按连接推导完整帧上限；显式值必须覆盖该上限且不超过 65507。
@@ -44,7 +44,7 @@ native 路径没有这次复制。并不承诺 Asio 或其他主机操作完全�
 
 ## 等待与截止时间
 
-先调用生成的 `endpoint_step()`，再用 `wl_endpoint_get_hint()` 合并链路、RPC 与业务截止时间。
+先调用生成的 `endpoint_step()`，再用 `wl_endpoint_get_readiness()` 合并链路、RPC 与业务截止时间。
 `wait_for_activity()` 等待 socket 可读，发送背压时也等待可写，最多等待指定时长。
 它不运行 Wirelink／业务回调，也不创建后台线程；就绪只表示下一轮可能推进。
 返回前会取消、清理尚未完成的就绪回调。可观察 `wait_calls`、`wait_timeouts` 和

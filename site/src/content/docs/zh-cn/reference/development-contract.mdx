@@ -1,0 +1,54 @@
+---
+title: 0.12 开发合同与迁移
+description: 配套生成、RPC 自持结果、显式保证与位置编码。
+sidebar:
+  order: 3
+---
+
+当前开发树配套 Wirelink/WLC 0.12.0，生成契约为 `0.12`。使用匹配的本地 WLC 源码，重新生成 codec、runtime 和 SDK，再重建原生包及 wheel。
+
+Binding API revision 2 是独立标识。0.12 compiler/source 发布归档尚未固定。
+
+```sh
+wlc --version
+wlc codegen-contract
+```
+
+预期分别输出 `wlc 0.12.0` 和 `0.12`。安装消费者使用 `find_package(Wirelink 0.12 CONFIG REQUIRED)`，通过 `WIRELINK_WLC_EXECUTABLE` 指定本地 compiler。
+
+## 自持结果
+
+客户端成功响应在 RX 中一次解码到每调用的 owned value。async 先复制到独立 completion，再释放容量，最后通知；sync 复制 completion。高级 inspect 借用 typed value 到 release/close 为止，复制整个值后可独立保存字节。
+
+客户端 encoded response 池、raw response 访问和完成阶段解码 helper 已删除。自定义 storage 必须提供生成的 typed result 数组。高级 codec view 和 deferred handler 请求字段仍受接口借用期约束。
+
+## 显式保证
+
+| 策略 | RPC 重复处理 |
+| --- | --- |
+| `replay`（默认） | 在会话及过期范围内做 canonical 重复抑制，保留有限响应历史 |
+| `correlate` | 每次合法到达均可独立执行，不保留完成历史 |
+
+两种策略都在 handler 前预留 pending/响应容量。链路 ARQ 独立工作。取消和超时不撤销远端副作用；持久业务幂等需要应用键和状态机。
+
+## 显式编码
+
+```text
+rpc Setpoint {
+  request = SetpointRequest;
+  response = SetpointResponse;
+  guarantee = replay;
+  codec = positional_v1;
+}
+latest Sample { delivery = unreliable; codec = schema_v1; }
+```
+
+RPC 默认 `managed_tagged`，普通 route 默认 `schema_v1`，各自可独立选择 `positional_v1`。codec 和 runtime 使用匹配 profile；普通消息采用位置格式时，CMake codec target 也要传 `PROFILE`。
+
+managed wire v4 使用 BE64 原客户端 session 和 varuint33 调用/拒绝元数据。普通请求及响应为 9–13 字节，拒绝为 13–17 字节，不回退到旧固定 20 字节格式。
+
+位置业务体按字段 ID 排列，以 presence bitmap 表示可选字段；演进规则与 tagged 不同。仅支持规定的 scalar 和固定数值 packed 组合，容量按完整数值域计算。
+
+部署时须验证两端 schema/profile identity。没有协商或格式嗅探，解码成功也不能证明 profile 一致。详见[格式规范](https://github.com/starwey604/wirelink/blob/main/docs/positional-v1.md)和[迁移指南](https://github.com/starwey604/wirelink/blob/main/docs/migration-0.12-cn.md)。
+
+latest 在一个 owner pass 内也可能覆盖多次 publication。需要消费每条发布时，在结果 observer 中读取/release，或选择适合的 FIFO。

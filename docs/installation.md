@@ -14,25 +14,21 @@ A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WL
 
 ## 2. Get a matching compiler
 
-This tree requires **WLC 0.8.0 with codegen contract 0.8**. It adds static imports
-and borrowed direct routes without changing the wire format. Older published
-compilers cannot generate this API.
-CMake fetches the matching host package automatically. To build it yourself,
-check out the independent WLC repository at tag `v0.8.0` and run:
+This development tree requires **WLC 0.12.0, codegen contract 0.12**. Build the
+matching independent WLC working tree supplied with this iteration (its path
+need not be nested in Wirelink):
 
 ```sh
-cargo build --release --locked
-./target/release/wlc codegen-contract
+cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
+/path/to/matching-wlc/target/release/wlc --version
+/path/to/matching-wlc/target/release/wlc codegen-contract
 ```
 
-Pass the absolute path to `target/release/wlc` (`wlc.exe` on Windows) to CMake;
-this does not replace your installed compiler. The checkout can live anywhere.
-The exact source commit and archive checksum are pinned in CMake.
-
-On Windows, preserve LF when cloning the tagged compiler source:
-`git -c core.autocrlf=false clone --branch v0.8.0 https://github.com/starwey604/wlc.git`.
-WLC embeds SDK template bytes at build time; automatic CRLF conversion changes
-generated artifacts. The published source archive and binaries use canonical LF.
+Use that absolute executable path as `WIRELINK_WLC_EXECUTABLE`, with
+`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`. Preserve LF when cloning/building the compiler;
+its embedded SDK templates must be deterministic. The round-1 report records the
+exact working-tree revisions and hashes used for verification. Published WLC
+0.8.0 cannot generate the new execution interfaces.
 
 ## 3. Verify installation
 
@@ -41,7 +37,7 @@ wlc --version
 wlc codegen-contract
 ```
 
-Expect `wlc 0.8.0` and `0.8` from the executable you will pass to CMake.
+Expect `wlc 0.12.0` and `0.12` from the executable you will pass to CMake.
 The codegen contract identifies generated C interfaces and layouts,
 not the wire protocol. Managed and mapped RPC require different payload formats;
 switching modes or managed metadata versions needs coordinated peers;
@@ -66,13 +62,11 @@ virtual serial driver.
 
 ## 5. Automatic downloads
 
-CMake selects a package using the build host, not the embedded target: Windows
-x86-64, Linux x86-64/aarch64 (static musl), or macOS x86-64/arm64. It downloads
-the pinned v0.8.0 archive, verifies its hard-coded SHA256, and checks both
-compiler version and ABI. No Rust toolchain or local WLC checkout is needed.
-Other hosts use the paired, verified source archive and host Rust/Cargo.
-
-For offline builds, supply `-DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc`
-and `-DWIRELINK_WLC_AUTO_DOWNLOAD=OFF`. No consumer needs our worktree layout.
+No 0.12 release archive/source pair is pinned yet. Automatic download therefore
+fails explicitly rather than using the old published 0.8 compiler. Supply the
+matching local executable as described above. Historical published workflows
+are documented in the [0.8 release guide](release-v0.8.0-cn.md).
 
 Continue with [displaying temperature](getting-started.md).
+
+Regeneration and removed interfaces are covered by [0.12](migration-0.12.md).

@@ -1,5 +1,7 @@
 # Wirelink 1.0 API 边界
 
+[执行契约 0.12](execution-contract-cn.md)
+
 状态：1.0 发布前的设计约定。Compact-v1 的线上字节格式已经冻结；首个
 1.0 候选版本之前，C API 和生成 runtime API 仍可调整。本文用于审阅 API
 全貌，不逐项罗列所有函数原型。
@@ -117,7 +119,7 @@ Wirelink 拥有的存储中；编码失败用 `abort()` 结束 claim。除非数
 
 `wl_poll()` 执行有界进度并至多返回一个事件。RX payload 一直借用到一次且仅
 一次 `wl_event_release()`。可靠终态 handle 一直保留到一次且仅一次
-`wl_tx_take()`。`wl_poll_get_hint()` 无副作用，返回是否有立即工作和相对
+`wl_tx_take()`。`wl_link_get_readiness()` 无副作用，返回是否有立即工作和相对
 deadline；adapter 后续产生的外部 wake 仍必须单独处理。
 
 ## Port 与 Adapter 边界
@@ -126,7 +128,7 @@ adapter 绑定一个 `wl_sink_fn`：
 
 - `WL_SINK_SENT`：字节已同步消费；
 - `WL_SINK_STARTED`：adapter 借用字节，之后必须对应调用一次
-  `wl_tx_complete()`；
+  `wl_tx_consumed()`；
 - `WL_SINK_BUSY`：可重试的背压；
 - `WL_SINK_FAILED`：不可恢复的本次 I/O 失败。
 
@@ -147,7 +149,7 @@ adapter 绑定一个 `wl_sink_fn`：
 `wl_pump_step()` 通过彼此独立的 adapter/application context，组合 adapter
 service、有界事件分发、应用进度和默认事件清理。事件回调只有在已经 release
 RX 事件或 take 终态 handle 后才能返回 `CONSUMED`；返回 `UNHANDLED` 会把该动作
-交给 pump。`wl_pump_get_hint()` 合并核心、adapter 和应用的相对 deadline。
+交给 pump。`wl_pump_get_readiness()` 合并核心、adapter 和应用的相对 deadline。
 `wl_pump_quiesce()` 转交 adapter 的关闭流程。
 
 pump 是同步辅助器，不是 scheduler 或 task。应用仍然拥有 wake 原语、公平性预算、
@@ -172,7 +174,7 @@ deadline hint。reset 必须由外部串行化，存在 borrow/claim 时不得 r
 
 普通应用声明生成的 `*_endpoint_t`，无需自己定义缓冲区容器。它包含通用
 `wl_endpoint_t`、消息 runtime 和静态存储，内部成员不是应用 API。
-`endpoint_init()` 使用整包传输/CRC32C 默认配置；`init_config()` 允许选择传输、
+`endpoint_init(endpoint, environment, wl_link_defaults())` 使用 profile 决定的 envelope 和 CRC16 默认配置；`init_config()` 允许选择传输、
 RPC 角色、超时策略和回调。对象首次使用前必须零初始化，关闭前不能移动。
 
 初始化时要求传入 `wl_clock_t`，日常端点调用不再传 `now_ms`；

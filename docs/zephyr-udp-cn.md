@@ -30,7 +30,7 @@ WL_ZEPHYR_UDP_DEFINE(udp, CALCULATOR_ENDPOINT_MAX_PAYLOAD, 2);
 wl_zephyr_udp_config_t network = {
   .peer_address = "192.168.1.20", .peer_port = 49101, .local_port = 49100,
 };
-CHECK(calculator_endpoint_init(&client, wl_platform_environment()) == WL_OK);
+CHECK(calculator_endpoint_init(&client, wl_platform_environment(), wl_link_defaults()) == WL_OK);
 CHECK(wl_zephyr_udp_open(&udp, calculator_endpoint_handle(&client), &network) == WL_OK);
 wl_rpc_completion_t result = calculator_endpoint_add_sync(&client, &request, &response, 1500);
 CHECK(calculator_endpoint_close(&client) == WL_OK);

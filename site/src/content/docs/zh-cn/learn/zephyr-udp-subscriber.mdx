@@ -30,7 +30,7 @@ wlc --version
 wlc codegen-contract
 ```
 
-预期值仍然是 `wlc 0.8.0` 和生成契约 `0.8`。
+预期值仍然是 `wlc 0.12.0` 和生成契约 `0.12`。
 
 此外还需要 Zephyr 4.4.0 workspace 和 Zephyr SDK。
 
@@ -204,7 +204,7 @@ int main(void) {
   }
 
   wl_err_t error = temperature_endpoint_init(
-      &subscriber, wl_platform_environment());
+      &subscriber, wl_platform_environment(), wl_link_defaults());
   if (error != WL_OK) {
     printk("endpoint init: %d\n", error);
     return 1;

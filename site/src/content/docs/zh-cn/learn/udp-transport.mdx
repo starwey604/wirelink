@@ -84,7 +84,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 if(NOT TARGET Wirelink::asio_udp)
   message(FATAL_ERROR "Wirelink was installed without its Asio UDP adapter")
 endif()
@@ -146,10 +146,10 @@ static wl_err_t wait_for_next_pass(
     temperature_endpoint_t& endpoint,
     UdpAdapter& adapter,
     std::chrono::milliseconds maximum_wait) {
-  wl_poll_hint_t hint{};
-  const auto hint_result = wl_endpoint_get_hint(
+  wl_readiness_t hint{};
+  const auto hint_result = wl_endpoint_get_readiness(
       temperature_endpoint_handle(&endpoint), &hint);
-  if (hint_result != WL_OK || hint.work_pending) return hint_result;
+  if (hint_result != WL_OK || hint.runnable) return hint_result;
 
   const auto protocol_wait = std::chrono::milliseconds(
       static_cast<std::chrono::milliseconds::rep>(hint.next_deadline_ms));
@@ -227,7 +227,7 @@ int main(int argc, char** argv) {
   const std::uint16_t peer_port = publish ? 49001 : 49000;
   static temperature_endpoint_t endpoint;
   CHECK(temperature_endpoint_init(
-          &endpoint, wl_platform_environment()) == WL_OK);
+          &endpoint, wl_platform_environment(), wl_link_defaults()) == WL_OK);
 
   UdpAdapterConfig config;
   config.bind_address = "127.0.0.1";
@@ -276,7 +276,7 @@ endpoint_step() → 检查或提交应用数据 → 取得下一次 hint → 等
 
 `temperature_endpoint_step()` 会服务 adapter、解析收到的 frame、推进协议 deadline，并分派生成行为。每次调用只完成有界的工作，然后把控制权交还应用。
 
-`wl_endpoint_get_hint()` 会说明是否已经需要再次推进，以及距离最近协议 deadline 还有多久。`wait_for_activity()` 等待 socket 就绪，但不会超过协议 deadline 或应用自己的时间上限。就绪通知只报告有活动；数据的解析和回调的调用都发生在接下来的 `endpoint_step()` 里，仍在同一个 owner 上。
+`wl_endpoint_get_readiness()` 会说明是否已经需要再次推进，以及距离最近协议 deadline 还有多久。`wait_for_activity()` 等待 socket 就绪，但不会超过协议 deadline 或应用自己的时间上限。就绪通知只报告有活动；数据的解析和回调的调用都发生在接下来的 `endpoint_step()` 里，仍在同一个 owner 上。
 
 <MultipleChoice
   id="udp-wait-and-owner-zh-cn"
@@ -385,3 +385,11 @@ adapter.reset();
 ## 下一步
 
 [把 subscriber 移到 Zephyr](../zephyr-udp-subscriber/)，同时保留相同 schema 和 link profile。设备端将使用固定 adapter 存储，并在 Wirelink 之外单独配置网络接口。
+
+
+默认配置在初始化前选择。UDP 教程传入 `wl_link_defaults()`（CRC16）；USB Bulk 接入
+可 include `<wirelink/usb_bulk_defaults.h>`，改传 `wl_usb_bulk_link_defaults()`（NONE）。
+envelope 仍由生成 profile 决定。需要额外 CRC16／CRC32C 时，在 defaults 后、
+`init_config()`／`create()` 前覆盖 `config.link.integrity`；adapter 不改写已初始化 link。
+两端必须一致；固定 `cobs-crc16` 构建拒绝 NONE。CMake 通过无 libusb／平台依赖的
+`Wirelink::usb_bulk_defaults` 提供 USB 集成头。

@@ -123,8 +123,8 @@ fit its bound in encoded UTF-8 bytes at schema-analysis time.
 
 A business codec payload is a sequence of zero or more tagged fields. There is no payload
 header and no schema revision field: the Wirelink DATA `message_id` chooses the
-generated decoder. Managed RPC adds its own metadata before these codec bytes;
-the RPC runtime removes it before decoding. See [RPC runtime](rpc-runtime.md).
+generated decoder. Managed RPC has a separate private tagged body encoding and metadata; it
+does not change these public codec bytes. See [RPC runtime](rpc-runtime.md).
 
 Each field begins with an unsigned-LEB128 key:
 

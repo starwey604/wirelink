@@ -1,5 +1,18 @@
 # 第三篇：接入自己的工程与硬件
 
+端点初始化现在显式接收按值传递的 `wl_link_defaults_t`：
+`*_endpoint_config_defaults(&config, environment, wl_link_defaults())` 和
+`*_endpoint_init(&endpoint, environment, wl_link_defaults())` 选择 CRC16；
+USB 接入从 `<wirelink/usb_bulk_defaults.h>` 传入
+`wl_usb_bulk_link_defaults()`，选择 NONE。两端的 integrity 必须一致，没有协商或回退。
+用户在 defaults 后、`*_endpoint_init_config()`／`*_endpoint_create()` 前显式覆盖
+`config.link.integrity`，完整 config 的最终值始终优先。envelope 仍由生成 profile 决定
+（`any` 默认 native packet），存储仍预留最大 CRC32C trailer。
+默认 `multi` 支持这些选择；固定 `cobs-crc16` 对 USB NONE 返回
+`WL_ERR_NOT_SUPPORTED`。裸 core 可使用
+`wl_config_apply_link_defaults(&config, defaults)`，它不重置其他字段。
+新签名替代旧的双参数入口，当前生成物须由匹配的 WLC 重新生成；协议版本和 schema identity 不变。
+
 现在你已经能[接收最新温度](getting-started-cn.md)，并能[请求一次计算](tutorial-rpc-cn.md)。
 本篇解释怎样把这两种用法搬到自己的项目，再替换本机 UDP 连接。
 先完成电脑上的独立工程，就能把构建问题与硬件问题分开排查。
@@ -84,8 +97,8 @@ cmake --build /path/to/temperature-display/build --config Release
 Windows 的多配置输出目录需追加 `Release/` 和 `.exe`。
 
 独立消费者不需要 Asio 源码路径：安装的 UDP 库已编译好，不把 Asio 头文件暴露给应用。
-WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 WLC 0.8.0 与
-生成契约 0.8。
+WLC 只在构建时运行；本轮需使用[安装篇](installation-cn.md)锁定的 WLC 0.12.0 与
+生成契约 0.12。
 只需要编解码和发送的工程仍可只链接 codec，不必链接 runtime 或 UDP。
 多个 runtime 共享 codec 与 `RUNTIME_NAME` 命名选项见
 [WLC 指南](https://github.com/starwey604/wlc/blob/18b830af2cdd535bdfc6e2bbd3f147f9a9a4ce29/README-cn.md)。
@@ -166,7 +179,7 @@ CRC 检测损坏，不认证发送者，也不加密内容。
 
 自己写适配器时，`wl_set_sink()` 注册发送入口。
 返回 `WL_SINK_SENT` 表示同步用完字节；`WL_SINK_STARTED` 表示驱动还在借用它们，
-稍后由通信处理线程调用一次 `wl_tx_complete()` 通知完成。
+稍后由通信处理线程调用一次 `wl_tx_consumed()` 通知完成。
 `WL_SINK_BUSY` 表示暂时不能发送，`WL_SINK_FAILED` 表示本次 I/O 失败。
 
 接收整包用 `wl_feed_unit()`，接收字节流可用 `wl_feed_bytes()`；
@@ -176,7 +189,7 @@ DMA 等减少复制的接口属于后续优化，先读懂基本路径再选择�
 
 默认路径只调用 `*_endpoint_step()`：已附加适配器的 service、事件清理和 runtime
 进度都包含在内。`*_endpoint_handle()` 给出通用端点入口；休眠提示用
-`wl_endpoint_get_hint()` 查询。常规 LATEST/FIFO 的 `endpoint_read_*()` 返回用户拥有的副本。
+`wl_endpoint_get_readiness()` 查询。常规 LATEST/FIFO 的 `endpoint_read_*()` 返回用户拥有的副本。
 大消息希望免复制时，可通过 `endpoint_runtime()` 使用原有 acquire/release 接口。
 
 接入已有硬件适配器时，用 `wl_endpoint_link(endpoint_handle(...))` 获得它需要的
@@ -199,7 +212,7 @@ Asio UDP 的 `open(wl_endpoint_t&, ...)` 和 loopback 的 `wl_loopback_connect()
 2. 运行 `wl_pump_step()`，将适配器完成处理接入 service hook；
    pump 会先设置本轮时间，再让适配器上报完成。
 3. 查看收到的最新值或 RPC 状态，执行有界的应用工作。
-4. 睡眠前用 `wl_pump_get_hint()` 查询是否还有立即工作以及多久后需要处理超时；
+4. 睡眠前用 `wl_pump_get_readiness()` 查询是否还有立即工作以及多久后需要处理超时；
    同时允许接收、发送完成、可写状态等外部事件唤醒它。
 
 生成的 `runtime_pump_hooks()` 会接入消息分发、接收事件释放、对应 RPC 发送结果回收、
@@ -245,3 +258,33 @@ RPC 对端会话变化时，结果中的 `rpc->peer_changed` 表示有变化，
 - 想处理 RPC 失败/重试：读 [RPC runtime](rpc-runtime-cn.md)。
 - 想传大对象：读[应用层参考](application-layer-cn.md)中的 Bulk。
 - 想修改协议或规划升级：读[协议](protocol-cn.md)与[兼容性](compatibility-cn.md)。
+
+
+## 在初始化前选择 USB 默认配置
+
+通用配置入口新增第三个参数 `wl_link_defaults()`（CRC16）；USB Bulk 接入使用公共
+`<wirelink/usb_bulk_defaults.h>` 中的 `wl_usb_bulk_link_defaults()`（NONE）。
+普通生成 SDK 只依赖通用 C 头，不引入 USB、libusb、C++ 或 Zephyr 依赖。
+使用 CMake USB 集成头时链接 `Wirelink::usb_bulk_defaults`；Astrial USB target 和
+Zephyr 模块会自动提供该头的 include 路径。
+
+```c
+#include <wirelink/usb_bulk_defaults.h>
+
+int err = task_endpoint_config_defaults(
+    &config, environment, wl_usb_bulk_link_defaults());
+if (err != WL_OK) return err;
+/* 可选的高级覆盖：config.link.integrity = WL_INTEGRITY_CRC32C; */
+return task_endpoint_init_config(&endpoint, &config);
+```
+
+快捷入口同样接受第三个 defaults 参数。`create()` 接收最终 config，不重新套用默认值。
+裸 core 使用 `wl_config_apply_link_defaults(&config, wl_usb_bulk_link_defaults())`，
+只写 integrity；payload、session、envelope、MTU、重试等字段保留。应用默认值后再做用户覆盖，
+随后初始化 link，最后绑定 adapter。adapter 绑定不会改写配置；非法枚举被拒绝，
+固定 `cobs-crc16` 对 NONE 返回 `WL_ERR_NOT_SUPPORTED`，不会回退。
+
+两端必须选择相同 integrity。USB preset 不改变 profile 的 envelope，也不关闭长度检查、
+RPC deadline、replay 或业务校验。USB CDC IRQ 示例也显式选择该可信直连 USB preset，
+对应主机工具的 CDC 模式；通用 UART IRQ adapter 不推断介质，普通 UART 仍选择通用 CRC16。
+USB 示例此前已使用 NONE；本次入口变化不代表新的性能收益。

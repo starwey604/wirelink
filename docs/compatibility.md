@@ -1,9 +1,13 @@
 # Wirelink compatibility policy
 
-Wirelink `0.8.0` is a pre-1.0 release using protocol v1. The earlier `0.9.0`
-source version was an untagged development placeholder. This policy separates
-four compatibility domains that evolve at
-different rates.
+This development tree is Wirelink `0.12.0`, codegen contract `0.12`. The execution
+refactor intentionally breaks the 0.8 C/C++ API, ABI, adapter and generated
+interfaces. Rebuild all consumers with matching WLC output; no compatibility
+wrappers are provided. Protocol-v1 and codec bytes remain unchanged for this
+iteration. Contract 0.10 additionally replaces the 0.9 RPC client encoded
+response pool with generated owned results and removes repeat decode APIs.
+See [execution](execution-contract.md). The published 0.8 release
+remains a separate source pair. The domains below describe their separate scope.
 
 ## Wire protocol
 
@@ -51,7 +55,7 @@ as normal for a C library.
 
 Until 1.0, source or ABI corrections may occur between `0.x` minor releases
 and will be recorded in [`CHANGELOG.md`](../CHANGELOG.md). CMake therefore
-considers only the same minor `0.8.x` line package-compatible. Starting with
+considers only the same minor `0.12.x` line package-compatible. Starting with
 1.0, Wirelink follows semantic versioning: incompatible public C API or ABI
 changes require a new major library version. Additive functions and enum
 values may appear in minor releases; applications should include a `default`
@@ -64,21 +68,21 @@ implementation detail. In particular:
 - one consumer owns polling, event release, adapter service, and reset;
 - an event payload remains borrowed until `wl_event_release()`; and
 - a sink-owned TX pointer remains valid until synchronous completion or the
-  matching `wl_tx_complete()`.
+  matching `wl_tx_consumed()`.
 
 ## C++ and Python bindings
 
 The optional `Wirelink::cpp` / `Wirelink::cpp_host` targets and WLC-generated SDKs
-provide the v0.8 source API. They do not promise a stable cross-compiler C++ ABI. Rebuild
+provide the v0.12 source API. They do not promise a stable cross-compiler C++ ABI. Rebuild
 them with the matching C library. Binding API revision 2 and the WLC codegen
-contract 0.8 are separate identifiers; Python's extension ABI is a third
+contract 0.12 are separate identifiers; Python's extension ABI is a third
 compatibility domain.
 The reference wheel privately links its native code and does not exchange native
 handles with other independently built schema SDKs. See the
 [calculator SDK](../examples/06_bindings/GUIDE.md) for tested scope and ownership.
 Revision 2 adds C++ asynchronous operations and Python `AsyncClient` while retaining
 synchronous entry points. Regenerate SDKs and rebuild against the matching host
-support; the C codec/runtime artifacts remain contract 0.8.
+support; the C codec/runtime artifacts use contract 0.12.
 
 ## WLC payload schemas
 
@@ -111,3 +115,17 @@ Real-time performance numbers are platform and configuration specific, not a
 compatibility promise. Benchmark changes must retain the exact board,
 toolchain, clock, baud rate, payload, ingress mode, and percentile methodology
 alongside results.
+
+P3 / contract 0.11 adds statically selected RPC guarantees. Omitted or explicit
+`replay` retains canonical duplicate suppression and bounded replay history.
+Explicit `correlate` permits independent execution of each valid arrival and
+retains only pending/response TX capacity. It cannot replace replay in a
+same-guarantee performance comparison. Rebuild core, WLC, and generated SDKs
+with the current contract 0.12; pre-1.0 generated contracts must match exactly.
+
+P4 / contract 0.12 enables explicit `positional_v1` business bodies and independent ordinary routes.
+Default tagged/replay remains unchanged. Generate matched codec/runtime artifacts; source/header
+profile mismatches are rejected. See [positional-v1](positional-v1.md) for value domains, strict
+rejection, identity checks and schema-evolution differences.
+
+Regeneration and removed interfaces are covered by [0.12](migration-0.12.md).

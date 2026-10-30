@@ -1,5 +1,7 @@
 # Configure a clock once
 
+[Execution and waiting](execution-contract.md)
+
 Wirelink needs elapsed time to retry unacknowledged packets and expire RPC work.
 It does not need the calendar date or synchronized clocks on both devices.
 Initialization takes this input once; default endpoint operations do not.
@@ -20,7 +22,7 @@ static wl_time_ms_t read_uptime(void *user) {
 static telemetry_endpoint_t endpoint;
 wl_environment_t environment = wl_platform_environment(); /* wirelink/platform.h */
 environment.clock = (wl_clock_t){read_uptime, NULL};
-int result = telemetry_endpoint_init(&endpoint, environment);
+int result = telemetry_endpoint_init(&endpoint, environment, wl_link_defaults());
 ```
 
 For configurable initialization, fill `config.environment.clock` after
@@ -55,7 +57,7 @@ its clock context must survive `stop()`.
 
 Rebuild core, generated code, and consumers together; do not mix generated
 contract headers or endpoint layouts. Clock injection does not change wire
-bytes. [Automatic sessions and managed RPC v2](session.md) require paired
+bytes. [Automatic sessions and compact managed RPC](session.md) require paired
 managed-RPC peer upgrades.
 
 | API | Current use |

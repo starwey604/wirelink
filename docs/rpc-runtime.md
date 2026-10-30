@@ -1,5 +1,7 @@
 # Allocation-free RPC runtime
 
+[Readiness and due-only expiry](execution-contract.md)
+
 `wirelink/rpc.h` correlates requests and responses without changing the Wirelink
 v1 frame header. New applications should use the generated managed RPC endpoint
 described in the [RPC tutorial](tutorial-rpc.md). The following sections specify
@@ -24,29 +26,40 @@ payload encoding and profile identity. Mapping names may differ between request
 and response; the numeric values for a call must match. Partial mappings are a
 compiler error. There is no automatic wire-format detection or fallback.
 
-Managed RPC adds this fixed 20-byte prefix before the ordinary business codec body:
+Managed RPC uses the unreleased `managed-rpc-v4-tagged-varuint32` format:
 
-| Offset | Size | Value |
+| Offset | Bytes | Content |
 | --- | --- | --- |
-| 0 | 1 | `0x00`, invalid as a legacy codec field tag |
-| 1 | 1 | Metadata version `2` |
-| 2 | 1 | Kind: request `1`, response `2` |
-| 3 | 1 | Reserved, must be zero |
-| 4 | 4 | Nonzero correlation ID, unsigned big-endian |
-| 8 | 4 | Signed 32-bit business status, two's-complement big-endian |
-| 12 | 8 | Nonzero originating client session, big-endian; echoed in every reply |
+| 0 | 8 | Nonzero originating client session, big-endian; echoed in every reply |
+| 8 | 1–5 | Canonical unsigned LEB128 of `(operation_id << 1) | rejection`; the full nonzero 32-bit operation ID is preserved |
 
-Requests carry status zero. Successful responses carry status zero and the encoded
-response body. Rejections carry nonzero status and **no body**, even if the response
-schema has required fields. Bad prefixes, zero IDs, nonzero request status, or a
-rejection with a body return `WL_RPC_ERR_MALFORMED_METADATA`. A successful body is
-still validated by its ordinary codec. Metadata is not authentication.
+The native message ID selects request or response. The low bit of the correlation
+value is zero for requests/success and one for a rejection. It does not duplicate
+the request/response kind already known by dispatch. Normal metadata is 9–13 bytes.
+A rejection adds one nonzero signed BE32 status immediately after the correlation
+value, has no business body, and is 13–17 bytes. Request rejection bits, zero IDs,
+noncanonical/overflowing correlation values and malformed rejection status/length
+return `WL_RPC_ERR_MALFORMED_METADATA`. Metadata is not authentication. Reliable
+request identity must match the link sender identity; replies with a different
+local client identity report `WL_RPC_ERR_SESSION_MISMATCH` without changing calls.
 
-Both peers must select the same mode. Switching an existing service from mapped
-to managed changes its payload bytes even if its DATA message IDs stay the same;
-upgrade both peers together or allocate distinct message IDs. The managed mode
-and metadata revision contribute to the binding-profile identity. Merely replacing
-schema `= n` with `@id(n)` changes neither identity nor bytes.
+The managed business body is tagged like the ordinary schema codec, with scalar
+`fixed32` fields encoded as full-range `uint32` varints (wire type zero). The same
+rule applies inside nested messages and to repeated scalar fields. Packed fixed32
+arrays keep their fixed-width packed format. All other field encodings, field
+numbers, presence, required checks and unknown-field skipping retain their codec
+semantics. The generated runtime owns this private codec; ordinary `*_encode()` /
+`*_decode()` APIs still emit/accept the frozen Schema-v1 TLV bytes. No application
+integer range is narrowed. Canonical request fingerprints retain their ordinary
+business-codec representation and are not computed from this transport encoding.
+
+This change is unreleased: regenerate and rebuild both managed-RPC peers together.
+There is one format, with no old-format fallback or negotiation. The managed wire
+format contributes to binding-profile identity and is recorded separately in
+runtime manifests. Mapped RPC, public business codecs and Compact-v1 framing are
+unchanged. Merely replacing schema `= n` with `@id(n)` changes neither identity nor
+bytes. Varint savings depend on values; maximum storage bounds cover the complete
+integer domains rather than the benchmark's usual values.
 
 ## Ordinary asynchronous ownership
 
@@ -98,8 +111,12 @@ Handlers return zero for locally accepted work, including deferred completion.
 Use `*_complete()` for success or `*_reject(..., nonzero_status)` for business
 failure. A nonzero handler return abandons locally and is a diagnostic, not an
 automatic business rejection. Borrowed request fields expire at callback return.
-Borrowed fields in a decoded response, where the schema permits them, expire at
-call release; copy their contents if they must live longer.
+Client responses require bounded schemas. RX decodes each successful body once
+into its call's generated owned union member. Advanced `*_inspect()` returns a
+`const *_value_t *` until release/close; assign `*response` to retain an independent
+value. Async preparation copies the value into a separate completion union,
+releases admission capacity, then notifies. Sync copies that owned completion.
+Inspection, notification and sync do not decode retained bytes.
 
 Concurrent replies are routed by call ID, not arrival order. Unknown/released-call
 and already-terminal-call replies are ignored by the managed runtime with
@@ -116,8 +133,10 @@ heap, thread, or clock. Managed-only runtimes omit the old typed encoding scratc
 advanced manual requests encode into the TX claim. Ordinary asynchronous requests
 first encode into a bounded request queue, then copy into the TX claim. Replies
 encode into their reserved cache segment.
-Static link/response capacities include the 20-byte prefix; canonical-request
-fingerprints cover only business codec bytes and are computed, not transmitted.
+Static link/response capacities include the maximum 13-byte metadata and the
+private managed body bound, and reserve at least 17 bytes for a rejection, including
+empty response schemas. Public codec bounds remain unchanged; canonical-request
+fingerprints cover only ordinary business codec bytes and are computed, not transmitted.
 
 ## Correlation is not business idempotency
 
@@ -128,12 +147,12 @@ with the same business arguments may execute again. Durable or cross-retry
 idempotency needs an explicit business key/state machine; it is not supplied by
 this correlation mechanism.
 
-Managed v2 matches the originating client session and call number. Endpoint
+Managed RPC matches the originating client session and call number. Endpoint
 reconstruction obtains a fresh identity, isolating old-instance responses even
 when a number is reused. Unreliable requests also carry identity and partition
 the cache. Zero identity is malformed; a reliable request must match its link
 sender. A response for another instance reports SESSION_MISMATCH diagnostically
-without affecting other calls. No automatic v1/v2 fallback is provided.
+without affecting other calls. No automatic old-format fallback is provided.
 Identity is neither authentication nor an ordered version; this does not reject
 arbitrary old requests or provide durable exactly-once execution. Mapped RPC has
 no new identity field and retains its integration-owned freshness requirements.
@@ -159,9 +178,10 @@ wrap-safe.
 `wl_rpc_server_get_deadline_hint()` are side-effect-free. They return the
 nearest relative application deadline (`0` when due and `UINT32_MAX` when no
 deadline exists). The consumer can take the minimum of these values and the
-core `wl_poll_get_hint()` deadline before sleeping; only `poll()` advances RPC
-deadlines. A ready server response reports deadline zero so the owner services
-it before sleeping.
+core `wl_link_get_readiness()` deadline before sleeping; `poll()` and response preparation/commit enforce RPC
+deadlines. These queries report timers only. Generated `*_runtime_readiness()`
+also reports a queued server response as runnable when its delivery resources
+are available, and blocked otherwise. Use that full readiness before waiting.
 
 After encoding and sending a reliable request, bind its `wl_tx_handle_t` with
 `wl_rpc_client_bind_tx()` and route its terminal TX event through
@@ -181,12 +201,24 @@ in `QUEUED`, before any send has been bound or locally completed, is rejected.
 The caller must independently cancel or drain/take the remaining core TX.
 It must preserve or act on the retained handle before releasing the RPC slot.
 
-Responses require an exact operation ID and response message ID. Bytes are
-copied into that slot's fixed response segment and remain valid until
-`wl_rpc_client_release()`. A zero application status enters `COMPLETED`; a
-nonzero service status enters `APPLICATION_ERROR`. Oversize responses also
-enter `APPLICATION_ERROR`, with `runtime_error` set to
-`WL_RPC_ERR_RESPONSE_TOO_LARGE`.
+`wl_rpc_client_response_prepare()` checks request/response message IDs,
+operation, active state and deadline before granting generation-scoped authority
+and the generated result index. Decode into that typed member, then call
+`wl_rpc_client_response_commit()` with the same owner time. Commit checks the
+authority and deadline again. A failed decoder leaves the call pending; no
+partial value is published. Zero status publishes `COMPLETED` and
+`response_valid`; nonzero status publishes `APPLICATION_ERROR` with no value.
+Core client configuration contains slots/count/next ID, with no business buffer.
+
+The generated storage descriptor supplies `rpc_results` (an actual array of
+`*_rpc_result_value_t`) and `rpc_result_count` in addition to the byte arena.
+Requirements report the required count separately. Initialization checks count,
+alignment, multiplication overflow and overlap with the arena/instance before
+changing the instance. The default descriptor and endpoint provide these typed
+objects automatically. Client encoded response pools, `client_decode()` and
+`decode_owned_response()` were removed in contract 0.10. Mapped responses decode
+once into owned scratch to read their schema correlation fields, then copy into
+the validated call. Server encoded pending/replay storage remains unchanged.
 
 Cancellation only stops local waiting. Inspect the result before cancellation
 to obtain any bound TX handle and optionally call `wl_tx_cancel()`; products
@@ -206,7 +238,29 @@ slot, retrying the same canonical request with the same explicit ID can address
 the server's bounded replay cache. Reusing that ID with different request data
 is a conflict while the peer retains the cache entry.
 
-## Server duplicate and replay policy
+## Per-method server guarantees
+
+Omitted `guarantee`, or explicit `guarantee = replay;`, retains the duplicate
+suppression and bounded history below. Explicit `guarantee = correlate;` admits
+each valid arrival independently, including repeated session/operation IDs.
+It does not compare canonical requests or retain completed RPC history. Neither
+policy promises durable exactly-once execution or remote cancellation.
+
+All methods share `rpc_server_pending_slot_count`. Replay uses
+`rpc_server_cache_slot_count` / `rpc_server_response_capacity`; correlate uses
+`rpc_server_correlate_slot_count` / `rpc_server_correlate_response_capacity`.
+Only selected policy fields are generated. Mixed services calculate each
+response bound separately. Defaults cover the complete method bounds; an
+advanced caller's explicit encoded capacity remains its handler response limit.
+
+Correlate reserves pending and stable response capacity before calling a handler.
+Every execution has a distinct generation. Completion releases pending metadata,
+but its response remains reserved through backpressure and acquired/inflight TX.
+Unreliable sent or a reliable terminal releases it. Old tokens and responses cannot
+complete or reclaim another execution. All-correlate generation omits canonical
+helpers, history, and TTL paths. Report its performance as a different guarantee.
+
+## Server duplicate and replay policy (default)
 
 `wl_rpc_server_begin()` scopes operation IDs by the reliable sender's Wirelink
 session. It compares all identity fields: peer session ID, operation ID,
@@ -264,7 +318,7 @@ Acquired bytes remain stable until their matching transition.
 WLC-generated runtimes implement this sequence in `*_runtime_service()`, which
 also advances client/server deadlines and submits at most one cached response
 per call. Products should call it after event dispatch and application
-completion, then combine its deadline result with `wl_poll_get_hint()`.
+completion, then combine its deadline result with `wl_link_get_readiness()`.
 
 An ABI 18 WLC-generated server automatically observes the nonzero session on
 each reliable RPC request. It performs only an inline equality check in the
@@ -288,3 +342,18 @@ terminal response or explicitly abandon it. Eviction, expiry, session discard,
 or process restart ends replay protection, so this is not durable exactly-once
 execution; non-idempotent products need a persistent operation key or an
 idempotent handler.
+
+## Small instruction-cache builds
+
+The ESP32-S3 cross benchmark uses the default 16 KiB ICache, 240 MHz,
+shared CRC16/COBS, ARQ off, and one call in flight. The optimized cohort applies
+`-Os` and application LTO equally to Wirelink, eRPC and CSP. Large RPC dispatch
+and frame parsing retain explicit function boundaries; globally suppressing
+inlining regressed this workload. These settings do not enlarge ICache or move
+RPC code to IRAM. Keep compiler profiles separate from the historical `-O2`
+cohort when comparing results.
+
+The measured residual subtracts each call's actual UART TX+RX occupancy before
+computing percentiles. It includes critical-path software, scheduling and cache
+waits, and is not exclusive CPU time or a hard-real-time bound for other schemas
+and workloads. Both peers must regenerate the same managed RPC wire format.

@@ -5,6 +5,20 @@ sidebar:
   order: 2
 ---
 
+端点初始化现在显式接收按值传递的 `wl_link_defaults_t`：
+`*_endpoint_config_defaults(&config, environment, wl_link_defaults())` 和
+`*_endpoint_init(&endpoint, environment, wl_link_defaults())` 选择 CRC16；
+USB 接入从 `<wirelink/usb_bulk_defaults.h>` 传入
+`wl_usb_bulk_link_defaults()`，选择 NONE。两端的 integrity 必须一致，没有协商或回退。
+用户在 defaults 后、`*_endpoint_init_config()`／`*_endpoint_create()` 前显式覆盖
+`config.link.integrity`，完整 config 的最终值始终优先。envelope 仍由生成 profile 决定
+（`any` 默认 native packet），存储仍预留最大 CRC32C trailer。
+默认 `multi` 支持这些选择；固定 `cobs-crc16` 对 USB NONE 返回
+`WL_ERR_NOT_SUPPORTED`。裸 core 可使用
+`wl_config_apply_link_defaults(&config, defaults)`，它不重置其他字段。
+新签名替代旧的双参数入口，当前生成物须由匹配的 WLC 重新生成；协议版本和 schema identity 不变。
+
+
 本页汇总 `.wl` 消息定义和 `.bind.wl` binding profile 的语法，面向需要精确写法的读者。第一次使用请先完成[让显示端读取最新温度](../../learn/getting-started/)。API 标识符和协议字段不翻译。
 
 ## `.wl`：消息定义
@@ -109,13 +123,19 @@ rpc Add {
 | `request` | 请求消息，必填 |
 | `response` | 响应消息，必填 |
 | `request_delivery`、`response_delivery` | 覆盖该方向的投递方式；默认 `reliable` |
+| `guarantee` | `replay`（默认）或 `correlate`；后者不保留 RPC 重复抑制和完成历史 |
+| `codec` | 托管 RPC 使用 `managed_tagged`（默认）或 `positional_v1`；显式映射模式仅支持 `schema_v1` |
 | `request_operation_id`、`response_operation_id`、`response_status` | 三个一起使用，选择显式映射模式；省略则使用托管 RPC 自动关联 |
 
 `request` 和 `response` 的值后面可以写 `@delivery(reliable)` 或 `@delivery(unreliable)`，与 `request_delivery` 表达同一件事。三个映射属性只写一部分会编译失败。两种模式的区别见[链路投递与 RPC 业务完成](../../concepts/delivery-vs-completion/)。
 
 ## 生成产物
 
-WLC 从 schema 生成 codec：`*_values.h`、`*_MESSAGE_ID`、`*_clear()`、`*_encoded_size()`、`*_encode()` 和 `*_decode()`。它从 binding profile 生成类型化 send、dispatch、latest/fifo 保留和 RPC runtime。生成代码不分配内存；解码得到的 bytes 和 string 借用输入缓冲，只在接口规定的借用期间有效。
+普通 route 可独立声明 `codec = schema_v1;`（默认）或 `codec = positional_v1;`。位置格式仅支持规定的 scalar/固定数值 packed 组合，详见 [0.12 合同与迁移](../development-contract/)。
+
+WLC 从 schema 生成 `*_values.h` 中的自持业务值及 `*_value_encode()` / `*_value_decode()`，有界 bytes/string 内联保存。
+
+高级 `*_encode()` / `*_decode()` 操作 codec view，其 bytes/string 借用输入，只在规定借用期有效。binding profile 另生成类型化 send、dispatch、latest/fifo 和 RPC runtime；生成 C 不分配堆内存。
 
 ## 相关文档
 

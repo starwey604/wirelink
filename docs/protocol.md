@@ -1,5 +1,22 @@
 # Wirelink Protocol Specification
 
+Endpoint setup now takes a `wl_link_defaults_t` value explicitly:
+`*_endpoint_config_defaults(&config, environment, wl_link_defaults())` and
+`*_endpoint_init(&endpoint, environment, wl_link_defaults())` select CRC16.
+USB integrations can pass `wl_usb_bulk_link_defaults()` from
+`<wirelink/usb_bulk_defaults.h>` to select NONE instead. Both peers must use the
+same integrity; there is no negotiation or fallback. Apply application overrides
+such as `config.link.integrity = WL_INTEGRITY_CRC32C` after defaults and before
+`*_endpoint_init_config()` or `*_endpoint_create()`. Complete configs remain
+final. Envelope selection still follows the profile (`any` defaults to native
+packets), and storage still reserves the maximum CRC32C trailer. The default
+core build remains `multi`; fixed `cobs-crc16` rejects USB NONE with
+`WL_ERR_NOT_SUPPORTED`. Raw core configurations can use
+`wl_config_apply_link_defaults(&config, defaults)` without resetting other
+fields. These signatures replace the old two-argument entry points; regenerate
+current code with the matching WLC. Protocol version and schema identities do
+not change.
+
 Status: **v1 release candidate**. Numeric assignments and normative behavior
 are frozen by the [v1 conformance vectors](conformance-v1.md). Any incompatible
 wire-format change requires a new protocol version; clarifications that do not
@@ -410,14 +427,14 @@ retry or failure occurs. Non-zero configured intervals MUST be less than
 
 #### 8.1.1 Consumer scheduling hint
 
-The C API exposes `wl_poll_get_hint(ctx, now_ms, &hint)` so a bare-metal loop,
+The C API exposes `wl_link_get_readiness(ctx, now_ms, &hint)` so a bare-metal loop,
 RTOS task, or host event loop can sleep without periodically calling
 `wl_poll()`. The query is side-effect free and reports two independent values:
 
-- `work_pending` is one when `wl_poll()` can make consumer-side progress
+- `runnable` is one when `wl_poll()` can make consumer-side progress
   without another external I/O notification; and
 - `next_deadline_ms` is the relative delay until the next ACK/retry deadline,
-  or `WL_POLL_NO_DEADLINE_MS` when no timed deadline is active.
+  or `WL_NO_DEADLINE` when no timed deadline is active.
 
 A deadline that is already due has delay zero and is also immediate work.
 Relative-delay calculation uses the same unsigned subtraction as timeout
@@ -433,11 +450,11 @@ not immediate until `wl_event_release()` makes their storage consumable.
 
 `WL_SINK_BUSY` means an attempted control or DATA submission is waiting for
 external transport progress. Such a queue does not continuously assert
-`work_pending`; otherwise an event loop would retry the same busy sink without
+`runnable`; otherwise an event loop would retry the same busy sink without
 bound. An adapter that can become writable asynchronously MUST wake the
 consumer on that activity. The consumer calls `wl_poll()` once after the wake,
 then obtains a new hint. TX completion follows the same pattern: the adapter
-wakes its consumer, forwards completion with `wl_tx_complete()`, and queries
+wakes its consumer, forwards completion with `wl_tx_consumed()`, and queries
 again. The core deliberately owns no scheduling or wait primitive.
 
 ### 8.2 Receiver acceptance and ACK

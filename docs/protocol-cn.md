@@ -1,5 +1,18 @@
 # Wirelink 协议规范（中文审阅版）
 
+端点初始化现在显式接收按值传递的 `wl_link_defaults_t`：
+`*_endpoint_config_defaults(&config, environment, wl_link_defaults())` 和
+`*_endpoint_init(&endpoint, environment, wl_link_defaults())` 选择 CRC16；
+USB 接入从 `<wirelink/usb_bulk_defaults.h>` 传入
+`wl_usb_bulk_link_defaults()`，选择 NONE。两端的 integrity 必须一致，没有协商或回退。
+用户在 defaults 后、`*_endpoint_init_config()`／`*_endpoint_create()` 前显式覆盖
+`config.link.integrity`，完整 config 的最终值始终优先。envelope 仍由生成 profile 决定
+（`any` 默认 native packet），存储仍预留最大 CRC32C trailer。
+默认 `multi` 支持这些选择；固定 `cobs-crc16` 对 USB NONE 返回
+`WL_ERR_NOT_SUPPORTED`。裸 core 可使用
+`wl_config_apply_link_defaults(&config, defaults)`，它不重置其他字段。
+新签名替代旧的双参数入口，当前生成物须由匹配的 WLC 重新生成；协议版本和 schema identity 不变。
+
 状态：v1 release candidate。数字分配和规范行为由
 [`conformance-v1.md`](conformance-v1.md) 冻结。不兼容 wire-format 修改必须使用新协议
 版本；1.0 前仍可澄清不改变收发字节的文字。英文版 [`protocol.md`](protocol.md) 是唯一
@@ -168,8 +181,8 @@ timeout/retry 是本地策略，不上 wire。比较必须 wrap-safe：
 
 `ack_timeout_ms=0` 禁用 timeout retry/failure；非零 interval 小于 `2^31` ms。
 
-`wl_poll_get_hint()` 无副作用，分别返回 `work_pending` 和相对
-`next_deadline_ms`；无 deadline 为 `WL_POLL_NO_DEADLINE_MS`，到期为零且算 immediate。
+`wl_link_get_readiness()` 无副作用，分别返回 `runnable` 和相对
+`next_deadline_ms`；无 deadline 为 `WL_NO_DEADLINE`，到期为零且算 immediate。
 调用者必须对 hint/poll 使用同一 monotonic clock。hint 覆盖 queued event、完整 COBS、
 overflow、committed unit、retry/exhaustion；partial stream 等待 adapter wake。RX event 被借用
 时后续 RX 不算 immediate。sink busy 不持续拉高 work bit，adapter writable/completion 必须

@@ -128,7 +128,7 @@ envelope including COBS delimiters or a length prefix.
 
 Application bytes are copied or encoded into owned storage before a send is
 accepted. The pointer given to a `WL_SINK_STARTED`
-callback remains valid until its matching `wl_tx_complete()`. ACK/control
+callback remains valid until its matching `wl_tx_consumed()`. ACK/control
 units use their own buffer and are submitted before a queued application unit.
 Unreliable local completions are represented by a bounded counter rather than
 the single event slot. `wl_poll()` materializes one `WL_EVT_TX_SUCCESS` at a
@@ -188,21 +188,21 @@ observable through the RX counter query rather than as application events.
 
 ## Consumer scheduling contract
 
-`wl_poll_get_hint()` is the allocation-free bridge from the protocol state
-machine to a platform scheduler. Its `wl_poll_hint_t` contains two fixed-width
-fields: `work_pending` and `next_deadline_ms`. The latter is relative to the
-query's `now_ms`; `WL_POLL_NO_DEADLINE_MS` means the core has no timed work.
+`wl_link_get_readiness()` is the allocation-free bridge from the protocol state
+machine to a platform scheduler. Its `wl_readiness_t` contains two fixed-width
+fields: `runnable` and `next_deadline_ms`. The latter is relative to the
+query's `now_ms`; `WL_NO_DEADLINE` means the core has no timed work.
 The query neither updates `ctx->now_ms`, consumes RX storage, calls the sink,
 nor changes retry state.
 
 A consumer should drain available events, release each borrowed RX event, ask
-for a hint, and sleep only when `work_pending` is zero. The wait deadline is
+for a hint, and sleep only when `runnable` is zero. The wait deadline is
 the minimum of `next_deadline_ms` and any application/adapter deadline:
 
 ```c
 for (;;) {
   wl_event_t event;
-  wl_poll_hint_t hint;
+  wl_readiness_t hint;
   wl_time_ms_t now_ms = platform_now_ms();
 
   while (wl_poll(&link, now_ms, &event) == WL_OK) {
@@ -210,8 +210,8 @@ for (;;) {
     wl_event_release(&link, &event);
     now_ms = platform_now_ms();
   }
-  (void)wl_poll_get_hint(&link, now_ms, &hint);
-  if (hint.work_pending == 0U) {
+  (void)wl_link_get_readiness(&link, now_ms, &hint);
+  if (hint.runnable == 0U) {
     adapter_wait_for_activity(hint.next_deadline_ms);
   }
 }
@@ -229,12 +229,12 @@ Hosted adapters expose the same owner-facing lifecycle: `service()` publishes
 deferred completion/rearm state, `quiesce()` stops producers and detaches the
 sink, and `deadline_hint(now_ms)` returns a relative scheduling bound.
 Astrial serial and USB Bulk are event-driven: their completion callbacks wake
-the owner and their deadline is `WL_POLL_NO_DEADLINE_MS`. Deliver completions
+the owner and their deadline is `WL_NO_DEADLINE`. Deliver completions
 through pump service so the current pass time is established before
-`wl_tx_complete()`. The Asio UDP adapter supports socket readiness waiting with
+`wl_tx_consumed()`. The Asio UDP adapter supports socket readiness waiting with
 default endpoints, without periodic idle polling. Its legacy bare-link path
 retains a finite `poll_interval` hint. The owner merges adapter, core and
-application hints through `wl_pump_get_hint()`; see [UDP integration](udp-adapter.md).
+application hints through `wl_pump_get_readiness()`; see [UDP integration](udp-adapter.md).
 
 Hosted adapters also expose `get_common_stats(wl_adapter_stats_t&)`. The
 transport-independent view is the acceptance surface for telemetry and HIL:
@@ -285,21 +285,23 @@ ring is temporarily full, unread bytes remain in the released staging slot and
 the outstanding `UART_RX_BUF_REQUEST` is answered after the consumer releases
 space. Repeated requests are coalesced. Only an actual `UART_RX_DISABLED` gap
 records overflow and invokes the COBS recovery barrier. `WL_ERR_WOULD_BLOCK`
-from `service()` is transient and means the main loop should retry on a later
-iteration.
+from `service()` is transient. Wait for the adapter's full readiness or its
+retry deadline before another service attempt.
 
-The lifecycle is `init()` once, `start()`, then `wl_poll()`/event handling and
-`service()` from the same main-loop context. `stop()` rejects new TX immediately
-and requests RX disable plus TX abort; keep servicing until statistics report
-both `started=0` and `stopping=0`, because the driver may still own buffers.
+The public lifecycle is endpoint attach, `start()`, bounded owner steps and
+readiness-based waits. Raw integrations use the same readiness with manual
+polling and service. `stop()` rejects new TX immediately and requests RX disable
+plus TX abort. `quiesce()` waits for the driver's buffers and dispatched callbacks
+before storage can be destroyed; a timeout does not end that ownership.
 `UART_TX_DONE` and `UART_TX_ABORTED` are deliberately deferred to `service()`:
 this keeps ISR work bounded and lets a reliable retry synchronously submit a
 new TX only after the previous UART ownership has been released. When the
-driver reports DMA FIFO fill rather than final line completion, enable
-`wait_for_tx_idle`; a successful DMA event is then held until
-`uart_irq_tx_complete()` reports the UART physically idle. This is opt-in
-because not every asynchronous driver also implements the interrupt-driven
-query. It gives the ACK timer the correct starting boundary on ESP32-S3. The
+driver reports memory completion before final line idle, `service()` reports
+`wl_tx_consumed()` immediately. Enable `wait_for_tx_idle` only when physical
+idle is required: it separately reports `wl_tx_drained()` after a bounded
+owner-side query, with a default 1 ms check deadline. A negative capability
+result is an error, never fabricated idle. The ACK timer then starts at the
+owner snapshot observing drain. The
 DMA benchmark runs a startup TX-completion self-test while RX is active before
 collecting RX measurements.
 
@@ -315,7 +317,7 @@ releases ring space and calls adapter `service()`.
 The Astrial TX sink uses borrowed asynchronous writes and returns
 `WL_SINK_STARTED`. Its I/O-thread callback only publishes completion into an
 atomic mailbox. `service()`, called from the Wirelink consumer context after
-`wl_poll()`, releases adapter ownership before calling `wl_tx_complete()` so a
+`wl_poll()`, releases adapter ownership before calling `wl_tx_consumed()` so a
 retry or pending ACK may submit synchronously. Thus neither Asio callbacks nor
 the Astrial worker thread run the Wirelink protocol state machine.
 
@@ -397,15 +399,15 @@ the CDC ACM comparison. Its callback drains the UART FIFO straight into a
 producer reservation and fills TX from Wirelink's borrowed unit; it performs
 no parsing, event delivery, ACK work, or retry scheduling. Ring backpressure
 disables RX IRQ delivery until the consumer calls `service()`. A hardware UART
-keeps the borrowed TX unit until `uart_irq_tx_complete()` reports physical
-idle. Zephyr CDC ACM does not implement that query, but its `fifo_fill()` has
-already copied the bytes into the class-owned FIFO, so `-ENOSYS` is the correct
-memory-ownership completion boundary for that device.
+publishes memory consumed after final FIFO copy and disables TX-empty immediately.
+Optional physical drain uses the owner deadline fallback. CDC uses memory consumed
+and does not claim an observable line boundary. Use the public endpoint attach
+and latched waiter; see [execution](execution-contract.md).
 
 Reliable TX handles contain a slot-generation value. A terminal reliable
 transaction remains queryable until `wl_tx_take()` returns its result, after
 which the old handle is invalid. The ACK timer starts only once the local sink
-reports completion; retries are counted separately from the initial send.
+reports the configured consumed/drained boundary; retries are counted separately from the initial send.
 Reliable RX deduplicates the most recent `(session_id, sequence)` and re-ACKs
 duplicates without emitting another event.
 

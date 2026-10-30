@@ -13,21 +13,18 @@ C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期
 
 ## 2. 获取与 Wirelink 匹配的 WLC
 
-当前工作区需要 **WLC 0.8.0、生成契约 0.8**，增加静态 schema 导入和借用式
-direct 路由，不改变线上格式。较旧的已发布编译器不能生成本轮 API。
-CMake 默认自动下载配套主机工具；若要自行构建，请在独立 WLC
-源码仓库检出 `v0.8.0` 标签后执行：
+当前开发树需要 **WLC 0.12.0、生成契约 0.12**。构建本轮配套的独立 WLC
+工作树；它不必位于 Wirelink 内部：
 
 ```sh
-cargo build --release --locked
-./target/release/wlc codegen-contract
+cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
+/path/to/matching-wlc/target/release/wlc --version
+/path/to/matching-wlc/target/release/wlc codegen-contract
 ```
 
-把 `target/release/wlc`（Windows 为 `wlc.exe`）的绝对路径传给 CMake；
-这不会替换系统里已有的工具。WLC 源码与 Wirelink 可以放在不同位置。
-配套源码提交与归档 SHA256 固定在 CMake 中。
-
-Windows 从标签源码编译 WLC 时，请保留 LF 换行：`git -c core.autocrlf=false clone --branch v0.8.0 https://github.com/starwey604/wlc.git`。WLC 在构建时嵌入 SDK 模板，自动转换为 CRLF 会改变生成工件。发布的源码归档和二进制均使用 LF。
+CMake 使用该程序的绝对路径 `WIRELINK_WLC_EXECUTABLE`，并设
+`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`。源码应保留 LF，确保 SDK 模板确定性。
+执行报告保存精确 revision、dirty 源码与哈希；已发布 WLC 0.8.0 无法生成新接口。
 
 ## 3. 检查安装
 
@@ -36,7 +33,7 @@ wlc --version
 wlc codegen-contract
 ```
 
-本轮期望分别输出 `wlc 0.8.0` 和 `0.8`。请检查将传给 CMake 的那个可执行文件。
+本轮期望分别输出 `wlc 0.12.0` 和 `0.12`。请检查将传给 CMake 的那个可执行文件。
 生成契约标识生成的 C 接口与布局，不是线上协议版本。
 托管与旧映射 RPC 的 payload 格式不同；托管 v1/v2 也不互通。
 必须一起重建核心和生成消费者，并成对部署通信双方。
@@ -59,12 +56,10 @@ git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.g
 
 ## 5. 关于自动下载
 
-CMake 按构建主机选择 Windows x86-64、Linux x86-64/aarch64（静态 musl）或
-macOS x86-64/arm64 发布包，固定下载 `v0.8.0`，校验硬编码 SHA256 后再检查
-编译器版本和 ABI。这五个平台不需要安装 Rust 或本地 WLC 源码；其他主机使用
-固定源码归档及主机 Rust/Cargo 构建。
-
-离线构建请设置 `WIRELINK_WLC_EXECUTABLE` 的绝对路径，以及
-`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`。用户无需复制开发者的 worktree 布局。
+目前尚未固定 0.12 的发布源码/归档配对，自动下载会明确失败，不会使用旧 0.8
+生成器。请提供匹配的本地程序；已发布版本的历史流程见
+[0.8 发布说明](release-v0.8.0-cn.md)。
 
 现在回到 [入门：最新温度显示](getting-started-cn.md)。
+
+迁移步骤及已删除接口见 [0.12](migration-0.12-cn.md).

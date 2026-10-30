@@ -24,7 +24,7 @@ bindings until `wl_loopback_quiesce()`.
 Each direction has one asynchronous unit slot. The sink returns
 `WL_SINK_STARTED` and borrows Wirelink's stable encoded unit; no second payload
 copy is made. `wl_loopback_service()` attempts no more than `unit_budget`
-deliveries and calls `wl_tx_complete()` only after a unit leaves its slot.
+deliveries and calls `wl_tx_consumed()` only after a unit leaves its slot.
 
 If the destination still owns an RX event, service returns
 `WL_ERR_WOULD_BLOCK`, leaves the source unit borrowed, and increments the

@@ -19,7 +19,7 @@ Wirelink 不创建线程。谁调用 `step()`，谁就是 endpoint 的 owner。�
 
 adapter 的 `wait_for_activity()` 只等待 socket 就绪或超时。它不接收、不解析数据，也不调用回调。就绪通知只表示下一轮可以推进。
 
-`wl_endpoint_get_hint()` 给出一个快照：是否已经有待处理工作，以及距离最近协议 deadline 还有多久。owner 用它和自身时间上限共同决定最多等待多久。等待因此是有界的，owner 可以休眠，而不是 busy-spin。
+`wl_endpoint_get_readiness()` 给出一个快照：是否已经有待处理工作，以及距离最近协议 deadline 还有多久。owner 用它和自身时间上限共同决定最多等待多久。等待因此是有界的，owner 可以休眠，而不是 busy-spin。
 
 ## 回调在哪个线程运行
 

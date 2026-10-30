@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49101, peer = 49100;
   CHECK(example_ports(argc, argv, &local, &peer));
   job.server = &server;
-  CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment()) == WL_OK);
+  CHECK(calculator_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
 
   config.advanced.add_request_handler = enqueue;
   config.advanced.add_user_data = &job;

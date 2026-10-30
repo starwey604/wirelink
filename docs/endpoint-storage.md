@@ -3,7 +3,7 @@
 Static `calculator_endpoint_t client = {0}` remains the default. Use creation
 when a caller or language binding should not embed the large endpoint object.
 [中文](endpoint-storage-cn.md). The creation layer uses
-[automatic sessions](session.md) and managed RPC metadata v2; creation shares
+[automatic sessions](session.md) and compact managed RPC metadata; creation shares
 ordinary endpoint initialization.
 
 ## The allocator supplies storage, not message lifetimes
@@ -11,7 +11,7 @@ ordinary endpoint initialization.
 ```c
 calculator_endpoint_t *client = NULL;
 calculator_endpoint_config_t config;
-calculator_endpoint_config_defaults(&config, wl_platform_environment());
+calculator_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults());
 wl_err_t error = calculator_endpoint_create(&client, &config, &allocator);
 ```
 

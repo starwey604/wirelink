@@ -30,7 +30,7 @@ wlc --version
 wlc codegen-contract
 ```
 
-两条命令应分别显示 `wlc 0.8.0` 和生成契约 `0.8`。
+两条命令应分别显示 `wlc 0.12.0` 和生成契约 `0.12`。
 
 ## 把 Wirelink 安装到本地前缀
 
@@ -119,9 +119,9 @@ int main(void) {
   wl_err_t read_result = WL_ERR_NO_DATA;
 
   CHECK(temperature_endpoint_init(
-          &publisher, wl_platform_environment()) == WL_OK);
+          &publisher, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   CHECK(temperature_endpoint_init(
-          &subscriber, wl_platform_environment()) == WL_OK);
+          &subscriber, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   CHECK(wl_loopback_connect(
           &cable,
           temperature_endpoint_handle(&publisher),
@@ -179,7 +179,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-find_package(Wirelink 0.8 CONFIG REQUIRED)
+find_package(Wirelink 0.12 CONFIG REQUIRED)
 
 wirelink_wlc_generate_codec(
   TARGET temperature_codec

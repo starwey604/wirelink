@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
   uint16_t local = 49000, peer = 49001;
   telemetry_t value;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&publisher, wl_platform_environment()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&publisher, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&publisher), local, peer);
   CHECK(udp != NULL);
 
@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
   telemetry_t value;
   int complete = 0;
   CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(telemetry_endpoint_init(&subscriber, wl_platform_environment()) == WL_OK);
+  CHECK(telemetry_endpoint_init(&subscriber, wl_platform_environment(), wl_link_defaults()) == WL_OK);
   example_udp_t *udp = example_udp_open(telemetry_endpoint_handle(&subscriber), local, peer);
   CHECK(udp != NULL);
   puts("telemetry subscriber ready");

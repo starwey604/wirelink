@@ -1,5 +1,7 @@
 # 初始化时配置一次时钟
 
+[执行与等待](execution-contract-cn.md)
+
 Wirelink 需要知道“经过了多久”，才能决定何时重传未确认的数据、何时让 RPC 超时。
 它不需要日历时间，两台设备的时钟也不必同步。这个输入在初始化时传入一次，日常端点调用不再传。
 [English](endpoint-clock.md)。
@@ -19,7 +21,7 @@ static wl_time_ms_t read_uptime(void *user) {
 static telemetry_endpoint_t endpoint;
 wl_environment_t environment = wl_platform_environment(); /* wirelink/platform.h */
 environment.clock = (wl_clock_t){read_uptime, NULL};
-int result = telemetry_endpoint_init(&endpoint, environment);
+int result = telemetry_endpoint_init(&endpoint, environment, wl_link_defaults());
 ```
 
 需要详细配置时，在 `endpoint_config_defaults()` 后填写 `config.environment.clock`。
@@ -48,7 +50,7 @@ int result = telemetry_endpoint_init(&endpoint, environment);
 ## 高级路径如何迁移
 
 核心、生成代码和消费者一起重建，不要混用不同生成契约的头文件或端点布局。
-时钟注入不改变编码。[自动会话和托管 RPC v2](session-cn.md)
+时钟注入不改变编码。[自动会话和紧凑托管 RPC](session-cn.md)
 需要托管 RPC 两端配套升级。
 
 | 接口 | 当前用法 |

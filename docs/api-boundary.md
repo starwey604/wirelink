@@ -1,5 +1,7 @@
 # Wirelink 1.0 API Boundary
 
+[Execution contract 0.12](execution-contract.md)
+
 Status: pre-1.0 design contract. Compact-v1 wire bytes are frozen; the C and
 generated-runtime surfaces may still be corrected before the first 1.0
 release. This document is the API map to review, not a list of every prototype.
@@ -126,14 +128,14 @@ already encoded bytes.
 
 `wl_poll()` performs bounded progress and returns at most one event. An RX
 payload is borrowed until exactly one `wl_event_release()`. A reliable terminal
-handle is retained until exactly one `wl_tx_take()`. `wl_poll_get_hint()` is
+handle is retained until exactly one `wl_tx_take()`. `wl_link_get_readiness()` is
 side-effect free and returns immediate-work plus a relative deadline; it does
 not replace the next externally signalled adapter wake.
 
 ## Port and Adapter Boundary
 
 An adapter binds one `wl_sink_fn`. `WL_SINK_SENT` consumes bytes synchronously;
-`WL_SINK_STARTED` borrows them until one matching `wl_tx_complete()`;
+`WL_SINK_STARTED` borrows them until one matching `wl_tx_consumed()`;
 `WL_SINK_BUSY` is retryable backpressure; `WL_SINK_FAILED` is terminal.
 
 Choose exactly one RX ingress family per initialized context:
@@ -155,7 +157,7 @@ initialize/activate/service/quiesce mapping is in
 progress, and default event cleanup using separate adapter/application
 contexts. An event callback returns `CONSUMED` only after it released the RX
 event or took the terminal handle; `UNHANDLED` delegates that action to the
-pump. `wl_pump_get_hint()` merges core, adapter, and application relative
+pump. `wl_pump_get_readiness()` merges core, adapter, and application relative
 deadlines. `wl_pump_quiesce()` delegates adapter shutdown.
 
 The pump is a synchronous helper, not a scheduler or task. The application
@@ -183,7 +185,7 @@ and is invalid while a borrow/claim remains active.
 Ordinary applications use a generated `*_endpoint_t`, not a hand-written struct
 of buffer pointers. The type contains a generic `wl_endpoint_t`, runtime state,
 and statically sized storage. Its private members are not application API.
-`*_endpoint_init()` supplies native-packet/CRC32C defaults; `init_config()` allows
+`*_endpoint_init(endpoint, environment, wl_link_defaults())` supplies profile-selected envelope/CRC16 defaults; `init_config()` allows
 explicit transport settings, RPC roles, policies, and callbacks. Initialization
 takes a `wl_clock_t`; daily endpoint operations no longer take
 `now_ms`. Advanced runtime/link APIs remain explicit-time. See
@@ -277,7 +279,7 @@ append fields to closed v1 configuration/event structures. See
 
 ## Pre-1.0 Review Points
 
-Managed RPC metadata v2 resolves response ownership by echoing the originating
+Compact managed RPC metadata resolves response ownership by echoing the originating
 client identity and checking it with the call number across every delivery
 combination. See the [RPC contract](rpc-runtime.md). Compact-v1 framing is unchanged.
 
