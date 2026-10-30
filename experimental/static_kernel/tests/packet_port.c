@@ -163,6 +163,15 @@ static void test_stop_reinit_exhaustion(void) {
     CHECK(borrow.data[0] == i);
     CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
   }
+  /* Reuse the saved configuration after quiescence, with a fresh instance.
+   * init must snapshot aliased configuration before clearing the port. */
+  wl_packet_stop(&f.port);
+  CHECK(wl_packet_quiescent(&f.port));
+  f.port.config.instance = 105U;
+  CHECK(wl_packet_init(&f.port, &f.port.config) == WL_OK);
+  CHECK(wl_packet_rx_claim(&f.port, 1U, &claim) == WL_OK);
+  CHECK(claim.token.instance == 105U);
+  CHECK(wl_packet_rx_abort(&f.port, &claim) == WL_OK);
   f.port.claim_sequence = UINT32_MAX;
   CHECK(wl_packet_rx_claim(&f.port, 1U, &claim) == WL_ERR_ID_EXHAUSTED);
   f.port.tx_sequence = WL_PACKET_SEQUENCE_MAX;

@@ -15,8 +15,9 @@ wl_err_t wl_packet_init(wl_packet_port_t *port,
       config->rx_unit_size > SIZE_MAX / WL_PACKET_RX_SLOTS ||
       config->rx_storage_size < config->rx_unit_size * WL_PACKET_RX_SLOTS ||
       config->submit == NULL) return WL_ERR_INVALID_ARG;
+  const wl_packet_config_t value = *config;
   memset(port, 0, sizeof(*port));
-  port->config = *config;
+  port->config = value;
   atomic_init(&port->write_cursor, 0U);
   atomic_init(&port->read_cursor, 0U);
   atomic_init(&port->tx_state, 0U);
