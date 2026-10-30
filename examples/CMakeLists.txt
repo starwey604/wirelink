@@ -22,3 +22,11 @@ endif()
 if(WIRELINK_BUILD_WLC_EXAMPLES AND WIRELINK_BUILD_ASIO_UDP_ADAPTER AND WIRELINK_BUILD_PLATFORM)
   add_subdirectory(05_zephyr_udp)
 endif()
+
+if(BUILD_TESTING AND WIRELINK_BUILD_WLC_EXAMPLES)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME wirelink_tutorial_doc_sources COMMAND "${Python3_EXECUTABLE}"
+      "${PROJECT_SOURCE_DIR}/tests/tutorials/doc_sources.py")
+  endif()
+endif()

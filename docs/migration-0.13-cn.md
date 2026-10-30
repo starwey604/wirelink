@@ -1,0 +1,74 @@
+# 迁移到静态端点内核（0.13）
+
+[English](migration-0.13.md).
+
+本轮破坏 C/C++ API、ABI、adapter、profile 和生成代码合同。应用、core 与生成 C 必须用匹配的本地 WLC 0.13 / codegen 0.13（SDK binding API 3）共同重建，不假定已有新发布包。[内核 API](static-endpoint-kernel-api.md) 和安装头文件是当前执行合同。
+
+| 已删除的接口/能力 | 当前集成方式 |
+| --- | --- |
+| `wl_ctx_t`、`wl_init`、`wl_poll`、通用 event/pump | C-owned `wl_kernel_t` 与 `wl_packet_port_t`，owner 向 step 提供时间 |
+| reliable send/ACK handle、自动重传 | best-effort 普通消息或有界 RPC，应用决定是否重试 |
+| replay cache/TTL/peer observation/重复抑制 | 重复请求独立接纳后可能再次执行；业务定义幂等 |
+| pending/deferred reply token | handler 当场返回；长任务使用应用 job ID/status |
+| inspect/release 终态槽 | 唯一终态 callback；返回前复制借用结果 |
+| 通用 service/policy、生成 LATEST/FIFO route | 应用 event loop 与可选独立容器 |
+| mapped RPC、v1 binding、单独 runtime 生成 | 显式 profile v2 和一个 `wirelink_wlc_generate` target |
+| 运行时 link selector/defaults | 显式 native/NONE、COBS/CRC16 或 length16/NONE connector |
+| C++ 持有 C11 atomic 对象 | C 持有 port/FIFO，C++ 只使用 opaque handle |
+
+旧 protocol/RPC/endpoint/pump 执行源和 WLC runtime 模板已删除。共享执行在 `src/kernel.c`，包所有权在 `src/packet_port.c`，生成 C 提供静态 typed 路由与资源容量。Executor、C++ Session、SDK 都调用同一个内核，不在包装中恢复另一套关联表或可靠引擎。
+
+保留普通 Compact-v1 DATA、USB native DATA 字节与既有 managed v4 RPC session/operation/status 元数据规则。公开 tagged SchemaV1 与显式选择的普通 PositionalV1 codec 保留完整 schema 值域；RPC 使用 managed tagged，positional/mapped RPC 必须显式迁移。端点拒绝旧 reliable DATA/ACK。独立 frame/CRC 工具及冻结 conformance 向量保留，不恢复旧执行语义。双方在带外约定 schema、ID、connector，不自动协商；字节兼容不意味着仍有旧交付保证。
+
+## Owner、容量与时间
+
+单 owner 执行 admission、step、cancel、handler 和 terminal callback。串行化 I/O producer 只发布 packet/byte/completion。C core 不拥有 OS、线程、时钟、驱动或 heap。固定四个 outbound call、四份 reply snapshot、一份 ordinary snapshot，九索引队列维持接纳顺序。WLC 按真实消息大小安排存储，不能缩减业务 payload 来伪造 benchmark 收益。
+
+接纳成功返回前完成输入快照；`WL_ERR_WOULD_BLOCK` 表示背压，接纳失败不再产生未来 callback。执行 handler 副作用前预留响应容量。sink BUSY 时保留编码响应并等待真实 activity，不重跑 handler；但独立接纳的重复请求允许再次执行业务。reply pool 满时保留 RX 借用并向传输施压。
+
+外层提供单调 `uint32_t` 时间快照，按头文件的有界模运算设置 timeout。core 不读时钟。合并 readiness/deadline 和 latched wake，并扣除 owner 工作所耗时间再等待；手动 clock 前进时需显式通知 waiter。deadline 处理先于 RX 完成。
+
+已接纳调用只产生一个本地终态，终态后 handle 失效。callback 可接纳/取消其他调用，禁止递归 step/close；callback context 保持到终态交付。取消/超时不能撤销远端副作用。operation/generation 不回绕复用旧身份，耗尽后需实际 quiescence 和新 instance。
+
+## 重试、重复执行与长任务
+
+丢响应时不能判断 handler 是否已经执行。重试是新 RPC operation，可能再次执行业务。需要防止重复副作用时，在业务请求中携带 operation ID，自行定义持久范围、存储、冲突和重试策略。通信 instance 不是认证凭据，也不是业务幂等记录。
+
+短 handler 当场返回。长任务先返回应用 job ID，由应用状态/循环推进，并定义完成消息或状态查询的丢失恢复。[设备服务示例](../examples/03_device_service/README.md) 没有新增框架 job service。close/cancel 不回滚远端任务或已提交对象。[USB 对象示例](../benchmarks/host/README.md) 的重复 chunk/END 与有界重试仅属于该应用，不能泛化到任意 RPC。
+
+typed callback 的响应视图只借用到 callback 返回。需保留 string/bytes/嵌套数据时，在 callback 内用公开 value conversion 复制并检查失败。有界字符串携带长度，可包含 NUL。拥有型 SDK operation 在借用期复制，C++/Python 结果可在 Session 关闭后读取。
+
+## 物理 I/O 与关闭
+
+调用方提供恰好两个 RX unit，物理 TX 同时只有一笔。sink 返回 SENT/STARTED/BUSY/FAILED，STARTED 可 inline completion。CONSUMED 结束源内存借用，DRAINED 才结束物理发送。逻辑 RPC 已终态时也不能复用 USB/DMA 仍读取的源字节。BUSY/FAILED 未接纳，不得再发布 completion；BUSY 资源释放时必须唤醒 owner。
+
+1. C 持有端点/port/FIFO 原子存储，用平台随机源或持久分配器获得新的非零通信 instance。失败不得回退为时钟或生产固定 ID；递增 fixture ID 只用于隔离测试。
+2. port/存储就绪后绑定并启动选定 adapter。I/O callback 不执行 codec/业务，wake context 一直存活。
+3. 关闭 core，停止真实 producer，等待驱动取消、缓冲区归还、worker/callback 退出；owner 继续处理最终 completion。
+4. 同时取得 kernel/port quiescence 和 adapter 实际 stop/join 证明后，才释放/重初始化存储；重新连接使用新 instance。
+
+USB 使用 native/NONE，读容量必须严格大于合法 frame；full/truncated completion 锁存边界故障。需真实传输边界 reset/reconfigure 和新 instance，单纯 reopen 不会恢复丢失边界。保留 MPS/ZLP/token 检查。
+UART 使用显式 COBS/CRC16 和 C-owned staging FIFO：DMA 等待真实归还；IRQ 要求 TX-complete API；poll/host serial 要求物理 drain query。队列空或源已消费不能代替物理空闲。当前 Zephyr CDC API 缺 TX-complete，明确拒绝，不伪造完成。
+
+Host Executor 有 32 命令槽，每最多八条命令后推进 core。执行与排队拒绝回调均在 owner；owner 可 request_stop，不能 join/销毁自身。外部 Session close 排除新提交、等待正在提交者、停止并 join owner/I/O；已拥有的结果仍有效。详见 [Session](session-cn.md)。
+
+## 构建与生成
+
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+```
+
+默认示例用 checked-in 生成 C，不要求 WLC。教程启用 `WIRELINK_BUILD_WLC_EXAMPLES=ON` 并提供匹配的 `WIRELINK_WLC_EXECUTABLE`，不自动下载旧编译器。
+
+```cmake
+find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)
+set(WIRELINK_WLC_EXECUTABLE "/absolute/path/to/matching-wlc")
+wirelink_wlc_generate(TARGET app_protocol SCHEMA "schema.wl" PROFILE "app.bind.wl")
+target_link_libraries(my_application PRIVATE app_protocol)
+```
+
+无 profile 的 `wirelink_wlc_generate_codec` 只生成 public codec；有 v2 profile 的单 target 包含 public codec、静态 kernel 路由/快照与选定 connector。新目录重新生成，带旧 runtime/advanced/bindings 的输出目录明确拒绝覆盖。旧 v1/已删除 DSL 明确报错，不暗中翻译。[安装后消费者测试](../tests/package/wlc_current/) 验证同一 helper 及本地 compiler 错误。
+
+基础 `Wirelink::wirelink` 链接 kernel/types；platform、host、C++ Session、adapter、stream、container、fixed-pool 与独立 frame 工具均为可选组件。Zephyr `CONFIG_WIRELINK=y` 使用同一 core，另选实际需要的 connector/adapter。继续阅读[安装](installation-cn.md)、[教程](getting-started-cn.md)和[适配器](adapters-cn.md)。

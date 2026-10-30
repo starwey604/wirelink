@@ -1,181 +1,64 @@
-# 第三篇：查询并保存设备信息
+# 保存有界结果
 
-加法响应只有一个数字。这次设备返回名称和固件版本：你可能想把它们保存到界面，
-而不想关心通信缓冲区何时被复用。Wirelink 的普通响应是**自持值**：
-生成的结构体内就有字符串数组，赋值会连同字符一起复制，不需要分配器或释放函数。
-[English](tutorial-rpc-values.md)。
+完成 helper 在 callback 返回前用公开 value conversion 复制借用响应。本例验证八次调用，并在两端关闭后读取 owned UTF-8/NUL 结果。有界字符串携带长度，内嵌 NUL 不表示逻辑值结束；不再保留 inspect/release 终态槽。
 
-## 1. 运行两个程序
-
-先完成[环境准备](installation-cn.md)和[加法 RPC](tutorial-rpc-cn.md)的构建。
-在两个终端分别运行：
+本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
 
 ```sh
-./build/tutorials/examples/02_device_info/device_info_server
-./build/tutorials/examples/02_device_info/device_info_client
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+cmake --build build/tutorials --parallel
+ctest --test-dir build/tutorials --output-on-failure
 ```
 
-这里的两行分别在服务端、客户端终端执行，不是在同一个终端依次执行。
-Windows 多配置构建使用 `02_device_info/Release/*.exe`。首次客户端输出：
+运行目标 `wirelink_device_info_demo` （位于对应 examples 子目录）。
 
-```text
-current name=demo-sensor firmware=dev query=2
-saved after close name=demo-sensor firmware=dev query=1
-```
-
-它实际查询两次；第一行是第二次响应，第二行是在 endpoint 关闭后打印的第一次响应。
-再次运行时，两行的 query 分别是 4 和 3。
-服务端按 Ctrl+C 退出，默认端口为 49201/49200。
-
-## 2. 约定字符串上限
-
-完整 [device_info.wl](../examples/02_device_info/device_info.wl)：
-
-```text
-version 1;
-
-message InfoRequest @id(30) {}
-
-message InfoResponse @id(31) {
-  required string<31> name @id(1);
-  required string<15> firmware @id(2);
-  required uint32 query_count @id(3);
-}
-```
-
-`string<31>` 表示最多 31 个 UTF-8 **字节**，不是 31 个汉字。
-生成的 `name.length` 记录字节数，`name.data[]` 保存内容；`has_name` 表示字段存在。
-这里空的请求表示“查询本设备”，不需要人为增加无用参数。
-`query_count` 是演示用业务计数，不是 Wirelink 的调用编号。
-
-完整 [device_info.bind.wl](../examples/02_device_info/device_info.bind.wl)：
-
-```text
-profile version 1;
-
-rpc GetInfo {
-  request = InfoRequest;
-  response = InfoResponse;
-}
-```
-
-这仍是普通可靠 RPC，不需要为字符串增加新的通信模型。
-
-## 3. 服务端：填写拥有存储的响应
-
-完整 [server.c](../examples/02_device_info/server.c)：
+[02_device_info/client.c](../examples/02_device_info/client.c)
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <string.h>
-#include "device_info_endpoint.h"
-#include "tutorial_host.h"
+#include "device_info_kernel.h"
+#include "loopback_owner.h"
+int32_t device_info_query(void *, const info_request_t *, info_response_value_t *);
+static device_info_kernel_t endpoints[2];
+static example_pair_t pair;
+EXAMPLE_COMPLETION(info, info_response)
+int main(void) {
+  unsigned queries = 0;
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const device_info_kernel_handlers_t handlers = {.on_rpc_get_info = device_info_query};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(device_info_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, &queries) == WL_OK);
+  for (unsigned call = 0; call < 8; ++call) {
+    info_request_value_t request = {0}; wl_kernel_call_handle_t handle;
+    EXAMPLE_REQUIRE(device_info_kernel_get_info_start(&endpoints[0], &request, pair.now, 500,
+      info_completed, NULL, &handle) == WL_OK);
+    example_pair_wait(&pair, &info_count, call + 1);
+    EXAMPLE_REQUIRE(info_result.outcome == WL_KERNEL_SUCCESS && info_value.query_count == call + 1);
+  }
+  example_pair_close(&pair);
+  EXAMPLE_REQUIRE(info_value.name.length == 11 && memcmp(info_value.name.data, "workbench\0x", 11) == 0);
+  puts("bounded UTF-8/NUL response copied before callback exit and retained after close");
+  return 0;
+}
+```
 
-static int32_t get_info(void *context, const info_request_value_t *request,
-                        info_response_value_t *response) {
-  uint32_t *queries = context;
-  const char name[] = "demo-sensor";
-  const char firmware[] = "dev";
+[02_device_info/server.c](../examples/02_device_info/server.c)
+
+```c
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "device_info_kernel.h"
+#include <string.h>
+int32_t device_info_query(void *user, const info_request_t *request, info_response_value_t *response) {
   (void)request;
+  unsigned *queries = user;
   response->has_name = response->has_firmware = response->has_query_count = true;
-  response->name.length = sizeof(name) - 1U;
-  memcpy(response->name.data, name, sizeof(name) - 1U);
-  response->firmware.length = sizeof(firmware) - 1U;
-  memcpy(response->firmware.data, firmware, sizeof(firmware) - 1U);
+  response->name.length = 11; memcpy(response->name.data, "workbench\0x", 11);
+  response->firmware.length = 6; memcpy(response->firmware.data, "0.13.0", 6);
   response->query_count = ++*queries;
   return 0;
 }
-
-int main(int argc, char **argv) {
-  static device_info_endpoint_t server;
-  device_info_endpoint_config_t config;
-  uint32_t queries = 0;
-  uint16_t local = 49201, peer = 49200;
-  CHECK(example_ports(argc, argv, &local, &peer));
-  CHECK(device_info_endpoint_config_defaults(&config, wl_platform_environment(), wl_link_defaults()) == WL_OK);
-
-  config.on_get_info = get_info;
-  config.get_info_user_data = &queries;
-  CHECK(device_info_endpoint_init_config(&server, &config) == WL_OK);
-  example_udp_t *udp = example_udp_open(device_info_endpoint_handle(&server), local, peer);
-  CHECK(udp != NULL);
-  puts("device info server ready");
-  fflush(stdout);
-  while (example_running()) {
-    CHECK(device_info_endpoint_step(&server) == WL_OK);
-    CHECK(example_udp_wait(udp, 200U) == WL_OK);
-  }
-  CHECK(device_info_endpoint_close(&server) == WL_OK);
-  example_udp_close(udp);
-  return 0;
-}
 ```
 
-框架先清理响应，再调用 handler。我们设置 presence、长度并复制实际字节。
-这里的固定文本小于 schema 上限；从外部输入填充时必须先检查长度，
-不能用 `memcpy` 越过生成数组。局部字符串只用于本次复制，不会被框架长期借用。
-`get_info_user_data` 是业务上下文，本例指向服务端查询计数，不是协议存储。
-
-## 4. 客户端：保存结果再关闭通信
-
-完整 [client.c](../examples/02_device_info/client.c)：
-
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "device_info_endpoint.h"
-#include "tutorial_host.h"
-
-int main(int argc, char **argv) {
-  static device_info_endpoint_t client;
-  info_request_value_t request;
-  info_response_value_t response;
-  uint16_t local = 49200, peer = 49201;
-  CHECK(example_ports(argc, argv, &local, &peer));
-  info_request_value_clear(&request);
-  CHECK(device_info_endpoint_init(&client, wl_platform_environment(), wl_link_defaults()) == WL_OK);
-  example_udp_t *udp = example_udp_open(device_info_endpoint_handle(&client), local, peer);
-  CHECK(udp != NULL);
-
-  wl_rpc_completion_t result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
-  if (result.status != WL_RPC_SUCCESS) {
-    fprintf(stderr, "GetInfo failed: %s\n", wl_rpc_status_str(result.status));
-    CHECK(device_info_endpoint_close(&client) == WL_OK);
-    example_udp_close(udp);
-    return 1;
-  }
-  const info_response_value_t saved = response; /* Copies the strings too. */
-  result = device_info_endpoint_get_info_sync(&client, &request, &response, 1500U);
-  CHECK(result.status == WL_RPC_SUCCESS);
-  printf("current name=%.*s firmware=%.*s query=%lu\n",
-         (int)response.name.length, response.name.data,
-         (int)response.firmware.length, response.firmware.data,
-         (unsigned long)response.query_count);
-  info_response_value_clear(&response); /* Does not change saved. */
-  CHECK(device_info_endpoint_close(&client) == WL_OK);
-  example_udp_close(udp);
-
-  /* These fields remain usable after another call and endpoint close. */
-  printf("saved after close name=%.*s firmware=%.*s query=%lu\n",
-         (int)saved.name.length, saved.name.data,
-         (int)saved.firmware.length, saved.firmware.data,
-         (unsigned long)saved.query_count);
-  return 0;
-}
-```
-
-关键是 `saved = response`。第一行输出证明第二次调用已经把 `response` 更新为 query 2；
-之后清理原 response、关闭端点和 UDP，仍能从 `saved` 打印 query 1。这些操作都不会修改
-saved 中的字符串。保存结果的生命周期是这个普通 C 变量的生命周期，
-不是“任何指针永远有效”。回调收到的响应指针仍只在回调内有效，需要保存时复制值。
-
-打印使用长度限制而不是假定所有字符串适合 `strlen`。协议允许嵌入 NUL；
-`%.*s` 遇到 NUL 仍会停止，完整二进制日志应按长度输出。不要把字符串视作任意 bytes。
-
-## 5. RAM 的代价在哪里
-
-有界数组计入值类型和端点的静态容量，换来稳定的所有权；不是零复制，也不是无限长度。
-本例没有堆分配。大数据或需要精确控制借用时再读[高级 RPC](rpc-runtime-cn.md)
-和 [Bulk](bulk-performance-cn.md)，可选分配器只改变端点存储来源。
-
-接着可以阅读[异步客户端](tutorial-rpc-async-cn.md)、
-[延迟服务](tutorial-rpc-deferred-cn.md)，或直接[接入自己的项目](tutorial-integration-cn.md)。
+[内核 API](static-endpoint-kernel-api.md) · [迁移清单](migration-0.13-cn.md) · [应用长任务](tutorial-rpc-deferred-cn.md)

@@ -1,106 +1,42 @@
-# 进阶：不阻塞的 RPC 客户端
+# 四路并发调用
 
-如果程序还要处理按键、显示或其他任务，可以发起请求后立即返回，完成时再接收通知。
-服务端和消息定义仍用[加法示例](tutorial-rpc-cn.md)，不需要换一种 RPC 协议。
-[English](tutorial-rpc-async.md)。
+调用方在接纳时提供 now 和有界 timeout，外层 owner 把单调 tick 传给 step，C 内核不读取时钟。本地取消/超时只结束本地等待，不能撤销远端执行。重试创建新 operation，业务可能重复执行。结果视图只在完成 callback 期间有效。
 
-## 1. 运行
+本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
 
-先启动 `calculator_server`，再运行同目录的 `calculator_client_async`。
-构建及端口参数与同步客户端相同。正常输出会直接显示提交和完成是两个时刻：
-
-```text
-RPC submitted; main loop continues
-RPC completion received
-20 + 22 = 42
+```sh
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+cmake --build build/tutorials --parallel
+ctest --test-dir build/tutorials --output-on-failure
 ```
 
-## 2. 完整客户端
+运行目标 `wirelink_calculator_demo` （位于对应 examples 子目录）。
 
-[client_async.c](../examples/01_rpc/client_async.c)：
+[01_rpc/client_async.c](../examples/01_rpc/client_async.c)
 
 ```c
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "calculator_endpoint.h"
-#include "tutorial_host.h"
-
-typedef struct {
-  bool done;
-  wl_rpc_completion_t result;
-  add_response_value_t response;
-} addition_t;
-
-static void completed(void *context, const wl_rpc_completion_t *result,
-                       const add_response_value_t *response) {
-  addition_t *addition = context;
-  addition->result = *result;
-  if (response != NULL) addition->response = *response;
-  addition->done = true;
-  puts("RPC completion received");
-  fflush(stdout);
+#include "service.h"
+#include "loopback_owner.h"
+static unsigned completed;
+static void done(void *user, wl_kernel_result_t result, const add_response_t *response) {
+  (void)user;
+  EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response && response->sum == 42);
+  ++completed;
 }
-
-int main(int argc, char **argv) {
-  static calculator_endpoint_t client;
-  addition_t addition = {0};
-  add_request_value_t request;
-  uint16_t local = 49100, peer = 49101;
-  CHECK(argc == 1 || argc == 3 || argc == 5);
-  CHECK(example_ports(argc == 5 ? 3 : argc, argv, &local, &peer));
-  add_request_value_clear(&request);
-  request.has_left = request.has_right = true;
-  request.left = 20;
-  request.right = 22;
-  if (argc == 5) {
-    CHECK(example_int32(argv[3], &request.left));
-    CHECK(example_int32(argv[4], &request.right));
+void calculator_async_example(calculator_kernel_t *client, calculator_kernel_t *server) {
+  /* Four accepted calls coexist; no terminal slot needs inspect/release. */
+  (void)server;
+  for (int32_t i = 0; i < 4; ++i) {
+    add_request_value_t request = {.has_left = true, .left = i, .has_right = true, .right = 42 - i};
+    wl_kernel_call_handle_t handle;
+    EXAMPLE_REQUIRE(calculator_kernel_add_start(client, &request, 0, 500, done, NULL, &handle) == WL_OK);
+    memset(&request, 0, sizeof(request));
   }
-
-  CHECK(calculator_endpoint_init(&client, wl_platform_environment(), wl_link_defaults()) == WL_OK);
-  example_udp_t *udp = example_udp_open(calculator_endpoint_handle(&client), local, peer);
-  CHECK(udp != NULL);
-  CHECK(calculator_endpoint_add_async(&client, &request, 1500U,
-      completed, &addition, NULL) == WL_OK);
-  puts("RPC submitted; main loop continues");
-  fflush(stdout);
-
-  while (!addition.done && example_running()) {
-    const int step = calculator_endpoint_step(&client);
-    if (step != WL_OK) fprintf(stderr, "endpoint: %s\n", wl_err_str(step));
-    if (!addition.done) CHECK(example_udp_wait(udp, 200U) == WL_OK);
-  }
-  CHECK(calculator_endpoint_close(&client) == WL_OK); /* Also completes a call interrupted by Ctrl-C. */
-  if (addition.result.status == WL_RPC_SUCCESS) {
-    printf("%ld + %ld = %ld\n", (long)request.left, (long)request.right, (long)addition.response.sum);
-  } else if (addition.result.status == WL_RPC_REJECTED) {
-    printf("addition rejected: status=%ld\n", (long)addition.result.rejection);
-  } else {
-    fprintf(stderr, "RPC failed: %s\n", wl_rpc_status_str(addition.result.status));
-  }
-  example_udp_close(udp);
-  return addition.result.status == WL_RPC_SUCCESS ||
-         addition.result.status == WL_RPC_REJECTED ? 0 : 1;
 }
+unsigned calculator_async_count(void) { return completed; }
 ```
 
-`_async()` 返回 `WL_OK` 表示已复制请求并接受，不表示远端成功。
-队列满等提交错误不会触发回调；已接受的调用在持续驱动或有序关闭中恰好通知一次。
-两行运行标记表明提交函数先返回，完成通知随后才发生。
-完成时框架自动回收调用，业务只接收一个最终结果，不需要 inspect/release。
-
-`addition_t` 是本程序选择保存的业务结果，不是用户拼装的端点或协议缓冲区。
-完成回调的 result/response 指针不能带出回调；复制它们的值即可保存，
-包括[有界字符串](tutorial-rpc-values-cn.md)。非成功结果的 response 为 NULL。
-
-## 3. 谁继续推进通信
-
-示例主循环调用 step，再通过 UDP 就绪等待休眠，不靠忙轮询消耗 CPU。
-实际 UI/RTOS 可把推进接入自己的事件循环，详见[平台集成](rpc-platform-cn.md)。
-不要让两个线程同时 step，也不要在同一端点的回调中递归 step、sync 或 close。
-
-回调可以提交下一次 async 或取消其他调用。想停止时先设置业务标志，返回 owner
-主循环后调用生成的 close；Ctrl+C 路径也会先通知在途调用，再关闭 UDP。
-需要取消时把提交的最后一个 NULL 换成 `wl_rpc_call_t` 的地址，再调用
-`calculator_endpoint_cancel()`。超时和取消都不撤销远端已发生的副作用。
-
-服务端本身也有慢任务？继续阅读[延迟回复](tutorial-rpc-deferred-cn.md)。
+[内核 API](static-endpoint-kernel-api.md) · [迁移清单](migration-0.13-cn.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
