@@ -1,6 +1,6 @@
 # 静态端点内核重构：实施记录
 
-开始日期：2026-10-30；最近更新：2026-10-31。对应 [计划](static-endpoint-kernel-refactor-plan-20261030-cn.md) 和 [K0 合同](static-endpoint-kernel-contract-20261030-cn.md)。当前为 **K0、K1 完成，K2 正在登记**，不是 K2 性能验收结论，也不是 K6 最终结果。以下保留各批完成时的记录。
+开始日期：2026-10-30；最近更新：2026-10-31。对应 [计划](static-endpoint-kernel-refactor-plan-20261030-cn.md) 和 [K0 合同](static-endpoint-kernel-contract-20261030-cn.md)。当前为 **K0、K1、K2 阶段完成，主要继续条件满足；K3–K5 尚未完成**。保护项限制与原始数据见阶段结果，不能当作 K6 整体交付。以下保留各批完成时的记录。
 
 ## 已完成并提交的点
 
@@ -115,3 +115,9 @@ Smoke 使用 10 warmup、100 RPC、10 次低频调用、1000 paced Sample、四�
 构建失败尝试保留：初次 board 构建缺少 venv 的 esptool PATH；CPU-on 首次构建缺少原 observer 的全局 tracing include，补上与旧目标相同的 include 后通过；Twister 首次发现测试名缺少 `test_` 前缀。没有修改 Zephyr/USB driver 或全局系统调度设置来通过检查。
 
 K2 使用另外冻结的旧执行引擎 host，仅在外围 harness 加入 warmup 前 stdin gate、精确 10000 RPC 的 `screen` 选择及测量结束标记。补丁见 `k2-host-harness.patch`；旧 A、Astrial、业务 codec 与原 host 仍独立保留。每个 observer 的新旧设备共用同一个 host binary。两份 gated host 已先通过边界资格验证，在 `research_ready` 处冻结真实 main/worker policy、nice、affinity、governor/EPP，再释放 warmup。后续 K2 全程每 50 ms 核对，先登记再采集。
+
+## K2 筛查完成
+
+首轮及唯一完整补充共 20 份捕获，全部通过独立重放。CPU-off RTT p50 配对下降 69.58% / 70.91%，CPU-on MCU RPC active/call 下降 74.38% / 74.06%，MCU Sample active/frame 下降 47.66% / 50.26%。主要继续条件满足；没有可判定的重复保护回退，但有一份 host Sample CPU/frame +7.62% 的异常，部分保护项因 A 波动仍不可判定。未追加第三块。
+
+完整数字、解释范围、资源、提交及最终固件状态见 [K0–K2 阶段结果](static-endpoint-kernel-refactor-result-20261031-cn.md)。板卡已恢复本轮新冻结 A-o0 参考并再次 smoke，所有 I/O 已关闭。默认产品和既有用户修改保留；下一阶段为 K3 的新 host 与完整合同迁移。
