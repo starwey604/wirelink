@@ -138,3 +138,21 @@ provide the port pointer to an adapter or generated C++ consumer. Generated
 endpoint storage contains no C atomics and can be instantiated in C++. The
 `kernel_cpp` fixture links C storage, C core and generated C with a C++20
 caller, typed completion, cancellation, close and new-instance reuse.
+
+The K3 host binding `adapters/astrial/packet_usb.cpp` uses the same C packet
+port directly. It preserves the Astrial borrowed-read/write API, one in-flight
+read and write, and the read-terminator gap. Construct the adapter before port
+initialization, configure port submit/notify with the adapter as user, then
+start. Only I/O callbacks claim/commit RX and publish token-bound TX completion;
+codec and terminal callbacks stay on the owner. Faults are sticky until an
+explicit USB reset/reconfiguration and a fresh instance. Stop joins the USB
+worker before acknowledging that adapter and port storage can be reclaimed.
+The owner drains queued RX/final TX completion and closes its kernel before
+reinitialization. Do not call stop/destruction from a USB callback.
+
+Enable `WIRELINK_KERNEL_BUILD_ASTRIAL_USB=ON` for this standalone target and its
+controlled Astrial fixture. The fixture links the real adapter and C port,
+checks two-slot backpressure and borrowed RX, inline/asynchronous TX, late
+completion rejection, latched wakes, boundary/disconnect faults and stop/reinit.
+It supplies completion events at the public Astrial boundary, without claiming
+to simulate the USB controller. Both GCC and Clang ASan/UBSan pass all 7 tests.
