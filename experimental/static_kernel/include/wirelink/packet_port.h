@@ -83,6 +83,8 @@ wl_err_t wl_packet_rx_abort(wl_packet_port_t *, const wl_packet_claim_t *);
 wl_err_t wl_packet_rx_borrow(wl_packet_port_t *, wl_packet_borrow_t *);
 wl_err_t wl_packet_rx_release(wl_packet_port_t *, const wl_packet_borrow_t *);
 int wl_packet_rx_ready(const wl_packet_port_t *);
+/* Producer/owner hint only: the next claim is still authoritative. */
+int wl_packet_rx_available(const wl_packet_port_t *);
 
 /* Owner only. BUSY/FAILED do not retain the source. STARTED/SENT retain it
  * until owner receives CONSUMED. No second physical TX before DRAINED. */

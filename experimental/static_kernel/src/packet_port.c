@@ -115,6 +115,14 @@ int wl_packet_rx_ready(const wl_packet_port_t *port) {
   return read != atomic_load_explicit(&port->write_cursor, memory_order_acquire);
 }
 
+int wl_packet_rx_available(const wl_packet_port_t *port) {
+  if (!atomic_load_explicit(&port->running, memory_order_acquire) ||
+      atomic_load_explicit(&port->claim_active, memory_order_acquire)) return 0;
+  uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_acquire);
+  uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_acquire);
+  return (uint32_t)(write - read) < WL_PACKET_RX_SLOTS;
+}
+
 wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port, wl_packet_borrow_t *out) {
   if (port == NULL || out == NULL) return WL_ERR_INVALID_ARG;
   if (port->borrowed) return WL_ERR_BUSY;

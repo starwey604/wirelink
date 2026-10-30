@@ -102,3 +102,31 @@ The same tests run in Ztest. External K1 evidence additionally compares one
 million metadata cases and all 2,049 legal native payload sizes against frozen
 A's helpers and framing tool. The Xtensa `-Os` native connector has no undefined
 symbols; this is a code dependency check, not a device performance measurement.
+
+The isolated Zephyr product binding lives in `adapters/zephyr/usb_bulk.c` and
+`wirelink/zephyr/kernel_usb_bulk.h`. It preserves the existing descriptor,
+net_buf, ZLP and explicit reconfiguration mechanisms. Build it instead of the
+legacy USB adapter with `CONFIG_WIRELINK=n`; it has no old core dependency.
+This temporary copied binding is to converge with product adapters in K5.
+
+Initialize the packet port first with `wl_kernel_usb_bulk_submit`,
+`wl_kernel_usb_bulk_notify`, and `user=adapter`, then bind the adapter with the
+selected maximum frame size, strictly less than the RX unit size. The USB
+thread only publishes I/O; owner service claims/enqueues RX. Each of the same
+two net_buf objects has an additional packet token in user data (32 bytes
+total on the current target), preventing an old completion from matching a new
+request at the same endpoint. TX borrows the final frame until completion.
+
+Call owner service around kernel step, and combine adapter readiness, kernel
+readiness/deadline and the outer latched event when waiting. Stop disables
+USBD and port admission. It remains pending until real transfer cancellation
+and callback-side adapter/port accesses end; no cancellation is synthesized.
+Consume final port completion and release RX borrows before deinit/reinit.
+The outer wake callback/context must remain valid through final I/O notification.
+Only a fresh, unique instance ID may be used when restarting.
+
+`tests/zephyr/integration/static_usb_bulk` exercises this actual USBD class and
+packet port on `native_sim`, with a controlled UDC enqueue boundary. It covers
+RX backpressure, inline completion, assigned endpoints/MPS, ZLP, stale tokens,
+boundary faults/reconfiguration and asynchronous stop acknowledgement. It
+links no legacy core. Hardware benchmark qualification is recorded separately.

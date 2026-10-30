@@ -53,7 +53,9 @@ static void test_rx_ownership(void) {
   wl_packet_claim_t a, b, invalid;
   wl_packet_borrow_t borrow, stale;
   init(&f, 101U);
+  CHECK(wl_packet_rx_available(&f.port));
   CHECK(wl_packet_rx_claim(&f.port, 8U, &a) == WL_OK);
+  CHECK(!wl_packet_rx_available(&f.port));
   invalid = a;
   invalid.span.length = 32U;
   CHECK(wl_packet_rx_commit(&f.port, &invalid, 9U) == WL_ERR_INVALID_ARG);
@@ -64,12 +66,14 @@ static void test_rx_ownership(void) {
   CHECK(wl_packet_rx_claim(&f.port, 32U, &b) == WL_OK);
   memset(b.span.data, 0xb2, 32U);
   CHECK(wl_packet_rx_commit(&f.port, &b, 32U) == WL_OK);
+  CHECK(!wl_packet_rx_available(&f.port));
   CHECK(wl_packet_rx_claim(&f.port, 8U, &invalid) == WL_ERR_WOULD_BLOCK);
   CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
   CHECK(borrow.length == 8U && borrow.data[7] == 0xa1);
   stale = borrow;
   CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_ERR_BUSY);
   CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
+  CHECK(wl_packet_rx_available(&f.port));
   CHECK(wl_packet_rx_release(&f.port, &stale) == WL_ERR_NOT_FOUND);
   CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
   CHECK(borrow.length == 32U && borrow.data[31] == 0xb2);

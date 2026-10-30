@@ -1,0 +1,6 @@
+tests:
+  wirelink.static_usb_bulk:
+    tags: [wirelink, usb, kernel, integration]
+    harness: ztest
+    platform_allow: [native_sim]
+    integration_platforms: [native_sim]
