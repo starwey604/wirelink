@@ -1,3 +1,5 @@
+> 当前 `wirelink-codec-validation-v3` 只使用公开 decode、encode 和 owned conversion。canonical bytes 由独立诊断循环计算摘要，内核没有 replay fingerprint/cache。旧生成器私有 fingerprint/value-copy 实验已删除；v2 历史报告仍可读取，v2/v3 不能混比。下文旧实验说明仅供历史参考；当前使用 WLC 0.13，不能设置 `RPC_VALIDATION_OPTIMIZED_CODEC=1`。
+
 # RPC 校验工作
 
 [English](README.md)。可选的 CPU 回归负载，由 Google Benchmark 和独立的 ESP32-S3 Zephyr app 共用。

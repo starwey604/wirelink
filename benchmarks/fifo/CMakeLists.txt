@@ -4,7 +4,7 @@ find_package(Threads REQUIRED)
 
 add_executable(wirelink_fifo_benchmark fifo_benchmark.c)
 target_link_libraries(wirelink_fifo_benchmark PRIVATE
-  Wirelink::wirelink
+  Wirelink::containers
   Threads::Threads
 )
 

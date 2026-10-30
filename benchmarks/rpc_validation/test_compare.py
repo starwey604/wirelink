@@ -22,6 +22,19 @@ class CompareTests(unittest.TestCase):
         for parsed in (compare.firmware(capture()), compare.host(report())):
             self.assertEqual(len(list(compare.compare(parsed, parsed))), 130)
 
+    def test_public_codec_v3_is_separate(self):
+        old_host = report()
+        current_host = copy.deepcopy(old_host)
+        current_host["context"]["workload"] = "wirelink-codec-validation-v3"
+        old_fw = compare.firmware(capture())
+        current_fw = compare.firmware(capture().replace("_v2", "_v3"))
+        for left, right in ((compare.host(old_host), compare.host(current_host)), (old_fw, current_fw)):
+            self.assertEqual(len(list(compare.compare(right, right))), 130)
+            with self.assertRaises(ValueError):
+                list(compare.compare(left, right))
+        with self.assertRaises(ValueError):
+            compare.firmware(capture().replace("rpc_validation_end_v2", "rpc_validation_end_v3"))
+
     def test_missing_firmware(self):
         with self.assertRaises(ValueError):
             compare.firmware(capture().replace("rpc_validation_v2,k=0,s=0,b=0,r=0,n=32,cycles=3200\n", ""))

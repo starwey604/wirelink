@@ -31,7 +31,7 @@ def positive(value):
 
 def host(report):
     context = report["context"]
-    if context.get("workload") != "wirelink-rpc-validation-v2":
+    if context.get("workload") not in ("wirelink-rpc-validation-v2", "wirelink-codec-validation-v3"):
         raise ValueError("unsupported workload")
     groups, sizes = {}, {}
     for row in report["benchmarks"]:
@@ -62,25 +62,29 @@ def host(report):
 
 
 def firmware(text):
-    begin, end, rows = None, None, {}
+    begin, end, rows, version = None, None, {}, None
     for line in text.splitlines():
         at = line.find("rpc_validation_")
         if at < 0:
             continue
         record, *items = line[at:].split(",")
         fields = dict(item.split("=", 1) for item in items)
-        if record == "rpc_validation_begin_v2":
+        current = record.rsplit("_", 1)[-1]
+        if current not in ("v2", "v3") or (version is not None and current != version):
+            raise ValueError("unsupported or mixed firmware workload")
+        version = current
+        if record == "rpc_validation_begin_" + version:
             if begin is not None or rows or end is not None:
                 raise ValueError("duplicate or misplaced begin")
             begin = {k: int(fields[k]) for k in ("hz", "batch")}
             positive(begin["hz"])
             if begin["batch"] != 32:
                 raise ValueError("batch changed")
-        elif record == "rpc_validation_end_v2":
+        elif record == "rpc_validation_end_" + version:
             if begin is None or end is not None:
                 raise ValueError("duplicate or misplaced end")
             end = fields
-        elif record == "rpc_validation_v2":
+        elif record == "rpc_validation_" + version:
             if begin is None or end is not None:
                 raise ValueError("measurement outside run")
             key = tuple(int(fields[k]) for k in ("k", "s", "b", "r"))
@@ -97,7 +101,7 @@ def firmware(text):
         values = groups.setdefault(name(key), {"cpu_ns": [], "cycles": []})
         values["cycles"].append(cycles)
         values["cpu_ns"].append(cycles * 1e9 / begin["hz"])
-    return ({"kind": "firmware", **begin}, groups)
+    return ({"kind": "firmware", "workload": version, **begin}, groups)
 
 
 def read(path):

@@ -15,18 +15,7 @@ static uint64_t reference(const uint8_t *data, size_t length) {
   return hash;
 }
 
-#if RPC_VALIDATION_OPTIMIZED_CODEC
-/* Generator-private seam: never an application-facing API. */
-#define DECLARE(name) \
-  wl_codec_status_t name##_wlc_detail_fingerprint(const name##_t *, uint64_t *, size_t *); \
-  void name##_wlc_detail_value_copy(const name##_t *, name##_value_t *);
-DECLARE(small)
-DECLARE(large)
-DECLARE(nested)
-#define CANONICAL(name) (f->fingerprint = FINGERPRINT_SEED, name##_wlc_detail_fingerprint(&f->view.name, &f->fingerprint, &f->canonical_length))
-#define COPY(name) (name##_wlc_detail_value_copy(&f->view.name, &f->value.name), WL_CODEC_OK)
-#define HASH_ENCODED() ((void)0)
-#else
+/* Standalone canonical-byte diagnostic. No kernel replay/cache fingerprint. */
 static uint64_t hash_encoded(const uint8_t *data, size_t length) {
   uint64_t hash = FINGERPRINT_SEED;
   for (size_t i = 0; i < length; ++i) hash = (hash ^ data[i]) * UINT64_C(0x100000001b3);
@@ -35,7 +24,7 @@ static uint64_t hash_encoded(const uint8_t *data, size_t length) {
 #define CANONICAL(name) name##_encode(&f->view.name, f->canonical, sizeof(f->canonical), &f->canonical_length)
 #define COPY(name) name##_value_from_view(&f->view.name, &f->value.name)
 #define HASH_ENCODED() (f->fingerprint = hash_encoded(f->canonical, f->canonical_length))
-#endif
+
 
 #define RUN(name) \
   if (f->stage == RPC_VALIDATION_OWNED_DECODE) \

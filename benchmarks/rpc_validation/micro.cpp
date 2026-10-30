@@ -24,7 +24,7 @@ static void run(benchmark::State &state, unsigned kind, unsigned stage, size_t b
 int main(int argc, char **argv) {
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
-  benchmark::AddCustomContext("workload", "wirelink-rpc-validation-v2");
+  benchmark::AddCustomContext("workload", "wirelink-codec-validation-v3");
   const char *stages[] = {"decode", "canonical", "convert", "pipeline", "owned_decode"};
   for (unsigned kind = 0; kind < 3; ++kind)
     for (unsigned stage = 0; stage < RPC_VALIDATION_STAGES; ++stage)

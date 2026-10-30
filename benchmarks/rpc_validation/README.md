@@ -1,3 +1,5 @@
+> Current workload `wirelink-codec-validation-v3` uses only public decode, encode and owned conversion APIs. Canonical bytes are hashed by a standalone diagnostic loop; the core has no replay fingerprint/cache. The old generator-private fingerprint/value-copy experiment is removed. v2 host/firmware readers remain for historical captures, and comparisons across v2/v3 fail. The historical instructions below describe that experiment; current builds use WLC 0.13 and do not set `RPC_VALIDATION_OPTIMIZED_CODEC=1`.
+
 # RPC validation work
 
 [中文](README-cn.md).
