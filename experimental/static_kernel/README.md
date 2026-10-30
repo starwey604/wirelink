@@ -213,3 +213,19 @@ Cortex-M3 and RISC-V (12 case/platform executions), including a DMA callback
 suspended during shutdown with a full byte FIFO. Shutdown waits for its exit
 without requiring unpublished bytes to be parsed. These are software adapter
 fixtures; UART hardware throughput and physical timing have not been measured.
+
+K3 packet UDP bindings are `adapters/asio/packet_udp.cpp` and the Zephyr
+`kernel_udp` / `kernel_udp_socket` modules. Both receive into caller-owned
+packet claims with a guard byte, reject empty/foreign/truncated datagrams,
+retain two-slot backpressure and preserve latched waits. A selected in-place
+COBS/CRC16 datagram decoder can be explicitly composed; native packets need no
+framing wrapper. They do not call old endpoint, link or RPC APIs. A UDP send
+completion means whole-datagram socket acceptance and no retained source, not
+MAC completion or peer receipt. Zephyr preserves bounded timed retries instead
+of spinning on temporary socket pressure. The Asio binding retains an idle RX
+claim so a no-data poll does not continually notify itself by claim/abort.
+
+Actual Asio loopback tests (GCC and Clang ASan/UBSan) and actual Zephyr loopback
+socket tests cover source/guard checks, held RX, full slots and release, native
+and COBS input, notify-before-wait and notify-during-wait, stop and close. They
+measure no UDP performance and do not imply Wi-Fi/hardware-network validation.

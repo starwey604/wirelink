@@ -1,0 +1,6 @@
+tests:
+  wirelink.static_udp.integration:
+    tags: [wirelink, udp, integration]
+    harness: ztest
+    integration_platforms: [native_sim]
+    platform_allow: [native_sim, native_sim/native/64]

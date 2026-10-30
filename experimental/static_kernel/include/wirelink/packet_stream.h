@@ -40,6 +40,8 @@ wl_packet_submit_t wl_packet_stream_length16_none_submit(void *, const uint8_t *
  * Empty input is allowed. The consumed count is always initialized. */
 wl_err_t wl_packet_stream_cobs_crc16_feed(wl_packet_stream_t *, const uint8_t *, size_t, size_t *);
 wl_err_t wl_packet_stream_length16_none_feed(wl_packet_stream_t *, const uint8_t *, size_t, size_t *);
+/* Complete COBS/CRC16 datagram, including its final zero, decoded in place. */
+wl_err_t wl_packet_cobs_crc16_decode(uint8_t *, size_t, size_t *);
 void wl_packet_stream_notify(void *);
 wl_err_t wl_packet_stream_abort_rx(wl_packet_stream_t *);
 #ifdef __cplusplus
