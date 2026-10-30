@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 sample:
-  name: Wirelink automatic session and RPC ownership
+  name: Wirelink explicit instance identity and RPC ownership
 tests:
   sample.wirelink.session:
     tags: [wirelink, wlc, rpc]

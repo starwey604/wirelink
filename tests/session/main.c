@@ -1,22 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/platform.h"
-#include "rr_endpoint.h"
 #include <stdio.h>
-#ifdef __ZEPHYR__
-#include <zephyr/kernel.h>
-#endif
-int rr_run(void);
-int ru_run(void);
-int ur_run(void);
-int uu_run(void);
-
+int session_run(wl_session_source_t source);
 int main(void) {
   wl_environment_t native = wl_platform_environment();
-  uint64_t previous = 0U, next = 0U;
-  wl_err_t error;
+  uint64_t previous = 0, next = 0;
   puts("SESSION start");
-  for (unsigned i = 0; i < 128U; ++i) {
-    error = wl_session_next(native.session, previous, &next);
+  for (unsigned i = 0; i < 128; ++i) {
+    wl_err_t error = wl_session_next(native.session, previous, &next);
 #if defined(__ZEPHYR__) && !defined(SESSION_REQUIRE_NATIVE) && \
     (!defined(CONFIG_CSPRNG_ENABLED) || defined(CONFIG_TEST_CSPRNG_GENERATOR))
     if (error == WL_ERR_NOT_SUPPORTED) {
@@ -24,25 +15,12 @@ int main(void) {
       break;
     }
 #endif
-    if (error != WL_OK || next == previous || next == 0U) {
-      printf("SESSION platform failure=%d iteration=%u\n", (int)error, i);
-      return 1;
+    if (error != WL_OK || next == 0 || next == previous) {
+      printf("SESSION platform failure=%d iteration=%u\n", (int)error, i); return 1;
     }
     previous = next;
-    if (i == 127U) puts("SESSION platform RNG 128 PASS");
+    if (i == 127) puts("SESSION platform RNG 128 PASS");
   }
-  if (error == WL_OK) {
-    static rr_endpoint_t endpoint;
-    uint64_t initial;
-    if (rr_endpoint_init(&endpoint, native, wl_link_defaults()) != WL_OK) return 2;
-    initial = wl_link_session_id(wl_endpoint_link(rr_endpoint_handle(&endpoint)));
-    if (initial == 0U || rr_endpoint_close(&endpoint) != WL_OK) return 2;
-    if (rr_endpoint_init(&endpoint, native, wl_link_defaults()) != WL_OK) return 2;
-    if (wl_link_session_id(wl_endpoint_link(rr_endpoint_handle(&endpoint))) == initial ||
-        rr_endpoint_close(&endpoint) != WL_OK) return 2;
-    puts("SESSION platform endpoint reinit PASS");
-  }
-  if (rr_run() || ru_run() || ur_run() || uu_run()) return 1;
-  puts("SESSION ALL PASS");
-  return 0;
+  if (session_run(native.session)) return 1;
+  puts("SESSION ALL PASS"); return 0;
 }
