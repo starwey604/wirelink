@@ -3,7 +3,30 @@
 All notable Wirelink changes are recorded here. The project uses semantic
 versioning after 1.0; compatibility expectations for pre-1.0 releases are described in [`docs/compatibility.md`](docs/compatibility.md).
 
-## Unreleased
+## Unreleased — 0.13 development
+
+- **Breaking execution/API/ABI change:** replace the old ctx/protocol/RPC/pump
+  engines with one allocation-free C11 static endpoint kernel and packet port.
+  Four calls/four replies, admission snapshots, one terminal callback, explicit
+  owner time and physical TX leases are shared by generated C, host and SDKs.
+- Remove ARQ/ACK execution, automatic retries, replay/TTL caches, deferred reply
+  tokens, mapped RPC and generic service/policy scheduling. Duplicate requests
+  may execute again; applications own retry, idempotency and job/status rules.
+- Require local WLC/codegen 0.13, profile v2 and SDK binding API 3. Default
+  profile generation uses the shared kernel; old syntax/stale output explicitly
+  fails. Rebuild all consumers. No published compiler/archive is assumed.
+- Preserve native ordinary Compact-v1 DATA and managed v4 RPC metadata, public
+  codec domains and frozen vectors. Standalone frame/CRC/container tools remain
+  optional; old reliable/ACK formats there do not restore endpoint execution.
+- Migrate C tutorials, Zephyr/desktop packet adapters, C++/Python SDK bridges,
+  installed consumers, fuzzers and current benchmark contracts. Require genuine
+  TX-complete/drain capabilities and real stop/join; unsupported CDC is rejected.
+- See [English migration](docs/migration-0.13.md) and
+  [中文迁移](docs/migration-0.13-cn.md) for ownership, borrowed-result lifetime,
+  shutdown and removed interfaces. Historical measurements remain scoped to
+  their recorded builds; final-product confirmation is separately identified.
+
+### Earlier development notes (before the static kernel)
 
 - **Breaking USB wire/configuration change:** USB Bulk now uses only
   native_packet with NONE by default. Upgrade host and device together. Remove

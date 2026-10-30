@@ -1,240 +1,97 @@
 # Wirelink
 
-Wirelink is an allocation-free C11 link protocol engine for embedded and
-desktop systems. It provides explicit framing, CRC integrity, stop-and-wait
-reliability, borrowed RX payloads, and direct SPSC/DMA ingress without owning
-hardware, threads, a heap, or a clock.
+Wirelink is an allocation-free C11 endpoint kernel with static typed routing,
+four concurrent RPC calls in each direction, ordinary messages and explicit
+packet ownership. Applications supply storage, a single owner, monotonic time
+snapshots and a transport. The core owns no OS, thread, heap, clock or driver.
 
-Wirelink is a point-to-point link and typed application runtime, not a routed
-network or security layer. Version 1 does not provide node addressing,
-discovery, routing, broadcast, authentication, encryption, or access control.
-Use an authenticated transport when the physical link is not trusted.
+This development tree is **0.13.0 / WLC codegen 0.13 / SDK binding API 3**.
+It removes ARQ/ACK execution, automatic retries, replay/TTL caches, deferred
+reply tokens, mapped RPC and generic policy/service scheduling. A separately
+admitted duplicate request may execute again; applications define retries,
+idempotency and long-running jobs. This is a breaking API/ABI/generated-code
+change. [Migration](docs/migration-0.13.md) ([中文](docs/migration-0.13-cn.md))
+explains the full contract, including borrowed results and shutdown.
 
-This development tree is `0.12.0`, paired with WLC/codegen contract `0.12`.
-It uses wire protocol v1; the link envelope bytes are frozen by the
-[v1 conformance vectors](docs/conformance-v1.md); compatibility guarantees and
-pre-1.0 limits are in [`docs/compatibility.md`](docs/compatibility.md); the C
-surface contract is in [`docs/api-boundary.md`](docs/api-boundary.md).
+Native USB ordinary Compact-v1 DATA bytes and managed v4 RPC metadata remain
+compatible. Public tagged SchemaV1 and ordinary PositionalV1 codecs retain
+complete schema domains. Removed reliability semantics are not wire guarantees.
+Wirelink provides no addressing, routing, discovery, authentication, encryption
+or access control; the application selects its transport/security boundary.
 
 ## Start here
 
-1. [Getting started](docs/getting-started.md) displays a temperature with a
-   complete hardware-free program.
-2. The [RPC](docs/tutorial-rpc.md) and
-   [bounded values](docs/tutorial-rpc-values.md) tutorials.
-3. [Async](docs/tutorial-rpc-async.md) and
-   [deferred](docs/tutorial-rpc-deferred.md) callers.
-4. [Integrate Wirelink into your project](docs/tutorial-integration.md).
-5. The [modular device services example](examples/03_device_service/README.md).
+- [Install the matching local tools](docs/installation.md) ([中文](docs/installation-cn.md)).
+- [Telemetry](docs/getting-started.md), [RPC](docs/tutorial-rpc.md),
+  [owned results](docs/tutorial-rpc-values.md) and
+  [application jobs](docs/tutorial-rpc-deferred.md), with build-backed C listings.
+- [Kernel API](docs/static-endpoint-kernel-api.md),
+  [adapter lifecycle](docs/adapters.md) and [API map](docs/api-boundary.md).
+- [C++/Python generated SDK examples](examples/06_bindings/README.md).
 
-Chinese mirrors: [getting started](docs/getting-started-cn.md),
-[installation](docs/installation-cn.md),
-[API boundary](docs/api-boundary-cn.md).
-
-## Install
-
-Wirelink needs a matching WLC compiler to generate payload code. See
-[environment setup](docs/installation.md) ([中文](docs/installation-cn.md)); build WLC from the matching local source
-checkout. No published 0.12
-archive/source pair is pinned; automatic download fails explicitly until one is
-available. Pass `WIRELINK_WLC_EXECUTABLE` for reproducible builds.
-
-```cmake
-find_package(Wirelink 0.12 CONFIG REQUIRED)
-target_link_libraries(my_firmware PRIVATE Wirelink::wirelink)
-```
-
-A relocatable `wirelink.pc` file is installed for pkg-config consumers.
-
-## Build the core
+## Build and install
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
-cmake --build build/core
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
 cmake --install build/core --prefix /path/to/prefix
 ```
 
-The core targets are `wirelink` and `Wirelink::wirelink`. Applications provide
-all persistent storage to `wl_init()`, drive time through `wl_poll()`, and bind
-a transport sink through `wl_set_sink()`.
-[`docs/development.md`](docs/development.md) documents the concurrency,
-ownership, DMA lifecycle, and test contracts.
+The default bare-metal loopback example uses checked-in generated C, so WLC is
+not required. The installed `Wirelink::wirelink` target links this same kernel
+and types; `wirelink.pc` supports C pkg-config consumers.
 
-## Generate payload code
-
-The installed package exposes separate codec and runtime generation targets.
-WLC always runs as a host executable, including during a cross-build.
+Build WLC from its matching independent 0.13 source tree when regenerating.
+No released 0.13 archive/source pair is assumed, and the helper does not fall
+back to an older compiler. Enable `WIRELINK_BUILD_WLC_EXAMPLES=ON` and pass
+`WIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc` for the C tutorials.
 
 ```cmake
-find_package(Wirelink 0.12 CONFIG REQUIRED)
-
-wirelink_wlc_generate_codec(
-  TARGET myapp_codec
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/schema/myapp.wl")
-wirelink_wlc_generate_runtime(
-  TARGET myapp_host
-  CODEC_TARGET myapp_codec
-  PROFILE "${CMAKE_CURRENT_SOURCE_DIR}/schema/host.bind.wl")
-target_link_libraries(my_application PRIVATE myapp_host)
+find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)
+set(WIRELINK_WLC_EXECUTABLE "/absolute/path/to/matching-wlc")
+wirelink_wlc_generate(TARGET app_protocol
+  SCHEMA "schema.wl" PROFILE "app.bind.wl")
+target_link_libraries(my_application PRIVATE app_protocol)
 ```
 
-Generate additional role runtimes against the same codec; set a distinct
-`RUNTIME_NAME` when more than one role is linked into the same process.
-`wirelink_wlc_generate()` remains a single-runtime convenience wrapper.
+A profile-v2 target contains public codec, one static kernel router and its
+selected connector. `wirelink_wlc_generate_codec` without a profile emits only
+standalone codec. Old profile syntax and stale output directories fail with
+migration errors; separate runtime generation is removed.
 
-WLC resolution checks the call's `WLC_EXECUTABLE`, the project-wide
-`WIRELINK_WLC_EXECUTABLE`, and the host `PATH`, in that order. For released versions with a published pair, Wirelink can fetch
-the verified
-host archive into `WIRELINK_WLC_CACHE_DIR`. The 0.12 development contract
-requires a matching local compiler. Set
-`WIRELINK_WLC_AUTO_DOWNLOAD=OFF` for offline or hermetic builds. The generated
-manifest must match the pinned compiler version and codegen contract before any
-generated translation unit is compiled.
+## Optional integrations
 
-Default tagged payload rules are in [`docs/schema-v1.md`](docs/schema-v1.md).
-Explicit positional codecs use [`positional-v1`](docs/positional-v1.md).
-See the [0.12 migration guide](docs/migration-0.12.md) for ownership, guarantees
-and regeneration requirements. A compatible
-schema pair and its checked-in generated C artifacts live under
-[`tests/fixtures/wlc`](tests/fixtures/wlc).
+| Component | Source / use |
+| --- | --- |
+| Platform clock and fresh instance source | `runtime/platform`, `WIRELINK_BUILD_PLATFORM` |
+| Bounded host owner thread/wait | `runtime/host`, `WIRELINK_BUILD_HOST_RUNTIME` |
+| Owning UDP C++ Session / generated SDK | `bindings/cpp`, `WIRELINK_BUILD_CPP_BINDINGS` |
+| Astrial native/NONE USB | `adapters/astrial_usb`, `WIRELINK_BUILD_ASTRIAL_USB_ADAPTER` |
+| Astrial COBS/CRC16 serial | `adapters/astrial`, `WIRELINK_BUILD_ASTRIAL_ADAPTER` |
+| Asio native/NONE UDP | `adapters/asio_udp`, `WIRELINK_BUILD_ASIO_UDP_ADAPTER` |
+| Zephyr UART/USB/UDP/wait | `zephyr/Kconfig`, `samples/zephyr`; same core with `CONFIG_WIRELINK=y` |
+| Independent FIFO/LATEST/outbox and fixed-pool allocation | `Wirelink::containers`, optional `WIRELINK_BUILD_STORAGE` |
+| Independent frozen frame/CRC/COBS tools | `Wirelink::frame_tools`, `Wirelink::framing_primitives` |
 
-## Transports
+C owns C11 atomic port/FIFO storage; C++ sees opaque handles. RX has two units,
+TX separates source-consumed from physically-drained, and driver stop/join plus
+kernel quiescence precede destruction. USB boundary faults require real
+reset/reconfiguration. Current Zephyr CDC lacks the required TX-complete API and
+is explicitly rejected. See [adapter contracts](docs/adapters.md).
 
-An adapter bridges an endpoint to a concrete byte transport.
-[`docs/adapters.md`](docs/adapters.md) defines the ownership, readiness, and
-lifecycle contract.
+## Validation and research
 
-- **Loopback** — allocation-free native-packet bring-up, installed as
-  `Wirelink::loopback`. See [`docs/loopback.md`](docs/loopback.md).
-- **UDP** — cross-platform Asio adapter with native packets and explicit legacy
-  COBS framing. See [`docs/udp-adapter.md`](docs/udp-adapter.md) and the
-  [telemetry](examples/00_telemetry/) / [calculator](examples/01_rpc/) process
-  pairs.
-- **Zephyr** — asynchronous UART DMA, interrupt-driven CDC fallback, vendor
-  bulk, and native IPv4 UDP. See [`docs/zephyr-udp.md`](docs/zephyr-udp.md).
-- **Host serial and USB** — an optional adapter built on the cross-platform
-  Astrial serial library.
+Primary C suites are in `tests/zephyr/unit` and `tests/zephyr/integration`, host
+ownership/adapter tests in `tests/core`, package consumers in `tests/package`,
+and compiler tests in the independent WLC repository. See
+[current development commands](docs/development-current.md).
 
-## Bindings
+[Benchmarks](benchmarks/README.md) distinguish models, host microbenchmarks and
+physical captures. Historical reports and frozen vectors are retained with their
+original scope. K4 research results do not automatically describe the final
+migrated product; final performance requires a separately identified build and
+capture. This repository does not automatically publish, deploy or edit vendor
+copies in other projects.
 
-WLC generates complete C++20 and typed Python SDKs for bounded managed
-synchronous and asynchronous RPC over UDP. See the
-[calculator guide](examples/06_bindings/GUIDE.md) and the
-[device SDK](examples/07_device_sdk/README.md). `Wirelink::cpp` and
-`Wirelink::cpp_host` provide common support when
-`WIRELINK_BUILD_CPP_BINDINGS=ON`. The
-[v0.8.0 release guide](docs/release-v0.8.0-cn.md) (中文) lists supported
-platforms and migration requirements.
-
-## Firmware targets
-
-Zephyr is the supported firmware environment. **ESP32-S3 DevKitC**
-(`esp32s3_devkitc/esp32s3/procpu`) is the reference board for hardware samples
-and firmware benchmarks; `native_sim` and QEMU provide the portable correctness
-matrix.
-
-```sh
-west build -b esp32s3_devkitc/esp32s3/procpu \
-  /path/to/wirelink/samples/zephyr/uart_dma -- \
-  -DDTC_OVERLAY_FILE=boards/esp32s3_devkitc_esp32s3_procpu.overlay
-```
-
-The samples under [`samples/zephyr`](samples/zephyr) cover UART DMA, vendor USB
-bulk, interrupt-driven CDC, a two-device UDP peer, and composed
-service/telemetry/bulk endpoints. The experimental native IPv4 UDP adapter is
-enabled with `CONFIG_WIRELINK_ZEPHYR_UDP`; read
-[`docs/zephyr-udp.md`](docs/zephyr-udp.md) before control-task use.
-Cross-transport counters and hardware acceptance rules are in
-[`docs/adapter-hil.md`](docs/adapter-hil.md).
-
-From an initialized Zephyr workspace:
-
-```sh
-west twister \
-  -T /path/to/wirelink/tests/zephyr/unit \
-  -T /path/to/wirelink/tests/zephyr/integration \
-  -p unit_testing -p native_sim \
-  -p qemu_cortex_m3 -p qemu_riscv32 -p qemu_x86_64
-```
-
-## Examples
-
-- [Getting started](docs/getting-started.md) — hardware-free temperature
-  display.
-- [00_telemetry](examples/00_telemetry/) and [01_rpc](examples/01_rpc/) — UDP
-  process pairs.
-- [02_device_info](examples/02_device_info/) — device information exchange.
-- [03_device_service](examples/03_device_service/README.md) — 12 modular device
-  services.
-- [04_composed_services](examples/04_composed_services/README.md) — static RPC,
-  telemetry, and bulk composition.
-- [06_bindings](examples/06_bindings/GUIDE.md) and
-  [07_device_sdk](examples/07_device_sdk/README.md) — C++ and Python SDKs.
-- `examples/bare_metal_loopback.c` — allocation-free native-packet exchange
-  between two static contexts.
-
-Top-level examples are enabled by default and may be disabled with
-`-DWIRELINK_BUILD_EXAMPLES=OFF`.
-
-## Benchmarks
-
-The opt-in benchmarks under [`benchmarks`](benchmarks/README.md) measure CPU,
-memory, and transport cost. They never enter the core, are not correctness
-gates, and are not performance guarantees. Machine-specific results are
-published on the
-[documentation site](https://docs.silkenkite.ink/wirelink/reference/benchmarks/).
-
-## Documentation
-
-- **Concepts** — [schema](docs/schema-v1.md), [protocol](docs/protocol.md),
-  [application layer](docs/application-layer.md),
-  [latest mailbox](docs/latest-mailbox.md), [FIFO](docs/fifo.md),
-  [RPC runtime](docs/rpc-runtime.md), [endpoint clock](docs/endpoint-clock.md),
-  [session](docs/session.md), [endpoint storage](docs/endpoint-storage.md),
-  [RPC platform](docs/rpc-platform.md).
-- **Reference** — [API boundary](docs/api-boundary.md),
-  [compatibility](docs/compatibility.md),
-  [conformance v1](docs/conformance-v1.md), [adapters](docs/adapters.md),
-  [diagnostics](docs/diagnostics.md), [adapter HIL](docs/adapter-hil.md).
-- **Chinese mirrors** — [API boundary](docs/api-boundary-cn.md),
-  [compatibility](docs/compatibility-cn.md),
-  [adapters](docs/adapters-cn.md), [Zephyr UDP](docs/zephyr-udp-cn.md).
-- **Contributing** — [`docs/development.md`](docs/development.md) and the
-  [Chinese documentation style guide](docs/documentation-style-guide-cn.md).
-
-## Release checks
-
-Host fuzz smoke tests require Clang:
-
-```sh
-cmake -S . -B build/fuzz -DCMAKE_C_COMPILER=clang \
-  -DWIRELINK_BUILD_FUZZERS=ON -DBUILD_TESTING=ON
-cmake --build build/fuzz
-ctest --test-dir build/fuzz --output-on-failure
-```
-
-The conformance Ztest compares every envelope and integrity combination against
-exact v1 bytes. CI runs it with the full unit and integration matrix on native
-simulation and three QEMU architectures, plus hardware runs on ESP32-S3.
-
-### Link build capability
-
-Generated endpoint factories using `wl_link_defaults()` select CRC-16/CCITT-FALSE. Update
-both peers together; to keep the previous link integrity, explicitly set
-`config.link.integrity = WL_INTEGRITY_CRC32C` before initialization. Raw core
-configuration keeps the caller's selectors. See [0.12 migration](docs/migration-0.12.md).
-
-Generated `*_endpoint_init()` and `*_endpoint_config_defaults()` require an
-explicit defaults argument: `wl_link_defaults()` selects CRC16, while
-`wl_usb_bulk_link_defaults()` from the USB integration header selects NONE.
-User overrides after defaults remain authoritative. See
-[USB setup](docs/adapters.md#usb-bulk-configuration-and-rx-preparation).
-USB Bulk now accepts only native packets; upgrade both peers together. The
-application supplies RX capacity and slots through `wl_usb_bulk_native_packet()`;
-USB COBS selection, byte-ring ingress and stream staging have been removed.
-
-The default `WIRELINK_LINK_PROFILE=multi` supports all existing envelope/integrity combinations. Use `-DWIRELINK_LINK_PROFILE=cobs-crc16` for a core that accepts only COBS + CRC16; Zephyr provides `CONFIG_WIRELINK_LINK_PROFILE_COBS_CRC16=y`. Both builds share the fused normal TX/RX kernels and preserve reliable DATA/ACK, retries and ownership. Omitted legal selectors return `WL_ERR_NOT_SUPPORTED`, invalid enum values return `WL_ERR_INVALID_ARG`, and size helpers return zero for unavailable modes. Configure endpoints explicitly; requested selectors are never rewritten.
-
-Installed CMake packages expose `Wirelink_LINK_PROFILE`; pkg-config exposes `link_profile`. Independent CRC/COBS tools remain available. The fixed build omits native-packet examples and the native loopback test, and limits the default framing diagnostic matrix to its supported combination. Wire bytes, public ABI and WLC contract remain unchanged. See [link build profiles](docs/link-profiles.md) / [链路构建配置](docs/link-profiles-cn.md).
-
-The compile-time native/NONE candidate was withdrawn after its Sample CPU guard failed; see the [2026-10-30 study result](docs/compile-time-core-specialization-result-20261030-cn.md).
+Licensed under [Apache-2.0](LICENSE).

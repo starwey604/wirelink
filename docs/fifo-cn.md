@@ -1,9 +1,11 @@
+> 当前为独立数据容器，通过 `Wirelink::containers` 使用；不提供生成 route、可靠交付或 framework policy。C 原子存储由 C 持有；与内核的集成由应用完成。见 [0.13 迁移](migration-0.13-cn.md)。
+
 # 无动态分配的 SPSC FIFO
 
 > 英文版 [`fifo.md`](fifo.md) 是规范来源。
 
 `wirelink/fifo.h` 为必须保序且保留数量的值提供应用层 `FIFO` 策略。它独立于
-`wl_ctx_t`、不分配内存，也不改变 v1 frame。它既可把收到的类型化值送往应用 task，
+端点内核、不分配内存，也不改变 v1 frame。它既可把收到的类型化值送往应用 task，
 也可把预编码命令送往 Wirelink 的单一 consumer。
 
 ## 存储与初始化

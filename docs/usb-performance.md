@@ -1,3 +1,12 @@
+# Current 0.13 contract and historical notes
+
+USB performance records below describe their identified historical binaries/workloads. They do not qualify the final 0.13 product build. Native/NONE packet adapters preserve physical completion, read headroom, MPS/ZLP and explicit boundary recovery; the current contract is in [adapters](adapters.md). The static-kernel final result must identify its own final sources, binaries, observer builds and captures.
+
+[Full migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>Pre-0.13 historical text, including existing workspace edits (not the current API)</summary>
+
 # USB transport performance procedure
 
 This record compares three interrupt-driven ESP32-S3 Full-Speed USB paths with
@@ -631,3 +640,5 @@ by the host benchmark before it could be reported as a transfer. The normal
 non-telemetry image was finally restored and completed another 1 MiB transfer
 in 1,396.92 ms at 750,635.99 payload B/s, with 523 matching Status messages,
 no retry, and no adapter error.
+
+</details>

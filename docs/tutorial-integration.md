@@ -1,3 +1,12 @@
+# Current 0.13 contract and historical notes
+
+Use matching local WLC 0.13 and one wirelink_wlc_generate target with profile v2. C owns kernel/port/FIFO storage and fresh instance initialization; start the adapter, then service it and step the kernel from one owner with an explicit tick. Merge latched activity/deadlines before waits. Close the core, stop/join actual I/O and drain to quiescence before freeing storage. Current commands are in [installation](installation.md); ownership and application retry/job rules are in [migration](migration-0.13.md).
+
+[Full migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>Pre-0.13 historical text, including existing workspace edits (not the current API)</summary>
+
 # Lesson three: use your own project and hardware
 
 Endpoint setup now takes a `wl_link_defaults_t` value explicitly:
@@ -312,3 +321,5 @@ explicitly opts into the same trusted direct USB defaults, matching the host
 CDC tool; the generic UART IRQ adapter does not infer the medium. Ordinary UART
 uses the generic CRC16 defaults. The Bulk example already used NONE before this
 change, so this API change makes no new performance claim.
+
+</details>

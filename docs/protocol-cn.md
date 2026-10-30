@@ -1,3 +1,12 @@
+# 当前 0.13 合同与历史记录
+
+当前端点接收 ordinary Compact-v1 DATA 和 managed v4 RPC 元数据，不再执行 reliable DATA/ACK。当前可接收格式见 [packet wire](packet-protocol.md)。下方历史规范供独立 frame 工具和冻结向量追溯，不承诺当前可靠执行。
+
+[完整迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>0.13 之前的历史正文（含既有工作区编辑，非当前 API）</summary>
+
 # Wirelink 协议规范（中文审阅版）
 
 端点初始化现在显式接收按值传递的 `wl_link_defaults_t`：
@@ -241,3 +250,5 @@ v1 conformance 必须覆盖大小端 header/CRC golden vector、COBS 边界和�
 truncation/concat/corruption/unknown/bad length、overflow resync、unreliable、可靠 ACK/
 DATA loss/duplicate/stale ACK、sink busy/async/failure、retry exhaustion/cancel/backpressure/
 stale handle、time/sequence wrap，以及所有支持的 envelope/integrity 组合。
+
+</details>

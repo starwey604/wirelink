@@ -1,3 +1,5 @@
+> Historical 0.12 migration record, not the current execution contract. Use the [0.13 migration](migration-0.13.md) for this tree.
+
 # Migrating to the 0.12 development contract
 
 Endpoint setup now takes a `wl_link_defaults_t` value explicitly:

@@ -1,8 +1,10 @@
+> This is an independent data container, linked through `Wirelink::containers`; it provides no generated route, reliable delivery or framework policy. C owns atomic storage; application code chooses its integration. See [0.13 migration](migration-0.13.md).
+
 # Allocation-free SPSC FIFO
 
 `wirelink/fifo.h` provides the application-layer `FIFO` delivery policy for
 values whose order and multiplicity must be preserved. It is independent of
-`wl_ctx_t`, allocates no memory, and does not change the Wirelink v1 frame.
+the endpoint kernel, allocates no memory, and does not change the Wirelink v1 frame.
 The same primitive can carry received typed values toward an application task
 or pre-encoded outbound commands toward Wirelink's single consumer.
 

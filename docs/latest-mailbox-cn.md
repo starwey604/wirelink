@@ -1,8 +1,10 @@
+> 当前为独立数据容器，通过 `Wirelink::containers` 使用；不提供生成 route、可靠交付或 framework policy。C 原子存储由 C 持有；与内核的集成由应用完成。见 [0.13 迁移](migration-0.13-cn.md)。
+
 # 无动态分配的 LATEST Mailbox
 
 > 英文版 [`latest-mailbox.md`](latest-mailbox.md) 是规范来源。
 
-`wirelink/latest.h` 实现应用层 `LATEST` 策略。它独立于 `wl_ctx_t`，不改变 v1
+`wirelink/latest.h` 实现应用层 `LATEST` 策略。它独立于 端点内核，不改变 v1
 frame 或冻结的核心结构。通常由一个 producer 将 WLC 消息直接解码进 claim 的 slot，
 再由一个 consumer 借用最新发布的类型化值。
 

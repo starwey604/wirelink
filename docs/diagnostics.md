@@ -1,30 +1,25 @@
-# Diagnostics
+# Explicit diagnostics
 
-`Wirelink::diagnostics` is an optional, separately linked C11 formatter for
-bring-up logs and support bundles. It owns no heap or I/O and is not part of
-`Wirelink::wirelink`, so firmware that does not link it pays no code cost.
-
-Initialize a caller-owned writer, append any snapshots, then pass its text to
-the product logger:
+`Wirelink::diagnostics` is an optional allocation-free formatter. It does not
+query/advance the core, log from a hot path or own I/O. The application supplies
+a `wl_diag_writer_t`, buffer and an already-owned snapshot to a formatter:
 
 ```c
 char text[256];
 wl_diag_writer_t writer;
-wl_rx_counters_t rx;
-
-wl_rx_get_counters(&link, &rx);
+wl_kernel_result_t result = {WL_KERNEL_REJECTED, -31};
 wl_diag_writer_init(&writer, text, sizeof(text));
-if (wl_diag_format_rx_counters(&writer, &rx) == WL_OK) {
-  product_log(text);
-}
+wl_err_t formatted = wl_diag_format_kernel_result(&writer, &result);
 ```
 
-Records use stable, grep-friendly `name key=value` text and end in a newline.
-Formatters cover RX, adapters, FIFO, LATEST, outbox, Bulk sender/receiver, RPC
-client results, and peer transitions. Several records may be appended to one
-writer.
+The application checks `formatted` before giving text to its logger. Current
+formatters cover kernel results and independent FIFO/LATEST/outbox statistics.
+Old link RX, adapter-unification, framework Bulk/replay records are removed.
+Adapter-specific counters stay in their own public headers and are sampled by
+the owner; do not infer a universal counter ABI.
 
-On truncation, a nonempty output buffer remains NUL terminated and the
-formatter returns `WL_ERR_BUF_TOO_SMALL`. `writer.required + 1` is the buffer
-size needed for the complete text. Use `data=NULL, capacity=0` for a sizing
-pass, or reset the same writer with `wl_diag_writer_reset()`.
+Records are key/value text. Nonempty buffers remain NUL-terminated on
+truncation, which returns BUF_TOO_SMALL; `required + 1` gives required capacity.
+Use a NULL/zero-capacity writer for sizing. No formatter restores removed
+execution state. Explicit host profiling is an outer application tool; optional
+observer builds have their own workload/measurement identity and cost.

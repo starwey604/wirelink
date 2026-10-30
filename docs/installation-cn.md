@@ -1,20 +1,19 @@
-# 环境准备：WLC 与主机 UDP 依赖
+# 构建环境与安装（0.13）
 
-WLC 是独立的消息代码生成工具。在电脑上运行它，把 `.wl` 定义转换成 C 文件，
-再把 C 文件编译进应用或固件。Wirelink 源码仓库不包含、也不要求嵌套 WLC 仓库。
-[English](installation.md)。
+[English](installation.md).
 
-## 1. 准备编译工具
+纯 core 使用 ISO C11、CMake 3.21+。host Executor、C++ Session、桌面 adapter 需要 C++20；MSVC 的 C 源使用 `/experimental:c11atomics`，原子存储由 C 持有，C++ 不假定 `std::atomic` ABI。benchmark 工具使用 Python 3.11+，其余测试依对应 CMake 声明。
 
-本教程需要 C11、C++20 编译器和 CMake 3.21 或更新版本。业务示例是 C11；
-C++20 只用于主机 Asio UDP 适配器。Windows 可使用支持 C11 的近期 Visual Studio/MSVC。
-默认教程构建关闭测试，不需要 Python；运行自动化双进程测试时才需要 Python 3。
-使用 WLC 预编译程序时无需 Rust；只有自己构建 WLC 才需要 Rust/Cargo。
+默认 core 和 checked-in bare-metal 示例不需要 WLC：
 
-## 2. 获取与 Wirelink 匹配的 WLC
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+cmake --install build/core --prefix /absolute/prefix
+```
 
-当前开发树需要 **WLC 0.12.0、生成契约 0.12**。构建本轮配套的独立 WLC
-工作树；它不必位于 Wirelink 内部：
+生成需要从匹配的独立源码构建 **WLC 0.13.0 / codegen 0.13**。Rust/Cargo 只用于构建编译器，不进入 C core。编译器模板保留 LF。
 
 ```sh
 cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
@@ -22,44 +21,18 @@ cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
 /path/to/matching-wlc/target/release/wlc codegen-contract
 ```
 
-CMake 使用该程序的绝对路径 `WIRELINK_WLC_EXECUTABLE`，并设
-`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`。源码应保留 LF，确保 SDK 模板确定性。
-执行报告保存精确 revision、dirty 源码与哈希；已发布 WLC 0.8.0 无法生成新接口。
-
-## 3. 检查安装
+预期输出 `wlc 0.13.0` 和 `0.13`；`WIRELINK_WLC_EXECUTABLE` 使用该绝对路径。helper 校验 compiler/生成 manifest，不 bootstrap 旧发布版，也不假定已有 0.13 发布包。codegen 版本描述接口/布局，不是 wire 版本。
 
 ```sh
-wlc --version
-wlc codegen-contract
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build build/tutorials --parallel
+ctest --test-dir build/tutorials --output-on-failure
 ```
 
-本轮期望分别输出 `wlc 0.12.0` 和 `0.12`。请检查将传给 CMake 的那个可执行文件。
-生成契约标识生成的 C 接口与布局，不是线上协议版本。
-托管与旧映射 RPC 的 payload 格式不同；托管 v1/v2 也不互通。
-必须一起重建核心和生成消费者，并成对部署通信双方。
-若没有 `codegen-contract` 命令或输出不匹配，需要更换配套 WLC。
-CMake 也会在生成前检查这两项，避免到编译固件时才发现头文件不匹配。
+安装后用 `find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)`，设置 `CMAKE_PREFIX_PATH=/absolute/prefix`。基础 C 包不要求 C++ compiler；可选 host/adapter component 必须已构建/安装，消费者 project 需启用 CXX。
 
-## 4. 获取 standalone Asio
+Asio UDP 使用 standalone Asio，当前本地验证版本 1.38.1，commit `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`。设置 `WIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/asio/include` 并启用 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON`；UDP 示例还需 `WIRELINK_BUILD_PLATFORM=ON`。Astrial 使用 `WIRELINK_ASTRIAL_SOURCE_DIR`，native USB 另需 backend 的 libusb 依赖，均不进入 C core。
 
-Asio 是可选的跨平台 C++ 网络依赖；Wirelink 核心和固件不依赖它。
-在任意目录获取本轮验证的版本，不需要放进 Wirelink 工作区：
-
-```sh
-git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.git asio-source
-```
-
-对应提交为 `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`。
-配置时将 `WIRELINK_ASIO_INCLUDE_DIR` 指向包含 `asio.hpp` 的
-`asio-source/asio/include` 绝对路径。使用已安装的同版 Asio 头文件也可以。
-入门示例会启用 Asio UDP 适配器；两个程序只绑定 localhost，无需虚拟串口驱动。
-
-## 5. 关于自动下载
-
-目前尚未固定 0.12 的发布源码/归档配对，自动下载会明确失败，不会使用旧 0.8
-生成器。请提供匹配的本地程序；已发布版本的历史流程见
-[0.8 发布说明](release-v0.8.0-cn.md)。
-
-现在回到 [入门：最新温度显示](getting-started-cn.md)。
-
-迁移步骤及已删除接口见 [0.12](migration-0.12-cn.md).
+继续阅读[迁移](migration-0.13-cn.md)、[遥测教程](getting-started-cn.md)与[开发检查](development-current.md)。本地 Linux 通过不代表远程 Windows/macOS、manylinux 或硬件检查已执行。

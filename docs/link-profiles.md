@@ -1,3 +1,12 @@
+# Current 0.13 contract and historical notes
+
+Select one connector in an explicit profile v2: native/NONE, COBS/CRC16 or length16/NONE. One generated endpoint target supplies static routing and storage. Runtime link selectors, v1 guarantees/mapped/reliable/deferred and separate runtime generation are removed. Use [migration](migration-0.13.md) and the build-backed profiles in examples/00_telemetry through examples/05_zephyr_udp.
+
+[Full migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>Pre-0.13 historical text, including existing workspace edits (not the current API)</summary>
+
 # Link build profiles
 
 `multi` is the default. One process can initialize endpoints using COBS stream, native packets or length16, each with NONE, CRC16 or CRC32C integrity.
@@ -18,3 +27,5 @@ Both profiles use the same complete CRC16/COBS kernels for normal disjoint, spar
 The common owner retains frame-level admission guards. In a fixed build the rejected branches contain only `WL_ERR_NOT_SUPPORTED` boundaries, with no alternate wire engine; the successful branches call the compile-time COBS/CRC16 kernels directly. There is no byte-level selector or callback, global mutable scratch, extra packet buffer or heap allocation.
 
 Zephyr keeps the common framing/owner code with the core and links standalone/cold framing and optional modes through a private archive after it. Xtensa GCC uses `-mtext-section-literals` for these framing/owner units to retain literals with their text. Optimization level, LTO, cache size, vendor linker script and IRAM coverage are unchanged. Performance remains subject to target/layout verification; the Round 3 report records the measured configurations.
+
+</details>

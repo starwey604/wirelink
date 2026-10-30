@@ -1,3 +1,12 @@
+# 当前 0.13 合同与历史记录
+
+使用匹配的本地 WLC 0.13 和单 wirelink_wlc_generate/profile v2 target。C 持有 kernel/port/FIFO，用新 instance 初始化；启动 adapter 后，单 owner 提供 tick、service 和 step，等待前合并 latched activity/deadline。关闭 core、停止并 join 真实 I/O，quiescent 后才释放存储。当前命令见 [安装](installation-cn.md)，所有权/业务重试/job 见 [迁移](migration-0.13-cn.md)。
+
+[完整迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>0.13 之前的历史正文（含既有工作区编辑，非当前 API）</summary>
+
 # 第三篇：接入自己的工程与硬件
 
 端点初始化现在显式接收按值传递的 `wl_link_defaults_t`：
@@ -288,3 +297,5 @@ return task_endpoint_init_config(&endpoint, &config);
 RPC deadline、replay 或业务校验。USB CDC IRQ 示例也显式选择该可信直连 USB preset，
 对应主机工具的 CDC 模式；通用 UART IRQ adapter 不推断介质，普通 UART 仍选择通用 CRC16。
 USB 示例此前已使用 NONE；本次入口变化不代表新的性能收益。
+
+</details>

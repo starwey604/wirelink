@@ -1,3 +1,12 @@
+# Current 0.13 contract and historical notes
+
+The current source layout, C11/C++ atomic boundary, test commands and validation scope are in [current development checks](development-current.md). The [0.13 migration](migration-0.13.md) replaces old ctx/pump/service/replay/deferred rules. The notes below are retained history and must not be used as current API instructions.
+
+[Full migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>Pre-0.13 historical text, including existing workspace edits (not the current API)</summary>
+
 # Development policy
 
 ## WLC compiler baseline
@@ -559,3 +568,5 @@ cd /path/to/zephyr
 For a standalone Wirelink workspace, initialize this repository as a west
 manifest repository and run `west update`; `west.yml` pins the Zephyr release
 and imports its standard dependency manifest.
+
+</details>

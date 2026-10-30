@@ -1,3 +1,12 @@
+# Current 0.13 contract and historical notes
+
+The endpoint accepts ordinary Compact-v1 DATA and managed v4 RPC metadata; reliable DATA/ACK execution is removed. [Current packet wire](packet-protocol.md) defines accepted frames. The historical specification below remains a reference for standalone frame tools and frozen vectors, not a promise of current reliable execution.
+
+[Full migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>Pre-0.13 historical text, including existing workspace edits (not the current API)</summary>
+
 # Wirelink Protocol Specification
 
 Endpoint setup now takes a `wl_link_defaults_t` value explicitly:
@@ -699,3 +708,5 @@ A conforming v1 implementation must be tested for:
 
 Published conformance vectors will become normative before v1 is declared
 stable.
+
+</details>

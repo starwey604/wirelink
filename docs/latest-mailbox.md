@@ -1,7 +1,9 @@
+> This is an independent data container, linked through `Wirelink::containers`; it provides no generated route, reliable delivery or framework policy. C owns atomic storage; application code chooses its integration. See [0.13 migration](migration-0.13.md).
+
 # Allocation-free LATEST mailbox
 
 `wirelink/latest.h` supplies the application-layer `LATEST` delivery policy.
-It is independent of `wl_ctx_t` and does not change the v1 frame or any frozen
+It is independent of the endpoint kernel and does not change the v1 frame or any frozen
 core structure.  One producer normally decodes a WLC message directly into a
 claimed slot, and one consumer borrows the freshest published typed value.
 

@@ -1,22 +1,25 @@
-# Environment setup: WLC and host UDP dependencies
+# Build tools and installation (0.13)
 
-WLC is a separate message compiler. It runs on your computer, converts `.wl`
-definitions into C, and those files are compiled into applications or firmware.
-Wirelink does not contain or require a nested WLC checkout. [中文](installation-cn.md).
+[中文](installation-cn.md).
 
-## 1. Build tools
+The portable core needs ISO C11 and CMake 3.21+. C++20 is needed for host
+Executor, C++ Session and desktop adapters. MSVC C sources use
+`/experimental:c11atomics`; C owns atomic storage and C++ never assumes a
+`std::atomic` ABI. Python 3.11+ runs the benchmark tooling; tests may require
+Python as declared by their CMake targets.
 
-The tutorials require C11 and C++20 compilers and CMake 3.21 or newer. Business
-examples are C11; only desktop Asio support needs C++20. Windows can use a recent
-Visual Studio/MSVC with C11 support. Tutorial builds disable tests by default;
-Python 3 is only required when enabling automated process tests.
-A prebuilt WLC needs no Rust installation; Rust/Cargo is needed only to build WLC.
+The default core and checked-in bare-metal example need no WLC:
 
-## 2. Get a matching compiler
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+cmake --install build/core --prefix /absolute/prefix
+```
 
-This development tree requires **WLC 0.12.0, codegen contract 0.12**. Build the
-matching independent WLC working tree supplied with this iteration (its path
-need not be nested in Wirelink):
+Generation requires **WLC 0.13.0 / codegen 0.13**, built from the matching
+independent compiler source tree. Rust/Cargo is a build-time tool for that
+compiler, not a core dependency. Preserve LF in compiler templates.
 
 ```sh
 cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
@@ -24,49 +27,31 @@ cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
 /path/to/matching-wlc/target/release/wlc codegen-contract
 ```
 
-Use that absolute executable path as `WIRELINK_WLC_EXECUTABLE`, with
-`WIRELINK_WLC_AUTO_DOWNLOAD=OFF`. Preserve LF when cloning/building the compiler;
-its embedded SDK templates must be deterministic. The round-1 report records the
-exact working-tree revisions and hashes used for verification. Published WLC
-0.8.0 cannot generate the new execution interfaces.
-
-## 3. Verify installation
+Expect `wlc 0.13.0` and `0.13`. Set `WIRELINK_WLC_EXECUTABLE` to that absolute
+path. The helper checks compiler and generated manifest before compilation;
+it does not bootstrap an old release or assume a published 0.13 package.
+Codegen version describes interfaces/layout, not transport wire version.
 
 ```sh
-wlc --version
-wlc codegen-contract
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build build/tutorials --parallel
+ctest --test-dir build/tutorials --output-on-failure
 ```
 
-Expect `wlc 0.12.0` and `0.12` from the executable you will pass to CMake.
-The codegen contract identifies generated C interfaces and layouts,
-not the wire protocol. Managed and mapped RPC require different payload formats;
-switching modes or managed metadata versions needs coordinated peers;
-rebuild core and generated consumers together. A missing command or
-different contract means a different compiler build is needed. CMake checks both
-values before generation rather than leaving a header mismatch for firmware compilation.
+Use `find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)` with
+`CMAKE_PREFIX_PATH=/absolute/prefix` for installed consumers. The base C package
+requires no C++ compiler. Optional installed host/adapter components must have
+been built and require CXX in the consuming project.
 
-## 4. Obtain standalone Asio
+Asio UDP requires standalone Asio headers; the locally qualified source is
+1.38.1, commit `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`. Set
+`WIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/asio/include` and enable
+`WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON`, plus `WIRELINK_BUILD_PLATFORM=ON` for the
+UDP example. Astrial adapters use `WIRELINK_ASTRIAL_SOURCE_DIR`; native USB also
+requires the backend's libusb dependency. These remain outside the C core.
 
-Asio is an optional cross-platform C++ networking dependency, not a core/firmware
-dependency. Obtain the tested version anywhere outside or inside your own project:
-
-```sh
-git clone --branch asio-1-38-1 --depth 1 https://github.com/chriskohlhoff/asio.git asio-source
-```
-
-The corresponding commit is `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`.
-Set `WIRELINK_ASIO_INCLUDE_DIR` to the absolute `asio-source/asio/include`
-directory containing `asio.hpp`, or use matching installed headers.
-Tutorial builds enable the adapter; programs bind only localhost and need no
-virtual serial driver.
-
-## 5. Automatic downloads
-
-No 0.12 release archive/source pair is pinned yet. Automatic download therefore
-fails explicitly rather than using the old published 0.8 compiler. Supply the
-matching local executable as described above. Historical published workflows
-are documented in the [0.8 release guide](release-v0.8.0-cn.md).
-
-Continue with [displaying temperature](getting-started.md).
-
-Regeneration and removed interfaces are covered by [0.12](migration-0.12.md).
+See [migration](migration-0.13.md), [telemetry](getting-started.md) and
+[development checks](development-current.md). Local Linux verification does
+not imply that remote Windows/macOS, manylinux or hardware checks have run.

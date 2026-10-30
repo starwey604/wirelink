@@ -1,3 +1,12 @@
+# 当前 0.13 合同与历史记录
+
+使用显式 profile v2 选定 native/NONE、COBS/CRC16 或 length16/NONE。单生成 target 提供静态 route/容量；旧运行时 selector、v1 guarantee/mapped/reliable/deferred 和 separate-runtime 已删除。见 [迁移](migration-0.13-cn.md) 和 examples/00_telemetry 至 05_zephyr_udp 的真实构建 profile。
+
+[完整迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md)
+
+<details>
+<summary>0.13 之前的历史正文（含既有工作区编辑，非当前 API）</summary>
+
 # 链路构建配置
 
 默认 `multi` 支持同一进程内初始化不同配置的端点：COBS stream／native packet／length16，各自可使用 NONE／CRC16／CRC32C。
@@ -18,3 +27,5 @@ Zephyr 选择 `CONFIG_WIRELINK_LINK_PROFILE_COBS_CRC16=y`，默认 choice 为 `C
 共用 owner 保留帧入口 guard。固定构建的拒绝分支只有“不支持”边界，没有其他 wire 引擎；成功分支直接调用编译期明确的 COBS＋CRC16 内核。逐字节循环没有模式判断或回调，不新增全局可变 scratch、packet buffer 或 heap。
 
 Zephyr 将共用 framing／owner 与 core 放在一起，将独立／冷路径 framing 及可选模式放入其后的私有 archive。Xtensa GCC 为这些 framing／owner 编译单元使用 `-mtext-section-literals`，使 literal 随 text 放置；优化档、LTO、cache 容量、vendor linker script 与 IRAM 覆盖保持原样。性能仍需按目标和实际布局验证，实测配置见 Round 3 报告。
+
+</details>
