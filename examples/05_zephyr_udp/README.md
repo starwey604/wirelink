@@ -1,9 +1,30 @@
-# Desktop peers for the Zephyr UDP example
+# Desktop UDP peers
 
-`client.c` and `server.c` use the same generated schema/profile as the Zephyr
-applications and native-loopback regression. Start with the desktop pair, then
-replace either process with a board. No Python codec or hand-built frame is used.
+C business code uses the same schema/profile as the Zephyr peers, with explicit
+native_packet/NONE and both RPC roles. Add is a short typed handler; telemetry
+uses ordinary send/direct routes. No retained mailbox, reliable DATA/ACK or replay
+semantics are implied.
 
-See the [two-device walkthrough](../../samples/zephyr/udp_peer/README.md)
-([中文](../../samples/zephyr/udp_peer/README-cn.md)) for build commands, addresses,
-expected output, connection restart and the outstanding hardware acceptance gate.
+```sh
+cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching/wlc
+cmake --build build/udp --parallel
+ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
+```
+
+The two executables accept `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT` arguments.
+Start the server with the addresses/ports reversed relative to the client. The
+client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
+address/port across three new processes and verifies absent-peer timeout.
+
+C owns kernel/port/two RX units. The desktop C++ helper only owns packet UDP and
+wait resources: it initializes a fresh instance identity outside the core,
+services I/O and advances the same kernel on the calling owner, and merges
+kernel/I/O waiting without an RPC registry or thread. Admission encodes before
+return; completion copies the borrowed response. Close stops actual I/O, steps
+until physical quiescence, then frees socket resources.
+
+See the [Zephyr peer walkthrough](../../samples/zephyr/udp_peer/README.md) for
+board network provisioning. Software loopback does not establish physical
+Ethernet/Wi-Fi performance or validate a particular board/PHY.

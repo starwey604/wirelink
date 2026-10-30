@@ -18,3 +18,7 @@ if(WIRELINK_BUILD_WLC_EXAMPLES)
   add_subdirectory(03_device_service)
   add_subdirectory(04_composed_services)
 endif()
+
+if(WIRELINK_BUILD_WLC_EXAMPLES AND WIRELINK_BUILD_ASIO_UDP_ADAPTER AND WIRELINK_BUILD_PLATFORM)
+  add_subdirectory(05_zephyr_udp)
+endif()

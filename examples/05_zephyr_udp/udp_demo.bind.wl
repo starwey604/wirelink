@@ -1,4 +1,4 @@
-profile version 1;
+profile version 2;
 
 endpoint {
   envelope = native_packet;
@@ -9,6 +9,8 @@ rpc Add {
   response = AddResponse;
 }
 
-latest Telemetry {
+direct Telemetry {
   delivery = unreliable;
 }
+
+send Telemetry { delivery=unreliable; }

@@ -93,3 +93,9 @@ telemetry、calculator、device-info 均使用正式 WLC v2 endpoint 与一个�
 04 保留 imported schema、message ID／shape 及旧示例 phase/status 数值，普通 BulkCommand/BulkStatus、telemetry 与 Query/Reboot RPC 共用生成 kernel。删除旧 bulk sender/receiver、service rotation、peer reset、reliable ACK／response terminal hook。4096 B RAM 上传由应用处理有界 chunk、一次 BUSY、一次丢 status、有限重试、重复 chunk 校验、外层 CRC／一次 commit、关闭时一次 abort。重复 END 不再 commit；Reboot 仅短业务确认，不是 ACK／实际重启。没有把旧通用状态机重新塞进框架。
 
 初次 demo 仍要求关闭中的 Query 成功，实际新合同返回 CLOSED（outcome=5/status=-33，tick=151）；改为仅在显式 closing 时接受 CLOSED，timeout／其他错误仍失败，日志保留。GCC demo 与真实 import-edge 重建 **2/2**；Clang ASan/UBSan demo 与独立依赖重建也 **2/2**。生成 helper 返回匹配 compiler property，并在 Zephyr 连接正式模块、检查对应 stream Kconfig；模块新增独立 packet loopback 选项，CRC primitives 可显式选择。Zephyr 组合 sample 不再手工编译另一套 core，native_sim／Cortex-M3／RISC-V／x86_64 四平台真实运行 **4/4**。日志 `composed-tutorial-*`、`twister-composed*`。没有刷写板卡或改已封存 K4 证据。
+
+## Desktop UDP 例程
+
+05 的 C client/server 改用 typed kernel、ordinary telemetry 和真实 packet UDP；common C++ 支持仅持有 socket/wait，不建线程／RPC 关联表。C 持有 port 原子对象和两份完整 RX unit，外层一次取 fresh instance，owner 显式提供 now，wait 合并 deadline 且重算耗时；close 停真实 I/O 后 quiescent 再释放。client 入队后销毁请求，借用回调内保存响应。
+
+三个新 client 进程重用同一地址／端口，RPC/telemetry 实际成功；server 退出后 client 本地 timeout。含全部当前教程／UDP adapter 的 GCC **21/21**；Clang ASan/UBSan 对应双进程测试 **1/1**。不改变已封存 benchmark 或板卡。Zephyr UDP peer／validation 及其他旧消费者继续单独迁移，不能据此宣称其已完成。日志 `udp-tutorial-*`。
