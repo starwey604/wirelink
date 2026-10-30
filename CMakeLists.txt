@@ -359,8 +359,6 @@ if(WIRELINK_INSTALL)
   install(TARGETS wirelink_usb_bulk_defaults EXPORT WirelinkTargets)
   install(FILES adapters/common/include/wirelink/usb_bulk_defaults.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
-  install(FILES include/wirelink/detail/usb_stream_rx.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink/detail)
   install(TARGETS wirelink
     EXPORT WirelinkTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

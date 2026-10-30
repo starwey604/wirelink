@@ -8,6 +8,7 @@ sidebar:
 端点初始化现在显式接收按值传递的 `wl_link_defaults_t`：
 `*_endpoint_config_defaults(&config, environment, wl_link_defaults())` 和
 `*_endpoint_init(&endpoint, environment, wl_link_defaults())` 选择 CRC16；
+Vendor USB Bulk 只接受 `native_packet`，接收容量与槽数由应用通过 `wl_usb_bulk_native_packet()` 指定；USB 旧 COBS 两端须同步升级。
 USB 接入从 `<wirelink/usb_bulk_defaults.h>` 传入
 `wl_usb_bulk_link_defaults()`，选择 NONE。两端的 integrity 必须一致，没有协商或回退。
 用户在 defaults 后、`*_endpoint_init_config()`／`*_endpoint_create()` 前显式覆盖

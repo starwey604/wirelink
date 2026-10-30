@@ -22,7 +22,7 @@ the next transport notification and give the owner one more service pass.
 | Loopback | native packet | `wl_loopback_init()` | `wl_loopback_service()` | `wl_loopback_quiesce()` |
 | Zephyr UART DMA | COBS stream | `wl_zephyr_uart_dma_start()` | `wl_zephyr_uart_dma_service()` | call `wl_zephyr_uart_dma_stop()`, then service until `started=0` and `stopping=0` |
 | Zephyr UART IRQ / CDC ACM | COBS stream | `wl_zephyr_uart_irq_start()` | `wl_zephyr_uart_irq_service()` | disable the owning UART/USB device before link reuse |
-| Zephyr USB bulk | native packet or COBS stream | enable the owning USBD context | `wl_zephyr_usb_bulk_service()` | disable USBD before link reuse |
+| Zephyr USB bulk | native packet | enable the owning USBD context | `wl_zephyr_usb_bulk_service()` | disable USBD before link reuse |
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()` and `wait_for_activity()` where available | `quiesce()` |
 | Asio UDP | native packet; explicit legacy COBS | `open()` and socket bind; endpoint overload attaches hooks | `service()`; deadline-aware `wait_for_activity()` | `quiesce()` or endpoint close |
 | Zephyr UDP (experimental) | native packet | `wl_zephyr_udp_open()` attaches to endpoint | generated step services RX; `wl_zephyr_udp_wait()` | generated endpoint close, join notification producers, then `wl_zephyr_udp_close()` |
@@ -103,51 +103,89 @@ reserve/commit or DMA claims for direct stream input, and the unit queue for
 native packets. Never mix ingress families on one initialized context.
 
 
-## Select USB defaults before initialization
+## USB Bulk configuration and RX preparation
 
-For native USB Bulk, one frame must end with a short packet or an explicit
-ZLP. Both peers must explicitly select `native_packet`; COBS and native are
-wire incompatible. The native read request must be strictly larger than
-`wl_frame_raw_size(max_payload_len, integrity)`, including the largest frame
-header. Provide at least two unit slots and retain their storage for the
-adapter's lifetime. A successful empty completion returns its claim without
-publishing an event or recording an IO error.
-
-A failed or full native request loses the delimiter guarantee: RX stops,
-the claim is aborted and an error remains recorded. Reset/reconfigure the USB
-transport before enabling Zephyr USBD again or reopening the Astrial adapter
-with a reinitialized link. A host adapter reopen alone does not flush a
-device's unread suffix. Ordinary queue backpressure resumes after event
-release; a boundary fault does not. Cancellation during shutdown returns the
-claim without publishing partial data.
-
-The generated config factory and quick init now require a third argument:
-`wl_link_defaults()` selects CRC16; `wl_usb_bulk_link_defaults()` from
-`<wirelink/usb_bulk_defaults.h>` selects NONE. Generic generated SDKs depend
-only on the portable C defaults header. CMake consumers of the USB header link
-`Wirelink::usb_bulk_defaults`; the Astrial USB target and Zephyr module supply
-its include path automatically.
+Use `<wirelink/usb_bulk_defaults.h>` and link `Wirelink::usb_bulk_defaults`.
+Both platform adapters propagate this dependency. USB Bulk uses only native_packet. Select one
+`wl_usb_bulk_config_t` and reuse it before link initialization, during explicit
+RX preparation, and when binding the adapter:
 
 ```c
-#include <wirelink/usb_bulk_defaults.h>
-
-int err = task_endpoint_config_defaults(
-    &config, environment, wl_usb_bulk_link_defaults());
+/* Application budget example, not a library-wide default. */
+enum { APP_USB_RX_CAPACITY = 2304, APP_USB_RX_SLOTS = 3 };
+static uint8_t rx_storage[APP_USB_RX_SLOTS][APP_USB_RX_CAPACITY];
+const wl_usb_bulk_config_t usb =
+    wl_usb_bulk_native_packet(APP_USB_RX_CAPACITY, APP_USB_RX_SLOTS);
+int err = task_endpoint_config_defaults(&config, environment, wl_usb_bulk_link_defaults());
 if (err != WL_OK) return err;
-/* Optional expert override: config.link.integrity = WL_INTEGRITY_CRC32C; */
-return task_endpoint_init_config(&endpoint, &config);
+err = wl_usb_bulk_config_apply(&config.link, usb);
+if (err != WL_OK) return err;
+err = task_endpoint_init_config(&endpoint, &config);
+if (err != WL_OK) return err;
+wl_ctx_t *link = wl_endpoint_link(task_endpoint_handle(&endpoint));
+err = wl_usb_bulk_rx_init(link, usb, &rx_storage[0][0], sizeof(rx_storage));
+if (err != WL_OK) return err;
+/* Pass usb as adapter_config.transport on either platform. */
 ```
 
-Quick init accepts the same defaults value. `create()` consumes the final config.
-Raw core users call `wl_config_apply_link_defaults(&config,
-wl_usb_bulk_link_defaults())`; only integrity changes. Apply defaults, apply
-user overrides, initialize, then bind the adapter. Binding never rewrites the
-configuration. Both peers must agree. Invalid selectors fail, and fixed
-`cobs-crc16` rejects NONE with `WL_ERR_NOT_SUPPORTED` without fallback.
+The sole factory selects native_packet and NONE together. The application
+supplies capacity and 2..8 slots; 2048×2 is an experiment setting. The generated
+profile must support native layout. Both peers explicitly agree on envelope
+and integrity. Upgrade both peers together: old USB COBS firmware is wire
+incompatible. USB Bulk no longer has an envelope selector, byte ring or stream
+staging path; there is no negotiation or fallback.
+Override the USB value's integrity before applying it when CRC16/CRC32C is
+required. The old `wl_usb_bulk_link_defaults()` remains the integrity-only NONE
+value, including for CDC integrations.
 
-The preset preserves the profile envelope, payload/session/MTU/retry settings,
-length checks, RPC deadlines, replay and business validation. The CDC IRQ sample
-explicitly opts into the same trusted direct USB defaults, matching the host
-CDC tool; the generic UART IRQ adapter does not infer the medium. Ordinary UART
-uses the generic CRC16 defaults. The Bulk example already used NONE before this
-change, so this API change makes no new performance claim.
+Applying the USB selection changes only the pre-init envelope/integrity and
+preserves payload/session/MTU/retry settings. Native capacity must be strictly
+greater than `wl_frame_raw_size(max_payload_len, integrity)`, including the
+largest header. Equality, invalid slots, overflow and invalid selectors fail
+without modifying configuration. Final link/profile capability checks still
+apply; unsupported modes never fall back.
+
+Prepare caller-owned native storage once, before binding. Repeated preparation
+fails rather than resetting queued frames, claims or event leases. Keep storage
+alive until the adapter is quiesced, leases are returned and the link is closed.
+The default-constructed Astrial transport has no implicit memory budget.
+Adapters only validate wire settings and queue geometry; they never create
+or replace that queue. Replace the old maximum_read_size/maximum_rx_size,
+unit_queue_slots and Zephyr storage fields with `transport` and explicit RX
+preparation. Generic generated SDKs remain independent of USB and OS headers.
+
+## Observable RX faults and recovery
+
+Native frames end with a short packet or explicit ZLP. Empty successful
+completions return claims without an event or error. Failed/full transfers or
+failed queue commits abort the claim and latch RX stopped with a specific
+`WL_USB_BULK_RX_FAULT_*` reason. Backpressure resumes after event release;
+a boundary fault requires transport recovery.
+
+Faults wake the owner and make readiness runnable for a service pass.
+`service()` returns WL_ERR_IO so endpoint/pump callers can observe failure.
+After notification is consumed, a permanent fault does not cause a readiness
+busy loop. Explicit service calls still report an unrecovered fault. Query
+Astrial `rx_fault()` or platform stats; Zephyr also provides
+`wl_zephyr_usb_bulk_rx_fault()`.
+
+From a Zephyr owner thread, call `wl_zephyr_usb_bulk_recover()`. It disables and
+enables the whole USBD context, affecting other USB classes on that context,
+and waits asynchronously for host enumeration/configuration. Never call from
+ISR or USB callbacks. Success means recovery requested; stats.recovering stays
+true and the fault remains until actual configuration. Repeated requests return
+WL_ERR_WOULD_BLOCK. Failures preserve the fault; an enable failure can be retried
+without repeating a successful disable. A duplicate enable callback alone
+cannot clear a fault. A rapid reconfiguration preserves any unconsumed IO
+notification and last_rx_fault, even if the current rx_fault is already NONE.
+Resetting statistics does not clear recovery state or pending notifications.
+The Zephyr Bulk sample demonstrates application reporting and recovery.
+
+On Astrial, record the fault, quiesce from the owner, reset/reconfigure USB or
+physically reconnect, then explicitly close/rebuild the endpoint, prepare RX
+and reopen. The peer can request reconfiguration through the Zephyr API above.
+Reopening the host adapter alone, clearing counters, or resetting the core
+parser does not flush the device's unread suffix. Neither recovery path silently
+discards leased/queued frames or changes core/RPC sessions. Applications manage
+transaction cancellation and new sessions explicitly. USB Bulk accepts only
+native packets; UART and CDC retain their own byte-stream contracts.

@@ -10,7 +10,7 @@ static struct net_buf *native_complete(struct usbd_class_data *class_data,
   net_buf_add(buffer, length);
   zassert_ok(class_data->api->request(class_data, buffer, error));
   int result = wl_zephyr_usb_bulk_service(adapter);
-  zassert_true(result == WL_OK || result == WL_ERR_WOULD_BLOCK);
+  zassert_true(result == WL_OK || result == WL_ERR_WOULD_BLOCK || result == WL_ERR_IO);
   return take_queued(0x01U);
 }
 
@@ -27,9 +27,8 @@ ZTEST(wirelink_usb_native, test_native_completion_contract) {
       .tx_unit = tx_unit, .tx_unit_size = sizeof(tx_unit),
       .control_unit = control_unit, .control_unit_size = sizeof(control_unit),
       .rx_fallback = fallback, .rx_fallback_size = sizeof(fallback)};
-  wl_zephyr_usb_bulk_config_t adapter_config = {.link = &link, .maximum_rx_size = 2048,
-      .unit_queue_storage = &units[0][0], .unit_queue_storage_size = sizeof(units),
-      .unit_queue_slots = 2};
+  const wl_usb_bulk_config_t usb_config = wl_usb_bulk_native_packet(2048, 2);
+  wl_zephyr_usb_bulk_config_t adapter_config = {.link = &link, .transport = usb_config};
   struct usbd_class_data *class_data = bulk_class();
   wl_zephyr_usb_bulk_stats_t before, after;
   wl_event_t event;
@@ -43,10 +42,13 @@ ZTEST(wirelink_usb_native, test_native_completion_contract) {
   context.status.speed = USBD_SPEED_FS;
   configure_descriptor(bulk_descriptor(class_data, USBD_SPEED_FS, false), 0x01, 64);
   configure_descriptor(bulk_descriptor(class_data, USBD_SPEED_FS, true), 0x81, 64);
+  zassert_ok(wl_usb_bulk_config_apply(&config, usb_config));
   zassert_ok(wl_init(&link, &config, &storage));
-  adapter_config.maximum_rx_size = 1048U;
+  zassert_equal(wl_zephyr_usb_bulk_init(&adapter, &adapter_config), WL_ERR_NOT_INITIALIZED);
+  zassert_ok(wl_usb_bulk_rx_init(&link, usb_config, &units[0][0], sizeof(units)));
+  adapter_config.transport.rx_capacity = 1048U;
   zassert_equal(wl_zephyr_usb_bulk_init(&adapter, &adapter_config), WL_ERR_BUF_TOO_SMALL);
-  adapter_config.maximum_rx_size = 2048U;
+  adapter_config.transport = usb_config;
   zassert_ok(wl_zephyr_usb_bulk_init(&adapter, &adapter_config));
   complete_out_inline = true;
   class_data->api->enable(class_data);
@@ -109,6 +111,18 @@ ZTEST(wirelink_usb_native, test_native_completion_contract) {
   zexpect_equal(after.rx_bytes, before.rx_bytes, "unterminated unit was committed");
   zexpect_is_null(buffer, "lost boundary must stay stopped until transport reset");
   zexpect_true(after.errors > before.errors);
+  const wl_usb_bulk_rx_fault_t fault = TEST_USB_NATIVE_ERROR
+      ? WL_USB_BULK_RX_FAULT_TRANSFER : WL_USB_BULK_RX_FAULT_BOUNDARY_LOST;
+  zassert_equal(wl_zephyr_usb_bulk_rx_fault(&adapter), fault);
+  zassert_equal(wl_zephyr_usb_bulk_service(&adapter), WL_ERR_IO);
+  zassert_false(wl_zephyr_usb_bulk_readiness(&adapter).runnable);
+  wl_zephyr_usb_bulk_reset_stats(&adapter);
+  wl_zephyr_usb_bulk_get_stats(&adapter, &after);
+  zassert_equal(after.errors, 0U);
+  zassert_equal(after.rx_fault, fault, "telemetry reset cannot erase recovery state");
+  class_data->api->enable(class_data);
+  zassert_equal(wl_zephyr_usb_bulk_rx_fault(&adapter), fault);
+  zassert_is_null(take_queued(0x01), "enable without disable is not recovery");
   if (buffer != NULL) {
     /* Keep the independent timeout failure even if the full-size check failed. */
     wl_zephyr_usb_bulk_get_stats(&adapter, &before);
@@ -118,6 +132,47 @@ ZTEST(wirelink_usb_native, test_native_completion_contract) {
     zexpect_is_null(buffer, "timeout suffix must not be accepted as a new frame");
     zexpect_true(after.errors > before.errors);
   }
+  /* Public recovery requests a real context disable/enable. Wrappers model
+   * only lifecycle calls; this is not a physical disconnect/controller test. */
+  disable_result = -EIO;
+  zassert_equal(wl_zephyr_usb_bulk_recover(&adapter), WL_ERR_IO);
+  zassert_equal(wl_zephyr_usb_bulk_rx_fault(&adapter), fault);
+  disable_result = 0; enable_result = -EIO;
+  zassert_equal(wl_zephyr_usb_bulk_recover(&adapter), WL_ERR_IO);
+  unsigned disabled = disable_calls;
+  enable_result = 0;
+  zassert_ok(wl_zephyr_usb_bulk_recover(&adapter));
+  zassert_equal(disable_calls, disabled, "retry enable after disable succeeded");
+  zassert_equal(wl_zephyr_usb_bulk_recover(&adapter), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_zephyr_usb_bulk_rx_fault(&adapter), fault,
+                "wait for actual host configuration");
+  class_data->api->enable(class_data);
+  zassert_equal(wl_zephyr_usb_bulk_rx_fault(&adapter), WL_USB_BULK_RX_FAULT_NONE);
+  buffer = take_queued(0x01);
+  zassert_not_null(buffer);
+  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_NATIVE_PACKET,
+      buffer->data, net_buf_tailroom(buffer), &length));
+  buffer = native_complete(class_data, &adapter, buffer, length, 0);
+  zassert_not_null(buffer);
+  zassert_ok(wl_poll(&link, 0, &event));
+  zassert_mem_equal(event.payload, payload, sizeof(payload));
+  wl_event_release(&link, &event);
+  /* A fast bus reconfiguration must not erase an unobserved fault report. */
+  net_buf_add(buffer, net_buf_tailroom(buffer));
+  zassert_ok(class_data->api->request(class_data, buffer, 0));
+  zassert_true(wl_zephyr_usb_bulk_readiness(&adapter).runnable);
+  class_data->api->disable(class_data);
+  class_data->api->enable(class_data);
+  zassert_equal(wl_zephyr_usb_bulk_rx_fault(&adapter), WL_USB_BULK_RX_FAULT_NONE);
+  zassert_true(wl_zephyr_usb_bulk_readiness(&adapter).runnable);
+  zassert_equal(wl_zephyr_usb_bulk_service(&adapter), WL_ERR_IO);
+  wl_zephyr_usb_bulk_get_stats(&adapter, &after);
+  zassert_equal(after.last_rx_fault, WL_USB_BULK_RX_FAULT_BOUNDARY_LOST);
+  zassert_false(wl_zephyr_usb_bulk_readiness(&adapter).runnable);
+  buffer = take_queued(0x01);
+  zassert_not_null(buffer);
+  class_data->api->disable(class_data);
+  (void)native_complete(class_data, &adapter, buffer, 0, -ECONNABORTED);
 }
 
 ZTEST_SUITE(wirelink_usb_native, NULL, NULL, NULL, NULL, NULL);

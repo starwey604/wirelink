@@ -30,10 +30,10 @@ struct UsbBulkAdapterConfig
     using ActivityCallback = void (*)(void* user_data) noexcept;
 
     UsbBulkConfig usb;
-    // Native: strictly greater than the link's maximum raw frame. Failed or
-    // full requests latch RX stopped; reset the USB transport and reopen.
-    std::size_t maximum_read_size{512};
-    std::uint8_t unit_queue_slots{4};
+    // Apply this value before link init and prepare caller-owned native RX
+    // storage with wl_usb_bulk_rx_init(). open() only validates that setup.
+    // Capacity and slots are required application budgets; zero is invalid.
+    wl_usb_bulk_config_t transport{};
     UsbBulkWakePolicy wake_policy{UsbBulkWakePolicy::AllCompletions};
     // Optional non-blocking notification used to wake an external Wirelink
     // owner. It runs on Astrial's USB event thread after RX/TX activity has
@@ -57,6 +57,7 @@ struct UsbBulkAdapterStats
     bool started{};
     bool rx_paused{};
     bool tx_active{};
+    wl_usb_bulk_rx_fault_t rx_fault{WL_USB_BULK_RX_FAULT_NONE};
 };
 
 class UsbBulkAdapter
@@ -76,12 +77,18 @@ public:
     int service();
     void quiesce() noexcept;
     [[nodiscard]] wl_readiness_t readiness() const noexcept;
+    // Sticky until this adapter is closed. On a fault: quiesce, reset or
+    // reconfigure USB (or physically reconnect), then reopen. Reopen alone
+    // does not establish a fresh boundary on the remote USB endpoint.
+    [[nodiscard]] wl_usb_bulk_rx_fault_t rx_fault() const noexcept;
     // Blocks the single-consumer context until RX/TX activity or timeout.
     // Notifications coalesce into at most one pending wake even when only the
     // external activity callback is used. This does not count RX/TX units.
     bool wait_for_activity(std::chrono::nanoseconds timeout);
     void get_stats(UsbBulkAdapterStats& out_stats) const;
     void get_common_stats(wl_adapter_stats_t& out_stats) const noexcept;
+    // The adapter owns the device disconnect callback for fault publication;
+    // do not replace it. Use activity_callback and rx_fault()/stats instead.
     UsbBulkDevice& device();
 
 private:

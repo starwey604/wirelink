@@ -1,7 +1,0 @@
-tests:
-  wirelink.usb_stream_rx:
-    type: unit
-    tags:
-      - wirelink
-      - usb
-      - adapter

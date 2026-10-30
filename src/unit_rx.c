@@ -8,6 +8,23 @@
 #include "context.h"
 #include "unit_rx.h"
 
+wl_err_t wl_rx_unit_queue_get_config(const wl_ctx_t *ctx,
+                                     wl_rx_unit_queue_config_t *out_config) {
+  const wl_rx_unit_queue_state_t *queue;
+  if (ctx == NULL || out_config == NULL) return WL_ERR_INVALID_ARG;
+  if (!wl_ctx_impl_const(ctx)->initialized) return WL_ERR_NOT_INITIALIZED;
+  queue = &wl_ctx_impl_const(ctx)->rx_units;
+  if (!queue->initialized) return WL_ERR_NOT_INITIALIZED;
+  const wl_rx_unit_queue_config_t value = {
+      .storage = queue->storage,
+      .storage_size = queue->unit_size * queue->slot_count,
+      .unit_size = queue->unit_size,
+      .slot_count = queue->slot_count,
+  };
+  *out_config = value;
+  return WL_OK;
+}
+
 wl_err_t wl_rx_unit_queue_init(wl_ctx_t *ctx,
                           const wl_rx_unit_queue_config_t *config) {
   wl_rx_unit_queue_state_t *queue;

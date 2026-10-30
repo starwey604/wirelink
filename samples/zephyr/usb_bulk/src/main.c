@@ -26,8 +26,10 @@
 #include "wirelink/zephyr/usb_bulk.h"
 
 #define MAX_PAYLOAD WL_FRAME_MAX_PAYLOAD
-#define UNIT_STORAGE WL_FRAME_MAX_COBS_LEN
-#define RX_RING_STORAGE (2U * UNIT_STORAGE)
+#define UNIT_STORAGE WL_FRAME_MAX_RAW_LEN
+/* Sample budget; applications choose their own capacity and slot count. */
+#define USB_RX_CAPACITY 2560U
+#define USB_RX_SLOTS 3U
 #define OBJECT_MAX_LENGTH (UINT64_C(64) * UINT64_C(1024) * UINT64_C(1024))
 #define OBJECT_CHUNK_SIZE 2016U
 #define OBJECT_IDLE_TIMEOUT_MS 1000U
@@ -50,7 +52,7 @@ static wl_bulk_receiver_t object_receiver;
 static uint8_t tx_payload[MAX_PAYLOAD];
 static uint8_t tx_unit[UNIT_STORAGE];
 static uint8_t control_unit[64];
-static uint8_t rx_fifo[RX_RING_STORAGE];
+static uint8_t rx_units[USB_RX_SLOTS][USB_RX_CAPACITY];
 static uint8_t rx_fallback[UNIT_STORAGE];
 static uint8_t echo_payload[MAX_PAYLOAD];
 static uint8_t status_payload[64];
@@ -584,7 +586,6 @@ static void notify_owner(void *context) {
 int main(void) {
   wl_config_t config = {
       .max_payload_len = MAX_PAYLOAD,
-      .envelope = WL_ENVELOPE_COBS_STREAM,
       .session_id = UINT64_C(0x55534242554C4B31),
       .max_retries = 2U,
       .ack_timeout_ms = 20U,
@@ -597,15 +598,14 @@ int main(void) {
       .tx_unit_size = sizeof(tx_unit),
       .control_unit = control_unit,
       .control_unit_size = sizeof(control_unit),
-      .rx_fifo = rx_fifo,
-      .rx_fifo_size = sizeof(rx_fifo),
       .rx_fallback = rx_fallback,
       .rx_fallback_size = sizeof(rx_fallback),
   };
+  const wl_usb_bulk_config_t usb_config = wl_usb_bulk_native_packet(USB_RX_CAPACITY, USB_RX_SLOTS);
   const wl_zephyr_usb_bulk_config_t adapter_config = {
       .wake_consumer = notify_owner,
       .link = &link,
-      .maximum_rx_size = UNIT_STORAGE,
+      .transport = usb_config,
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
       .cycle_counter = adapter_cycle_count,
 #endif
@@ -640,10 +640,19 @@ int main(void) {
 #endif
   int result;
 
-  (void)wl_config_apply_link_defaults(&config, wl_usb_bulk_link_defaults());
+  result = wl_usb_bulk_config_apply(&config, usb_config);
+  if (result != WL_OK) {
+    printk("USB config failed: %d\n", result);
+    return 0;
+  }
   result = wl_init(&link, &config, &storage);
   if (result != WL_OK) {
     printk("wl_init failed: %d\n", result);
+    return 0;
+  }
+  result = wl_usb_bulk_rx_init(&link, usb_config, &rx_units[0][0], sizeof(rx_units));
+  if (result != WL_OK) {
+    printk("USB RX preparation failed: %d\n", result);
     return 0;
   }
   result = wl_bulk_receiver_init(&object_receiver, &receiver_config);
@@ -670,7 +679,7 @@ int main(void) {
     }
   }
 
-  printk("Wirelink vendor bulk endpoint ready "
+  printk("Wirelink native-packet vendor bulk endpoint ready "
          "(descriptor-assigned endpoints, DMA=off "
          "payload=%u object_chunk=%u)\n",
          MAX_PAYLOAD, OBJECT_CHUNK_SIZE);
@@ -749,8 +758,20 @@ int main(void) {
     }
 
     SAMPLE_CPU_START(service_started);
-    if (wl_zephyr_usb_bulk_readiness(&usb_adapter).runnable)
-      (void)wl_zephyr_usb_bulk_service(&usb_adapter);
+    if (wl_zephyr_usb_bulk_readiness(&usb_adapter).runnable) {
+      int service_result = wl_zephyr_usb_bulk_service(&usb_adapter);
+      if (service_result == WL_ERR_IO) {
+        wl_zephyr_usb_bulk_stats_t status;
+        wl_zephyr_usb_bulk_get_stats(&usb_adapter, &status);
+        printk("USB RX fault=%d last=%d recovery_required=%d\n",
+               status.rx_fault, status.last_rx_fault,
+               status.rx_fault != WL_USB_BULK_RX_FAULT_NONE);
+        if (status.rx_fault != WL_USB_BULK_RX_FAULT_NONE && !status.recovering) {
+          int recovery = wl_zephyr_usb_bulk_recover(&usb_adapter);
+          printk("USB reconfigure request=%d (wait for host enumeration)\n", recovery);
+        }
+      }
+    }
     SAMPLE_CPU_FINISH_IF(usb_service_stats, service_started,
                          sample_window_active);
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)

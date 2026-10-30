@@ -10,7 +10,6 @@
 
 #include "wirelink/port.h"
 #include "wirelink/usb_bulk_defaults.h"
-#include "wirelink/detail/usb_stream_rx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,13 +26,9 @@ typedef void (*wl_zephyr_usb_bulk_wake_fn)(void *user_data);
 
 typedef struct wl_zephyr_usb_bulk_config {
   wl_ctx_t *link;
-  /* Native: strictly greater than the link's maximum raw frame. A failed or
-   * full request stops RX until USBD is reset/reconfigured and enabled. */
-  size_t maximum_rx_size;
-  /* Required only for WL_ENVELOPE_NATIVE_PACKET zero-copy RX. */
-  uint8_t *unit_queue_storage;
-  size_t unit_queue_storage_size;
-  uint8_t unit_queue_slots;
+  /* Same selection applied before link init. Prepare caller-owned native
+   * storage explicitly with wl_usb_bulk_rx_init() before binding. */
+  wl_usb_bulk_config_t transport;
   /* Optional ISR-safe notification for the single Wirelink consumer. */
   void *wake_user_data;
   wl_zephyr_usb_bulk_wake_fn wake_consumer;
@@ -63,6 +58,9 @@ typedef struct wl_zephyr_usb_bulk_stats {
   bool enabled;
   bool rx_active;
   bool tx_active;
+  wl_usb_bulk_rx_fault_t rx_fault;
+  wl_usb_bulk_rx_fault_t last_rx_fault;
+  bool recovering;
 } wl_zephyr_usb_bulk_stats_t;
 
 typedef struct wl_zephyr_usb_bulk {
@@ -72,14 +70,11 @@ typedef struct wl_zephyr_usb_bulk {
   wl_zephyr_usb_bulk_wake_fn wake_consumer;
   void *cycle_counter_user_data;
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
-  wl_usb_stream_rx_t stream_rx;
-  uint8_t rx_staging[512]; /* One HS packet, only used at a short ring tail. */
   wl_rx_unit_claim_t rx_unit_claim;
   wl_io_token_t tx_token;
   /* Endpoint addresses captured when each outstanding request is queued. */
   uint8_t rx_endpoint;
   uint8_t tx_endpoint;
-  bool native_unit_mode;
   atomic_t flags;
   atomic_t tx_completion;
   atomic_t rx_claims;
@@ -99,6 +94,8 @@ typedef struct wl_zephyr_usb_bulk {
   atomic_t active_service_cycles;
   atomic_t active_service_max_cycles;
   atomic_t errors;
+  atomic_t rx_fault;
+  atomic_t last_rx_fault;
 } wl_zephyr_usb_bulk_t;
 
 /* Initialize before usbd_init()/usbd_enable(). One instance is supported. */
@@ -108,6 +105,13 @@ int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
 /* Call from Wirelink's single-consumer context after wl_poll(). */
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter);
 wl_readiness_t wl_zephyr_usb_bulk_readiness(const wl_zephyr_usb_bulk_t *adapter);
+wl_usb_bulk_rx_fault_t wl_zephyr_usb_bulk_rx_fault(
+    const wl_zephyr_usb_bulk_t *adapter);
+/* Owner/thread context only, outside USB callbacks. Disable and re-enable the
+ * entire USBD context so the host must enumerate/configure again. The fault
+ * remains latched until that configuration enables this class. No core/RPC
+ * session or queued/leased payload is silently discarded. */
+int wl_zephyr_usb_bulk_recover(wl_zephyr_usb_bulk_t *adapter);
 /* Clear telemetry counters without changing endpoint ownership. */
 void wl_zephyr_usb_bulk_reset_stats(wl_zephyr_usb_bulk_t *adapter);
 void wl_zephyr_usb_bulk_get_stats(const wl_zephyr_usb_bulk_t *adapter,

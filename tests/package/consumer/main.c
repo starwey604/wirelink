@@ -219,6 +219,11 @@ int main(void) {
       selected_config.integrity != WL_INTEGRITY_CRC16 ||
       wl_config_apply_link_defaults(&selected_config, wl_usb_bulk_link_defaults()) != WL_OK ||
       selected_config.integrity != WL_INTEGRITY_NONE) return 1;
+  selected_config.max_payload_len = 128;
+  const wl_usb_bulk_config_t usb = wl_usb_bulk_native_packet(256, 3);
+  if (wl_usb_bulk_config_apply(&selected_config, usb) != WL_OK ||
+      selected_config.envelope != WL_ENVELOPE_NATIVE_PACKET ||
+      selected_config.integrity != WL_INTEGRITY_NONE) return 1;
   char diagnostic_text[128];
   wl_diag_writer_t diagnostic_writer;
   const wl_rx_counters_t diagnostic_counters = {.malformed = 1U};

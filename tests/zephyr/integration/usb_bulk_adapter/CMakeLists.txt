@@ -22,5 +22,7 @@ target_include_directories(app PRIVATE ${WIRELINK_ROOT}/src)
 
 zephyr_ld_options(
   -Wl,--wrap=usbd_ep_enqueue
+  -Wl,--wrap=usbd_disable
+  -Wl,--wrap=usbd_enable
   -Wl,--wrap=usbd_ep_buf_free
 )

@@ -228,7 +228,10 @@ Generated `*_endpoint_init()` and `*_endpoint_config_defaults()` require an
 explicit defaults argument: `wl_link_defaults()` selects CRC16, while
 `wl_usb_bulk_link_defaults()` from the USB integration header selects NONE.
 User overrides after defaults remain authoritative. See
-[USB setup](docs/adapters.md#select-usb-defaults-before-initialization).
+[USB setup](docs/adapters.md#usb-bulk-configuration-and-rx-preparation).
+USB Bulk now accepts only native packets; upgrade both peers together. The
+application supplies RX capacity and slots through `wl_usb_bulk_native_packet()`;
+USB COBS selection, byte-ring ingress and stream staging have been removed.
 
 The default `WIRELINK_LINK_PROFILE=multi` supports all existing envelope/integrity combinations. Use `-DWIRELINK_LINK_PROFILE=cobs-crc16` for a core that accepts only COBS + CRC16; Zephyr provides `CONFIG_WIRELINK_LINK_PROFILE_COBS_CRC16=y`. Both builds share the fused normal TX/RX kernels and preserve reliable DATA/ACK, retries and ownership. Omitted legal selectors return `WL_ERR_NOT_SUPPORTED`, invalid enum values return `WL_ERR_INVALID_ARG`, and size helpers return zero for unavailable modes. Configure endpoints explicitly; requested selectors are never rewritten.
 

@@ -18,7 +18,7 @@ if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(wirelink_astrial_usb_native_tests PRIVATE -UNDEBUG -Wall -Wextra -Wpedantic -Werror)
   endif()
-  foreach(case empty full error capacity queue)
+  foreach(case empty full error capacity queue unprepared mismatch disconnect prequeued leased cobs)
     add_test(NAME wirelink_astrial_usb_native_${case}
       COMMAND wirelink_astrial_usb_native_tests ${case})
     set_tests_properties(wirelink_astrial_usb_native_${case} PROPERTIES TIMEOUT 5)

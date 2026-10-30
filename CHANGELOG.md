@@ -5,11 +5,28 @@ versioning after 1.0; compatibility expectations for pre-1.0 releases are descri
 
 ## Unreleased
 
+- **Breaking USB wire/configuration change:** USB Bulk now uses only
+  native_packet with NONE by default. Upgrade host and device together. Remove
+  the USB COBS factory/selector, byte-ring ingress, stream staging, and their
+  dedicated helper/tests. RX capacity and slots remain application budgets;
+  binding still validates rather than changing an initialized link. Generic
+  UART/CDC stream framing is unaffected.
+
+- **Breaking USB adapter configuration:** reuse `wl_usb_bulk_config_t` for
+  envelope/integrity and caller-selected RX capacity/slots. Apply it before link
+  initialization and explicitly prepare caller-owned native storage; adapter
+  binding validates settings without resetting queues or changing a live link.
+- Expose latched USB RX fault reasons and report them through service/readiness
+  to the owner. Add explicit Zephyr USBD reconfiguration recovery, preserve
+  unobserved errors across fast reconfiguration, and retain recovery state when
+  resetting telemetry. Host recovery requires a real USB boundary reset before
+  reopening. USB Bulk is native-only; 2048×2 is not a universal preset.
+
 - Require native USB Bulk read capacity to exceed the maximum raw frame.
   Return successful empty completions without a business unit or IO error;
   abort failed/full requests and stop RX until transport reset instead of
   accepting a possible frame suffix. Expected shutdown cancellations return
-  their claims without an error. COBS remains the default deployment.
+  their claims without an error.
 
 - Add a local Zephyr DWC2 correction and regression fixture for Bulk IN ZLP
   requests and OUT transfers ending with full packets plus a ZLP. The USB FS

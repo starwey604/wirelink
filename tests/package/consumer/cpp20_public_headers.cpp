@@ -78,6 +78,11 @@ int main() {
       selected_config.integrity != WL_INTEGRITY_CRC16 ||
       wl_config_apply_link_defaults(&selected_config, wl_usb_bulk_link_defaults()) != WL_OK ||
       selected_config.integrity != WL_INTEGRITY_NONE) return 1;
+  selected_config.max_payload_len = 128;
+  const wl_usb_bulk_config_t usb = wl_usb_bulk_native_packet(256, 3);
+  if (wl_usb_bulk_config_apply(&selected_config, usb) != WL_OK ||
+      selected_config.envelope != WL_ENVELOPE_NATIVE_PACKET ||
+      selected_config.integrity != WL_INTEGRITY_NONE) return 1;
   constexpr std::uint8_t input[] = {0x00U, 0x57U, 0x4CU};
   std::uint8_t encoded[sizeof(input) + 2U]{};
   std::uint8_t decoded[sizeof(input)]{};

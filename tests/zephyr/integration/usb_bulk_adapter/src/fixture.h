@@ -101,3 +101,18 @@ static void configure_descriptor(struct usb_ep_descriptor *descriptor,
   descriptor->wMaxPacketSize = sys_cpu_to_le16(packet_size);
 }
 
+
+static int disable_result, enable_result;
+static unsigned disable_calls, enable_calls;
+int __wrap_usbd_disable(struct usbd_context *context) {
+  ARG_UNUSED(context);
+  ++disable_calls;
+  if (disable_result == 0) bulk_class()->api->disable(bulk_class());
+  return disable_result;
+}
+int __wrap_usbd_enable(struct usbd_context *context) {
+  ARG_UNUSED(context);
+  ++enable_calls;
+  /* A successful controller enable is not SET_CONFIGURATION yet. */
+  return enable_result;
+}

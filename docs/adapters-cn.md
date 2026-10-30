@@ -23,7 +23,7 @@
 | Loopback | native packet | `wl_loopback_init()` | `wl_loopback_service()` | `wl_loopback_quiesce()` |
 | Zephyr UART DMA | COBS stream | `wl_zephyr_uart_dma_start()` | `wl_zephyr_uart_dma_service()` | 调用 `wl_zephyr_uart_dma_stop()`，service 到 `started=0` 且 `stopping=0` |
 | Zephyr UART IRQ / CDC ACM | COBS stream | `wl_zephyr_uart_irq_start()` | `wl_zephyr_uart_irq_service()` | 复用 link 前禁用所属 UART/USB 设备 |
-| Zephyr USB bulk | native packet 或 COBS stream | 启用所属 USBD context | `wl_zephyr_usb_bulk_service()` | 复用 link 前禁用 USBD |
+| Zephyr USB bulk | native packet | 启用所属 USBD context | `wl_zephyr_usb_bulk_service()` | 复用 link 前禁用 USBD |
 | Astrial serial / USB | COBS stream / native packet | `start()` | `service()`，可用时配合 `wait_for_activity()` | `quiesce()` |
 | Asio UDP | native packet；显式旧 COBS | `open()` 绑定 socket；端点重载自动 attach | `service()`；按截止时间 `wait_for_activity()` | `quiesce()` 或关闭端点 |
 | Zephyr UDP（实验） | native packet | `wl_zephyr_udp_open()` 自动接入端点 | 生成的 step 自动 service；`wl_zephyr_udp_wait()` | 先关闭生成端点、join 通知生产者，再 `wl_zephyr_udp_close()` |
@@ -88,43 +88,80 @@ USB CDC IRQ 样例使用 endpoint 时钟快照调用 `_at`，在入口前以 `wl
 不得混用 ingress family。
 
 
-## 在初始化前选择 USB 默认配置
+## USB Bulk 的统一配置与接收准备
 
-通用配置入口新增第三个参数 `wl_link_defaults()`（CRC16）；USB Bulk 接入使用公共
-`<wirelink/usb_bulk_defaults.h>` 中的 `wl_usb_bulk_link_defaults()`（NONE）。
-普通生成 SDK 只依赖通用 C 头，不引入 USB、libusb、C++ 或 Zephyr 依赖。
-使用 CMake USB 集成头时链接 `Wirelink::usb_bulk_defaults`；Astrial USB target 和
-Zephyr 模块会自动提供该头的 include 路径。
+USB 专用入口是 `<wirelink/usb_bulk_defaults.h>`，CMake 链接
+`Wirelink::usb_bulk_defaults`（Astrial USB target 和 Zephyr module 已传递该依赖）。
+USB Bulk 只使用 `native_packet`；用一份 `wl_usb_bulk_config_t` 选择 integrity、请求容量及槽数，并在配置、
+接收准备和 adapter 绑定时复用。通用 SDK 不引入 USB 或操作系统依赖。
 
 ```c
-#include <wirelink/usb_bulk_defaults.h>
+/* 应用自己的容量预算示例，不是库默认值。必须覆盖本 profile 最大 frame。 */
+enum { APP_USB_RX_CAPACITY = 2304, APP_USB_RX_SLOTS = 3 };
+static uint8_t usb_rx_storage[APP_USB_RX_SLOTS][APP_USB_RX_CAPACITY];
+const wl_usb_bulk_config_t usb =
+    wl_usb_bulk_native_packet(APP_USB_RX_CAPACITY, APP_USB_RX_SLOTS);
 
 int err = task_endpoint_config_defaults(
     &config, environment, wl_usb_bulk_link_defaults());
 if (err != WL_OK) return err;
-/* 可选的高级覆盖：config.link.integrity = WL_INTEGRITY_CRC32C; */
-return task_endpoint_init_config(&endpoint, &config);
+err = wl_usb_bulk_config_apply(&config.link, usb);
+if (err != WL_OK) return err;
+err = task_endpoint_init_config(&endpoint, &config);
+if (err != WL_OK) return err;
+wl_ctx_t *link = wl_endpoint_link(task_endpoint_handle(&endpoint));
+err = wl_usb_bulk_rx_init(link, usb, &usb_rx_storage[0][0], sizeof(usb_rx_storage));
+if (err != WL_OK) return err;
+/* Zephyr: adapter_config.link = link; adapter_config.transport = usb;
+ * Astrial: adapter_config.transport = usb; UsbBulkAdapter::open(*link, adapter_config); */
 ```
 
-快捷入口同样接受第三个 defaults 参数。`create()` 接收最终 config，不重新套用默认值。
-裸 core 使用 `wl_config_apply_link_defaults(&config, wl_usb_bulk_link_defaults())`，
-只写 integrity；payload、session、envelope、MTU、重试等字段保留。应用默认值后再做用户覆盖，
-随后初始化 link，最后绑定 adapter。adapter 绑定不会改写配置；非法枚举被拒绝，
-固定 `cobs-crc16` 对 NONE 返回 `WL_ERR_NOT_SUPPORTED`，不会回退。
+`wl_usb_bulk_native_packet()` 是唯一工厂，使用 `native_packet` 和 NONE，不提供统一容量／槽数默认。
+生成 endpoint 的 profile 必须允许 native 布局，两端显式选择相同 envelope/integrity；
+旧 USB COBS 固件与当前版本线上不兼容，两端须同步升级；USB Bulk 已移除 COBS 选项、字节 ring 和 stream staging，不协商或回退。
+如需 CRC16/CRC32C，在应用配置之前覆盖这份 USB 值的 `integrity`，之后复用同一值。
+旧 `wl_usb_bulk_link_defaults()` 仍是仅选 NONE 的通用 defaults 值，CDC/UART 用法保持不变。
 
-native USB Bulk 中一个完整 frame 由短包或显式 ZLP 结束；两端必须显式选择
-`native_packet`，它与 COBS 线上不兼容。接收请求必须严格大于
-`wl_frame_raw_size(max_payload_len, integrity)`（包含最大 frame header），并提供至少
-两个 unit 槽，数据区生命周期覆盖 adapter。成功的空 completion 归还 claim，
-不发布业务事件，也不计为 IO 错误。
+`wl_usb_bulk_config_apply()` 只修改尚未初始化的配置描述中的 envelope/integrity，
+保留 payload、session、MTU、重试等字段。native 请求容量必须严格大于
+`wl_frame_raw_size(max_payload_len, integrity)`，包括最大 header 和完整性字节；
+等于上界、槽数不在2..8、乘法溢出等均被拒绝，拒绝时配置不变。
+最终能力和生成布局检查仍由 link/endpoint 初始化执行；固定 `cobs-crc16` 不会降级 NONE。
 
-失败或恰好填满的 native 请求无法证明已消费终止边界：中止 claim、保留错误并停止 RX。
-恢复前必须复位／重新配置 USB 传输，再重新启用 Zephyr USBD，或以重新初始化的 link
-重开 Astrial adapter；单独重开主机 adapter 不会清掉设备中未读完的后缀。
-普通队列背压在释放事件后恢复，边界故障不会按背压自动恢复。关闭期间的取消归还 claim，
-不发布部分数据。
+`wl_usb_bulk_rx_init()` 是明确的初始化步骤，调用方提供并持有 native storage。
+同一 link 上重复准备被拒绝，避免清掉已有 claim、队列或事件 lease。storage 必须一直
+有效到 adapter quiesce、所有事件归还并关闭 link；Astrial 不再私自分配／替换队列。
+两个 adapter 绑定时只读核对实际 envelope、integrity、unit 容量和槽数；不匹配或未准备
+就报错，不改写已初始化的 link。Astrial 默认构造的 `transport` 不提供隐式内存预算，须由应用显式赋值。原 adapter 的 `maximum_read_size`/`maximum_rx_size`、
+`unit_queue_slots` 和 Zephyr storage 配置字段由 `transport` 与显式准备步骤替代。
 
-两端必须选择相同 integrity。USB preset 不改变 profile 的 envelope，也不关闭长度检查、
-RPC deadline、replay 或业务校验。USB CDC IRQ 示例也显式选择该可信直连 USB preset，
-对应主机工具的 CDC 模式；通用 UART IRQ adapter 不推断介质，普通 UART 仍选择通用 CRC16。
-USB 示例此前已使用 NONE；本次入口变化不代表新的性能收益。
+## 可见的 RX 故障与恢复
+
+native frame 必须由 short packet 或显式 ZLP 结束。成功空 completion 只归还 claim；
+失败、填满请求或队列提交异常会中止 claim、锁住 RX，并保留明确原因：
+`BOUNDARY_LOST`、`TRANSFER`、`INVALID_COMPLETION`、`QUEUE` 或 `DISCONNECTED`。
+此时不能把后缀当下一帧。普通队列背压仍在释放事件后恢复，二者不同。
+
+故障会通知／唤醒 owner，使 readiness 至少可运行一次；`service()` 通过 `WL_ERR_IO`
+报告，endpoint step/pump 因而能向应用传递失败。处理通知后 readiness 不会因永久故障
+持续忙转；主动调用 service 仍报告尚未恢复的故障。应用用 Astrial `rx_fault()`／
+`UsbBulkAdapterStats::rx_fault`，或 Zephyr `wl_zephyr_usb_bulk_rx_fault()`／stats 查询。
+仅看 `rx_paused` 或等待 RPC 超时不足以识别这种故障。
+
+Zephyr 的 owner 线程可调用 `wl_zephyr_usb_bulk_recover(&adapter)`，它对整个 USBD
+context 执行 disable/enable，要求 host 重新枚举并配置；该 context 上其它 USB class
+也会短暂断连。不能在 ISR／USB callback 中调用。成功表示请求已接受，直到实际 class
+配置完成前 `rx_fault` 仍保留、stats.recovering 为 true；重复请求返回
+`WL_ERR_WOULD_BLOCK`。失败返回 `WL_ERR_IO`，故障保留；enable 失败后可显式重试，
+不会重复已成功的 disable。正常配置完成后清除当前故障，接收恢复。
+
+即使重新配置发生得很快，尚未处理的故障通知仍保留；此时 service 仍报告一次 IO，
+当前 `rx_fault` 可已为 NONE，而 `last_rx_fault` 保留原因。`reset_stats()` 不清除
+这些状态或待处理通知。示例 `samples/zephyr/usb_bulk` 展示了报告与重配置调用。
+恢复不会偷偷丢弃已完成／借出的帧，也不会重建 core/RPC session；应用若需取消事务或
+更换会话，须按 endpoint 的 close/init 合同显式执行。
+
+Astrial 应用先记录 `rx_fault()`，从 owner 线程 `quiesce()`，然后等待或发起真正的
+USB reset/reconfigure／物理重连，再关闭并按相同配置重建 endpoint、准备 RX、重新 open。
+对端可通过上述 Zephyr 恢复入口重建边界。单独重开 host adapter、清计数或调用
+`wl_feed_recover_reset()` 不会清掉设备未读后缀，不能冒充 USB 恢复。USB Bulk 只接受 native；UART/CDC 的字节流接入按各自合同使用 COBS。

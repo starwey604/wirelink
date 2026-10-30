@@ -53,6 +53,10 @@ wl_err_t wl_rx_dma_finish(wl_ctx_t *ctx, const wl_rx_dma_claim_t *claim);
 wl_err_t wl_rx_dma_abort(wl_ctx_t *ctx);
 wl_err_t wl_rx_unit_queue_init(wl_ctx_t *ctx,
                                const wl_rx_unit_queue_config_t *config);
+/* Setup-time, read-only queue description. Does not claim, reset or release
+ * slots. Storage remains owned by the application until the link is closed. */
+wl_err_t wl_rx_unit_queue_get_config(const wl_ctx_t *ctx,
+                                     wl_rx_unit_queue_config_t *out_config);
 /* Nonmutating resource query for the single producer/owner. A packet link
  * without an optional queue accepts one unit after its RX lease is returned. */
 uint8_t wl_rx_can_accept_unit(const wl_ctx_t *ctx);
