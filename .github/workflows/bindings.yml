@@ -26,9 +26,15 @@ jobs:
           repository: chriskohlhoff/asio
           ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
           path: .tools/asio
+      - uses: ./.github/actions/setup-wlc
+      - name: Build static compiler for the older-glibc container
+        run: |
+          rustup target add --toolchain 1.96.1 x86_64-unknown-linux-musl
+          cargo +1.96.1 build --release --locked --manifest-path .tools/wlc/Cargo.toml --target x86_64-unknown-linux-musl
       - name: Build, repair and test portable wheels
         run: >-
           docker run --rm -v "${{ github.workspace }}:/io"
+          -e WIRELINK_WLC_EXECUTABLE=/io/.tools/wlc/target/x86_64-unknown-linux-musl/release/wlc
           quay.io/pypa/manylinux_2_28_x86_64@sha256:53390351aeb4688114b02c36a23b3e6ce1166ee9b7afc5df1a4f776354fc764c
           bash /io/tests/package/build_manylinux_sdks.sh
       - uses: actions/upload-artifact@v4
@@ -49,9 +55,10 @@ jobs:
           repository: chriskohlhoff/asio
           ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
           path: .tools/asio
+      - uses: ./.github/actions/setup-wlc
       - name: Build native support with Clang ASan/UBSan
         run: |
-          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS=-fsanitize=address,undefined -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS=-fsanitize=address,undefined -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }} -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build/native --parallel 4
           cmake --install build/native
       - name: Test generated bridge callback types and ownership
@@ -87,11 +94,13 @@ jobs:
           path: .tools/asio
       - name: Build dependencies
         run: python -m pip install build "nanobind>=3.0,<4" "scikit-build-core>=1.0,<2" pytest
+      - uses: ./.github/actions/setup-wlc
       - name: Configure native support
         run: >-
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF
+          -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
           -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON
           -DWIRELINK_BUILD_EXAMPLES=OFF
           -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include

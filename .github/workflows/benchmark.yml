@@ -3,7 +3,7 @@ name: Benchmarks
 # Intentionally manual during early development: ordinary pushes and PRs do
 # not spend hosted-runner time on performance measurements. For a release
 # candidate, dispatch `release` before creating the tag and compare it with the
-# previous release tag (explicit `base`, or the newest reachable older tag).
+# compatible explicitly selected 0.13 base; old releases require archived tools.
 
 on:
   workflow_dispatch:
@@ -17,9 +17,9 @@ on:
           - quick
         default: release
       base:
-        description: Base revision/tag (blank selects the newest reachable older tag)
+        description: Compatible 0.13 base revision (required; pre-cut releases need archived tools)
         type: string
-        required: false
+        required: true
 
 permissions:
   contents: read
@@ -40,17 +40,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Published WLC source pin; keep in sync with
-      # cmake/WirelinkWlcBootstrap.cmake (WIRELINK_WLC_SOURCE_REVISION).
-      - name: Check out matching standalone WLC
-        uses: actions/checkout@v5
-        with:
-          repository: starwey604/wlc
-          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
-          path: .tools/wlc
-
-      - name: Build matching WLC
-        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
+      - uses: ./.github/actions/setup-wlc
 
       # quick and release use the timing suites; smoke does not need GB.
       - name: Check out Google Benchmark
@@ -58,28 +48,22 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: google/benchmark
-          ref: 12235e24652fc7f809373e7c11a5f73c5763fc4c
+          ref: eddb0241389718a23a42db6af5f0164b6e0139af
           path: .tools/google-benchmark
 
       - name: Export toolchain
         shell: bash
         run: |
-          echo "WIRELINK_WLC_EXECUTABLE=${GITHUB_WORKSPACE}/.tools/wlc/target/release/wlc" >> "$GITHUB_ENV"
           if [ "${{ inputs.profile }}" != smoke ]; then
             echo "WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=${GITHUB_WORKSPACE}/.tools/google-benchmark" >> "$GITHUB_ENV"
           fi
 
       # These are fast correctness tests for the benchmark tooling, not
       # performance measurements.
-      - name: Comparator and report parser tests
-        shell: bash
+      - name: Comparator, registry and normalization correctness
         run: |
-          for t in benchmarks/test_*.py benchmarks/*/test_*.py; do
-            [ -e "$t" ] || continue
-            echo "::group::${t}"
-            (cd "$(dirname "$t")" && python3 "$(basename "$t")")
-            echo "::endgroup::"
-          done
+          cmake -S . -B tooling-build -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
+          ctest --test-dir tooling-build -R "^benchmark_" --output-on-failure
 
       - name: Resolve base revision
         id: base
@@ -88,18 +72,8 @@ jobs:
           REQUESTED_BASE: ${{ inputs.base }}
         run: |
           base="$REQUESTED_BASE"
-          head="$(git rev-parse HEAD)"
-          if [ -z "$base" ]; then
-            while IFS= read -r tag; do
-              sha="$(git rev-list -n 1 "$tag")"
-              if [ "$sha" != "$head" ] && git merge-base --is-ancestor "$sha" HEAD; then
-                base="$tag"
-                break
-              fi
-            done < <(git tag --sort=-version:refname)
-          fi
           if [ -z "$base" ] || ! git rev-parse --verify "${base}^{commit}" >/dev/null; then
-            echo "No valid baseline. Pass a previous release tag or commit as the base input." >&2
+            echo "Pass a compatible committed 0.13 baseline; pre-cut workloads need archived tools." >&2
             exit 2
           fi
           sha="$(git rev-parse "${base}^{commit}")"
@@ -130,10 +104,9 @@ jobs:
           echo "rc=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
-      # release already ran the seven smoke/quick suites. API adds generated
-      # endpoint memory, loopback RPC, and two-process UDP without rerunning
-      # those suites; it remains diagnostic until a stable testbed is adopted.
-      - name: API and UDP diagnostic comparison
+      # Six smoke/quick suites plus the two-kernel API workload cover seven suites.
+      # Host timing remains diagnostic until a stable testbed is calibrated.
+      - name: Kernel API pair diagnostic comparison
         if: inputs.profile == 'release'
         id: api
         shell: bash

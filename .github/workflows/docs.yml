@@ -8,11 +8,15 @@ on:
       - "v*"
     paths:
       - "site/**"
+      - "docs/**"
+      - "README.md"
       - ".github/workflows/docs.yml"
       - "CMakeLists.txt"
   pull_request:
     paths:
       - "site/**"
+      - "docs/**"
+      - "README.md"
       - ".github/workflows/docs.yml"
       - "CMakeLists.txt"
   workflow_dispatch:

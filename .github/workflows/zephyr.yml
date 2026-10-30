@@ -36,6 +36,17 @@ jobs:
           app-path: wirelink
           toolchains: arm-zephyr-eabi:riscv64-zephyr-elf:x86_64-zephyr-elf
 
+      - uses: ./wirelink/.github/actions/setup-wlc
+
+      - name: Apply the qualified platform patches
+        shell: bash
+        run: |
+          zephyr_tree="$(west list zephyr -f '{abspath}')"
+          for patch in esp32-uart-rx-timeout esp32s3-rpc-layout dwc2-bulk-zlp; do
+            git -C "$zephyr_tree" apply --check "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
+            git -C "$zephyr_tree" apply "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
+          done
+
       - name: Run Twister
         run: >-
           west twister
@@ -47,19 +58,8 @@ jobs:
           -p qemu_riscv32
           -p qemu_x86_64
           --inline-logs
+          -x=WIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
           --outdir twister-out
-
-      # Exercise the same generated-code sample used for the clock check.
-      # Published WLC 0.8.0 / ABI 32 source pair.
-      - name: Check out matching standalone WLC
-        uses: actions/checkout@v5
-        with:
-          repository: starwey604/wlc
-          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
-          path: .tools/wlc
-
-      - name: Build matching WLC
-        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
 
       - name: Run generated endpoint clock and ownership samples
         run: >-
@@ -75,8 +75,7 @@ jobs:
           -p qemu_cortex_m3
           -p qemu_riscv32
           -p qemu_x86_64
-          -x=WIRELINK_WLC_AUTO_DOWNLOAD=OFF
-          -x=WIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc
+          -x=WIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
           --inline-logs
           --outdir twister-endpoint-clock-out
 
@@ -102,6 +101,17 @@ jobs:
           toolchains: xtensa-espressif_esp32s3_zephyr-elf
           ccache-cache-key: usb-bulk-esp32s3
 
+      - uses: ./wirelink/.github/actions/setup-wlc
+
+      - name: Apply the qualified platform patches
+        shell: bash
+        run: |
+          zephyr_tree="$(west list zephyr -f '{abspath}')"
+          for patch in esp32-uart-rx-timeout esp32s3-rpc-layout dwc2-bulk-zlp; do
+            git -C "$zephyr_tree" apply --check "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
+            git -C "$zephyr_tree" apply "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
+          done
+
       - name: Build normal and CPU telemetry samples
         run: >-
           west twister
@@ -111,4 +121,5 @@ jobs:
           -s sample.wirelink.usb_bulk.cpu_stats
           --build-only
           --inline-logs
+          -x=WIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
           --outdir twister-usb-bulk-out

@@ -1,284 +1,179 @@
 name: Host CI
-
 on:
   push:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
   workflow_call:
-
 permissions:
   contents: read
-
 concurrency:
   group: host-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   core:
-    name: Core (${{ matrix.os }})
+    name: Kernel, owner, tutorials and installed consumers (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - name: Check out Wirelink
-        uses: actions/checkout@v5
-
-      - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DWIRELINK_BUILD_HOST_RUNTIME=ON
-
-      - name: Build
-        run: cmake --build build --config Release --parallel
-
-      - name: Install
-        run: cmake --install build --config Release --prefix ${{ github.workspace }}/install
-
-      - name: Configure package consumer
-        run: cmake -S tests/package/consumer -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build package consumer
-        run: cmake --build consumer-build --config Release --parallel
-
-      - name: Test package consumer
-        run: ctest --test-dir consumer-build --build-config Release --output-on-failure
-
-      - name: Test host executor and bounded wakeups
-        run: ctest --test-dir build --build-config Release --output-on-failure
-
-      - name: Configure optional host profiling
-        run: cmake -S . -B profile-build -DCMAKE_BUILD_TYPE=Release -DWIRELINK_BUILD_HOST_RUNTIME=ON -DWIRELINK_HOST_PROFILING=ON
-
-      - name: Build and test profiling
-        run: |
-          cmake --build profile-build --config Release --parallel
-          ctest --test-dir profile-build --build-config Release --output-on-failure
-
-      # Published WLC 0.8.0 / ABI 32 source pair.
-      - name: Preserve compiler template line endings
-        run: git config --global core.autocrlf false
-
-      - name: Check out matching standalone WLC
-        uses: actions/checkout@v5
-        with:
-          repository: starwey604/wlc
-          ref: 758d12a2466e254cb4d913fce578fb7deae766ec
-          path: .tools/wlc
-
-      - name: Build matching WLC
-        run: cargo build --release --locked --manifest-path .tools/wlc/Cargo.toml
-
-      - name: Verify generated SDK artifacts
-        run: python tests/package/check_generated_sdks.py --wlc ${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
-
-      - name: Configure WLC package consumer
-        # Exercise the installed package's verified host archive download.
-        run: cmake -S tests/package/wlc_consumer -B wlc-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_BUILD_TYPE=Release
-
-      - name: Verify SDK generation with the downloaded release compiler
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          import sys
-          binaries = list(Path("wlc-consumer-build/_deps/wirelink-wlc").glob("v*/**/bin/wlc*"))
-          assert len(binaries) == 1, binaries
-          subprocess.run([sys.executable, "tests/package/check_generated_sdks.py",
-                          "--wlc", str(binaries[0])], check=True)
-
-      - name: Verify explicit and offline compiler resolution
-        run: cmake -DWIRELINK_SOURCE_DIR=${{ github.workspace }} -DMATCHING_WLC=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }} -DMODE=check -P tests/package/wlc_resolution.cmake
-
-      - name: Build WLC package consumer
-        run: cmake --build wlc-consumer-build --config Release --parallel
-
-      - name: Test WLC package consumer
-        run: ctest --test-dir wlc-consumer-build --build-config Release --output-on-failure
-
-      - name: Check out standalone Asio 1.38.1
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-wlc
+      - uses: actions/checkout@v5
         with:
           repository: chriskohlhoff/asio
           ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
           path: .tools/asio
-
-      - name: Configure UDP tutorials
+      - name: Configure current product and optional wrappers
         run: >-
-          cmake -S . -B udp-build -DCMAKE_BUILD_TYPE=Release
-          -DWIRELINK_BUILD_GETTING_STARTED=ON
-          -DWIRELINK_BUILD_COMPOSED_SERVICES=ON
-          -DWIRELINK_BUILD_HOST_RUNTIME=ON
-          -DWIRELINK_BUILD_STORAGE=ON
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DWIRELINK_BUILD_WLC_EXAMPLES=ON -DWIRELINK_BUILD_PLATFORM=ON
+          -DWIRELINK_BUILD_STORAGE=ON -DWIRELINK_BUILD_CPP_BINDINGS=ON
+          -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON
           -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
-          -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-          -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
-
-      - name: Build UDP tutorials
-        run: cmake --build udp-build --config Release --parallel
-
-      - name: Test UDP tutorials and fault injection
-        run: ctest --test-dir udp-build --build-config Release --output-on-failure
-
-      - name: Install UDP adapter
-        run: cmake --install udp-build --config Release --prefix ${{ github.workspace }}/udp-install
-
-      - name: Configure installed allocator and generated consumer
-        run: cmake -S tests/package/wlc_consumer -B storage-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/udp-install -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF -DWIRELINK_WLC_EXECUTABLE=${{ github.workspace }}/.tools/wlc/target/release/wlc${{ runner.os == 'Windows' && '.exe' || '' }}
-
-      - name: Build installed allocator consumer
-        run: cmake --build storage-consumer-build --config Release --parallel
-
-      - name: Test installed allocator consumer
-        run: ctest --test-dir storage-consumer-build --build-config Release --output-on-failure
-
-      - name: Configure installed UDP consumer
-        run: cmake -S tests/package/udp_consumer -B udp-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/udp-install -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build installed UDP consumer
-        run: cmake --build udp-consumer-build --config Release --parallel
-
-      - name: Test installed UDP consumer
-        run: ctest --test-dir udp-consumer-build --build-config Release --output-on-failure
-
-  short-enum-abi:
-    name: Installed ABI (-fshort-enums consumer)
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Check out Wirelink
-        uses: actions/checkout@v5
-
-      - name: Configure normal library
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build normal library
-        run: cmake --build build --config Release --parallel
-
-      - name: Install normal library
-        run: >-
-          cmake --install build --config Release
-          --prefix ${{ github.workspace }}/install
-
-      - name: Configure short-enum package consumer
+          -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
+      - name: Build and test
+        run: |
+          cmake --build build --config Release --parallel
+          ctest --test-dir build --build-config Release --output-on-failure
+      - name: Verify checked-in SDK output
+        run: python tests/package/check_generated_sdks.py --wlc "${{ env.WIRELINK_WLC_EXECUTABLE }}"
+      - name: Install
+        run: cmake --install build --config Release --prefix ${{ github.workspace }}/install
+      - name: Configure public C/C++ and owner consumer
         run: >-
           cmake -S tests/package/consumer -B consumer-build
           -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
-          -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_C_FLAGS=-fshort-enums
-
-      - name: Build short-enum package consumer
-        run: cmake --build consumer-build --config Release --parallel
-
-      - name: Test short-enum package consumer
+          -DWIRELINK_CONSUMER_HOST=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build and test public consumer
+        run: |
+          cmake --build consumer-build --config Release --parallel
+          ctest --test-dir consumer-build --build-config Release --output-on-failure
+      - name: Configure installed current generator
         run: >-
-          ctest --test-dir consumer-build --build-config Release
-          --output-on-failure
-
+          cmake -S tests/package/wlc_current -B generated-consumer-build
+          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
+      - name: Build and test native, COBS, C++, keyword and diagnostics
+        run: |
+          cmake --build generated-consumer-build --config Release --parallel
+          ctest --test-dir generated-consumer-build --build-config Release --output-on-failure
+      - name: Configure installed UDP consumer
+        run: cmake -S tests/package/udp_consumer -B udp-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+      - name: Build and test installed UDP
+        run: |
+          cmake --build udp-consumer-build --config Release --parallel
+          ctest --test-dir udp-consumer-build --build-config Release --output-on-failure
+  short-enum-abi:
+    name: Installed C ABI with short-enum consumer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build and install normal-width library
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          cmake --install build --prefix ${{ github.workspace }}/install
+      - name: Build and test poisoned-result short-enum consumer
+        run: |
+          cmake -S tests/package/consumer -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_C_FLAGS=-fshort-enums -DCMAKE_CXX_FLAGS=-fshort-enums
+          cmake --build consumer-build --parallel
+          ctest --test-dir consumer-build --output-on-failure
+      - name: Build installed C-only CMake and pkg-config consumers
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/install/lib/pkgconfig
+        run: |
+          cmake -S tests/package/c_core -B c-core-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake --build c-core-consumer-build --parallel
+          ctest --test-dir c-core-consumer-build --output-on-failure
   astrial:
-    name: Astrial adapter (${{ matrix.os }})
+    name: Packet adapters (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - name: Check out Wirelink
-        uses: actions/checkout@v5
-
-      - name: Check out Astrial
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: starwey604/astrial
-          path: astrial
-
+          ref: 7ffc5c34327d231e4bbca4fadb2157b8bba5a42d
+          path: .tools/astrial
       - name: Install libusb (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libusb-1.0-0-dev
-
       - name: Install libusb (macOS)
         if: runner.os == 'macOS'
         run: brew install libusb
-
       - name: Fetch pinned vcpkg baseline (Windows)
         if: runner.os == 'Windows'
         run: git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --depth=1 origin 9e593bb18ea69cc5095e012465dcd675a822ed0d
-
       - name: Configure (Linux/macOS)
         if: runner.os != 'Windows'
-        run: cmake -S . -B build -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial -DBUILD_TESTING=ON -DASTRIAL_BUILD_EXAMPLES=OFF -DASTRIAL_IO_URING=OFF -DCMAKE_BUILD_TYPE=Release
-
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON -DWIRELINK_BUILD_ASTRIAL_USB_ADAPTER=ON
+          -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/.tools/astrial
+          -DASTRIAL_BUILD_EXAMPLES=OFF -DASTRIAL_IO_URING=OFF
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial -DBUILD_TESTING=ON -DASTRIAL_BUILD_EXAMPLES=OFF -DASTRIAL_IO_URING=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_FEATURES=astrial-usb
-
-      - name: Build
-        run: cmake --build build --config Release --parallel
-
-      - name: Test
-        run: ctest --test-dir build --build-config Release --output-on-failure
-
+        run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON -DWIRELINK_BUILD_ASTRIAL_USB_ADAPTER=ON
+          -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/.tools/astrial
+          -DASTRIAL_BUILD_EXAMPLES=OFF -DASTRIAL_IO_URING=OFF
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_FEATURES=astrial-usb
+      - name: Build and test controlled packet boundaries
+        run: |
+          cmake --build build --config Release --parallel
+          ctest --test-dir build --build-config Release --output-on-failure
   sanitizers:
-    name: Astrial adapter (ASan + UBSan)
+    name: Core, owner and Session (Clang ASan + UBSan)
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out Wirelink
-        uses: actions/checkout@v5
-
-      - name: Check out Astrial
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-wlc
+      - uses: actions/checkout@v5
         with:
-          repository: starwey604/astrial
-          path: astrial
-
+          repository: chriskohlhoff/asio
+          ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
+          path: .tools/asio
       - name: Configure
         run: >-
-          cmake -S . -B build
-          -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON
-          -DWIRELINK_ASTRIAL_SOURCE_DIR=${{ github.workspace }}/astrial
-          -DBUILD_TESTING=ON
-          -DWIRELINK_BUILD_HOST_RUNTIME=ON
-          -DASTRIAL_BUILD_EXAMPLES=OFF
-          -DASTRIAL_IO_URING=OFF
-          -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
           -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
-          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
-
-      - name: Build
-        run: cmake --build build --parallel
-
-      - name: Test
+          -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON
+          -DWIRELINK_BUILD_WLC_EXAMPLES=ON -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON
+          -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
+          -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
+      - name: Build and test
         env:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build --output-on-failure
-
+        run: |
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure
   fuzz-smoke:
-    name: Clang fuzz smoke
+    name: Current-contract libFuzzer smoke
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out Wirelink
-        uses: actions/checkout@v5
-
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-wlc
       - name: Configure
-        run: cmake -S . -B build -DWIRELINK_BUILD_FUZZERS=ON -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
-
-      - name: Build
-        run: cmake --build build --parallel
-
-      - name: Fuzz smoke
+        run: >-
+          cmake -S . -B build -DWIRELINK_BUILD_FUZZERS=ON
+          -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
+      - name: Build and fuzz smoke
         env:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          cmake --build build --parallel 4
+          ctest --test-dir build --output-on-failure

@@ -54,13 +54,12 @@ git -C /path/to/zephyr apply --check "$PWD/adapters/zephyr/patches/esp32s3-rpc-l
 git -C /path/to/zephyr apply "$PWD/adapters/zephyr/patches/esp32s3-rpc-layout.patch"
 ```
 
-Then an application can call
-`wirelink_wlc_group_rpc(TARGET app MODULE task LOCATION ROM_START)` after
-creating its generated runtime. The module fragment has no `KEEP`: only
-relocation-reachable function inputs survive GC. This patch is optional for
-ordinary ON markers and unnecessary for OFF. Check the final map to confirm
-that the selected inputs precede the catchall and remain independently
-collectable. See [RPC layout](../../../wlc/docs/rpc-layout.md).
+This hook is retained for archived linker-layout experiments. Current WLC 0.13
+removed the `wirelink_wlc_group_rpc` runtime/layout helper; the new kernel does
+not install old endpoint IRAM fragments or use this hook as a speed guarantee.
+The patch changes no section address/padding by itself and remains part of the
+explicit platform source identity used by the recorded comparisons. Check the
+final ELF/map and generated source for any new placement experiment.
 
 
 ## DWC2 Bulk ZLP completion correction

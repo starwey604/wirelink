@@ -1,0 +1,32 @@
+name: Build matching local-source WLC
+description: Build the exact 0.13 compiler source; never download an older release
+runs:
+  using: composite
+  steps:
+    - name: Preserve compiler template line endings
+      shell: bash
+      run: git config --global core.autocrlf false
+    # This independent commit must be available in the WLC remote before remote CI.
+    # Local qualification uses this exact source; no release archive is assumed.
+    - uses: actions/checkout@v5
+      with:
+        repository: starwey604/wlc
+        ref: 7eabbf4dd767f968123917ba02431fa0a0ef184e
+        path: .tools/wlc
+    - name: Select the locally qualified Rust compiler
+      shell: bash
+      run: rustup toolchain install 1.96.1 --profile minimal
+    - name: Build compiler
+      shell: bash
+      run: cargo +1.96.1 build --release --locked --manifest-path .tools/wlc/Cargo.toml
+    - name: Verify compiler and export executable
+      shell: python
+      run: |
+        import os
+        from pathlib import Path
+        import subprocess
+        executable = Path(os.environ['GITHUB_WORKSPACE']) / '.tools/wlc/target/release' / ('wlc.exe' if os.name == 'nt' else 'wlc')
+        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == 'wlc 0.13.0'
+        assert subprocess.check_output([str(executable), 'codegen-contract'], text=True).strip() == '0.13'
+        with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+            output.write(f'WIRELINK_WLC_EXECUTABLE={executable.as_posix()}\n')
