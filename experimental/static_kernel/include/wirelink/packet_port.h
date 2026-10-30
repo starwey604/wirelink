@@ -2,11 +2,17 @@
 #ifndef WIRELINK_PACKET_PORT_H_
 #define WIRELINK_PACKET_PORT_H_
 
+#ifndef __cplusplus
 #include <stdatomic.h>
+#endif
 #include <stddef.h>
 #include <stdint.h>
 #include "wirelink/span.h"
 #include "wirelink/types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define WL_PACKET_RX_SLOTS 2U
 #define WL_PACKET_SEQUENCE_MAX UINT32_C(0x0fffffff)
@@ -58,7 +64,11 @@ typedef struct {
  * init/reinit requires stopped I/O and no outstanding borrow or physical lease.
  * Only publish/claim/commit/abort/activity may run in the producer/I/O context.
  * No codec, handler, allocation, clock or owner callback runs here. */
-typedef struct {
+/* C owns the atomic representation. C++ uses an opaque pointer; do not
+ * substitute std::atomic or assume it has the C atomic ABI. */
+typedef struct wl_packet_port wl_packet_port_t;
+#ifndef __cplusplus
+struct wl_packet_port {
   wl_packet_config_t config;
   atomic_uint_least32_t write_cursor;
   atomic_uint_least32_t read_cursor;
@@ -74,8 +84,10 @@ typedef struct {
   uint32_t tx_sequence;
   unsigned tx_delivered;
   uint8_t borrowed;
-} wl_packet_port_t;
+};
+#endif
 
+size_t wl_packet_rx_unit_size(const wl_packet_port_t *);
 wl_err_t wl_packet_init(wl_packet_port_t *, const wl_packet_config_t *);
 wl_err_t wl_packet_rx_claim(wl_packet_port_t *, size_t, wl_packet_claim_t *);
 wl_err_t wl_packet_rx_commit(wl_packet_port_t *, const wl_packet_claim_t *, size_t);
@@ -105,5 +117,9 @@ void wl_packet_stop(wl_packet_port_t *);
 /* Does not mean the adapter is stopped: it must separately acknowledge that
  * it will no longer access this port before reinitialization. */
 int wl_packet_quiescent(const wl_packet_port_t *);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

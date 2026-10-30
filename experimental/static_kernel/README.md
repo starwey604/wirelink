@@ -130,3 +130,11 @@ packet port on `native_sim`, with a controlled UDC enqueue boundary. It covers
 RX backpressure, inline completion, assigned endpoints/MPS, ZLP, stale tokens,
 boundary faults/reconfiguration and asynchronous stop acknowledgement. It
 links no legacy core. Hardware benchmark qualification is recorded separately.
+
+K3 public headers have C linkage when consumed from C++. Packet port storage
+is defined in C, with an opaque `wl_packet_port_t` in C++; C++ must not assume
+that `std::atomic` has the C11 atomic representation. A small C owner may
+provide the port pointer to an adapter or generated C++ consumer. Generated
+endpoint storage contains no C atomics and can be instantiated in C++. The
+`kernel_cpp` fixture links C storage, C core and generated C with a C++20
+caller, typed completion, cancellation, close and new-instance reuse.

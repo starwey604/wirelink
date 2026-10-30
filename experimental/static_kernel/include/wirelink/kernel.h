@@ -5,6 +5,10 @@
 #include "wirelink/kernel_wire.h"
 #include "wirelink/packet_port.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define WL_KERNEL_CONTRACT 1U
 #define WL_KERNEL_CALLS 4U
 #define WL_KERNEL_REPLIES 4U
@@ -124,5 +128,9 @@ wl_err_t wl_kernel_reply_finish(wl_kernel_t *, unsigned, uint16_t,
                                 const wl_kernel_rpc_metadata_t *, int32_t,
                                 const void *, wl_kernel_encode_fn);
 wl_err_t wl_kernel_response(wl_kernel_t *, uint16_t, const uint8_t *, size_t);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

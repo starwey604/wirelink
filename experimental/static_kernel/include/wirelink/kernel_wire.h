@@ -6,6 +6,10 @@
 #include <stdint.h>
 #include "wirelink/types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define WL_KERNEL_NATIVE_HEADER 4U
 #define WL_KERNEL_RPC_HEADER_MAX 17U
 
@@ -40,5 +44,9 @@ size_t wl_kernel_rpc_header_size(uint32_t operation, int32_t status);
  * represents rejection and must be used with no business body. */
 wl_err_t wl_kernel_rpc_write(uint8_t *, size_t, uint64_t, uint32_t, int32_t,
                              size_t *length);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

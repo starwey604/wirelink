@@ -233,3 +233,7 @@ int wl_packet_quiescent(const wl_packet_port_t *port) {
       !atomic_load_explicit(&port->claim_active, memory_order_acquire) &&
       !port->borrowed && !wl_packet_rx_ready(port) && !wl_packet_tx_active(port);
 }
+
+size_t wl_packet_rx_unit_size(const wl_packet_port_t *port) {
+  return port != NULL ? port->config.rx_unit_size : 0U;
+}
