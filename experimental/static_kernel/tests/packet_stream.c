@@ -21,18 +21,18 @@ static wl_packet_submit_t physical(void *user, const uint8_t *data, size_t lengt
   CHECK(length <= sizeof(f->sent)); memcpy(f->sent, data, length); f->sent_length = length;
   return WL_PACKET_SENT;
 }
-static void init(fixture_t *f, int cobs) {
+static void init(fixture_t *f, int cobs, size_t tx_limit) {
   wl_packet_config_t p = {.instance = 77, .rx_storage = &f->rx[0][0],
       .rx_unit_size = 2200, .rx_storage_size = sizeof(f->rx),
       .submit = cobs ? wl_packet_stream_cobs_crc16_submit : wl_packet_stream_length16_none_submit,
       .notify = wl_packet_stream_notify, .user = &f->stream};
   CHECK(wl_packet_init(&f->port, &p) == WL_OK);
   wl_packet_stream_config_t c = {.port = &f->port, .tx_storage = {f->tx, sizeof(f->tx)},
-      .physical_submit = physical, .user = f, .maximum_frame_size = 2052};
+      .physical_submit = physical, .user = f, .maximum_frame_size = tx_limit};
   CHECK((cobs ? wl_packet_stream_cobs_crc16_init : wl_packet_stream_length16_none_init)(&f->stream, &c) == WL_OK);
 }
 void wl_test_packet_stream(int cobs) {
-  fixture_t f = {0}; init(&f, cobs);
+  fixture_t f = {0}; init(&f, cobs, 2052);
   wl_err_t (*feed)(wl_packet_stream_t *, const uint8_t *, size_t, size_t *) =
       cobs ? wl_packet_stream_cobs_crc16_feed : wl_packet_stream_length16_none_feed;
   uint8_t canonical[2052], expected[2200];
@@ -88,6 +88,23 @@ void wl_test_packet_stream(int cobs) {
   CHECK(wl_packet_stream_abort_rx(&f.stream) == WL_OK);
   wl_packet_stop(&f.port); CHECK(wl_packet_quiescent(&f.port));
 }
+void wl_test_stream_rx_limit(int cobs) {
+  fixture_t f = {0};init(&f, cobs, 8U);
+  uint8_t payload[128], encoded[256];memset(payload, 77, sizeof(payload));
+  wl_wire_packet_t packet = {.type = WL_PACKET_DATA, .message_id = 123,
+      .integrity = cobs ? WL_INTEGRITY_CRC16 : WL_INTEGRITY_NONE,
+      .payload = payload, .payload_len = sizeof(payload)};
+  size_t length = 0U, consumed = 0U;
+  CHECK(wl_frame_encode(&packet, cobs ? WL_ENVELOPE_COBS_STREAM : WL_ENVELOPE_BUS_LENGTH16,
+      encoded, sizeof(encoded), &length) == WL_OK);
+  CHECK((cobs ? wl_packet_stream_cobs_crc16_feed : wl_packet_stream_length16_none_feed)(
+      &f.stream, encoded, length, &consumed) == WL_OK && consumed == length);
+  wl_packet_borrow_t borrow;CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
+  CHECK(borrow.length == sizeof(payload) + 4U && !memcmp(borrow.data + 4U, payload, sizeof(payload)));
+  CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
+  wl_packet_stop(&f.port);CHECK(wl_packet_quiescent(&f.port));
+}
+
 #ifndef WL_PACKET_ZTEST
-int main(void) { wl_test_packet_stream(1); wl_test_packet_stream(0); }
+int main(void) { wl_test_packet_stream(1); wl_test_packet_stream(0); wl_test_stream_rx_limit(1); wl_test_stream_rx_limit(0); }
 #endif

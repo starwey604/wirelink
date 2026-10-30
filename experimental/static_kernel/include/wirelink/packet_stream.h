@@ -16,7 +16,8 @@ typedef struct {
   wl_packet_sink_fn physical_submit;
   wl_packet_notify_fn notify;
   void *user;
-  size_t maximum_frame_size; /* Canonical ordinary DATA, including four-byte header. */
+  size_t maximum_frame_size; /* TX canonical DATA, including four-byte header. */
+  size_t maximum_rx_frame_size; /* 0 derives RX limit from its own unit capacity. */
 } wl_packet_stream_config_t;
 typedef struct {
   wl_packet_stream_config_t config;

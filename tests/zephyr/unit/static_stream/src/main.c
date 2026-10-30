@@ -26,4 +26,8 @@ ZTEST_SUITE(byte_fifo, NULL, NULL, NULL, NULL, NULL);
 void wl_test_packet_stream(int);
 ZTEST(static_stream, test_cobs_crc16_vectors) { wl_test_packet_stream(1); }
 ZTEST(static_stream, test_length16_none_vectors) { wl_test_packet_stream(0); }
+void wl_test_stream_rx_limit(int);
+ZTEST(static_stream, test_rx_capacity_independent_of_tx_bound) {
+  wl_test_stream_rx_limit(1); wl_test_stream_rx_limit(0);
+}
 ZTEST_SUITE(static_stream, NULL, NULL, NULL, NULL, NULL);
