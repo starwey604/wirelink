@@ -1,6 +1,6 @@
 # 静态端点内核重构：K0–K2 阶段结果
 
-日期：2026-10-31。对应 [执行计划](static-endpoint-kernel-refactor-plan-20261030-cn.md)、[K0 合同](static-endpoint-kernel-contract-20261030-cn.md)、[K2 登记](static-endpoint-kernel-k2-registration-20261031-cn.md) 和[唯一补充块](static-endpoint-kernel-k2-supplement-20261031-cn.md)。**K0、K1 及 K2 筛查完成；主要继续条件满足，可以进入 K3。K3–K5 尚未完成，默认产品仍为旧实现，不能称为整个重构已交付。**
+日期：2026-10-31。对应 [执行计划](static-endpoint-kernel-refactor-plan-20261030-cn.md)、[K0 合同](static-endpoint-kernel-contract-20261030-cn.md)、[K2 登记](static-endpoint-kernel-k2-registration-20261031-cn.md) 和[唯一补充块](static-endpoint-kernel-k2-supplement-20261031-cn.md)。**K0、K1 及 K2 筛查完成；主要继续条件满足，可以进入 K3。本文保留 K0–K2 历史结论；当前 K3 已完成、K4 完整对照与重放通过（见下方链接），K5/K6 尚未完成，默认产品仍为旧实现，不能称为整个重构已交付。**
 
 ## 结果
 
@@ -76,3 +76,7 @@ CPU-off 的总 Flash `.text` 为 A 79824 B、B 59360 B，减少 20464 B。它包
 板卡已恢复本轮**新冻结 A** 参考：`static-kernel-20261030-A-o0`，bin SHA-256 `cf7b3d84b891ac4863dde038414a58621a28eaedc37183baf3df43134560d5ca`，multi、observer off、16 KiB。最终 smoke 再次通过，`k2-handoff.json` 记录 UART/USB `fuser` 检查无打开句柄；没有恢复历史 COBS/UART 固件。
 
 K3 下一点是把 host 接到同一新内核，完善剩余部署／生命周期／非 benchmark schema 与受影响 adapter；保留 K2 的共同旧 host 控制。K4 还需完整新 host/new device A/B 与 libcsp 对照，尤其复核 host Sample CPU 和低频尾部。K5 才删除旧产品路径并迁移全部消费者，K6 再交付完整产品结论。本阶段没有 push、发布、修改 vendor 或把原型设为默认。
+
+## K3／K4 后续状态
+
+K3 保留合同、非 benchmark schema、安装消费者及 UART／UDP／USB adapter 通过，见 [K3 记录](static-endpoint-kernel-k3-progress-20261031-cn.md)。K4 新 host/device 三组 18 份完整采集和独立重放通过，见 [K4 结果](static-endpoint-kernel-k4-result-20261031-cn.md)。允许进入 K5；14 项保护观察仍不可判定，跨库部分 32 B goodput 未达，不改判为全面通过。K4 后板卡为新 B-on 且最终 smoke 合格，具体身份见 K4 结果；上文新 A 是 K2 交接时的历史状态。
