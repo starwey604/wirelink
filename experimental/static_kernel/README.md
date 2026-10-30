@@ -180,3 +180,14 @@ tool for every payload length 0–2048, varying fragments and two-slot pressure,
 bad CRC, partial abort and recovery. The public frame tool is only a test oracle,
 not a kernel dependency. WLC additionally generates a non-benchmark RPC endpoint
 for each connector and runs real request/handler/typed completion loopback.
+
+`wirelink_byte_fifo` is optional SPSC byte staging for stream adapters. An I/O
+producer only reserves/commits bytes and reports physical gaps; owner service
+passes retained bytes to the selected COBS connector. This keeps framing and
+all business work off the ISR. The FIFO has no protocol clock, heap, thread or
+RPC state. Its cursors wrap modulo twice the actual capacity, including sizes
+that are not powers of two. Producer reservations and owner peek lengths are
+validated internally. A gap is an explicit I/O error and invalidates the
+partial COBS window until a delimiter. Plain backpressure does not imply loss.
+The host fixture transfers one million bytes concurrently, exercises tiny FIFO
+fragments across 1000 complete frames, and checks gap recovery and ownership.
