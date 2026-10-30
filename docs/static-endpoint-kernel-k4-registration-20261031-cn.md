@@ -13,3 +13,11 @@ B 采集源码在根仓 `23dc8c0` 冻结，WLC `af819f7`，benchmark `27d517b`�
 stream 工作量随吞吐变化，报告全阶段／窗口 host CPU、MCU 窗口 active、双向分量和全部字节账本，不将更多吞吐所消耗的绝对 CPU 百分比冒充等工作量退化。保留所有 RTT 样本、每千次分段、max、IRQ、资源和栈数据。损坏输入校验已通过：拒绝 9999 RPC、过短 Sample pacing、单 slot、错误 stream 账本、缺失大包矩阵、短窗口；极端 RTT 保留。此校验使用明确标记的合成资格数据，不计入性能。
 
 正确性／账本／源码／环境失败立即停止采集并保留原始尝试，先调查；替换需另行登记，不自动补测或挑选样本。K4 通过后仍须 K5 默认迁移和最终源码验证，不能把原型成绩称为最终产品成绩。
+
+## 环境块重新登记（正式工作量开始前）
+
+首份 `k4-r1-A-o0` 在 warmup 放行前触发 `pre-warmup thread/system drift`，没有进入测量；原始 manifest／console／host 输出和最初登记全部保留。后续只读检查发现当前工具进程继承 nice 16，先前资格冻结为 -4，governor、EPP、affinity 无变化；旧失败工具没有在异常分支落盘实际签名，不能声称已直接测得失败 host 的确切 nice 或定位了外部变更来源。
+
+按计划的环境变更规则，在 `k4-environment-rebase/` 单独建立完整新块，原六份 binary／路径、镜像、工作量、判定阈值及轮转顺序完全相同，不混入旧块。六组重新完成 smoke，全体 main／worker 都实际保持 policy 0、nice 16、affinity 0–5，系统设置与初始登记一致。没有通过 renice／改名／改路径／改 governor 寻找有利设置。新 collector 额外在检查前保存实际环境，以便今后失败可审计。
+
+新块 `k4-registration.json` SHA-256：`9d8e0c483a20802bae1d3cd835e853088ddec75c8f652da6ec6502baedd68a97`。六组环境与 collector 新哈希已冻结，初次未放行尝试不算性能数据。这是针对实测环境变化的一次完整重新登记；如再次变化继续保留失败并调查，不无限变换条件追数。
