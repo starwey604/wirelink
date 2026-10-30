@@ -1,230 +1,74 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-
 #ifndef WIRELINK_HOST_EXECUTOR_HPP
 #define WIRELINK_HOST_EXECUTOR_HPP
-
-#include "wirelink/port.h"
-#include "wirelink/outbox.h"
-#include "wirelink/pump.h"
+#include "wirelink/kernel.h"
+#include "wirelink/clock.h"
+#include "wirelink/io_readiness.h"
 #include "wirelink/host/clock.hpp"
-#include "wirelink/host/executor_activity.hpp"
-#include "wirelink/endpoint.h"
-#include "wirelink/rpc_sync.h"
-#include "wirelink/host/rpc_task.hpp"
 #include "wirelink/detail/coalescing_event.hpp"
-#include "wirelink/diagnostics/host_profile.hpp"
-
-#include <array>
 #include <atomic>
-#include <cstddef>
-#include <cstdint>
+#include <deque>
+#include <functional>
 #include <mutex>
-#include <memory>
 #include <thread>
 
 namespace wirelink::host {
-
-struct ExecutorHooks {
-    using ServiceFn = int (*)(void* s_user_data) noexcept;
-    using QuiesceFn = void (*)(void* s_user_data) noexcept;
-    // Runs on the owner thread after core events have been dispatched. Return
-    // true only when another immediate bounded application pass is required.
-    using ApplicationStepFn = bool (*)(void* s_user_data,
-                                            wl_ctx_t& s_context,
-                                            wl_time_ms_t s_now_ms) noexcept;
-    // Side-effect-free relative deadline query. Zero means due now and
-    // WL_NO_DEADLINE disables timed wakeups for this source.
-    using ReadinessFn = wl_readiness_t (*)(const void* s_user_data,
-        const wl_ctx_t& s_context, wl_time_ms_t s_now_ms) noexcept;
-    // Return CONSUMED after releasing an RX event or taking a terminal TX
-    // handle. UNHANDLED delegates that owner action to the executor.
-    using EventFn = wl_pump_event_disposition_t (*)(
-        void* s_user_data, wl_ctx_t& s_context,
-        const wl_event_t& s_event, wl_time_ms_t s_now_ms) noexcept;
-    void* m_user_data{};
-    // Owner-pass order is adapter service, core event dispatch, application
-    // progress, and queued TX dispatch. Before sleeping, readiness/deadline
-    // hints distinguish consumed events from remaining work. The executor
-    // sleeps until the earliest of
-    // core, application, and adapter deadlines. All-none means an unbounded
-    // event-driven sleep.
-    ServiceFn m_service{};
-    QuiesceFn m_quiesce{};
-    ApplicationStepFn m_application_step{};
-    ReadinessFn m_application_readiness{};
-    ReadinessFn m_adapter_readiness{};
-    EventFn m_on_event{};
+struct ExecutorIo {
+  void *user{};
+  wl_err_t (*service)(void *, uint32_t){};
+  wl_io_readiness_t (*readiness)(void *, uint32_t){};
+  wl_err_t (*wait)(void *, uint32_t){};
+  // Latched, nonblocking, thread-safe; must not reenter Executor or callbacks.
+  void (*notify)(void *){};
+  // Owner-only: stop/join actual I/O producers and publish final completion.
+  // Never synthesize physical drain. Storage remains alive until owner join.
+  void (*stop)(void *){};
 };
-
-struct ExecutorStats {
-    std::uint64_t m_feed_calls{};
-    std::uint64_t m_feed_bytes{};
-    std::uint64_t m_feed_backpressure{};
-    std::uint64_t m_rx_events{};
-    std::uint64_t m_poll_errors{};
-    std::uint64_t m_service_errors{};
-    std::uint64_t m_latest_submitted{};
-    std::uint64_t m_latest_coalesced{};
-    std::uint64_t m_latest_queue_full{};
-    std::uint64_t m_latest_dispatched{};
-    std::uint64_t m_latest_failed{};
-    std::uint64_t m_latest_cancelled{};
-    std::uint64_t m_rpc_submitted{};
-    std::uint64_t m_rpc_completed{};
-    std::uint64_t m_rpc_queue_full{};
-};
-
+// A thread/wait wrapper around the one C kernel. No RPC table, reply cache,
+// application service scheduler, protocol timer or payload storage is mirrored.
 class Executor {
 public:
-    static constexpr std::size_t s_kMaximumCommandPayload = 512;
-    static constexpr std::size_t s_kLatestLaneCapacity = 8;
-    // Drain only work already available; revisit RX/RPC/deadlines between batches.
-    static constexpr std::size_t s_kLatestDispatchBudget = 2;
-
-    enum class State : std::uint8_t {
-        kUninitialized,
-        kReady,
-        kRunning,
-        kStopping,
-        kStopped,
-    };
-
-    Executor() = default;
-    ~Executor();
-
-    Executor(const Executor&) = delete;
-    Executor& operator=(const Executor&) = delete;
-    Executor(Executor&&) = delete;
-    Executor& operator=(Executor&&) = delete;
-
-    // The caller owns every buffer in storage until this executor is destroyed.
-    // initialize(), setHooks(), setSink(), and context() are setup-only APIs and
-    // must be used before start(). Runtime Wirelink access belongs to the owner
-    // thread; transports feed RX through feedBytes() and signal deferred adapter
-    // work through notify().
-    // The clock descriptor is copied; its context must outlive stop(). Reads
-    // occur on the owner thread. A manual clock must be advanced by its owner
-    // (or synchronized externally), then notify() must wake a sleeping owner.
-    int initialize(const wl_config_t& s_config, const wl_storage_t& s_storage,
-                   wl_clock_t clock = monotonic_clock());
-    // Bind a generated endpoint once (and its already-attached adapter). This
-    // executor becomes its sole owner; generated *_sync calls from business
-    // threads are queued here, not stepped by those threads. Its SAME clock is
-    // also sampled at proxy admission, so that provider must be thread-safe.
-    // Manual-clock tests should use an atomic clock and notify after advancing.
-    // This executor/binding must outlive the endpoint and all calling threads.
-    int initialize(wl_endpoint_driver_t driver);
-    int setHooks(const ExecutorHooks& s_hooks);
-    int setSink(wl_sink_fn s_sink, void* s_user_data);
-    wl_ctx_t& context() noexcept { return *m_link; }
-
-    int start();
-    void requestStop() noexcept;
-    void stop() noexcept;
-
-    // SPSC producer entry point. No parsing, dispatch, ACK, or user callback is
-    // executed on the caller's thread.
-    int feedBytes(const std::uint8_t* s_data, std::size_t s_size,
-                  std::size_t& s_accepted) noexcept;
-
-    // Wake the owner after adapter-side async completion or direct RX commit.
-    void notify() noexcept;
-
-    // Shares eight admission slots with synchronous RPCs. Success retains task
-    // until exactly one finish, including orderly shutdown. Rejection does not
-    // call finish. The timeout includes time waiting for the owner.
-    int submitRpc(std::shared_ptr<RpcTask> task, std::uint32_t timeout_ms) noexcept;
-    // Thread-safe cancellation request; true means queued, not that it won a
-    // race with a response. A finished/unknown/already cancelling task is false.
-    bool cancelRpc(const RpcTask* task) noexcept;
-
-    // Replaces an unsent real-time command in the same message-id lane. Distinct
-    // IDs retain independent newest values up to s_kLatestLaneCapacity; a new ID
-    // beyond that bound returns WL_ERR_QUEUE_FULL.
-    int submitLatest(std::uint16_t s_message_id, const std::uint8_t* s_payload,
-                     std::size_t s_payload_size) noexcept;
-
-    State state() const noexcept { return m_state.load(std::memory_order_acquire); }
-    ExecutorStats stats() const noexcept;
-    // Relaxed diagnostic snapshot; read after stop() for exact accounting.
-    ExecutorActivitySnapshot activity() const noexcept { return m_activity.snapshot(); }
-
+  static constexpr size_t command_capacity = 32;
+  static constexpr unsigned command_budget = 8;
+  enum class State { uninitialized, ready, running, stopping, stopped };
+  using Work = std::function<void(uint32_t)>;
+  using Reject = std::function<void(wl_err_t)>;
+  Executor() = default;
+  ~Executor();
+  Executor(const Executor &) = delete;
+  Executor &operator=(const Executor &) = delete;
+  // Binding alone does not transfer ownership: the caller owns the kernel
+  // until start succeeds, and must keep all storage alive through stop/join.
+  wl_err_t initialize(wl_kernel_t &, ExecutorIo = {}, wl_clock_t = monotonic_clock());
+  wl_err_t start();
+  // Success owns one command, whose work or shutdown rejection runs on owner.
+  // Functions must not throw, block or call stop. Core admission is separate.
+  wl_err_t post(Work, Reject = {});
+  void notify() noexcept;
+  void request_stop() noexcept;
+  // Owner callbacks may request_stop, but cannot stop/join or destroy Executor.
+  wl_err_t stop() noexcept;
+  bool on_owner_thread() const noexcept;
+  State state() const noexcept;
+  wl_err_t last_error() const noexcept { return last_error_.load(); }
 private:
-    struct AtomicStats {
-        std::atomic<std::uint64_t> m_feed_calls{};
-        std::atomic<std::uint64_t> m_feed_bytes{};
-        std::atomic<std::uint64_t> m_feed_backpressure{};
-        std::atomic<std::uint64_t> m_rx_events{};
-        std::atomic<std::uint64_t> m_poll_errors{};
-        std::atomic<std::uint64_t> m_service_errors{};
-        std::atomic<std::uint64_t> m_latest_submitted{};
-        std::atomic<std::uint64_t> m_latest_coalesced{};
-        std::atomic<std::uint64_t> m_latest_queue_full{};
-        std::atomic<std::uint64_t> m_latest_dispatched{};
-        std::atomic<std::uint64_t> m_latest_failed{};
-        std::atomic<std::uint64_t> m_latest_cancelled{};
-        std::atomic<std::uint64_t> m_rpc_submitted{};
-        std::atomic<std::uint64_t> m_rpc_completed{};
-        std::atomic<std::uint64_t> m_rpc_queue_full{};
-    };
-
-    wl_time_ms_t nowMs() const noexcept;
-    int initializeOutbox();
-    struct RpcJob;
-    static wl_rpc_completion_t s_invokeRpc(void* context,
-        const wl_rpc_sync_call_t* call, std::uint32_t timeout_ms);
-    static void s_finishRpc(void* context, const wl_rpc_completion_t* result);
-    std::size_t s_dispatchRpc() noexcept;
-    void s_cancelQueuedRpc() noexcept;
-    static int s_serviceBridge(void* s_user_data) noexcept;
-    static void s_quiesceBridge(void* s_user_data) noexcept;
-    static std::uint8_t s_applicationStepBridge(
-        void* s_user_data, wl_ctx_t* s_context,
-        wl_time_ms_t s_now_ms) noexcept;
-    static wl_readiness_t s_applicationReadinessBridge(
-        const void* s_user_data, const wl_ctx_t* s_context, wl_time_ms_t s_now_ms) noexcept;
-    static wl_readiness_t s_adapterReadinessBridge(
-        const void* s_user_data, const wl_ctx_t* s_context, wl_time_ms_t s_now_ms) noexcept;
-    static wl_pump_event_disposition_t s_eventBridge(
-        void* s_user_data, wl_ctx_t* s_context,
-        const wl_event_t* s_event, wl_time_ms_t s_now_ms) noexcept;
-    wl_pump_hooks_t s_pumpHooks() noexcept;
-    void s_run() noexcept;
-    bool s_dispatchOne() noexcept;
-    void s_shutdownOnOwner() noexcept;
-    wl_ctx_t m_context{};
-    wl_ctx_t* m_link{&m_context};
-    wl_endpoint_driver_t m_driver{};
-    wl_waiter_t m_platform_waiter{};
-    wl_err_t m_stop_error{WL_OK}; // Owner-only platform failure, not a business rejection.
-    wl_rpc_executor_t m_rpc_executor{&Executor::s_invokeRpc, this};
-    std::mutex m_rpc_mutex;
-    std::array<RpcJob*, 8> m_rpc_jobs{};
-    std::atomic<bool> m_rpc_pending{false};
-    wl_clock_t m_clock{};
-    ExecutorHooks m_hooks{};
-    std::atomic<State> m_state{State::kUninitialized};
-    std::atomic<bool> m_accepting{false};
-    std::atomic<bool> m_stop_requested{false};
-    std::thread m_thread;
-
-    std::mutex m_command_mutex;
-    // Published under m_command_mutex; only the empty fast path is lock-free.
-    std::atomic<bool> m_commands_pending{false};
-    wl_outbox_t m_outbox{};
-    std::array<wl_outbox_slot_t, s_kLatestLaneCapacity> m_outbox_slots{};
-    std::array<std::uint8_t,
-               s_kLatestLaneCapacity * s_kMaximumCommandPayload>
-        m_outbox_payloads{};
-
-    std::atomic<std::uint64_t> m_wake_generation{};
-    wirelink::detail::CoalescingEvent m_wake;
-    diagnostics::PendingTimestamp m_wake_profile;
-    std::atomic<std::uint32_t> m_producers_in_flight{};
-    AtomicStats m_stats{};
-    [[no_unique_address]] detail::ExecutorActivityCounters m_activity;
+  struct Command { Work work; Reject reject; };
+  void wake_locked() noexcept;
+  bool stopping() const noexcept;
+  bool commands(bool reject);
+  void run() noexcept;
+  uint32_t now() const noexcept { return clock_.now_ms(clock_.user_data); }
+  wl_kernel_t *core_{};
+  ExecutorIo io_{};
+  wl_clock_t clock_{};
+  mutable std::mutex gate_;
+  std::mutex join_;
+  std::deque<Command> commands_;
+  State state_{State::uninitialized};
+  std::thread thread_;
+  std::thread::id owner_{};
+  detail::CoalescingEvent event_;
+  std::atomic<wl_err_t> last_error_{WL_OK};
 };
-
 } // namespace wirelink::host
-
-#endif // WIRELINK_HOST_EXECUTOR_HPP
+#endif

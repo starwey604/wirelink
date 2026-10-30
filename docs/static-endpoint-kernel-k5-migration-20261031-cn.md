@@ -55,3 +55,11 @@ Zephyr `CONFIG_WIRELINK=y` 已只链接新 kernel／packet port；COBS、length1
 `Wirelink::asio_udp`、`::astrial`、`::astrial_usb` 分别导出为显式组件；核心包不加载 C++／Threads／Astrial。Astrial 由应用提供真实 backend target（或 `WirelinkBackend::astrial[_usb]`），不修改／捆绑外部 driver，缺失时明确 configure 失败。保留 driver 的公开 include 和链接依赖；首次将其误置 private 导致 fixture 找不到 `astrial/Usb.hpp`，已修正为 public，并保留失败日志。新增 pkg-config 核心导出，仅链接新 kernel／port／wire／types。
 
 安装后真实 UDP／受控 USB／PTY serial **3/3**；缺 backend、缺 C++ 的特定诊断检查通过；含全部 C++ 组件的安装上，C-only CMake 与 pkg-config **2/2**，没有启用 C++ 或安装旧执行头。证据 `adapter-export-*`、`adapter-consumer-*`、`adapter-component-diagnostics.log`、`c-core-consumer-*`。下一点仍包括默认 WLC／SDK、host executor 和其余消费者，K5/K6 尚未结束。
+
+## Host owner 与 C++ Session
+
+Executor 已改为同一个 C kernel 的线程／等待包装：32 项有界命令队列、每轮最多 8 项命令，然后推进 core；合并外部 I/O readiness 和 core deadline，没有 RPC 表、replay、业务调度或协议计时副本。stop 在 owner 拒绝未执行命令，close core，再停止／join 真实 I/O 并等待物理 lease quiescent。notify 需要非阻塞、锁存、线程安全且不重入 Executor。初始化仅绑定，start 成功前 core 仍归调用方。删除旧 endpoint executor fixture 与旧活动计数器头。独立 host_profile 工具保留为应用显式采样，不宣称新 core 自动插桩。
+
+C++ Session 使用 C-owned port／endpoint 描述符和真实 Asio UDP；submit 等到 owner 接纳，成功返回时请求已快照，失败不创建 core 调用。Operation 自持到唯一终态，回调借用期内复制 typed response，结果可在 Session 关闭后读取；取消仅排队本地取消，不回滚远端执行。业务拒绝与本地错误独立，保留原始 status。外部 close 等待入队者退出并 join owner；owner 内 close 只请求停止，禁止在 owner 回调销毁／替换 Session。手动 clock 经显式 notify 唤醒；last_error 保留底层失败。host／cpp_host 是显式安装组件，C-only 包不因此加载 C++。
+
+GCC 全部 **17/17**；Clang ASan/UBSan **17/17**，新增手动 clock 跨 UINT32_MAX 场景随后单独 **1/1**；GCC TSan owner／Session **2/2**；安装后的独立 C++ 消费者 **1/1**。真实 UDP fixture 覆盖四并发／第五次 WOULD_BLOCK、请求快照、业务 -31 拒绝、本地超时／取消、丢弃 Operation 的安全自持、并发关闭、关闭后读结果；owner fixture 覆盖四生产者、队满、非致命 I/O 错误下 deadline 继续推进、注入 bad_alloc、关闭拒绝线程归属和物理 quiescence。失败的早期 fixture 与修复日志保留在 `cpp-*`。这是外层包装收口；WLC SDK 生成迁移仍待完成。

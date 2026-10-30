@@ -1,63 +1,54 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_CPP_SESSION_HPP
 #define WIRELINK_CPP_SESSION_HPP
-
-#include <wirelink/cpp/result.hpp>
-#include <wirelink/cpp/operation.hpp>
-#include <wirelink/endpoint.h>
-#include <cstdint>
+#include "wirelink/cpp/result.hpp"
+#include "wirelink/cpp/operation.hpp"
+#include "wirelink/host/endpoint.h"
+#include "wirelink/platform.h"
 #include <memory>
 #include <string>
-
 namespace wirelink {
-
 struct UdpOptions {
   std::string peer_address{"127.0.0.1"};
-  std::uint16_t peer_port{};
+  uint16_t peer_port{};
   std::string bind_address{"127.0.0.1"};
-  std::uint16_t bind_port{};
+  uint16_t bind_port{};
+  // Read by submitters and owner; a custom/manual provider must be thread-safe.
+  wl_environment_t environment{wl_platform_environment()};
 };
-
-// Generator/integration bridge. create initializes stable native storage and
-// supplies its generated driver. A failed create returns nullptr and frees
-// its own partial allocation. destroy closes and frees the complete endpoint.
-// Neither callback may retain the driver reference or throw from destroy.
 struct EndpointFactory {
-  void* (*create)(wl_endpoint_driver_t& driver, Error& error);
-  void (*destroy)(void* endpoint) noexcept;
+  // Prepare stable C-owned port storage/descriptor, without starting I/O.
+  void *(*create)(wl_host_endpoint_t &, Error &);
+  wl_err_t (*initialize)(void *, uint64_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
+  // Called only after logical callbacks and real physical leases quiesce.
+  void (*destroy)(void *) noexcept;
 };
-
-// Owning, single-owner host connection used behind schema-specific Clients.
-// invoke and close may run concurrently; close rejects new calls and waits
-// for admitted calls. Move/destruction require exclusive access to this handle.
-// Moving the handle never relocates initialized endpoint/executor storage.
 class Session {
 public:
-  static Result<Session> connect(const UdpOptions& options, EndpointFactory factory);
+  static Result<Session> connect(const UdpOptions &, EndpointFactory);
   ~Session();
-  Session(Session&&) noexcept;
-  Session& operator=(Session&&) noexcept;
-  Session(const Session&) = delete;
-  Session& operator=(const Session&) = delete;
-
+  Session(Session &&) noexcept;
+  Session &operator=(Session &&) noexcept;
+  Session(const Session &) = delete;
+  Session &operator=(const Session &) = delete;
+  // External close joins the owner and physical I/O. On the owner this only
+  // requests stop; an external owner must subsequently close/join. Destroying
+  // or replacing the Session inside its owner callback is prohibited.
   void close() noexcept;
+  // Publish external/manual-clock progress after updating the same clock.
+  void notify() noexcept;
   bool is_open() const noexcept;
-  std::uint16_t local_port() const noexcept;
-
-  // The bridge must call the generated *_sync API, never poll/step or close.
-  // Both pointers remain valid until invoke returns; no asynchronous escape.
-  using InvokeFn = wl_rpc_completion_t (*)(void* endpoint, void* call) noexcept;
-  wl_rpc_completion_t invoke(InvokeFn function, void* call) noexcept;
-
-  // Generator bridge. Success retains the owned call through completion;
-  // rejection leaves it unsubmitted. Each call object may be submitted once.
-  wl_err_t submit(std::shared_ptr<detail::AsyncCall> call, std::uint32_t timeout_ms) noexcept;
-
+  bool on_owner_thread() const noexcept;
+  uint16_t local_port() const noexcept;
+  wl_err_t last_error() const noexcept;
+  // Waits only for bounded owner-side admission, never for a remote result.
+  // Success means the core has already snapshotted the request. Failure creates
+  // no core call/callback. Each task object has one submission attempt.
+  wl_err_t submit(std::shared_ptr<detail::AsyncCall>, uint32_t timeout_ms) noexcept;
 private:
   struct Impl;
-  explicit Session(std::shared_ptr<Impl> impl) noexcept;
+  explicit Session(std::shared_ptr<Impl>) noexcept;
   std::shared_ptr<Impl> impl_;
 };
-
-} // namespace wirelink
+}
 #endif

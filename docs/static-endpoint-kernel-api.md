@@ -279,3 +279,26 @@ and application-supplied Astrial, exercising real UDP loopback, controlled USB
 completion and a PTY serial stream. `tests/package/c_core` separately verifies
 CMake and pkg-config C-only linking against an installation containing all C++
 components, and rejects installed legacy execution headers.
+
+The optional `Wirelink::host` component wraps one C kernel in an owner thread.
+Its bounded command queue does not duplicate call matching, deadlines or reply
+state. I/O notifications must be latched, nonblocking, thread-safe and must not
+reenter the Executor. Initialize only binds storage; successful start transfers
+owner execution. External stop closes the kernel, stops/joins actual I/O, and
+waits for real lease completion before releasing storage. Owner callbacks may
+request stop but cannot join or destroy their Executor.
+
+`WIRELINK_BUILD_CPP_BINDINGS=ON` installs the `cpp_host` component, which loads
+`host`, `asio_udp` and the platform implementation. `wirelink::Session` uses a
+C-owned endpoint factory. Submission waits only for owner admission: success
+means the request is already copied by the kernel; failure creates no call or
+callback. Operation copies a successful borrowed response before callback exit
+and retains its result independently of the Session. Cancel is local and cannot
+undo remote execution. Business rejection retains its status separately from
+local error. Custom clocks must be thread-safe; publish clock changes with
+Session.notify(). External close joins; owner-side close only requests stop and
+requires a subsequent external join. Never destroy or replace a Session inside
+its owner callback. `last_error()` reports underlying owner/I/O failures.
+
+`tests/package/cpp_session` runs the same real-UDP admission, timeout, cancel,
+manual-clock wrap and shutdown contracts using only installed libraries.

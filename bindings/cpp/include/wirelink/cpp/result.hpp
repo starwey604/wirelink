@@ -2,52 +2,44 @@
 #ifndef WIRELINK_CPP_RESULT_HPP
 #define WIRELINK_CPP_RESULT_HPP
 
-#include <wirelink/rpc_result.h>
-#include <wirelink/rpc.h>
+#include <wirelink/kernel.h>
 #include <system_error>
 #include <utility>
 #include <variant>
-
 namespace wirelink {
-
 enum class ErrorKind {
   invalid_argument, closed, timed_out, cancelled, queue_full,
   transport, codec, runtime, rejected, out_of_memory,
 };
-
 struct Error {
   ErrorKind kind{ErrorKind::runtime};
-  wl_rpc_completion_t completion{};
+  wl_kernel_result_t completion{WL_KERNEL_LOCAL_ERROR, WL_ERR_INVALID_STATE};
   std::error_code system_error{};
-
-  static Error from_completion(wl_rpc_completion_t result) noexcept {
-    Error error;
-    error.completion = result;
-    if (result.status == WL_RPC_REJECTED) error.kind = ErrorKind::rejected;
-    else if (result.status == WL_RPC_TIMED_OUT) error.kind = ErrorKind::timed_out;
-    else if (result.status == WL_RPC_CANCELLED) error.kind = ErrorKind::cancelled;
-    else if (result.local_error == WL_ERR_NOT_INITIALIZED) error.kind = ErrorKind::closed;
-    else if (result.local_error == WL_ERR_INVALID_ARG) error.kind = ErrorKind::invalid_argument;
-    // Managed RPC admission reports a full runtime as BUSY; the executor's
-    // own bounded queue reports QUEUE_FULL. Preserve the raw code in both cases.
-    else if (result.local_error == WL_ERR_QUEUE_FULL || result.local_error == WL_ERR_BUSY ||
-             result.runtime_error == WL_RPC_ERR_NO_SLOT)
-      error.kind = ErrorKind::queue_full;
-    else if (result.local_error == WL_ERR_NO_MEM) error.kind = ErrorKind::out_of_memory;
-    // Request admission may expose only the core's payload error. Keep that
-    // original local code; do not invent a more specific codec diagnostic.
-    else if (result.codec_error != WL_CODEC_OK || result.local_error == WL_ERR_CORRUPT_PAYLOAD)
-      error.kind = ErrorKind::codec;
-    else if (result.transport_error != WL_OK || result.local_error == WL_ERR_IO)
-      error.kind = ErrorKind::transport;
+  static Error from_completion(wl_kernel_result_t result) noexcept {
+    Error error; error.completion = result;
+    if (result.outcome == WL_KERNEL_REJECTED) error.kind = ErrorKind::rejected;
+    else if (result.outcome == WL_KERNEL_TIMED_OUT || result.status == WL_ERR_TIMEOUT)
+      error.kind = ErrorKind::timed_out;
+    else if (result.outcome == WL_KERNEL_CANCELLED || result.status == WL_ERR_CANCELLED)
+      error.kind = ErrorKind::cancelled;
+    else if (result.outcome == WL_KERNEL_CLOSED || result.status == WL_ERR_NOT_INITIALIZED)
+      error.kind = ErrorKind::closed;
+    else if (result.outcome == WL_KERNEL_LOCAL_ERROR) {
+      if (result.status == WL_ERR_INVALID_ARG) error.kind = ErrorKind::invalid_argument;
+      else if (result.status == WL_ERR_QUEUE_FULL || result.status == WL_ERR_BUSY ||
+               result.status == WL_ERR_WOULD_BLOCK)
+        error.kind = ErrorKind::queue_full;
+      else if (result.status == WL_ERR_NO_MEM) error.kind = ErrorKind::out_of_memory;
+      else if (result.status == WL_ERR_CORRUPT_PAYLOAD || result.status == WL_ERR_BAD_FRAME ||
+               result.status == WL_ERR_BUF_TOO_SMALL || result.status == WL_ERR_PAYLOAD_TOO_LONG)
+        error.kind = ErrorKind::codec;
+      else if (result.status == WL_ERR_IO || result.status == WL_ERR_TX_FAILED)
+        error.kind = ErrorKind::transport;
+    }
     return error;
   }
-
   static Error local(wl_err_t code) noexcept {
-    wl_rpc_completion_t result{};
-    result.status = WL_RPC_FAILED;
-    result.local_error = code;
-    return from_completion(result);
+    return from_completion({WL_KERNEL_LOCAL_ERROR, code});
   }
 };
 

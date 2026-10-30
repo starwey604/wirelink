@@ -5,6 +5,7 @@
 #include <wirelink/cpp/result.hpp>
 #include <wirelink/host/rpc_task.hpp>
 #include <chrono>
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <memory>
@@ -48,15 +49,19 @@ class AsyncCall : public host::RpcTask {
 public:
   void* endpoint{};
   std::function<bool()> request_cancel;
+  std::atomic<bool> submitted{false};
+  // Owner-only lifetime/handle; no response matching or timeout table.
+  wl_kernel_call_handle_t call{};
+  std::shared_ptr<AsyncCall> keepalive;
 };
 
 template<class T> class OperationState : public AsyncCall {
 public:
   virtual T decode_response() = 0;
 
-  void finish(const wl_rpc_completion_t& completion) noexcept final {
+  void finish(wl_kernel_result_t completion) noexcept final {
     auto result = [&]() -> Result<T> {
-      if (completion.status != WL_RPC_SUCCESS) return Error::from_completion(completion);
+      if (completion.outcome != WL_KERNEL_SUCCESS) return Error::from_completion(completion);
       try { return decode_response(); }
       catch (const std::bad_alloc&) { return Error::local(WL_ERR_NO_MEM); }
     }();
@@ -111,7 +116,7 @@ public:
   explicit Operation(std::shared_ptr<detail::OperationState<T>> state)
       : state_(std::move(state)) {}
   bool done() const noexcept { return state_->done(); }
-  bool cancel() const { return state_->request_cancel(); }
+  bool cancel() const { return !state_->done() && state_->request_cancel(); }
   void wait() const { state_->wait(); }
   bool wait_for(std::chrono::milliseconds timeout) const { return state_->wait_for(timeout); }
   Result<T> result() const { return state_->result(); }

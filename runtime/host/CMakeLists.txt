@@ -1,29 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
 find_package(Threads REQUIRED)
-option(WIRELINK_HOST_ACTIVITY "Count logical executor passes/work (no clocks)" OFF)
-
-add_library(wirelink_host
-  src/executor.cpp
-)
+add_library(wirelink_host STATIC src/executor.cpp)
 add_library(Wirelink::host ALIAS wirelink_host)
-
+set_target_properties(wirelink_host PROPERTIES EXPORT_NAME host POSITION_INDEPENDENT_CODE ON)
 target_compile_features(wirelink_host PUBLIC cxx_std_20)
-if(WIRELINK_HOST_ACTIVITY)
-  target_compile_definitions(wirelink_host PUBLIC WIRELINK_HOST_ACTIVITY=1)
-endif()
 target_include_directories(wirelink_host PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-target_link_libraries(wirelink_host PUBLIC
-  Wirelink::wirelink
-  Threads::Threads
-)
-set_target_properties(wirelink_host PROPERTIES EXPORT_NAME host)
-
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(wirelink_host PRIVATE -Wall -Wextra -Wpedantic)
+  $<INSTALL_INTERFACE:include>)
+target_link_libraries(wirelink_host PUBLIC wirelink_kernel Threads::Threads)
+wl_warnings(wirelink_host PRIVATE -Wall -Wextra -Wpedantic -Werror)
+if(WIRELINK_INSTALL)
+  install(TARGETS wirelink_host EXPORT Wirelink_hostTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(DIRECTORY include/wirelink/host DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
+  install(EXPORT Wirelink_hostTargets NAMESPACE Wirelink:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Wirelink)
 endif()
-
-if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL)
+if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()

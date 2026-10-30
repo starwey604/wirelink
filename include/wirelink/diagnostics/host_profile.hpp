@@ -3,9 +3,10 @@
 #ifndef WIRELINK_DIAGNOSTICS_HOST_PROFILE_HPP
 #define WIRELINK_DIAGNOSTICS_HOST_PROFILE_HPP
 
-// Optional desktop diagnostics, never used by the C core. Enable consistently
-// through CMake's WIRELINK_HOST_PROFILING / WIRELINK_HOST_LOCK_PROFILING options.
-// Both OFF compiles out all sampling. Lock-only mode avoids broad CPU probes.
+// Independent application diagnostics, never used automatically by the C core
+// or Executor. Applications may define WIRELINK_HOST_PROFILING and/or
+// WIRELINK_HOST_LOCK_PROFILING consistently for their own explicit scopes.
+// Historical stage names do not imply a scheduler or kernel instrumentation.
 #include <array>
 #include <atomic>
 #include <chrono>
