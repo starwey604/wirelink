@@ -2,21 +2,18 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.12.0",
-    "codegen_contract": {"major": 0, "minor": 12}
+    "version": "0.13.0",
+    "codegen_contract": {"major": 0, "minor": 13}
   },
   "module": "device",
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x5a72c7fa9b968add",
-    "binding_profile": "0x92f906c50720af46"
+    "binding_profile": "0x8bdd5d9670306f54"
   },
-  "managed_rpc_wire_format": "managed-rpc-v4-tagged-varuint32",
   "codec_formats": {
     "CONFIGURE_REQUEST_CODEC_FORMAT": "schema-v1",
     "CONFIGURE_RESPONSE_CODEC_FORMAT": "schema-v1",
-    "DEVICE_CONFIGURE_RPC_BODY_FORMAT": "managed-rpc-v4-tagged-varuint32",
-    "DEVICE_GET_INFO_RPC_BODY_FORMAT": "managed-rpc-v4-tagged-varuint32",
     "INFO_REQUEST_CODEC_FORMAT": "schema-v1",
     "INFO_RESPONSE_CODEC_FORMAT": "schema-v1",
     "NUMBERS_CODEC_FORMAT": "schema-v1",
@@ -33,14 +30,12 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 90952, "digest": "0x8d37e09d5b350458"},
+    {"path": "device.c", "size": 80819, "digest": "0x268b09a954355819"},
     {"path": "device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
-    {"path": "device_advanced.h", "size": 13642, "digest": "0xfb658e49b5fa8d93"},
-    {"path": "device_bindings.c", "size": 13882, "digest": "0xbd6126b9c4ae8194"},
-    {"path": "device_bindings.h", "size": 4526, "digest": "0x6990709f680bd0f7"},
-    {"path": "device_endpoint.h", "size": 393, "digest": "0xc0450b9ee4730409"},
-    {"path": "device_runtime.c", "size": 211925, "digest": "0xc922dfbd4bb50879"},
-    {"path": "device_runtime.h", "size": 55386, "digest": "0xa85f0ffa9cf625e0"},
+    {"path": "device_kernel.c", "size": 6616, "digest": "0x6f78f0f37b1c4774"},
+    {"path": "device_kernel.h", "size": 1887, "digest": "0xca13f08e9c599768"},
+    {"path": "device_kernel_codecs.h", "size": 77339, "digest": "0x19b231e6242e26a6"},
+    {"path": "device_kernel_deployment.json", "size": 726, "digest": "0x67364d7f13d1e261"},
     {"path": "device_values.h", "size": 7419, "digest": "0xd22f23ccc12b3b21"}
   ]
 }

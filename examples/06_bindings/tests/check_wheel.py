@@ -61,7 +61,7 @@ with subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, text=True) as serve
             try:
                 client.add(left=2**31 - 1, right=1)
             except RejectedError as error:
-                assert error.rejection == 1
+                assert error.status == 1
             else:
                 raise AssertionError('expected business rejection')
         assert saved.sum == 42

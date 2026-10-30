@@ -69,9 +69,7 @@ def test_c_rejection_retains_domains_and_connection_recovers(client):
     bad = dataclasses.replace(settings(), token=b"\xff")
     with pytest.raises(sdk.RejectedError) as caught:
         client.configure(settings=bad)
-    assert caught.value.rejection == 7
-    assert caught.value.codec_error == 0
-    assert caught.value.local_error == 0
+    assert caught.value.status == 7
     assert client.configure(settings=settings()).count == 1
 
 
@@ -182,13 +180,13 @@ with subprocess.Popen([sys.argv[2]], stdout=subprocess.PIPE, text=True) as c_ser
             try:
                 c.add(left=2**31 - 1, right=1)
             except calc.RejectedError as error:
-                assert error.rejection == 1
+                assert error.status == 1
             else:
                 raise AssertionError('expected calculator rejection')
             try:
                 d.configure(settings=device.Settings(enabled=True, token=b'\\xff', gains=(1, 2, 3)))
             except device.RejectedError as error:
-                assert error.rejection == 7
+                assert error.status == 7
             else:
                 raise AssertionError('expected device rejection')
     finally:
@@ -216,7 +214,7 @@ def test_async_owned_nested_messages_and_two_sdk_domains():
             assert response.settings == original and response.backup == backup and response.opaque == b""
             with pytest.raises(sdk.RejectedError) as rejected:
                 await device.configure(settings=sdk.Settings(enabled=True, token=b"\xff", gains=(1, 2, 3)))
-            assert rejected.value.rejection == 7
+            assert rejected.value.status == 7
             assert not isinstance(rejected.value, calc.WirelinkError)
             with pytest.raises(calc.RejectedError):
                 await calculator.add(left=2**31 - 1, right=1)

@@ -12,10 +12,7 @@ int main() {
   auto info = client.get_info({});
   if (!info) {
     const auto& error = info.error();
-    std::fprintf(stderr, "get_info: %s status=%d local=%d transport=%d runtime=%d codec=%d\n",
-        wirelink::error_kind_name(error.kind), error.completion.status,
-        error.completion.local_error, error.completion.transport_error,
-        error.completion.runtime_error, error.completion.codec_error);
+    std::fprintf(stderr,"get_info: %s outcome=%d status=%d\n",wirelink::error_kind_name(error.kind),static_cast<int>(error.completion.outcome),error.completion.status);
   }
   CHECK(info);
   CHECK(info.value().name == std::string("device\0x", 8));
@@ -40,15 +37,14 @@ int main() {
   request.settings.token = {255};
   auto rejected = client.configure(request);
   CHECK(!rejected && rejected.error().kind == wirelink::ErrorKind::rejected);
-  CHECK(rejected.error().completion.rejection == 7);
+  CHECK(rejected.error().completion.status == 7);
   request.settings.label = std::string(13, 'a');
   auto invalid = client.configure(request);
   CHECK(!invalid && invalid.error().kind == wirelink::ErrorKind::invalid_argument);
   request.settings.label = std::string("\xc0\xaf", 2);
   auto utf8 = client.configure(request);
   CHECK(!utf8 && utf8.error().kind == wirelink::ErrorKind::codec);
-  CHECK(utf8.error().completion.local_error == WL_ERR_CORRUPT_PAYLOAD);
-  CHECK(utf8.error().completion.codec_error == WL_CODEC_OK);
+  CHECK(utf8.error().completion.status == WL_ERR_CORRUPT_PAYLOAD);
 
   request.settings = saved.settings;
   request.backup = saved.backup;
@@ -60,8 +56,7 @@ int main() {
   CHECK(owned.value().backup->counters == saved.backup->counters);
   request.settings.label = std::string("\xc0\xaf", 2);
   auto async_utf8 = client.configure_async(request);
-  CHECK(async_utf8);
-  CHECK(async_utf8.value().result().error().kind == wirelink::ErrorKind::codec);
+  CHECK(!async_utf8 && async_utf8.error().kind == wirelink::ErrorKind::codec);
 
   client.close();
   CHECK(!saved.settings.label && saved.backup->label->empty());

@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.21)
 project(wirelink VERSION 0.13.0 LANGUAGES C)
 include(CTest)
 include(GNUInstallDirs)
+include(cmake/WirelinkWlc.cmake)
 function(wl_warnings target)
   if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${target} ${ARGN})
@@ -254,6 +255,13 @@ foreach(_tool wirelink_types wirelink_containers wirelink_framing_primitives wir
   wl_warnings(${_tool} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endforeach()
 target_link_libraries(wirelink_kernel PUBLIC wirelink_types)
+foreach(_target wirelink_types wirelink_containers wirelink_packet_port wirelink_kernel_wire
+    wirelink_packet_loopback wirelink_kernel wirelink_packet_stream wirelink_stream_cobs_crc16
+    wirelink_stream_length16_none wirelink_byte_fifo wirelink_byte_fifo_cobs
+    wirelink_framing_primitives wirelink_frame_tools)
+  string(REGEX REPLACE "^wirelink_" "" _name ${_target})
+  add_library(Wirelink::${_name} ALIAS ${_target})
+endforeach()
 add_subdirectory(diagnostics)
 add_library(wirelink INTERFACE)
 target_link_libraries(wirelink INTERFACE wirelink_kernel wirelink_types)
@@ -274,10 +282,6 @@ if(WIRELINK_BUILD_EXAMPLES)
   add_subdirectory(examples)
 endif()
 
-foreach(_component packet_port kernel_wire kernel packet_stream stream_cobs_crc16
-    stream_length16_none byte_fifo byte_fifo_cobs packet_loopback framing_primitives frame_tools containers types)
-  add_library(Wirelink::${_component} ALIAS wirelink_${_component})
-endforeach()
 foreach(_adapter IN ITEMS asio_udp astrial astrial_usb)
   if(TARGET wirelink_${_adapter})
     set_target_properties(wirelink_${_adapter} PROPERTIES EXPORT_NAME ${_adapter})
@@ -319,7 +323,8 @@ if(WIRELINK_INSTALL)
   write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
     VERSION ${PROJECT_VERSION} COMPATIBILITY ExactVersion)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake DESTINATION ${_kernel_cmake})
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkConfigVersion.cmake
+    cmake/WirelinkWlc.cmake cmake/WirelinkWlcVerifyManifest.cmake DESTINATION ${_kernel_cmake})
   install(EXPORT WirelinkTargets NAMESPACE Wirelink:: DESTINATION ${_kernel_cmake})
   configure_file(cmake/wirelink.pc.in ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc @ONLY)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wirelink.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)

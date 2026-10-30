@@ -19,6 +19,8 @@ public:
   wirelink::Result<wirelink::Operation<AddResponse>> add_async(const AddRequest& request,
       std::chrono::milliseconds timeout = std::chrono::seconds(1));
   void close() noexcept { session_.close(); }
+  void notify() noexcept { session_.notify(); }
+  wl_err_t last_error() const noexcept { return session_.last_error(); }
   bool is_open() const noexcept { return session_.is_open(); }
   std::uint16_t local_port() const noexcept { return session_.local_port(); }
 private:

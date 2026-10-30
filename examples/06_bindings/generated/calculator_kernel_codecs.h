@@ -1,0 +1,601 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+#ifndef CALCULATOR_KERNEL_CODECS_H
+#define CALCULATOR_KERNEL_CODECS_H
+#include "calculator.h"
+static inline void calculator_rpc_add_request_clear(add_request_t *);
+static inline size_t calculator_rpc_add_request_encoded_size(const add_request_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_encode(const add_request_t *, uint8_t *, size_t, size_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_decode(const uint8_t *, size_t, add_request_t *);
+static inline void calculator_rpc_add_request_value_clear(add_request_value_t *);
+static inline size_t calculator_rpc_add_request_value_encoded_size(const add_request_value_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_value_encode(const add_request_value_t *, uint8_t *, size_t, size_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_value_decode(const uint8_t *, size_t, add_request_value_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_value_from_view(const add_request_t *, add_request_value_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_value_to_view(const add_request_value_t *, add_request_t *);
+static inline void calculator_rpc_add_response_clear(add_response_t *);
+static inline size_t calculator_rpc_add_response_encoded_size(const add_response_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_encode(const add_response_t *, uint8_t *, size_t, size_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_decode(const uint8_t *, size_t, add_response_t *);
+static inline void calculator_rpc_add_response_value_clear(add_response_value_t *);
+static inline size_t calculator_rpc_add_response_value_encoded_size(const add_response_value_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_value_encode(const add_response_value_t *, uint8_t *, size_t, size_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_value_decode(const uint8_t *, size_t, add_response_value_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_value_from_view(const add_response_t *, add_response_value_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_value_to_view(const add_response_value_t *, add_response_t *);
+
+
+#include <limits.h>
+#include <stddef.h>
+#include <string.h>
+
+enum {
+  CALCULATOR_RPC_WLC_OPTIONAL,
+  CALCULATOR_RPC_WLC_REPEATED,
+  CALCULATOR_RPC_WLC_PACKED,
+  CALCULATOR_RPC_WLC_BOOL,
+  CALCULATOR_RPC_WLC_U8,
+  CALCULATOR_RPC_WLC_U16,
+  CALCULATOR_RPC_WLC_U32,
+  CALCULATOR_RPC_WLC_U64,
+  CALCULATOR_RPC_WLC_I8,
+  CALCULATOR_RPC_WLC_I16,
+  CALCULATOR_RPC_WLC_I32,
+  CALCULATOR_RPC_WLC_I64,
+  CALCULATOR_RPC_WLC_F32,
+  CALCULATOR_RPC_WLC_F64,
+  CALCULATOR_RPC_WLC_FLOAT32,
+  CALCULATOR_RPC_WLC_FLOAT64,
+  CALCULATOR_RPC_WLC_BYTES,
+  CALCULATOR_RPC_WLC_STRING,
+  CALCULATOR_RPC_WLC_ENUM,
+  CALCULATOR_RPC_WLC_MESSAGE
+};
+typedef struct calculator_rpc_wlc_desc calculator_rpc_wlc_desc_t;
+typedef struct {
+  uint16_t number;
+  uint8_t card, kind, required, wire, key_size;
+  size_t value, has, count, capacity, element, packed_count;
+  uint16_t max_length;
+  uint8_t key[3];
+  int64_t signed_default;
+  uint64_t unsigned_default;
+  const char *string_default;
+  const calculator_rpc_wlc_desc_t *nested;
+} calculator_rpc_wlc_field_t;
+enum { CALCULATOR_RPC_WLC_LOOKUP_LINEAR, CALCULATOR_RPC_WLC_LOOKUP_DENSE, CALCULATOR_RPC_WLC_LOOKUP_BINARY };
+struct calculator_rpc_wlc_desc { const calculator_rpc_wlc_field_t *fields; size_t count; uint8_t lookup; };
+
+static inline wl_codec_status_t calculator_rpc_wlc_add(size_t *a, size_t b) {
+  if (b > SIZE_MAX - *a) return WL_CODEC_ERR_OVERFLOW;
+  *a += b;
+  return WL_CODEC_OK;
+}
+static inline size_t calculator_rpc_wlc_vsize(uint64_t v) {
+  size_t n = 1U;
+  while (v >= 128U) { v >>= 7U; ++n; }
+  return n;
+}
+static inline void calculator_rpc_wlc_putv(uint8_t **p, uint64_t v) {
+  while (v >= 128U) { *(*p)++ = (uint8_t)(v | 128U); v >>= 7U; }
+  *(*p)++ = (uint8_t)v;
+}
+static wl_codec_status_t calculator_rpc_wlc_getv(const uint8_t *in, size_t length, size_t *at,
+                                  uint64_t *out) {
+  size_t start = *at, n = 0U;
+  uint64_t v = 0U;
+  while (*at < length && n < 10U) {
+    uint8_t b = in[(*at)++];
+    if (n == 9U && b > 1U) return WL_CODEC_ERR_OVERFLOW;
+    v |= (uint64_t)(b & 127U) << (7U * n++);
+    if ((b & 128U) == 0U) {
+      if (calculator_rpc_wlc_vsize(v) != *at - start) return WL_CODEC_ERR_MALFORMED;
+      *out = v;
+      return WL_CODEC_OK;
+    }
+  }
+  return *at == length ? WL_CODEC_ERR_MALFORMED : WL_CODEC_ERR_OVERFLOW;
+}
+static inline uint8_t calculator_rpc_wlc_wire(const calculator_rpc_wlc_field_t *f) {
+  return f->wire;
+}
+static inline uint64_t calculator_rpc_wlc_z32(int32_t v) {
+  return ((uint32_t)v << 1U) ^ (uint32_t)-(uint32_t)(v < 0);
+}
+static inline int32_t calculator_rpc_wlc_uz32(uint32_t v) {
+  return (int32_t)((v >> 1U) ^ (uint32_t)-(v & 1U));
+}
+static inline wl_codec_status_t calculator_rpc_wlc_measure(const calculator_rpc_wlc_desc_t *, const void *, size_t *);
+static wl_codec_status_t calculator_rpc_wlc_measure_impl(const calculator_rpc_wlc_desc_t *, const void *, size_t *, bool);
+static void calculator_rpc_wlc_clear(const calculator_rpc_wlc_desc_t *, void *);
+static inline wl_codec_status_t calculator_rpc_wlc_decode(const calculator_rpc_wlc_desc_t *, const uint8_t *, size_t,
+                                    void *);
+static wl_codec_status_t calculator_rpc_wlc_emit_fields(const calculator_rpc_wlc_desc_t *, const void *,
+                                         uint8_t **);
+
+static wl_codec_status_t calculator_rpc_wlc_body(const calculator_rpc_wlc_field_t *f, const void *p,
+                                  size_t *n, bool validated) {
+  (void)p;
+  (void)validated;
+  *n = 0U;
+  switch (f->kind) {
+    case CALCULATOR_RPC_WLC_I32:
+      *n = calculator_rpc_wlc_vsize(calculator_rpc_wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
+}
+static wl_codec_status_t calculator_rpc_wlc_measure_impl(const calculator_rpc_wlc_desc_t *d, const void *value,
+                                     size_t *out, bool validated) {
+  size_t n = 0U;
+  if (d == NULL || value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  for (size_t i = 0U; i < d->count; ++i) {
+    const calculator_rpc_wlc_field_t *f = &d->fields[i];
+    const uint8_t *base = value;
+    size_t count = 1U;
+    if (f->card == CALCULATOR_RPC_WLC_OPTIONAL) {
+      if (!*(const bool *)(base + f->has)) {
+        if (f->required != 0U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+        continue;
+      }
+    } else {
+      count = *(const size_t *)(base + f->count);
+      if ((count != 0U && *(void *const *)(base + f->value) == NULL) ||
+          count > *(const size_t *)(base + f->capacity))
+        return WL_CODEC_ERR_INVALID_VALUE;
+    }
+    for (size_t j = 0U; j < count; ++j) {
+      size_t body;
+      const void *p = f->card == CALCULATOR_RPC_WLC_REPEATED
+                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
+                          : base + f->value;
+      wl_codec_status_t s = calculator_rpc_wlc_body(f, p, &body, validated);
+      if (s != WL_CODEC_OK) return s;
+      if ((s = calculator_rpc_wlc_add(&n, f->key_size)) != WL_CODEC_OK ||
+          (s = calculator_rpc_wlc_add(&n, body)) != WL_CODEC_OK) return s;
+    }
+  }
+  *out = n;
+  return WL_CODEC_OK;
+}
+static inline wl_codec_status_t calculator_rpc_wlc_measure(const calculator_rpc_wlc_desc_t *d, const void *value, size_t *out) {
+  return calculator_rpc_wlc_measure_impl(d, value, out, false);
+}
+static void calculator_rpc_wlc_clear(const calculator_rpc_wlc_desc_t *d, void *value) {
+  uint8_t *base = value;
+  for (size_t i = 0U; i < d->count; ++i) {
+    const calculator_rpc_wlc_field_t *f = &d->fields[i];
+    void *p = base + f->value;
+    (void)p;
+    if (f->card == CALCULATOR_RPC_WLC_REPEATED) {
+      *(size_t *)(base + f->count) = 0U;
+      continue;
+    }
+    *(bool *)(base + f->has) = false;
+    switch (f->kind) {
+    case CALCULATOR_RPC_WLC_I32:
+      *(int32_t *)p = (int32_t)f->signed_default; break;
+    default: break;
+    }
+  }
+}
+static inline void calculator_rpc_wlc_put_key(uint8_t **out, const calculator_rpc_wlc_field_t *f) {
+  *(*out)++ = f->key[0];
+  if (f->key_size > 1U) {
+    *(*out)++ = f->key[1];
+    if (f->key_size > 2U) *(*out)++ = f->key[2];
+  }
+}
+static wl_codec_status_t calculator_rpc_wlc_emit_value(const calculator_rpc_wlc_field_t *f, const void *p,
+                                        uint8_t **out) {
+  (void)p; (void)out;
+  switch (f->kind) {
+    case CALCULATOR_RPC_WLC_I32:
+      calculator_rpc_wlc_putv(out, calculator_rpc_wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
+}
+static inline wl_codec_status_t calculator_rpc_wlc_emit_fields(const calculator_rpc_wlc_desc_t *d, const void *value,
+                                         uint8_t **out) {
+  for (size_t i = 0U; i < d->count; ++i) {
+    const calculator_rpc_wlc_field_t *f = &d->fields[i];
+    const uint8_t *base = value;
+    size_t count = f->card == CALCULATOR_RPC_WLC_OPTIONAL
+                       ? (*(const bool *)(base + f->has) ? 1U : 0U)
+                       : *(const size_t *)(base + f->count);
+    for (size_t j = 0U; j < count; ++j) {
+      const void *p = f->card == CALCULATOR_RPC_WLC_REPEATED
+                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
+                          : base + f->value;
+      wl_codec_status_t s;
+      calculator_rpc_wlc_put_key(out, f);
+      if ((s = calculator_rpc_wlc_emit_value(f, p, out)) != WL_CODEC_OK) return s;
+    }
+  }
+  return WL_CODEC_OK;
+}
+
+static inline wl_codec_status_t calculator_rpc_wlc_encode(const calculator_rpc_wlc_desc_t *d, const void *value,
+                                    uint8_t *out, size_t cap, size_t *length) {
+  size_t n = 0U;
+  wl_codec_status_t s = calculator_rpc_wlc_measure(d, value, &n);
+  if (s != WL_CODEC_OK || length == NULL || (n != 0U && out == NULL))
+    return s == WL_CODEC_OK ? WL_CODEC_ERR_INVALID_VALUE : s;
+  if (cap < n) return WL_CODEC_ERR_CAPACITY;
+  uint8_t *p = out;
+  if ((s = calculator_rpc_wlc_emit_fields(d, value, &p)) != WL_CODEC_OK) return s;
+  *length = n;
+  return WL_CODEC_OK;
+}
+static wl_codec_status_t calculator_rpc_wlc_skip(uint8_t wire, const uint8_t *in, size_t n,
+                                  size_t *at) {
+  uint64_t length;
+  wl_codec_status_t s;
+  if (wire == 0U) return calculator_rpc_wlc_getv(in, n, at, &length);
+  if (wire == 1U) {
+    if (n - *at < 8U) return WL_CODEC_ERR_MALFORMED;
+    *at += 8U;
+    return WL_CODEC_OK;
+  }
+  if (wire == 5U) {
+    if (n - *at < 4U) return WL_CODEC_ERR_MALFORMED;
+    *at += 4U;
+    return WL_CODEC_OK;
+  }
+  if (wire != 2U) return WL_CODEC_ERR_MALFORMED;
+  if ((s = calculator_rpc_wlc_getv(in, n, at, &length)) != WL_CODEC_OK) return s;
+  if (length > n - *at) return WL_CODEC_ERR_MALFORMED;
+  *at += (size_t)length;
+  return WL_CODEC_OK;
+}
+static wl_codec_status_t calculator_rpc_wlc_read_value(const calculator_rpc_wlc_field_t *f, const uint8_t *in,
+                                        size_t n, size_t *at, void *out) {
+  (void)in; (void)n; (void)at; (void)out;
+  switch (f->kind) {
+    default: break;
+  }
+  uint64_t v;
+  wl_codec_status_t s = calculator_rpc_wlc_getv(in, n, at, &v);
+  if (s != WL_CODEC_OK) return s;
+  switch (f->kind) {
+    case CALCULATOR_RPC_WLC_I32:
+
+      if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+      *(int32_t *)out = calculator_rpc_wlc_uz32((uint32_t)v); break;
+    default: return WL_CODEC_ERR_INVALID_VALUE;
+  }
+  return WL_CODEC_OK;
+  return WL_CODEC_ERR_INVALID_VALUE;
+}
+static const calculator_rpc_wlc_field_t *calculator_rpc_wlc_find_field(const calculator_rpc_wlc_desc_t *d, uint16_t number) {
+  if (d->lookup == CALCULATOR_RPC_WLC_LOOKUP_DENSE) {
+    size_t index = (size_t)number - (size_t)d->fields[0].number;
+    return index < d->count ? &d->fields[index] : NULL;
+  }
+  if (d->lookup == CALCULATOR_RPC_WLC_LOOKUP_BINARY) {
+    size_t lo = 0U, hi = d->count;
+    while (lo < hi) {
+      size_t mid = lo + (hi - lo) / 2U;
+      uint16_t candidate = d->fields[mid].number;
+      if (candidate == number) return &d->fields[mid];
+      if (candidate < number) lo = mid + 1U;
+      else hi = mid;
+    }
+    return NULL;
+  }
+  for (size_t i = 0U; i < d->count; ++i)
+    if (d->fields[i].number == number) return &d->fields[i];
+  return NULL;
+}
+static inline wl_codec_status_t calculator_rpc_wlc_decode(const calculator_rpc_wlc_desc_t *d, const uint8_t *in,
+                                    size_t n, void *out) {
+  if (d == NULL || out == NULL || (n != 0U && in == NULL))
+    return WL_CODEC_ERR_INVALID_VALUE;
+  calculator_rpc_wlc_clear(d, out);
+  // A hint only: missing, unknown or reordered fields still use exact lookup.
+  // Each recursive decode owns its cursor; empty schemas avoid NULL arithmetic.
+  const calculator_rpc_wlc_field_t *next = d->fields;
+  const calculator_rpc_wlc_field_t *end = d->count == 0U ? next : next + d->count;
+  for (size_t at = 0U; at < n;) {
+    uint64_t key;
+    wl_codec_status_t s = calculator_rpc_wlc_getv(in, n, &at, &key);
+    if (s != WL_CODEC_OK) return s;
+    uint64_t raw_number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (raw_number == 0U || raw_number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    uint16_t number = (uint16_t)raw_number;
+    const calculator_rpc_wlc_field_t *f = next != end && next->number == number
+                               ? next : calculator_rpc_wlc_find_field(d, number);
+    if (f == NULL) {
+      if ((s = calculator_rpc_wlc_skip(wire, in, n, &at)) != WL_CODEC_OK) return s;
+      continue;
+    }
+    if (wire != calculator_rpc_wlc_wire(f)) return WL_CODEC_ERR_WIRE_TYPE;
+    next = f->card == CALCULATOR_RPC_WLC_REPEATED ? f : f + 1;
+    uint8_t *base = out;
+    void *p = base + f->value;
+    if (f->card == CALCULATOR_RPC_WLC_OPTIONAL) {
+      if (*(bool *)(base + f->has)) return WL_CODEC_ERR_DUPLICATE_FIELD;
+    }
+    if ((s = calculator_rpc_wlc_read_value(f, in, n, &at, p)) != WL_CODEC_OK) return s;
+    if (f->card == CALCULATOR_RPC_WLC_OPTIONAL) *(bool *)(base + f->has) = true;
+  }
+  for (size_t i = 0U; i < d->count; ++i) {
+    const calculator_rpc_wlc_field_t *f = &d->fields[i];
+    if (f->required != 0U && !*(const bool *)((uint8_t *)out + f->has))
+      return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  }
+  return WL_CODEC_OK;
+}
+static const calculator_rpc_wlc_desc_t calculator_rpc_add_request_desc;
+static const calculator_rpc_wlc_desc_t calculator_rpc_add_response_desc;
+
+static const calculator_rpc_wlc_field_t calculator_rpc_add_request_fields[] = {
+  { 1U, CALCULATOR_RPC_WLC_OPTIONAL, CALCULATOR_RPC_WLC_I32, 1, 0U, 1U, offsetof(add_request_t, left), offsetof(add_request_t, has_left), 0, 0, sizeof(int32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, CALCULATOR_RPC_WLC_OPTIONAL, CALCULATOR_RPC_WLC_I32, 1, 0U, 1U, offsetof(add_request_t, right), offsetof(add_request_t, has_right), 0, 0, sizeof(int32_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const calculator_rpc_wlc_desc_t calculator_rpc_add_request_desc = { calculator_rpc_add_request_fields, sizeof(calculator_rpc_add_request_fields) / sizeof(calculator_rpc_add_request_fields[0]), CALCULATOR_RPC_WLC_LOOKUP_LINEAR };
+
+static const calculator_rpc_wlc_field_t calculator_rpc_add_response_fields[] = {
+  { 1U, CALCULATOR_RPC_WLC_OPTIONAL, CALCULATOR_RPC_WLC_I32, 1, 0U, 1U, offsetof(add_response_t, sum), offsetof(add_response_t, has_sum), 0, 0, sizeof(int32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const calculator_rpc_wlc_desc_t calculator_rpc_add_response_desc = { calculator_rpc_add_response_fields, sizeof(calculator_rpc_add_response_fields) / sizeof(calculator_rpc_add_response_fields[0]), CALCULATOR_RPC_WLC_LOOKUP_LINEAR };
+
+static inline wl_codec_status_t calculator_rpc_add_request_wlc_detail_measure(const add_request_t *value, size_t *size) { return calculator_rpc_wlc_measure(&calculator_rpc_add_request_desc, value, size); }
+static inline void calculator_rpc_add_request_clear(add_request_t *value) { if (value != NULL) calculator_rpc_wlc_clear(&calculator_rpc_add_request_desc, value); }
+static inline size_t calculator_rpc_add_request_encoded_size(const add_request_t *value) { size_t size; return calculator_rpc_wlc_measure(&calculator_rpc_add_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+static inline wl_codec_status_t calculator_rpc_add_request_encode(const add_request_t *value, uint8_t *out, size_t cap, size_t *length) { return calculator_rpc_wlc_encode(&calculator_rpc_add_request_desc, value, out, cap, length); }
+static inline wl_codec_status_t calculator_rpc_add_request_decode(const uint8_t *input, size_t length, add_request_t *out) { return calculator_rpc_wlc_decode(&calculator_rpc_add_request_desc, input, length, out); }
+
+static inline wl_codec_status_t calculator_rpc_add_response_wlc_detail_measure(const add_response_t *value, size_t *size) { return calculator_rpc_wlc_measure(&calculator_rpc_add_response_desc, value, size); }
+static inline void calculator_rpc_add_response_clear(add_response_t *value) { if (value != NULL) calculator_rpc_wlc_clear(&calculator_rpc_add_response_desc, value); }
+static inline size_t calculator_rpc_add_response_encoded_size(const add_response_t *value) { size_t size; return calculator_rpc_wlc_measure(&calculator_rpc_add_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+static inline wl_codec_status_t calculator_rpc_add_response_encode(const add_response_t *value, uint8_t *out, size_t cap, size_t *length) { return calculator_rpc_wlc_encode(&calculator_rpc_add_response_desc, value, out, cap, length); }
+static inline wl_codec_status_t calculator_rpc_add_response_decode(const uint8_t *input, size_t length, add_response_t *out) { return calculator_rpc_wlc_decode(&calculator_rpc_add_response_desc, input, length, out); }
+
+/* A descriptor embeds the ordinary wire plan as its first member. Owned
+ * lengths/data use actual member offsets; no view struct aliases an owned one. */
+typedef struct {
+  calculator_rpc_wlc_desc_t wire;
+  size_t size;
+  void (*defaults)(void *);
+} calculator_rpc_wlc_value_desc_t;
+static inline wl_codec_status_t calculator_rpc_wlc_value_decode(const calculator_rpc_wlc_desc_t *, const uint8_t *, size_t, void *);
+static void calculator_rpc_wlc_value_clear(const calculator_rpc_wlc_desc_t *wire, void *out) {
+  const calculator_rpc_wlc_value_desc_t *d = (const calculator_rpc_wlc_value_desc_t *)wire;
+  memset(out, 0, d->size);
+  d->defaults(out);
+}
+static wl_codec_status_t calculator_rpc_wlc_value_read(const calculator_rpc_wlc_field_t *f, const uint8_t *in,
+    size_t n, size_t *at, void *out) {
+  return calculator_rpc_wlc_read_value(f, in, n, at, out);
+}
+static inline wl_codec_status_t calculator_rpc_wlc_value_decode(const calculator_rpc_wlc_desc_t *d, const uint8_t *in,
+                                    size_t n, void *out) {
+  if (d == NULL || out == NULL || (n != 0U && in == NULL))
+    return WL_CODEC_ERR_INVALID_VALUE;
+  calculator_rpc_wlc_value_clear(d, out);
+  // A hint only: missing, unknown or reordered fields still use exact lookup.
+  // Each recursive decode owns its cursor; empty schemas avoid NULL arithmetic.
+  const calculator_rpc_wlc_field_t *next = d->fields;
+  const calculator_rpc_wlc_field_t *end = d->count == 0U ? next : next + d->count;
+  for (size_t at = 0U; at < n;) {
+    uint64_t key;
+    wl_codec_status_t s = calculator_rpc_wlc_getv(in, n, &at, &key);
+    if (s != WL_CODEC_OK) return s;
+    uint64_t raw_number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (raw_number == 0U || raw_number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    uint16_t number = (uint16_t)raw_number;
+    const calculator_rpc_wlc_field_t *f = next != end && next->number == number
+                               ? next : calculator_rpc_wlc_find_field(d, number);
+    if (f == NULL) {
+      if ((s = calculator_rpc_wlc_skip(wire, in, n, &at)) != WL_CODEC_OK) return s;
+      continue;
+    }
+    if (wire != calculator_rpc_wlc_wire(f)) return WL_CODEC_ERR_WIRE_TYPE;
+    next = f->card == CALCULATOR_RPC_WLC_REPEATED ? f : f + 1;
+    uint8_t *base = out;
+    void *p = base + f->value;
+    if (f->card == CALCULATOR_RPC_WLC_OPTIONAL) {
+      if (*(bool *)(base + f->has)) return WL_CODEC_ERR_DUPLICATE_FIELD;
+    }
+    if ((s = calculator_rpc_wlc_value_read(f, in, n, &at, p)) != WL_CODEC_OK) return s;
+    if (f->card == CALCULATOR_RPC_WLC_OPTIONAL) *(bool *)(base + f->has) = true;
+  }
+  for (size_t i = 0U; i < d->count; ++i) {
+    const calculator_rpc_wlc_field_t *f = &d->fields[i];
+    if (f->required != 0U && !*(const bool *)((uint8_t *)out + f->has))
+      return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  }
+  return WL_CODEC_OK;
+}
+static const calculator_rpc_wlc_value_desc_t calculator_rpc_add_request_value_desc;
+static const calculator_rpc_wlc_value_desc_t calculator_rpc_add_response_value_desc;
+static void calculator_rpc_add_request_value_defaults(add_request_value_t *out) {
+  (void)out;
+  out->left = 0;
+  out->right = 0;
+}
+
+static void calculator_rpc_add_request_value_decode_defaults(void *out) { calculator_rpc_add_request_value_defaults(out); }
+
+static const calculator_rpc_wlc_field_t calculator_rpc_add_request_value_fields[] = {
+  { 1U, CALCULATOR_RPC_WLC_OPTIONAL, CALCULATOR_RPC_WLC_I32, 1, 0U, 1U, offsetof(add_request_value_t, left), offsetof(add_request_value_t, has_left), 0, 0, sizeof(int32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+  { 2U, CALCULATOR_RPC_WLC_OPTIONAL, CALCULATOR_RPC_WLC_I32, 1, 0U, 1U, offsetof(add_request_value_t, right), offsetof(add_request_value_t, has_right), 0, 0, sizeof(int32_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const calculator_rpc_wlc_value_desc_t calculator_rpc_add_request_value_desc = { { calculator_rpc_add_request_value_fields, sizeof(calculator_rpc_add_request_value_fields) / sizeof(calculator_rpc_add_request_value_fields[0]), CALCULATOR_RPC_WLC_LOOKUP_LINEAR }, sizeof(add_request_value_t), calculator_rpc_add_request_value_decode_defaults };
+
+static wl_codec_status_t calculator_rpc_add_request_value_borrow(const add_request_value_t *, add_request_t *);
+static inline wl_codec_status_t calculator_rpc_add_request_wlc_detail_value_decode(const uint8_t *input, size_t length, add_request_value_t *out) { return calculator_rpc_wlc_value_decode(&calculator_rpc_add_request_value_desc.wire, input, length, out); }
+
+static void calculator_rpc_add_request_value_copy_fields(const add_request_t *view, add_request_value_t *out) {
+  out->has_left = view->has_left;
+  out->left = view->has_left ? view->left : 0;
+  out->has_right = view->has_right;
+  out->right = view->has_right ? view->right : 0;
+}
+
+/* Generator-private: input is an unmodified successful decode, or has been measured. */
+static inline void calculator_rpc_add_request_wlc_detail_value_copy(const add_request_t *view, add_request_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  calculator_rpc_add_request_value_copy_fields(view, out);
+}
+
+static inline void calculator_rpc_add_request_value_clear(add_request_value_t *value) {
+  if (value == NULL) return;
+  memset(value, 0, sizeof(*value));
+  calculator_rpc_add_request_value_defaults(value);
+}
+
+static inline wl_codec_status_t calculator_rpc_add_request_value_from_view(const add_request_t *view, add_request_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_request_wlc_detail_measure(view, &size);
+  if (status != WL_CODEC_OK) return status;
+  calculator_rpc_add_request_wlc_detail_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t calculator_rpc_add_request_value_borrow(const add_request_value_t *value, add_request_t *out) {
+  calculator_rpc_add_request_clear(out);
+  out->has_left = value->has_left;
+  if (value->has_left) {
+    out->left = value->left;
+  }
+  out->has_right = value->has_right;
+  if (value->has_right) {
+    out->right = value->right;
+  }
+  return WL_CODEC_OK;
+}
+
+static inline wl_codec_status_t calculator_rpc_add_request_value_to_view(const add_request_value_t *value, add_request_t *out) {
+  add_request_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_request_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = calculator_rpc_add_request_wlc_detail_measure(&view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+static inline size_t calculator_rpc_add_request_value_encoded_size(const add_request_value_t *value) {
+  add_request_t view;
+  if (value == NULL || calculator_rpc_add_request_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return calculator_rpc_add_request_encoded_size(&view);
+}
+
+static inline wl_codec_status_t calculator_rpc_add_request_value_encode(const add_request_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  add_request_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_request_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? calculator_rpc_add_request_encode(&view, out, capacity, length) : status;
+}
+
+static inline wl_codec_status_t calculator_rpc_add_request_value_decode(const uint8_t *input, size_t length, add_request_value_t *out) {
+  add_request_value_t value;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_request_wlc_detail_value_decode(input, length, &value);
+  if (status != WL_CODEC_OK) return status;
+  *out = value;
+  return WL_CODEC_OK;
+}
+
+static void calculator_rpc_add_response_value_defaults(add_response_value_t *out) {
+  (void)out;
+  out->sum = 0;
+}
+
+static void calculator_rpc_add_response_value_decode_defaults(void *out) { calculator_rpc_add_response_value_defaults(out); }
+
+static const calculator_rpc_wlc_field_t calculator_rpc_add_response_value_fields[] = {
+  { 1U, CALCULATOR_RPC_WLC_OPTIONAL, CALCULATOR_RPC_WLC_I32, 1, 0U, 1U, offsetof(add_response_value_t, sum), offsetof(add_response_value_t, has_sum), 0, 0, sizeof(int32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
+};
+static const calculator_rpc_wlc_value_desc_t calculator_rpc_add_response_value_desc = { { calculator_rpc_add_response_value_fields, sizeof(calculator_rpc_add_response_value_fields) / sizeof(calculator_rpc_add_response_value_fields[0]), CALCULATOR_RPC_WLC_LOOKUP_LINEAR }, sizeof(add_response_value_t), calculator_rpc_add_response_value_decode_defaults };
+
+static wl_codec_status_t calculator_rpc_add_response_value_borrow(const add_response_value_t *, add_response_t *);
+static inline wl_codec_status_t calculator_rpc_add_response_wlc_detail_value_decode(const uint8_t *input, size_t length, add_response_value_t *out) { return calculator_rpc_wlc_value_decode(&calculator_rpc_add_response_value_desc.wire, input, length, out); }
+
+static void calculator_rpc_add_response_value_copy_fields(const add_response_t *view, add_response_value_t *out) {
+  out->has_sum = view->has_sum;
+  out->sum = view->has_sum ? view->sum : 0;
+}
+
+/* Generator-private: input is an unmodified successful decode, or has been measured. */
+static inline void calculator_rpc_add_response_wlc_detail_value_copy(const add_response_t *view, add_response_value_t *out) {
+  memset(out, 0, sizeof(*out));
+  calculator_rpc_add_response_value_copy_fields(view, out);
+}
+
+static inline void calculator_rpc_add_response_value_clear(add_response_value_t *value) {
+  if (value == NULL) return;
+  memset(value, 0, sizeof(*value));
+  calculator_rpc_add_response_value_defaults(value);
+}
+
+static inline wl_codec_status_t calculator_rpc_add_response_value_from_view(const add_response_t *view, add_response_value_t *out) {
+  size_t size;
+  wl_codec_status_t status;
+  if (view == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_response_wlc_detail_measure(view, &size);
+  if (status != WL_CODEC_OK) return status;
+  calculator_rpc_add_response_wlc_detail_value_copy(view, out);
+  return WL_CODEC_OK;
+}
+
+/* Private conversion does not re-validate each nested subtree. */
+static wl_codec_status_t calculator_rpc_add_response_value_borrow(const add_response_value_t *value, add_response_t *out) {
+  calculator_rpc_add_response_clear(out);
+  out->has_sum = value->has_sum;
+  if (value->has_sum) {
+    out->sum = value->sum;
+  }
+  return WL_CODEC_OK;
+}
+
+static inline wl_codec_status_t calculator_rpc_add_response_value_to_view(const add_response_value_t *value, add_response_t *out) {
+  add_response_t view;
+  size_t size;
+  wl_codec_status_t status;
+  if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_response_value_borrow(value, &view);
+  if (status == WL_CODEC_OK) status = calculator_rpc_add_response_wlc_detail_measure(&view, &size);
+  if (status != WL_CODEC_OK) return status;
+  *out = view;
+  return WL_CODEC_OK;
+}
+
+static inline size_t calculator_rpc_add_response_value_encoded_size(const add_response_value_t *value) {
+  add_response_t view;
+  if (value == NULL || calculator_rpc_add_response_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
+  return calculator_rpc_add_response_encoded_size(&view);
+}
+
+static inline wl_codec_status_t calculator_rpc_add_response_value_encode(const add_response_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
+  add_response_t view;
+  wl_codec_status_t status;
+  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_response_value_borrow(value, &view);
+  return status == WL_CODEC_OK ? calculator_rpc_add_response_encode(&view, out, capacity, length) : status;
+}
+
+static inline wl_codec_status_t calculator_rpc_add_response_value_decode(const uint8_t *input, size_t length, add_response_value_t *out) {
+  add_response_value_t value;
+  wl_codec_status_t status;
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  status = calculator_rpc_add_response_wlc_detail_value_decode(input, length, &value);
+  if (status != WL_CODEC_OK) return status;
+  *out = value;
+  return WL_CODEC_OK;
+}
+
+#endif

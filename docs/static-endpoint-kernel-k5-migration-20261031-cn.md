@@ -63,3 +63,15 @@ Executor 已改为同一个 C kernel 的线程／等待包装：32 项有界命�
 C++ Session 使用 C-owned port／endpoint 描述符和真实 Asio UDP；submit 等到 owner 接纳，成功返回时请求已快照，失败不创建 core 调用。Operation 自持到唯一终态，回调借用期内复制 typed response，结果可在 Session 关闭后读取；取消仅排队本地取消，不回滚远端执行。业务拒绝与本地错误独立，保留原始 status。外部 close 等待入队者退出并 join owner；owner 内 close 只请求停止，禁止在 owner 回调销毁／替换 Session。手动 clock 经显式 notify 唤醒；last_error 保留底层失败。host／cpp_host 是显式安装组件，C-only 包不因此加载 C++。
 
 GCC 全部 **17/17**；Clang ASan/UBSan **17/17**，新增手动 clock 跨 UINT32_MAX 场景随后单独 **1/1**；GCC TSan owner／Session **2/2**；安装后的独立 C++ 消费者 **1/1**。真实 UDP fixture 覆盖四并发／第五次 WOULD_BLOCK、请求快照、业务 -31 拒绝、本地超时／取消、丢弃 Operation 的安全自持、并发关闭、关闭后读结果；owner fixture 覆盖四生产者、队满、非致命 I/O 错误下 deadline 继续推进、注入 bad_alloc、关闭拒绝线程归属和物理 quiescence。失败的早期 fixture 与修复日志保留在 `cpp-*`。这是外层包装收口；WLC SDK 生成迁移仍待完成。
+
+## 默认 WLC、生成合同与 SDK
+
+WLC 升为开发版 0.13.0／codegen 0.13／SDK binding API 3。`compile --profile` 与 `compile-kernel` 使用同一个静态 generator；无 profile 只生成纯 public codec。所有公开 analysis／validate／identity／plan 入口统一检查 profile v2，旧 v1、mapped、guarantee（含 correlate）、reliable、LATEST/FIFO/deferred 明确失败。内部共用的名字／codec resolver 不是旧运行时。ordinary 保留显式 positional public codec；RPC 按计划统一 managed tagged，positional RPC 明确要求迁移，不做无声 wire 替换。输出目录若带旧 runtime/bindings/advanced 文件则拒绝覆盖，SDK 也要求显式迁移到新目录。
+
+删除 WLC 的旧 endpoint／transport／RPC／managed／mapped／runtime backends、pending/cache/service/layout 模板、旧 link bindings 输出和旧 RPC resource planner。`plan` 直接引用实际 kernel deployment 资源，再给出 codec 字段事实。保留独立 public canonical helper，它们没有通信执行依赖，kernel 不调用、不生成 replay hash。纯 codec 的完整值域继续测试；Clang 严格检查发现无界 message measure 包装、未走 scalar path 的 uint32 writer 和未调用的 hash writer，收紧生成条件后 sanitizer 全块通过。不是压制 unused warning。
+
+根核心版本同步 0.13.0；旧 0.12 仅允许冻结 standalone public codec 的 contract predicate，旧执行头／引擎已经移除，不能借此编译旧 runtime。安装的 helper 只接受匹配本地 WLC，不假定已有新发布包、不下载旧工具；`wirelink_wlc_generate` 生成同一个 endpoint，旧 separate-runtime/layout/bootstrap helper 删除或明确失败。`module-name` 与实际输出共享 C identifier 规范，keyword 文件名真实编译通过。安装后 native C／C++、COBS、keyword codec 以及旧 profile／旧 compiler／缺工具诊断 **5/5**。
+
+SDK 的 C bridge 拥有 port 原子对象与两份 RX unit，typed callback 在借用期内复制 response；C++ sync/async 使用 Session 和同一个 C kernel，不再生成 invoke／第二套 RPC 表。同步等待拒绝 owner 线程调用，失败 admission 不生成未来 terminal。Python native 暴露 outcome/status/OS，不伪造已删除的错误域。两个 checked-in SDK 从新编译器确定性生成（64 份文件比对通过），schema 业务内容未变；C++ 同步／异步／嵌套数据／关闭结果 **3/3**，wheel 中 Python 同步／asyncio／双 SDK 隔离 **59/59**。恢复了新 factory 的初始化失败／无效地址／端口占用回滚测试；旧 HeldOwner/RPC queue fixture 被当前 host owner 与 kernel 四槽测试替代。
+
+旧特性测试逐文件记录在 `retired-wlc-tests.json`。managed wire 的合法 payload 向量、完整 metadata ID/session/status 范围移植到新 primitives；只删除旧 inspect/release/长期终态槽相关执行部分。完整 Rust/GCC 块只因该移植 fixture 缺共享 metadata 头 失败，补跑通过；其余保留纯 codec、schema、SDK、新 kernel 测试通过。Clang ASan/UBSan 完整块通过，新增当前 CLI/managed-wire focused 块随后通过；Clippy all-targets/all-features 和 fmt 通过。首次工具解析、编译和旧断言失败日志保留，未做批量 xfail。此点仍不表示 K5/K6 完成，其余示例／Zephyr sample／benchmark／fuzz／测试和当前公开文档仍需逐个迁移，最终硬件确认尚未进行。

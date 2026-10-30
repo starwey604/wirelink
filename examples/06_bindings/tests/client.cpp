@@ -21,7 +21,7 @@ static void values_and_move() {
   }
   auto rejected = client.add({INT32_MAX, 1});
   CHECK(!rejected && rejected.error().kind == ErrorKind::rejected);
-  CHECK(rejected.error().completion.rejection == 1);
+  CHECK(rejected.error().completion.status == 1);
   CHECK(client.add({0, 0}, 0ms).error().kind == ErrorKind::invalid_argument);
   CHECK(client.add({0, 0}, std::chrono::milliseconds(INT64_MAX)).error().kind == ErrorKind::invalid_argument);
   auto saved = client.add({-10, 52});
@@ -59,7 +59,7 @@ static void close_pending() {
   CHECK(close_a.wait_for(2s) == std::future_status::ready);
   CHECK(close_b.wait_for(2s) == std::future_status::ready);
   const auto result = caller.get();
-  CHECK(!result && result.error().kind == ErrorKind::cancelled);
+  CHECK(!result && result.error().kind == ErrorKind::closed);
   server.unblock();
 }
 
@@ -81,40 +81,36 @@ static void timeout_and_reuse() {
 static unsigned allocations, frees;
 static void rollback() {
   const wirelink::EndpointFactory factory{
-    [](wl_endpoint_driver_t& driver, wirelink::Error& error) -> void* {
-      auto endpoint = std::make_unique<calculator_endpoint_t>();
+    [](wl_host_endpoint_t& descriptor, wirelink::Error& error) -> void* {
+      void* storage=::operator new(calculator_test_server_size(),std::align_val_t(calculator_test_server_alignment()));
       ++allocations;
-      const int status = calculator_endpoint_init(endpoint.get(), wl_platform_environment(), wl_link_defaults());
-      if (status != WL_OK) { error = wirelink::Error::local(status); ++frees; return nullptr; }
-      driver = calculator_endpoint_driver(endpoint.get());
-      return endpoint.release();
-    }, [](void* pointer) noexcept {
-      auto* endpoint = static_cast<calculator_endpoint_t*>(pointer);
-      (void)calculator_endpoint_close(endpoint);
-      delete endpoint;
-      ++frees;
+      if(calculator_test_server_prepare(storage,&descriptor)!=WL_OK) {
+        ::operator delete(storage,std::align_val_t(calculator_test_server_alignment()));++frees;
+        error=wirelink::Error::local(WL_ERR_INVALID_STATE);return nullptr;
+      }
+      return storage;
+    }, calculator_test_server_initialize, [](void* storage) noexcept {
+      ::operator delete(storage,std::align_val_t(calculator_test_server_alignment()));++frees;
     }};
-  // Failure after endpoint creation and after adapter attachment.
-  auto invalid_bind = wirelink::Session::connect({.peer_port = 1, .bind_address = "invalid"}, factory);
-  CHECK(!invalid_bind && allocations == 1 && frees == 1);
-  auto invalid_peer = wirelink::Session::connect({.peer_address = "invalid", .peer_port = 1}, factory);
-  CHECK(!invalid_peer && allocations == 2 && frees == 2);
+  CHECK(!wirelink::Session::connect({.peer_port=1,.bind_address="invalid"},factory));
+  CHECK(allocations==1 && frees==1);
+  CHECK(!wirelink::Session::connect({.peer_address="invalid",.peer_port=1},factory));
+  CHECK(allocations==2 && frees==2);
   Server server;
-  auto busy_port = wirelink::Session::connect({.peer_port = 1, .bind_port = server.port()}, factory);
-  CHECK(!busy_port && busy_port.error().system_error && allocations == 3 && frees == 3);
+  CHECK(!wirelink::Session::connect({.peer_port=1,.bind_port=server.port()},factory));
+  CHECK(allocations==3 && frees==3);
   const wirelink::EndpointFactory failing{
-    [](wl_endpoint_driver_t&, wirelink::Error& error) -> void* {
-      error = wirelink::Error::local(WL_ERR_NO_MEM); return nullptr;
-    }, [](void*) noexcept { std::abort(); }};
-  auto failed = wirelink::Session::connect({.peer_port = 1}, failing);
-  CHECK(!failed && failed.error().kind == ErrorKind::out_of_memory);
+    [](wl_host_endpoint_t&,wirelink::Error& error)->void* {error=wirelink::Error::local(WL_ERR_NO_MEM);return nullptr;},
+    calculator_test_server_initialize,[](void*)noexcept{std::abort();}};
+  const auto failed=wirelink::Session::connect({.peer_port=1},failing);
+  CHECK(!failed && failed.error().kind==ErrorKind::out_of_memory);
 }
 
 int main() {
+  rollback();
   values_and_move();
   concurrent_calls();
   close_pending();
   timeout_and_reuse();
-  rollback();
   std::puts("calculator C++ ownership, RPC, concurrency and rollback PASS");
 }

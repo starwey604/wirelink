@@ -21,7 +21,7 @@ def run(coroutine):
 
 def test_async_values_concurrency_and_context(peer):
     async def exercise():
-        assert binding_api == 2
+        assert binding_api == 3
         async with AsyncClient.connect(Udp(peer=peer)) as client:
             assert client.is_open and client.local_port > 0
             for _ in range(25):
@@ -32,7 +32,7 @@ def test_async_values_concurrency_and_context(peer):
             saved = await client.add_request(AddRequest(-10, 52))
             with pytest.raises(RejectedError) as failure:
                 await client.add(left=2**31 - 1, right=1)
-            assert failure.value.rejection == 1
+            assert failure.value.status == 1
             with pytest.raises(TypeError):
                 await client.add_request((1, 2))
             with pytest.raises(ValueError):
@@ -61,7 +61,7 @@ def test_cancel_one_task_and_close_others():
             close_a = asyncio.create_task(client.close())
             close_b = asyncio.create_task(client.close())
             await asyncio.gather(close_a, close_b)
-            with pytest.raises(CancelledError):
+            with pytest.raises(ClosedError):
                 await second
             assert not client._pending and not client._worker.is_alive()
         finally:
@@ -88,8 +88,8 @@ def test_timeout_external_timeout_and_capacity():
             # yet crossed from the native owner into the event loop.
             await client.close()
             results = await asyncio.gather(*calls, return_exceptions=True)
-            assert any(isinstance(result, CancelledError) for result in results)
-            assert all(isinstance(result, (CancelledError, QueueFullError)) for result in results)
+            assert any(isinstance(result, ClosedError) for result in results)
+            assert all(isinstance(result, (ClosedError, QueueFullError)) for result in results)
             assert not client._pending
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as blackhole:
         blackhole.bind(("127.0.0.1", 0))
@@ -106,7 +106,7 @@ def test_cancel_close_waiter_does_not_interrupt_cleanup():
         closing.cancel()
         await asyncio.gather(closing, return_exceptions=True)
         await client.close()
-        with pytest.raises(CancelledError):
+        with pytest.raises(ClosedError):
             await pending
         assert not client._worker.is_alive() and not client._pending
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as blackhole:
@@ -182,7 +182,7 @@ def test_close_after_default_executor_shutdown():
         assert await asyncio.get_running_loop().sock_recv(blackhole, 1024)
         await asyncio.get_running_loop().shutdown_default_executor()
         await client.close()
-        with pytest.raises(CancelledError):
+        with pytest.raises(ClosedError):
             await pending
         assert not client._worker.is_alive()
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as blackhole:

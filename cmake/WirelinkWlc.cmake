@@ -1,120 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
 include_guard(GLOBAL)
-
-# These values are consumed by functions that may be called from a parent
-# directory after Wirelink itself was added with add_subdirectory(). Keep them
-# in the global CMake cache so function call-site scope cannot hide them.
-set(WIRELINK_WLC_VERSION "0.12.0" CACHE INTERNAL
-  "Pinned WLC host compiler version" FORCE)
-set(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR "0" CACHE INTERNAL
-  "Pinned WLC generated-code contract major" FORCE)
-set(WIRELINK_WLC_CODEGEN_CONTRACT_MINOR "12" CACHE INTERNAL
-  "Pinned WLC generated-code contract minor" FORCE)
-option(WIRELINK_WLC_AUTO_DOWNLOAD
-  "Fetch verified WLC host tools, or build pinned source on other hosts" ON)
-set(WIRELINK_WLC_CACHE_DIR
-  "${CMAKE_BINARY_DIR}/_deps/wirelink-wlc" CACHE PATH
-  "Directory for verified WLC host compiler downloads")
-mark_as_advanced(WIRELINK_WLC_CACHE_DIR)
-
-option(WIRELINK_WLC_RPC_LAYOUT_ENABLE "Mark generated RPC ELF function sections" ON)
-
-# Set this on the target that compiles runtime.c, including in Zephyr builds.
-# Caller definitions cannot change a previously compiled static library.
-function(wirelink_wlc_configure_rpc_layout)
-  cmake_parse_arguments(L "" "TARGET;MODULE;ENABLE" "" ${ARGN})
-  if(L_UNPARSED_ARGUMENTS OR NOT TARGET "${L_TARGET}" OR
-      NOT L_MODULE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
-    message(FATAL_ERROR "wirelink_wlc_configure_rpc_layout requires TARGET and C identifier MODULE")
-  endif()
-  if(NOT DEFINED L_ENABLE OR L_ENABLE STREQUAL "")
-    set(L_ENABLE "${WIRELINK_WLC_RPC_LAYOUT_ENABLE}")
-  endif()
-  if(NOT L_ENABLE MATCHES "^(ON|OFF|0|1)$")
-    message(FATAL_ERROR "RPC layout ENABLE must be ON, OFF, 0 or 1")
-  endif()
-  if(L_ENABLE)
-    set(_enabled 1)
+set(WIRELINK_WLC_VERSION "0.13.0" CACHE INTERNAL "Matching compiler" FORCE)
+set(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR "0" CACHE INTERNAL "Current contract major" FORCE)
+set(WIRELINK_WLC_CODEGEN_CONTRACT_MINOR "13" CACHE INTERNAL "Current contract minor" FORCE)
+function(_wirelink_codegen_contract_accepts major minor result)
+  if(major STREQUAL "0" AND minor STREQUAL "13")
+    set(${result} TRUE PARENT_SCOPE)
   else()
-    set(_enabled 0)
-  endif()
-  # MODULE is the emitted C namespace. Match layout.rs verbatim, including
-  # keyword-escape underscores (switch_ -> SWITCH__RPC_LAYOUT_ENABLE).
-  string(TOUPPER "${L_MODULE}" _prefix)
-  target_compile_definitions("${L_TARGET}" PRIVATE "${_prefix}_RPC_LAYOUT_ENABLE=${_enabled}")
-  set_property(TARGET "${L_TARGET}" PROPERTY WIRELINK_WLC_RPC_LAYOUT_ENABLE "${_enabled}")
-endfunction()
-
-# Include this fragment INSIDE an executable output section, before .text.*
-# and .literal.* catchalls. No KEEP: each input remains individually GC-able.
-function(wirelink_wlc_rpc_layout_fragment)
-  cmake_parse_arguments(L "ISOLATE_LITERALS" "MODULE;OUTPUT" "" ${ARGN})
-  if(L_UNPARSED_ARGUMENTS OR NOT L_OUTPUT OR
-      NOT L_MODULE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
-    message(FATAL_ERROR "wirelink_wlc_rpc_layout_fragment requires MODULE and OUTPUT")
-  endif()
-  set(_boundary "")
-  if(L_ISOLATE_LITERALS)
-    # Zero-size assignments bound Xtensa BFD literal colocation on both sides,
-    # including when multiple independently configured modules share an ELF.
-    set(_boundary ". = .;\n")
-  endif()
-  file(WRITE "${L_OUTPUT}"
-    "/* SPDX-License-Identifier: Apache-2.0 */\n${_boundary}*(.literal.wlc.${L_MODULE}.rpc.* .text.wlc.${L_MODULE}.rpc.*)\n${_boundary}")
-endfunction()
-
-# Optional GNU ELF script integration for ordinary host link scripts. Embedded
-# MEMORY scripts should include the fragment above in their selected region.
-function(wirelink_wlc_group_rpc)
-  cmake_parse_arguments(L "ISOLATE_LITERALS" "TARGET;MODULE;LOCATION" "" ${ARGN})
-  if(L_UNPARSED_ARGUMENTS OR NOT TARGET "${L_TARGET}" OR APPLE OR WIN32 OR
-      NOT CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    message(FATAL_ERROR "wirelink_wlc_group_rpc requires a GNU-compatible host ELF linker; use a platform fragment for embedded scripts")
-  endif()
-  set(_scope)
-  if(L_ISOLATE_LITERALS)
-    set(_scope ISOLATE_LITERALS)
-  endif()
-  set(_fragment "${CMAKE_CURRENT_BINARY_DIR}/${L_TARGET}-${L_MODULE}-rpc-inputs.ld")
-  wirelink_wlc_rpc_layout_fragment(MODULE "${L_MODULE}" OUTPUT "${_fragment}" ${_scope})
-  if(DEFINED ZEPHYR_BASE)
-    if(NOT L_LOCATION STREQUAL "ROM_START")
-      message(FATAL_ERROR "Zephyr RPC grouping requires LOCATION ROM_START and an executable insertion point before .text.*")
-    endif()
-    zephyr_linker_sources(ROM_START "${_fragment}")
-    return()
-  elseif(L_LOCATION)
-    message(FATAL_ERROR "LOCATION is only supported for Zephyr linker fragments")
-  endif()
-  set(_script "${CMAKE_CURRENT_BINARY_DIR}/${L_TARGET}-${L_MODULE}-rpc.ld")
-  file(READ "${_fragment}" _inputs)
-  file(WRITE "${_script}" "SECTIONS { .text.wlc.${L_MODULE}.rpc : {\n${_inputs}} } INSERT BEFORE .text;\n")
-  target_link_options("${L_TARGET}" PRIVATE "LINKER:-T,${_script}")
-  set_property(TARGET "${L_TARGET}" APPEND PROPERTY LINK_DEPENDS "${_script}")
-endfunction()
-
-# A generated consumer is compatible with this core when the majors match and,
-# before 1.0, the minors match exactly. From 1.0 on, an older generated minor is
-# accepted because additive core changes stay backward compatible.
-function(_wirelink_codegen_contract_accepts generated_major generated_minor out_valid)
-  if(NOT generated_major STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR)
-    set(${out_valid} FALSE PARENT_SCOPE)
-    return()
-  endif()
-  if(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR STREQUAL "0")
-    if(generated_minor STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT_MINOR)
-      set(${out_valid} TRUE PARENT_SCOPE)
-    else()
-      set(${out_valid} FALSE PARENT_SCOPE)
-    endif()
-    return()
-  endif()
-  if(generated_minor GREATER WIRELINK_WLC_CODEGEN_CONTRACT_MINOR)
-    set(${out_valid} FALSE PARENT_SCOPE)
-  else()
-    set(${out_valid} TRUE PARENT_SCOPE)
+    set(${result} FALSE PARENT_SCOPE)
   endif()
 endfunction()
-
 function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   if(NOT EXISTS "${executable}" OR IS_DIRECTORY "${executable}")
     set(${out_valid} FALSE PARENT_SCOPE)
@@ -206,376 +101,112 @@ function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
   set(${out_dependencies} "${_inputs}" PARENT_SCOPE)
 endfunction()
 
-# Generate one profile-specific runtime target against an existing codec
-# target. RUNTIME_NAME selects its public C namespace and permits multiple
-# asymmetric runtimes to share CODEC_TARGET in one final image.
+
+# No published 0.13 compiler is assumed. Supply a matching locally built tool.
+function(_wirelink_wlc_resolve explicit result)
+  if(explicit)
+    set(compiler "${explicit}")
+  elseif(WIRELINK_WLC_EXECUTABLE)
+    set(compiler "${WIRELINK_WLC_EXECUTABLE}")
+  else()
+    find_program(compiler NAMES wlc NO_CACHE)
+  endif()
+  _wirelink_wlc_validate_executable("${compiler}" valid reason)
+  if(NOT valid)
+    message(FATAL_ERROR "Supply matching WLC 0.13.0 with WIRELINK_WLC_EXECUTABLE: ${reason}")
+  endif()
+  set(${result} "${compiler}" PARENT_SCOPE)
+endfunction()
 function(wirelink_wlc_generate_runtime)
-  set(_options)
-  set(_one_value_args
-    TARGET
-    CODEC_TARGET
-    PROFILE
-    OUTPUT_DIR
-    RUNTIME_NAME
-    RPC_LAYOUT)
-  cmake_parse_arguments(WLC
-    "${_options}" "${_one_value_args}" "PROFILES" ${ARGN})
-
-  if(WLC_UNPARSED_ARGUMENTS)
-    message(FATAL_ERROR
-      "wirelink_wlc_generate_runtime received unknown arguments: "
-      "${WLC_UNPARSED_ARGUMENTS}")
-  endif()
-  if(NOT WLC_TARGET)
-    message(FATAL_ERROR "wirelink_wlc_generate_runtime requires TARGET")
-  endif()
-  if(TARGET "${WLC_TARGET}")
-    message(FATAL_ERROR
-      "wirelink_wlc_generate_runtime target '${WLC_TARGET}' already exists")
-  endif()
-  if(NOT WLC_CODEC_TARGET OR NOT TARGET "${WLC_CODEC_TARGET}")
-    message(FATAL_ERROR
-      "wirelink_wlc_generate_runtime requires an existing CODEC_TARGET")
-  endif()
-  if(WLC_PROFILE AND WLC_PROFILES)
-    message(FATAL_ERROR "Use PROFILE or PROFILES, not both")
-  endif()
-  if(NOT WLC_PROFILE AND NOT WLC_PROFILES)
-    message(FATAL_ERROR "wirelink_wlc_generate_runtime requires PROFILE or PROFILES")
-  endif()
-
-  get_target_property(_schema "${WLC_CODEC_TARGET}" WIRELINK_WLC_SCHEMA)
-  get_target_property(_wlc "${WLC_CODEC_TARGET}" WIRELINK_WLC_EXECUTABLE)
-  get_target_property(_codec_codegen_target "${WLC_CODEC_TARGET}"
-    WIRELINK_WLC_CODEGEN_TARGET)
-  get_target_property(_codec_module "${WLC_CODEC_TARGET}"
-    WIRELINK_WLC_CODEC_MODULE)
-  if(NOT _schema OR NOT _wlc OR NOT _codec_codegen_target OR
-      NOT _codec_module)
-    message(FATAL_ERROR
-      "CODEC_TARGET '${WLC_CODEC_TARGET}' was not created by "
-      "wirelink_wlc_generate_codec")
-  endif()
-
-  set(_profiles)
-  set(_profile_args)
-  foreach(_input IN LISTS WLC_PROFILE WLC_PROFILES)
-    get_filename_component(_profile "${_input}" ABSOLUTE
-      BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    if(NOT EXISTS "${_profile}")
-      message(FATAL_ERROR "Wirelink binding profile does not exist: ${_profile}")
-    endif()
-    list(APPEND _profiles "${_profile}")
-    list(APPEND _profile_args --profile "${_profile}")
-  endforeach()
-  if(WLC_RUNTIME_NAME)
-    set(_runtime_name "${WLC_RUNTIME_NAME}")
-  else()
-    set(_runtime_name "${_codec_module}")
-  endif()
-  if(NOT _runtime_name MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
-    message(FATAL_ERROR
-      "RUNTIME_NAME must be a portable C identifier, got '${_runtime_name}'")
-  endif()
-
-  if(WLC_OUTPUT_DIR)
-    get_filename_component(_output_dir "${WLC_OUTPUT_DIR}" ABSOLUTE
-      BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-  else()
-    set(_output_dir
-      "${CMAKE_CURRENT_BINARY_DIR}/wirelink-generated/${WLC_TARGET}")
-  endif()
-
-  set(_generated
-    "${_output_dir}/${_runtime_name}_runtime.h"
-    "${_output_dir}/${_runtime_name}_endpoint.h"
-    "${_output_dir}/${_runtime_name}_advanced.h"
-    "${_output_dir}/${_runtime_name}_runtime.c"
-    "${_output_dir}/${_runtime_name}_runtime_manifest.json")
-  set(_generated_source "${_output_dir}/${_runtime_name}_runtime.c")
-  _wirelink_wlc_schema_dependencies("${_wlc}" "${_schema}" _schema_dependencies)
-  set(_manifest
-    "${_output_dir}/${_runtime_name}_runtime_manifest.json")
-  set(_codegen_stamp
-    "${_output_dir}/.${_runtime_name}-wlc-runtime.stamp")
-  set(_manifest_verifier
-    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/WirelinkWlcVerifyManifest.cmake")
-  add_custom_command(
-    OUTPUT "${_codegen_stamp}"
-    BYPRODUCTS ${_generated}
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output_dir}"
-    COMMAND "${_wlc}" compile-runtime "${_schema}"
-      ${_profile_args}
-      --runtime-name "${_runtime_name}"
-      --out-dir "${_output_dir}"
-    COMMAND "${CMAKE_COMMAND}"
-      "-DWIRELINK_WLC_MANIFEST=${_manifest}"
-      "-DWIRELINK_WLC_EXPECTED_VERSION=${WIRELINK_WLC_VERSION}"
-      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MAJOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}"
-      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MINOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}"
-      -P "${_manifest_verifier}"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${_codegen_stamp}"
-    DEPENDS
-      ${_schema_dependencies}
-      ${_profiles}
-      "${_wlc}"
-      "${_manifest_verifier}"
-    COMMENT "Generating Wirelink runtime ${_runtime_name}"
-    VERBATIM)
-
-  set_source_files_properties("${_generated_source}" PROPERTIES GENERATED TRUE)
-  add_custom_target("${WLC_TARGET}_wlc_codegen" DEPENDS "${_codegen_stamp}")
-  add_dependencies("${WLC_TARGET}_wlc_codegen" "${_codec_codegen_target}")
-  add_library("${WLC_TARGET}" STATIC "${_generated_source}")
-  add_dependencies("${WLC_TARGET}" "${WLC_TARGET}_wlc_codegen")
-  target_include_directories("${WLC_TARGET}" PUBLIC
-    "$<BUILD_INTERFACE:${_output_dir}>")
-  target_compile_features("${WLC_TARGET}" PUBLIC c_std_11)
-  target_link_libraries("${WLC_TARGET}" PUBLIC "${WLC_CODEC_TARGET}")
-  wirelink_wlc_configure_rpc_layout(TARGET "${WLC_TARGET}"
-    MODULE "${_runtime_name}" ENABLE "${WLC_RPC_LAYOUT}")
-
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_GENERATED_DIR "${_output_dir}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_SCHEMA "${_schema}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_PROFILE "${_profiles}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_EXECUTABLE "${_wlc}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_CODEC_TARGET "${WLC_CODEC_TARGET}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_RUNTIME_NAME "${_runtime_name}")
+  message(FATAL_ERROR "Separate legacy runtime generation was removed; use wirelink_wlc_generate with a profile v2")
 endfunction()
-
-# Compatibility composition entry point. New integrations should retain the
-# codec target and create one or more runtimes explicitly with the functions
-# above.
 function(wirelink_wlc_generate)
-  set(_options)
-  set(_one_value_args
-    TARGET
-    SCHEMA
-    PROFILE
-    PREVIOUS
-    OUTPUT_DIR
-    WLC_EXECUTABLE
-    RPC_LAYOUT)
-  cmake_parse_arguments(WLC
-    "${_options}" "${_one_value_args}" "" ${ARGN})
-
-  if(WLC_UNPARSED_ARGUMENTS)
-    message(FATAL_ERROR
-      "wirelink_wlc_generate received unknown arguments: "
-      "${WLC_UNPARSED_ARGUMENTS}")
+  cmake_parse_arguments(WLC "" "TARGET;SCHEMA;PROFILE;PREVIOUS;OUTPUT_DIR;WLC_EXECUTABLE" "PROFILES" ${ARGN})
+  if(WLC_UNPARSED_ARGUMENTS OR NOT WLC_TARGET OR NOT WLC_SCHEMA OR TARGET "${WLC_TARGET}")
+    message(FATAL_ERROR "wirelink_wlc_generate requires a new TARGET and SCHEMA; unknown arguments: ${WLC_UNPARSED_ARGUMENTS}")
   endif()
-  if(NOT WLC_TARGET)
-    message(FATAL_ERROR "wirelink_wlc_generate requires TARGET")
+  _wirelink_wlc_resolve("${WLC_WLC_EXECUTABLE}" compiler)
+  get_filename_component(schema "${WLC_SCHEMA}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+  execute_process(COMMAND "${compiler}" module-name "${schema}"
+    RESULT_VARIABLE module_status OUTPUT_VARIABLE module ERROR_VARIABLE module_error
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if(NOT module_status STREQUAL "0" OR NOT module MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
+    message(FATAL_ERROR "Cannot determine generated C module name: ${module_error}")
   endif()
-  if(NOT WLC_PROFILE)
-    wirelink_wlc_generate_codec(
-      TARGET "${WLC_TARGET}"
-      SCHEMA "${WLC_SCHEMA}"
-      PREVIOUS "${WLC_PREVIOUS}"
-      OUTPUT_DIR "${WLC_OUTPUT_DIR}"
-      WLC_EXECUTABLE "${WLC_WLC_EXECUTABLE}")
-    return()
-  endif()
-
-  set(_codec_target "${WLC_TARGET}_codec")
-  wirelink_wlc_generate_codec(
-    TARGET "${_codec_target}"
-    SCHEMA "${WLC_SCHEMA}"
-    PROFILE "${WLC_PROFILE}"
-    PREVIOUS "${WLC_PREVIOUS}"
-    OUTPUT_DIR "${WLC_OUTPUT_DIR}"
-    WLC_EXECUTABLE "${WLC_WLC_EXECUTABLE}")
-  wirelink_wlc_generate_runtime(
-    TARGET "${WLC_TARGET}"
-    CODEC_TARGET "${_codec_target}"
-    PROFILE "${WLC_PROFILE}"
-    OUTPUT_DIR "${WLC_OUTPUT_DIR}"
-    RPC_LAYOUT "${WLC_RPC_LAYOUT}")
-endfunction()
-
-include("${CMAKE_CURRENT_LIST_DIR}/WirelinkWlcBootstrap.cmake")
-
-function(_wirelink_wlc_resolve explicit_executable out_executable)
-  if(explicit_executable)
-    get_filename_component(_wlc "${explicit_executable}" ABSOLUTE
-      BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-    _wirelink_wlc_validate_executable("${_wlc}" _valid _reason)
-    if(NOT _valid)
-      message(FATAL_ERROR "WLC_EXECUTABLE '${_wlc}' ${_reason}")
-    endif()
-    set(${out_executable} "${_wlc}" PARENT_SCOPE)
-    return()
-  endif()
-
-  if(WIRELINK_WLC_EXECUTABLE)
-    get_filename_component(_wlc "${WIRELINK_WLC_EXECUTABLE}" ABSOLUTE
-      BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-    _wirelink_wlc_validate_executable("${_wlc}" _valid _reason)
-    if(NOT _valid)
-      message(FATAL_ERROR "WIRELINK_WLC_EXECUTABLE '${_wlc}' ${_reason}")
-    endif()
-    set(${out_executable} "${_wlc}" PARENT_SCOPE)
-    return()
-  endif()
-
-  find_program(_wlc_on_path NAMES wlc NO_CACHE NO_CMAKE_FIND_ROOT_PATH)
-  if(_wlc_on_path)
-    _wirelink_wlc_validate_executable("${_wlc_on_path}" _valid _reason)
-    if(_valid)
-      set(${out_executable} "${_wlc_on_path}" PARENT_SCOPE)
-      return()
-    endif()
-    message(STATUS
-      "Wirelink: ignoring host PATH compiler '${_wlc_on_path}': ${_reason}")
-  endif()
-
-  if(NOT WIRELINK_WLC_AUTO_DOWNLOAD)
-    message(FATAL_ERROR
-      "WLC ${WIRELINK_WLC_VERSION} was not found on the host PATH and "
-      "WIRELINK_WLC_AUTO_DOWNLOAD is OFF. Set WLC_EXECUTABLE for this call "
-      "or WIRELINK_WLC_EXECUTABLE for the project.")
-  endif()
-
-  _wirelink_wlc_bootstrap(_wlc)
-  set(${out_executable} "${_wlc}" PARENT_SCOPE)
-endfunction()
-
-# Generate one schema-level codec/bindings target. WLC is a host tool even
-# when the consuming target is cross compiled, so automatic discovery
-# deliberately ignores CMAKE_FIND_ROOT_PATH.
-function(wirelink_wlc_generate_codec)
-  set(_options)
-  set(_one_value_args
-    TARGET
-    SCHEMA
-    PROFILE
-    PREVIOUS
-    OUTPUT_DIR
-    WLC_EXECUTABLE)
-  cmake_parse_arguments(WLC
-    "${_options}" "${_one_value_args}" "" ${ARGN})
-
-  if(WLC_UNPARSED_ARGUMENTS)
-    message(FATAL_ERROR
-      "wirelink_wlc_generate_codec received unknown arguments: "
-      "${WLC_UNPARSED_ARGUMENTS}")
-  endif()
-  if(NOT WLC_TARGET)
-    message(FATAL_ERROR "wirelink_wlc_generate_codec requires TARGET")
-  endif()
-  if(TARGET "${WLC_TARGET}")
-    message(FATAL_ERROR
-      "wirelink_wlc_generate_codec target '${WLC_TARGET}' already exists")
-  endif()
-  if(NOT WLC_SCHEMA)
-    message(FATAL_ERROR "wirelink_wlc_generate_codec requires SCHEMA")
-  endif()
-
-  get_filename_component(_schema "${WLC_SCHEMA}" ABSOLUTE
-    BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-  if(NOT EXISTS "${_schema}")
-    message(FATAL_ERROR "Wirelink schema does not exist: ${_schema}")
-  endif()
-  get_filename_component(_module "${_schema}" NAME_WE)
-
-  if(WLC_PREVIOUS)
-    get_filename_component(_previous "${WLC_PREVIOUS}" ABSOLUTE
-      BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    if(NOT EXISTS "${_previous}")
-      message(FATAL_ERROR "Previous Wirelink schema does not exist: ${_previous}")
-    endif()
-  endif()
-
+  _wirelink_wlc_schema_dependencies("${compiler}" "${schema}" depends)
+  list(APPEND depends "${compiler}")
   if(WLC_OUTPUT_DIR)
-    get_filename_component(_output_dir "${WLC_OUTPUT_DIR}" ABSOLUTE
-      BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+    get_filename_component(output "${WLC_OUTPUT_DIR}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
   else()
-    set(_output_dir
-      "${CMAKE_CURRENT_BINARY_DIR}/wirelink-generated/${WLC_TARGET}")
+    set(output "${CMAKE_CURRENT_BINARY_DIR}/wirelink-generated/${WLC_TARGET}")
   endif()
-
-  _wirelink_wlc_resolve("${WLC_WLC_EXECUTABLE}" _wlc)
-
-  set(_generated
-    "${_output_dir}/${_module}.h"
-    "${_output_dir}/${_module}_values.h"
-    "${_output_dir}/${_module}.c"
-    "${_output_dir}/${_module}_bindings.h"
-    "${_output_dir}/${_module}_bindings.c"
-    "${_output_dir}/${_module}_manifest.json")
-  set(_generated_sources
-    "${_output_dir}/${_module}.c"
-    "${_output_dir}/${_module}_bindings.c")
-  set(_manifest "${_output_dir}/${_module}_manifest.json")
-  set(_command
-    "${_wlc}" compile "${_schema}" --out-dir "${_output_dir}")
-  _wirelink_wlc_schema_dependencies("${_wlc}" "${_schema}" _schema_dependencies)
-  set(_depends ${_schema_dependencies} "${_wlc}")
+  set(command "${compiler}" compile "${schema}" --out-dir "${output}")
+  set(profiles ${WLC_PROFILES})
   if(WLC_PROFILE)
-    get_filename_component(_profile "${WLC_PROFILE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    if(NOT EXISTS "${_profile}")
-      message(FATAL_ERROR "Wirelink binding profile does not exist: ${_profile}")
-    endif()
-    list(APPEND _command --profile "${_profile}")
-    list(APPEND _depends "${_profile}")
+    list(APPEND profiles "${WLC_PROFILE}")
   endif()
+  foreach(profile IN LISTS profiles)
+    get_filename_component(profile "${profile}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND command --profile "${profile}")
+    list(APPEND depends "${profile}")
+  endforeach()
   if(WLC_PREVIOUS)
-    list(APPEND _command --previous "${_previous}")
-    _wirelink_wlc_schema_dependencies("${_wlc}" "${_previous}" _previous_dependencies)
-    list(APPEND _depends ${_previous_dependencies})
+    get_filename_component(previous "${WLC_PREVIOUS}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    list(APPEND command --previous "${previous}")
+    _wirelink_wlc_schema_dependencies("${compiler}" "${previous}" previous_depends)
+    list(APPEND depends ${previous_depends})
   endif()
-  set(_codegen_stamp "${_output_dir}/.${_module}-wlc-codec.stamp")
-  set(_manifest_verifier
-    "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/WirelinkWlcVerifyManifest.cmake")
-  add_custom_command(
-    OUTPUT "${_codegen_stamp}"
-    BYPRODUCTS ${_generated}
-    COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output_dir}"
-    COMMAND ${_command}
-    COMMAND "${CMAKE_COMMAND}"
-      "-DWIRELINK_WLC_MANIFEST=${_manifest}"
-      "-DWIRELINK_WLC_EXPECTED_VERSION=${WIRELINK_WLC_VERSION}"
-      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MAJOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}"
-      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MINOR=${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}"
-      -P "${_manifest_verifier}"
-    COMMAND "${CMAKE_COMMAND}" -E touch "${_codegen_stamp}"
-    DEPENDS ${_depends} "${_manifest_verifier}"
-    COMMENT "Generating Wirelink codec and bindings for ${_module}.wl"
-    COMMAND_EXPAND_LISTS
-    VERBATIM)
-
-  set_source_files_properties(${_generated_sources} PROPERTIES GENERATED TRUE)
-  add_custom_target("${WLC_TARGET}_wlc_codegen" DEPENDS "${_codegen_stamp}")
-  add_library("${WLC_TARGET}" STATIC ${_generated_sources})
-  add_dependencies("${WLC_TARGET}" "${WLC_TARGET}_wlc_codegen")
-  target_include_directories("${WLC_TARGET}" PUBLIC
-    "$<BUILD_INTERFACE:${_output_dir}>")
-  target_compile_features("${WLC_TARGET}" PUBLIC c_std_11)
-  if(TARGET Wirelink::wirelink)
-    target_link_libraries("${WLC_TARGET}" PUBLIC Wirelink::wirelink)
-  elseif(TARGET wirelink)
-    target_link_libraries("${WLC_TARGET}" PUBLIC wirelink)
+  set(generated "${output}/${module}.c" "${output}/${module}.h" "${output}/${module}_values.h")
+  set(sources "${output}/${module}.c")
+  if(profiles)
+    list(APPEND generated "${output}/${module}_kernel.c" "${output}/${module}_kernel.h"
+      "${output}/${module}_kernel_codecs.h" "${output}/${module}_kernel_deployment.json")
+    list(APPEND sources "${output}/${module}_kernel.c")
+    set(manifest "${output}/${module}_kernel_manifest.json")
+    # The compiler's explicit deployment chooses exactly one connector. Compile
+    # it only when emitted; this CMake selection is not a runtime dispatcher.
+    execute_process(COMMAND ${command} RESULT_VARIABLE status ERROR_VARIABLE error OUTPUT_QUIET)
+    if(NOT status STREQUAL "0")
+      message(FATAL_ERROR "WLC profile validation/generation failed: ${error}")
+    endif()
+    if(EXISTS "${output}/${module}_kernel_transport.c")
+      list(APPEND sources "${output}/${module}_kernel_transport.c")
+      list(APPEND generated "${output}/${module}_kernel_transport.c" "${output}/${module}_kernel_transport.h")
+      file(READ "${output}/${module}_kernel_deployment.json" deployment)
+      string(JSON envelope GET "${deployment}" envelope)
+      if(envelope STREQUAL "cobs_stream")
+        set(connector Wirelink::stream_cobs_crc16)
+      else()
+        set(connector Wirelink::stream_length16_none)
+      endif()
+    endif()
   else()
-    message(FATAL_ERROR
-      "wirelink_wlc_generate_codec requires the Wirelink::wirelink target")
+    set(manifest "${output}/${module}_manifest.json")
   endif()
-
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_GENERATED_DIR "${_output_dir}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_SCHEMA "${_schema}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_EXECUTABLE "${_wlc}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_CODEGEN_STAMP "${_codegen_stamp}")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_CODEGEN_TARGET "${WLC_TARGET}_wlc_codegen")
-  set_property(TARGET "${WLC_TARGET}" PROPERTY
-    WIRELINK_WLC_CODEC_MODULE "${_module}")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${profiles})
+  set(verifier "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/WirelinkWlcVerifyManifest.cmake")
+  add_custom_command(OUTPUT ${generated} "${manifest}"
+    COMMAND ${command}
+    COMMAND "${CMAKE_COMMAND}" "-DWIRELINK_WLC_MANIFEST=${manifest}"
+      "-DWIRELINK_WLC_EXPECTED_VERSION=${WIRELINK_WLC_VERSION}"
+      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MAJOR=0" "-DWIRELINK_WLC_EXPECTED_CONTRACT_MINOR=13"
+      -P "${verifier}"
+    DEPENDS ${depends} "${verifier}" VERBATIM COMMAND_EXPAND_LISTS)
+  add_library(${WLC_TARGET} STATIC ${sources})
+  target_include_directories(${WLC_TARGET} PUBLIC "${output}")
+  target_compile_features(${WLC_TARGET} PUBLIC c_std_11)
+  if(profiles)
+    target_link_libraries(${WLC_TARGET} PUBLIC Wirelink::kernel ${connector})
+  else()
+    target_link_libraries(${WLC_TARGET} PUBLIC Wirelink::types)
+  endif()
+  set_property(TARGET ${WLC_TARGET} PROPERTY WIRELINK_WLC_GENERATED_DIR "${output}")
+  set_property(TARGET ${WLC_TARGET} PROPERTY WIRELINK_WLC_SCHEMA "${schema}")
+endfunction()
+function(wirelink_wlc_generate_codec)
+  cmake_parse_arguments(C "" "PROFILE" "PROFILES" ${ARGN})
+  if(C_PROFILE OR C_PROFILES)
+    message(FATAL_ERROR "Use wirelink_wlc_generate for a profile-specific endpoint; codec-only generation has no execution profile")
+  endif()
+  wirelink_wlc_generate(${ARGN})
 endfunction()

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-project(CalculatorSdk VERSION 0.12.0 LANGUAGES C CXX)
+project(CalculatorSdk VERSION 0.13.0 LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-find_package(Wirelink 0.12.0 EXACT CONFIG REQUIRED)
+find_package(Wirelink 0.13.0 EXACT CONFIG REQUIRED COMPONENTS cpp_host)
 foreach(dependency cpp_host platform)
   if(NOT TARGET Wirelink::${dependency})
     message(FATAL_ERROR "Install Wirelink with CPP_BINDINGS and PLATFORM enabled")
@@ -14,14 +14,14 @@ endforeach()
 # Checked-in C artifacts make the source distribution independent of a WLC
 # checkout/compiler. Verify the paired compiler and codegen contract before
 # compiling any generated C.
-set(WIRELINK_WLC_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/generated/calculator_manifest.json")
+set(WIRELINK_WLC_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/generated/calculator_kernel_manifest.json")
 set(WIRELINK_WLC_EXPECTED_VERSION "${WIRELINK_WLC_VERSION}")
 set(WIRELINK_WLC_EXPECTED_CONTRACT_MAJOR "${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}")
 set(WIRELINK_WLC_EXPECTED_CONTRACT_MINOR "${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}")
 include("${Wirelink_DIR}/WirelinkWlcVerifyManifest.cmake")
 
 add_library(calculator_client STATIC src/client.cpp src/endpoint.c generated/calculator.c
-  generated/calculator_bindings.c generated/calculator_runtime.c)
+  generated/calculator_kernel.c)
 add_library(CalculatorSdk::client ALIAS calculator_client)
 set_target_properties(calculator_client PROPERTIES EXPORT_NAME client
   POSITION_INDEPENDENT_CODE ON C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO
@@ -32,13 +32,8 @@ target_include_directories(calculator_client PUBLIC
   $<INSTALL_INTERFACE:include>
   PRIVATE generated)
 target_link_libraries(calculator_client PUBLIC Wirelink::cpp_host PRIVATE Wirelink::platform)
-option(CALCULATOR_RPC_LAYOUT_ENABLE "Mark generated RPC ELF sections (rebuild archive to change)"
-  ${WIRELINK_WLC_RPC_LAYOUT_ENABLE})
-wirelink_wlc_configure_rpc_layout(TARGET calculator_client MODULE calculator
-  ENABLE "${CALCULATOR_RPC_LAYOUT_ENABLE}")
-get_target_property(_rpc_layout calculator_client WIRELINK_WLC_RPC_LAYOUT_ENABLE)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/wlc-sdk-build.json"
-  "{\n  \"format\": \"wirelink-sdk-build-v1\",\n  \"namespace\": \"calculator\",\n  \"rpc_layout_enable\": ${_rpc_layout}\n}\n")
+  "{\n  \"format\": \"wirelink-sdk-build-v2\",\n  \"namespace\": \"calculator\",\n  \"kernel_contract\": 1\n}\n")
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/wlc-sdk-build.json"
   DESTINATION ${CMAKE_INSTALL_DATADIR}/calculator COMPONENT development)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -66,7 +61,7 @@ if(CALCULATOR_BUILD_PYTHON)
     OUTPUT_VARIABLE _nanobind_dir OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)
   find_package(nanobind 3 CONFIG REQUIRED PATHS "${_nanobind_dir}")
-  foreach(dependency wirelink host asio_udp platform cpp_host)
+  foreach(dependency kernel host asio_udp platform cpp_host)
     get_target_property(_type Wirelink::${dependency} TYPE)
     if(NOT _type STREQUAL "STATIC_LIBRARY")
       message(FATAL_ERROR "The self-contained SDK wheel requires static Wirelink::${dependency}")

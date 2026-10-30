@@ -51,16 +51,12 @@ struct wlc_python_signal_handle {
 
 NB_MODULE(_native, module) {
   module.attr("core_version") = WIRELINK_VERSION_STRING;
-  module.attr("codegen_contract") = "0.12";
-  module.attr("binding_api") = 2;
+  module.attr("codegen_contract") = "0.13";
+  module.attr("binding_api") = 3;
   nb::class_<wirelink::Error>(module, "Error")
       .def_prop_ro("kind", [](const wirelink::Error& e) { return wirelink::error_kind_name(e.kind); })
       .def_prop_ro("status", [](const wirelink::Error& e) { return e.completion.status; })
-      .def_prop_ro("rejection", [](const wirelink::Error& e) { return e.completion.rejection; })
-      .def_prop_ro("local_error", [](const wirelink::Error& e) { return e.completion.local_error; })
-      .def_prop_ro("transport_error", [](const wirelink::Error& e) { return e.completion.transport_error; })
-      .def_prop_ro("runtime_error", [](const wirelink::Error& e) { return e.completion.runtime_error; })
-      .def_prop_ro("codec_error", [](const wirelink::Error& e) { return e.completion.codec_error; })
+      .def_prop_ro("outcome", [](const wirelink::Error& e) { return static_cast<int>(e.completion.outcome); })
       .def_prop_ro("os_error", [](const wirelink::Error& e) { return e.system_error.value(); })
       .def_prop_ro("os_message", [](const wirelink::Error& e) { return e.system_error.message(); });
   module.def("closed_error", [] { return wirelink::Error::local(WL_ERR_NOT_INITIALIZED); });

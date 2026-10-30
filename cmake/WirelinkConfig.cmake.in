@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 @PACKAGE_INIT@
 include("${CMAKE_CURRENT_LIST_DIR}/WirelinkTargets.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/WirelinkWlc.cmake")
 # Optional wrappers/transports never impose C++ or an OS dependency on C users.
 function(_wirelink_load_component component)
   set(Wirelink_${component}_FOUND FALSE PARENT_SCOPE)

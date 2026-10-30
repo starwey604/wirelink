@@ -197,7 +197,7 @@ static inline wl_codec_status_t wlc_emit_fields(const wlc_desc_t *d, const void 
 
 static inline wl_codec_status_t wlc_encode(const wlc_desc_t *d, const void *value,
                                     uint8_t *out, size_t cap, size_t *length) {
-  size_t n;
+  size_t n = 0U;
   wl_codec_status_t s = wlc_measure(d, value, &n);
   if (s != WL_CODEC_OK || length == NULL || (n != 0U && out == NULL))
     return s == WL_CODEC_OK ? WL_CODEC_ERR_INVALID_VALUE : s;
@@ -309,61 +309,6 @@ static inline wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *i
   }
   return WL_CODEC_OK;
 }
-/* Generator-private canonical sink. Only successful decode results enter here.
- * The shared emitter orders known fields, drops unknowns, and preserves presence.
- * Scalar bytes use the ordinary endian/varint writers; no raw-frame hashing. */
-typedef struct {
-  uint64_t hash;
-  size_t length;
-  wl_codec_status_t status;
-} wlc_hash_state_t;
-static inline wl_codec_status_t wlc_hash_emit_fields(const wlc_desc_t *, const void *, wlc_hash_state_t *);
-static void wlc_hash_copy_span(wlc_hash_state_t *out, const void *data, size_t length) {
-  const uint8_t *bytes = data;
-  if (out->status != WL_CODEC_OK) return;
-  out->status = wlc_add(&out->length, length);
-  if (out->status != WL_CODEC_OK) return;
-  uint64_t hash = out->hash;
-  for (size_t i = 0U; i < length; ++i)
-    hash = (hash ^ bytes[i]) * UINT64_C(0x100000001b3);
-  out->hash = hash;
-}
-static inline void wlc_hash_putv(wlc_hash_state_t *out, uint64_t value) {
-  uint8_t bytes[10], *cursor = bytes;
-  wlc_putv(&cursor, value);
-  wlc_hash_copy_span(out, bytes, (size_t)(cursor - bytes));
-}
-static inline void wlc_hash_put_key(wlc_hash_state_t *out, const wlc_field_t *f) {
-  wlc_hash_copy_span(out, f->key, f->key_size);
-}
-static wl_codec_status_t wlc_hash_emit_value(const wlc_field_t *f, const void *p,
-                                        wlc_hash_state_t *out) {
-  (void)p; (void)out;
-  switch (f->kind) {
-    case WLC_I32:
-      wlc_hash_putv(out, wlc_z32(*(const int32_t *)p)); return WL_CODEC_OK;
-    default: return WL_CODEC_ERR_INVALID_VALUE;
-  }
-}
-static inline wl_codec_status_t wlc_hash_emit_fields(const wlc_desc_t *d, const void *value,
-                                         wlc_hash_state_t *out) {
-  for (size_t i = 0U; i < d->count; ++i) {
-    const wlc_field_t *f = &d->fields[i];
-    const uint8_t *base = value;
-    size_t count = f->card == WLC_OPTIONAL
-                       ? (*(const bool *)(base + f->has) ? 1U : 0U)
-                       : *(const size_t *)(base + f->count);
-    for (size_t j = 0U; j < count; ++j) {
-      const void *p = f->card == WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
-      wl_codec_status_t s;
-      wlc_hash_put_key(out, f);
-      if ((s = wlc_hash_emit_value(f, p, out)) != WL_CODEC_OK) return s;
-    }
-  }
-  return WL_CODEC_OK;
-}
 static const wlc_desc_t add_request_desc;
 static const wlc_desc_t add_response_desc;
 
@@ -384,35 +329,11 @@ size_t add_request_encoded_size(const add_request_t *value) { size_t size; retur
 wl_codec_status_t add_request_encode(const add_request_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&add_request_desc, value, out, cap, length); }
 wl_codec_status_t add_request_decode(const uint8_t *input, size_t length, add_request_t *out) { return wlc_decode(&add_request_desc, input, length, out); }
 
-/* Generator-private: value must be the unmodified result of successful decode.
- * hash supplies the caller domain seed; codec has no RPC identity policy. */
-wl_codec_status_t add_request_wlc_detail_fingerprint(const add_request_t *value, uint64_t *hash, size_t *length) {
-  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
-  wl_codec_status_t status = wlc_hash_emit_fields(&add_request_desc, value, &state);
-  if (status != WL_CODEC_OK) return status;
-  if (state.status != WL_CODEC_OK) return state.status;
-  *hash = state.hash;
-  *length = state.length;
-  return WL_CODEC_OK;
-}
-
 static inline wl_codec_status_t add_response_wlc_detail_measure(const add_response_t *value, size_t *size) { return wlc_measure(&add_response_desc, value, size); }
 void add_response_clear(add_response_t *value) { if (value != NULL) wlc_clear(&add_response_desc, value); }
 size_t add_response_encoded_size(const add_response_t *value) { size_t size; return wlc_measure(&add_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
 wl_codec_status_t add_response_encode(const add_response_t *value, uint8_t *out, size_t cap, size_t *length) { return wlc_encode(&add_response_desc, value, out, cap, length); }
 wl_codec_status_t add_response_decode(const uint8_t *input, size_t length, add_response_t *out) { return wlc_decode(&add_response_desc, input, length, out); }
-
-/* Generator-private: value must be the unmodified result of successful decode.
- * hash supplies the caller domain seed; codec has no RPC identity policy. */
-wl_codec_status_t add_response_wlc_detail_fingerprint(const add_response_t *value, uint64_t *hash, size_t *length) {
-  wlc_hash_state_t state = {*hash, 0U, WL_CODEC_OK};
-  wl_codec_status_t status = wlc_hash_emit_fields(&add_response_desc, value, &state);
-  if (status != WL_CODEC_OK) return status;
-  if (state.status != WL_CODEC_OK) return state.status;
-  *hash = state.hash;
-  *length = state.length;
-  return WL_CODEC_OK;
-}
 
 /* A descriptor embeds the ordinary wire plan as its first member. Owned
  * lengths/data use actual member offsets; no view struct aliases an owned one. */
@@ -658,4 +579,3 @@ wl_codec_status_t add_response_value_decode(const uint8_t *input, size_t length,
   *out = value;
   return WL_CODEC_OK;
 }
-

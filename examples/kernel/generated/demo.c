@@ -731,4 +731,3 @@ wl_codec_status_t event_value_decode(const uint8_t *input, size_t length, event_
   *out = value;
   return WL_CODEC_OK;
 }
-

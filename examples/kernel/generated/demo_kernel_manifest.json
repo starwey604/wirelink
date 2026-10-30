@@ -2,8 +2,8 @@
   "format": "wirelink-codegen-manifest-v1",
   "compiler": {
     "name": "wlc",
-    "version": "0.12.0",
-    "codegen_contract": {"major": 0, "minor": 12}
+    "version": "0.13.0",
+    "codegen_contract": {"major": 0, "minor": 13}
   },
   "module": "demo",
   "identity": {
@@ -21,7 +21,7 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "demo.c", "size": 29863, "digest": "0x50b0e7d83b7e36fd"},
+    {"path": "demo.c", "size": 29862, "digest": "0xcdb6725fd5c3ac85"},
     {"path": "demo.h", "size": 2328, "digest": "0x4015370b3f25699e"},
     {"path": "demo_kernel.c", "size": 5097, "digest": "0xf3816e3f4d1de2e2"},
     {"path": "demo_kernel.h", "size": 1647, "digest": "0x9a2f33823025cd97"},

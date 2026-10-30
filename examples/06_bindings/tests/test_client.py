@@ -30,7 +30,7 @@ def peer():
 
 
 def test_values_and_context(peer):
-    assert core_version == "0.12.0" and codegen_contract == "0.12"
+    assert core_version == "0.13.0" and codegen_contract == "0.13"
     with Client.connect(Udp(peer=peer)) as client:
         assert client.is_open and client.local_port > 0
         for i in range(100):
@@ -39,8 +39,7 @@ def test_values_and_context(peer):
         assert client.add_request(AddRequest(-10, 52)).sum == 42
         with pytest.raises(RejectedError) as rejected:
             client.add(left=2**31 - 1, right=1)
-        assert rejected.value.rejection == 1
-        assert rejected.value.local_error == rejected.value.transport_error == 0
+        assert rejected.value.status == 1
     assert response.sum == 42 and not client.is_open
     client.close()
     with pytest.raises(ClosedError):
@@ -72,7 +71,7 @@ def test_close_pending_releases_gil():
             a, b = pool.submit(client.close), pool.submit(client.close)
             a.result(timeout=3)
             b.result(timeout=3)
-            with pytest.raises(CancelledError):
+            with pytest.raises(ClosedError):
                 pending.result(timeout=3)
             assert time.monotonic() - start < 3
         client.close()
