@@ -61,10 +61,31 @@ diagnostic callback. The owner supplies time; deadlines use bounded u32 modular
 arithmetic. Close schedules one terminal outcome per still-waiting call and
 continues draining physical completion before quiescence.
 
-The shared-kernel unit fixture uses a deliberately small test codec; it does
-not establish generated business-codec or USB interoperability. Still pending:
-WLC-generated routing, product USB integration and the K1 end-to-end matrix.
-Passing these tests does not establish K1 completion or performance improvement.
+The shared-kernel unit fixture uses a deliberately small test codec. The separate
+`generated_usb` fixture uses real WLC-generated Setpoint/Control RPC and
+Sample/StreamChunk/Progress routes over the same packet port and kernel. The
+business schema is copied byte-for-byte from frozen A; its profile is explicitly
+migrated to version 2. WLC rejects removed reliable/replay/mapped/deferred
+declarations rather than translating them to the new semantics.
+
+Build the matching generator and enable this fixture explicitly:
+
+```sh
+cargo build --manifest-path wlc/Cargo.toml
+cmake -S experimental/static_kernel -B build/static-kernel \
+  -DWIRELINK_KERNEL_WLC_EXECUTABLE="$PWD/wlc/target/debug/wlc"
+cmake --build build/static-kernel --parallel
+ctest --test-dir build/static-kernel --output-on-failure
+```
+
+The fixture covers four concurrent calls, out-of-order and duplicate replies,
+both RPC directions, reply-pool backpressure before side effects, BUSY without
+handler reexecution, a response arriving before TX drain, late timeout replies,
+business rejection, malformed request/response bodies, response encode failure,
+and all seven message types including maximum ControlResponse/StreamChunk data.
+These are software fixture handlers; benchmark identity/control handlers and
+the product USB adapter remain to be integrated. K1 completion and performance
+acceptance have not been established.
 
 The native/NONE connector now writes the four-byte ordinary DATA prefix in
 place and validates incoming packets without a general frame encoder, selector,

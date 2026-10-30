@@ -30,4 +30,25 @@ if(BUILD_TESTING)
   add_executable(kernel_test tests/kernel.c)
   target_link_libraries(kernel_test PRIVATE wirelink_kernel)
   add_test(NAME kernel COMMAND kernel_test)
+  set(WIRELINK_KERNEL_WLC_EXECUTABLE "" CACHE FILEPATH "WLC with compile-kernel support")
+  if(WIRELINK_KERNEL_WLC_EXECUTABLE)
+    set(_generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    add_custom_command(OUTPUT ${_generated}/usb.c ${_generated}/usb.h
+        ${_generated}/usb_values.h ${_generated}/usb_kernel.c ${_generated}/usb_kernel.h
+        ${_generated}/usb_kernel_codecs.h
+        ${_generated}/usb_kernel_manifest.json ${_generated}/usb_kernel_deployment.json
+      COMMAND ${WIRELINK_KERNEL_WLC_EXECUTABLE} compile-kernel
+        ${CMAKE_CURRENT_SOURCE_DIR}/schema/usb.wl
+        --profile ${CMAKE_CURRENT_SOURCE_DIR}/schema/usb.bind.wl --out-dir ${_generated}
+      DEPENDS ${WIRELINK_KERNEL_WLC_EXECUTABLE} schema/usb.wl schema/usb.bind.wl VERBATIM)
+    add_library(kernel_usb_fixture_codec ${_generated}/usb.c ${_generated}/usb_kernel.c)
+    target_include_directories(kernel_usb_fixture_codec PUBLIC ${_generated})
+    target_link_libraries(kernel_usb_fixture_codec PUBLIC wirelink_kernel)
+    target_compile_options(kernel_usb_fixture_codec PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    add_executable(generated_usb_test tests/generated_usb.c)
+    target_link_libraries(generated_usb_test PRIVATE kernel_usb_fixture_codec)
+    add_test(NAME generated_usb COMMAND generated_usb_test)
+  else()
+    message(STATUS "Generated endpoint tests need WIRELINK_KERNEL_WLC_EXECUTABLE")
+  endif()
 endif()
