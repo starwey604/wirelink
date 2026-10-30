@@ -14,6 +14,7 @@ from report import (add_output_arguments, emit, gate_settings, gate_rows,
 
 MODES = ("spare", "exact", "overlap", "send", "claim", "busy3", "retry3")
 RX_MODES = ("raw_decode", "cobs_decode", "receive")
+PURE_MODES = ("spare", "exact", "overlap", "raw_decode", "cobs_decode")
 UNITS = {"cpu_ns": "ns", "wall_ns": "ns", "cycles": "cycles"}
 GATED = {"cpu_ns"}
 
@@ -26,9 +27,11 @@ def positive(value):
 
 def host(report):
     context = report["context"]
-    if context.get("workload") not in ("wirelink-framing-v1", "wirelink-framing-v2"):
+    if context.get("workload") not in ("wirelink-framing-v1", "wirelink-framing-v2", "wirelink-framing-v3"):
         raise ValueError("unsupported host workload")
-    modes = MODES + RX_MODES if context["workload"].endswith("v2") else MODES
+    pure = context["workload"].endswith("v3")
+    modes = PURE_MODES if pure else MODES + RX_MODES if context["workload"].endswith("v2") else MODES
+    fixture_bytes = None
     groups = {}
     for row in report["benchmarks"]:
         if row.get("error_occurred"):
@@ -40,8 +43,13 @@ def host(report):
         if mode not in modes:
             raise ValueError(f"unknown mode: {name}")
         expected_calls = 4 if mode in ("busy3", "retry3") else 1 if mode in ("send", "claim") else 0
-        if row["sink_calls_per_op"] != expected_calls or row["context_bytes"] != 896:
+        if row["sink_calls_per_op"] != expected_calls or row["context_bytes"] != (0 if pure else 896):
             raise ValueError(f"workload invariant changed: {name}")
+        if pure:
+            current_size = positive(row["fixture_bytes"])
+            if fixture_bytes is not None and fixture_bytes != current_size:
+                raise ValueError("fixture layout changed within report")
+            fixture_bytes = current_size
         scale = {"ns": 1, "us": 1000, "ms": 1000000, "s": 1000000000}[row["time_unit"]]
         repeat = row.get("repetition_index", 0)
         samples = groups.setdefault(name, {})
@@ -55,7 +63,8 @@ def host(report):
         raise ValueError("incomplete repetitions")
     keys = ("workload", "host_name", "num_cpus", "caches", "library_version",
             "library_build_type", "benchmark_source_hash")
-    return ({"kind": "host", **{key: context.get(key) for key in keys}},
+    layout = {"fixture_bytes": fixture_bytes} if pure else {}
+    return ({"kind": "host", **layout, **{key: context.get(key) for key in keys}},
             {name: {"cpu_ns": [v[0] for v in samples.values()],
                     "wall_ns": [v[1] for v in samples.values()]} for name, samples in groups.items()})
 
@@ -70,18 +79,20 @@ def firmware(text):
             continue
         kind, *items = line[start:].split(",")
         fields = dict(item.split("=", 1) for item in items)
-        if kind in ("framing_cpu_begin_v1", "framing_cpu_begin_v2"):
+        if kind in ("framing_cpu_begin_v1", "framing_cpu_begin_v2", "framing_cpu_begin_v3"):
             if begin is not None or rows or end is not None:
                 raise ValueError("duplicate or misplaced begin")
             begin = {key: int(fields[key]) for key in ("hz", "context_bytes", "irq_masked_batch")}
             version = kind.rsplit("_", 1)[1]
             begin["workload"] = f"wirelink-framing-{version}"
-            if version == "v2":
+            if version in ("v2", "v3"):
                 begin["matrix"] = fields["matrix"]
                 if begin["matrix"] not in ("multi", "cobs-crc16"):
                     raise ValueError("unsupported firmware matrix")
             positive(begin["hz"])
-            if begin["context_bytes"] != 896 or begin["irq_masked_batch"] != 32:
+            if version == "v3":
+                begin["fixture_bytes"] = positive(int(fields["fixture_bytes"]))
+            if begin["context_bytes"] != (0 if version == "v3" else 896) or begin["irq_masked_batch"] != 32:
                 raise ValueError("firmware workload invariant changed")
         elif kind == f"framing_cpu_end_{version}":
             if begin is None or end is not None:
@@ -97,8 +108,9 @@ def firmware(text):
         else:
             raise ValueError(f"unknown framing record: {kind}")
     expected = set(itertools.product(MODES, (0, 1), (0,), range(3), (32, 120, 512, 2048), range(5)))
-    if version == "v2":
-        expected = {row for row in itertools.product(MODES + RX_MODES, range(3), range(3), range(3),
+    if version in ("v2", "v3"):
+        modes = PURE_MODES if version == "v3" else MODES + RX_MODES
+        expected = {row for row in itertools.product(modes, range(3), range(3), range(3),
                     (32, 120, 512, 2048), range(5))
                     if (row[0] not in ("raw_decode", "cobs_decode") or row[1] == 0)
                     and (begin["matrix"] != "cobs-crc16" or row[1:3] == (0, 1))}

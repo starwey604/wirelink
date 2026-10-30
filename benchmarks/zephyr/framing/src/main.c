@@ -14,8 +14,8 @@ int main(void) {
 #else
   const char *matrix = "multi";
 #endif
-  printk("framing_cpu_begin_v2,hz=%llu,context_bytes=%u,irq_masked_batch=32,matrix=%s\n",
-      (unsigned long long)timing_freq_get(), (unsigned)sizeof(wl_ctx_t), matrix);
+  printk("framing_cpu_begin_v3,hz=%llu,context_bytes=0,fixture_bytes=%u,irq_masked_batch=32,matrix=%s\n",
+      (unsigned long long)timing_freq_get(), (unsigned)sizeof(framing_fixture_t), matrix);
   unsigned groups = 0U;
   for (unsigned mode = 0U; mode < FRAMING_MODES; ++mode)
     for (int envelope = WL_ENVELOPE_COBS_STREAM; envelope <= WL_ENVELOPE_BUS_LENGTH16; ++envelope)
@@ -42,7 +42,7 @@ int main(void) {
               timing_t end = timing_counter_get();
               irq_unlock(key);
               __ASSERT_NO_MSG(error == WL_OK && framing_check(&fixture) == WL_OK);
-              printk("framing_cpu_v2,mode=%s,e=%d,i=%d,p=%u,b=%u,r=%u,n=32,cycles=%llu\n",
+              printk("framing_cpu_v3,mode=%s,e=%d,i=%d,p=%u,b=%u,r=%u,n=32,cycles=%llu\n",
                   framing_mode_name(mode), envelope, integrity, pattern, (unsigned)sizes[size], repeat,
                   (unsigned long long)timing_cycles_get(&begin, &end));
             }
@@ -51,6 +51,6 @@ int main(void) {
             ++groups;
           }
         }
-  printk("framing_cpu_end_v2,result=pass,groups=%u,samples=%u\n", groups, groups * 5U);
+  printk("framing_cpu_end_v3,result=pass,groups=%u,samples=%u\n", groups, groups * 5U);
   return 0;
 }

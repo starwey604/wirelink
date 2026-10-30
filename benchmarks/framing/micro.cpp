@@ -25,13 +25,14 @@ static void run(benchmark::State &state, unsigned mode, int envelope, int integr
   state.counters["sink_calls_per_op"] = state.iterations() ?
       double(fixture.calls - initial_calls) / double(state.iterations()) : 0;
   state.counters["encoded_bytes"] = double(fixture.exact_len);
-  state.counters["context_bytes"] = double(sizeof(wl_ctx_t));
+  state.counters["context_bytes"] = 0;
+  state.counters["fixture_bytes"] = double(sizeof(framing_fixture_t));
 }
 
 int main(int argc, char **argv) {
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
-  benchmark::AddCustomContext("workload", "wirelink-framing-v2");
+  benchmark::AddCustomContext("workload", "wirelink-framing-v3");
   for (unsigned mode = 0; mode < FRAMING_MODES; ++mode)
     for (int envelope : {WL_ENVELOPE_COBS_STREAM, WL_ENVELOPE_NATIVE_PACKET, WL_ENVELOPE_BUS_LENGTH16})
       for (int integrity : {WL_INTEGRITY_NONE, WL_INTEGRITY_CRC16, WL_INTEGRITY_CRC32C})

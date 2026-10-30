@@ -1,88 +1,23 @@
-# 帧收发与重试 CPU 基准
+# 独立帧工具 benchmark
 
-这个可选基准单独隔离无分配的 frame/link 工作。不需要 WLC、Asio、executor 或网络。
-真实双进程延迟和 executor 争用见 [API 基准](../api/README-cn.md)。
-[固件变体](../zephyr/README-cn.md)在 ESP32-S3 上复用同一份 C 负载。
+[English](README.md)。
 
-## 构建与运行
+当前 `wirelink-framing-v3` 只测公开 frame 工具的宽余容量、精确容量、重叠输入编码、
+raw 解码及 COBS 解码，不含端点或执行引擎。三种 envelope／integrity selector 属于
+独立工具；默认内核不经过它们。冻结 reliable DATA／ACK 编码向量保留，不代表端点
+仍支持可靠发送。
 
-安装 Google Benchmark 1.9+，或传入本地 checkout；本 target 不下载任何东西。
+旧 send／claim／busy3／retry3／engine receive 工作负载随旧引擎移除。
+所有权、BUSY、停止和物理完成合同由 packet kernel／adapter 测试验证；当前
+RPC／Sample 性能由独立静态内核 USB benchmark 测量。报告解析器保留 v1/v2 历史
+格式，但拒绝与 v3 跨工作负载比较。`context_bytes=0` 明确表示没有引擎，
+`fixture_bytes` 仅为本工具暂存区大小。
 
-```sh
-cmake -S . -B build/framing -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_FRAMING_BENCHMARK=ON \
-  -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/path/to/google-benchmark
-cmake --build build/framing --parallel 2
-ctest --test-dir build/framing --output-on-failure
-build/framing/benchmarks/framing/wirelink_framing_benchmark \
-  '--benchmark_filter=^(spare|exact|overlap|send|claim|busy3|retry3)/e[01]/i[02]/p[012]/b(32|120|512|2048)$' \
-  --benchmark_min_time=0.01s --benchmark_repetitions=5 \
-  --benchmark_enable_random_interleaving=true \
-  --benchmark_out=before.json --benchmark_out_format=json
-```
+构建、过滤和采集命令见英文页。Google Benchmark 依赖必须显式提供，CMake 不下载。
+记录源码、二进制 hash、编译器、flags 和机器，改源码前冻结二进制并立即 stamp 原始
+报告。比较器校验源码 hash、暂存布局、完整 repetition 和测量集合。
 
-**在修改核心源码之前**冻结基线二进制。在另一个目录构建 candidate，用 `after.json` 重复。
-把二进制 SHA-256、编译器/版本、CMake cache/flags、机器和源码 diff 与 JSON 一起记录。
-改完源码后不要重建基线目录。
-
-```sh
-python3 benchmarks/stamp.py before.json benchmarks/framing/workload.c \
-  benchmarks/framing/workload.h benchmarks/framing/micro.cpp
-python3 benchmarks/stamp.py after.json benchmarks/framing/workload.c \
-  benchmarks/framing/workload.h benchmarks/framing/micro.cpp
-python3 benchmarks/framing/compare.py before.json after.json
-python3 benchmarks/framing/test_compare.py
-```
-
-每次采集写盘后**立即** stamp，且必须在修改 workload 源码之前：
-`benchmark_source_hash` 记录的是产生该报告的基准代码；对比对 workload 源码
-哈希不同的两份报告判定为 incomparable（退出码 2），不会当成回归。
-
-对比会拒绝失败的负载、缺失/重复的重复、变化的 sink 数、context 大小或测量集合。
-报告每操作的中位 CPU 和 wall 纳秒。编译器/flags 需另外检查；JSON 不含完整构建身份。
-`--max-regression-percent 10` 是专用 runner 的可选 CPU 门槛，**不是**共享 runner 默认值。
-用更长、交替的 A/B/B/A 采集排查疑似回归。主机在跑其他 CPU 密集任务时，
-不要做性能验收；正确性 smoke 仍可运行，但其耗时不是性能证据。
-
-## 负载与判读
-
-| 模式 | 一次被测量的操作 |
-| --- | --- |
-| `spare` | 把一帧编码进按最坏情况大小、互不重叠的存储 |
-| `exact` | 编码进恰好等于独立计算出的编码长度 |
-| `overlap` | 先把输入拷进输出区域，再用重叠方式编码 |
-| `send` | 基于拷贝的不可靠发送与完成轮询 |
-| `claim` | claim、把字节拷进 claim、commit 并轮询完成 |
-| `busy3` | 不可靠发送，三次 BUSY，再同步 SENT |
-| `retry3` | 可靠发送，三次 ACK 超时重试，再 cancel/take 清理 |
-| `raw_decode` | 对已有 raw 帧完整解析并验证完整性 |
-| `cobs_decode` | 从不变的编码源复制，再原地 COBS decode 和完整 raw decode |
-| `receive` | 释放上一事件的 lease，feed、poll 并保留本帧事件供计时外校验 |
-
-`e0/e1/e2` 选择 COBS/native packet/length16。`i0/i1/i2` 选择 NONE/CRC16/CRC32C。
-`p0/p1/p2` 选择全零/非零/每 17 字节一个零的 payload。`bN` 是 payload 大小，不含链路头和完整性字节。
-v2 完整 host smoke 矩阵有 1,404 组，包含空 payload 和 254 字节边界。
-`raw_decode`／`cobs_decode` 只登记 `e0`，避免重复 raw 负载。
-
-紧缓冲在恰好等于最坏边界时仍可走快路径。`claim` 含一次 setup 拷贝，不是直接 codec 的零拷贝测量。
-`busy3` 在每次 BUSY 后显式发送 writable 通知；`busy3` 和 `retry3` 各做四次 sink 提交。
-它们测的是工作量，**不是**网络 RTT、丢包率或等待时间。
-时钟是模拟的；操作内部没有 sleep、adapter 或真实 I/O。
-
-初始化、预热和最终字节校验都在 Google Benchmark 计时循环外。
-oracle 独立构造 Compact-v1 raw header，调用 standalone CRC／COBS 工具。每操作返回/事件检查和常数时间计数 sink 计入计时。
-协议单元测试另查每次重试的字节、实际编码调用次数、I/O token 新鲜度和 ACK 存储隔离。
-
-RX 的 payload 字节比较在计时外；`cobs_decode` 的 setup 拷贝计入计时，`receive` 则包含真实 ring／fallback 与 lease 生命周期，不能把前者当作纯解码成本。
-`tests/zephyr/unit/framing_workload` 不依赖 Google Benchmark，验证全部负载和独立 bitwise CRC oracle。
-
-host 和 Zephyr 都可传 `-DWIRELINK_FRAMING_COBS_CRC16_ONLY=ON`，仅测 COBS＋CRC16。
-这只筛选诊断负载，**不改变 core 构建能力，也不代表 core 已专门化**。
-v2 Zephyr 输出的 `matrix` 字段记录此筛选：完整矩阵 936 组／4,680 条样本，筛选矩阵 120 组／600 条样本。
-比较器仍能读取历史 v1，但拒绝将 v1 与 v2、不同矩阵或不同 workload hash 作为同一负载比较。
-
-sanitizer smoke 另配一个 Clang 构建，使用
-`-DCMAKE_C_FLAGS='-fsanitize=address,undefined -fno-omit-frame-pointer'` 和相同的 `CMAKE_CXX_FLAGS`。
-不要把它与 Release 结果比时间。`WIRELINK_BUILD_FUZZERS=ON` 增加 `wirelink_fuzz_frame_encode`，
-对任意 payload、容量、别名和输出对齐检查三种封装。COBS 用 standalone 编码器作独立 oracle；
-packet 封装把重叠/未对齐输出与互不重叠的 native 参考对比。
+Zephyr 版本复用纯 C workload，输出完整 v3 begin/end 记录。每批 32 次时屏蔽中断，
+只说明工具固有成本，不能当作应用响应、端到端 CPU 或 USB 吞吐数据。
+独立按位 CRC／帧头、容量／别名向量继续位于
+`tests/zephyr/unit/framing_workload`；不需刷板即可运行。

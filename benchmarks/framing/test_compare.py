@@ -22,6 +22,38 @@ def firmware_report():
 
 
 class Reports(unittest.TestCase):
+    def test_v3_pure_host_and_layout_isolation(self):
+        report = host_report()
+        report["context"]["workload"] = "wirelink-framing-v3"
+        for row in report["benchmarks"]:
+            row.update(name="spare/e0/i1/p2/b120", sink_calls_per_op=0,
+                       context_bytes=0, fixture_bytes=12345)
+        parsed = compare.host(report)
+        list(compare.compare(parsed, parsed))
+        with self.assertRaises(ValueError):
+            compare.compare(parsed, compare.host(host_report()))
+        broken = copy.deepcopy(report)
+        broken["benchmarks"][0]["fixture_bytes"] += 1
+        with self.assertRaises(ValueError):
+            compare.host(broken)
+        broken = copy.deepcopy(report)
+        broken["benchmarks"][0]["name"] = "retry3/e0/i0/p2/b120"
+        with self.assertRaises(ValueError):
+            compare.host(broken)
+
+    def test_v3_complete_pure_firmware(self):
+        lines = ["framing_cpu_begin_v3,hz=240000000,context_bytes=0,fixture_bytes=12345,irq_masked_batch=32,matrix=cobs-crc16"]
+        for mode, p, b, r in itertools.product(compare.PURE_MODES, range(3),
+                (32, 120, 512, 2048), range(5)):
+            lines.append(f"framing_cpu_v3,mode={mode},e=0,i=1,p={p},b={b},r={r},n=32,cycles=17600")
+        lines.append("framing_cpu_end_v3,result=pass,groups=60,samples=300")
+        parsed = compare.firmware("\n".join(lines))
+        self.assertEqual(len(parsed[1]), 60)
+        with self.assertRaises(ValueError):
+            compare.firmware("\n".join(lines[:100] + lines[101:]))
+        with self.assertRaises(ValueError):
+            compare.firmware("\n".join(lines).replace("fixture_bytes=12345", "fixture_bytes=0"))
+
     def test_v2_firmware_rx_and_capability_matrix(self):
         for profile in ("multi", "cobs-crc16"):
             lines = [f"framing_cpu_begin_v2,hz=240000000,context_bytes=896,irq_masked_batch=32,matrix={profile}"]
