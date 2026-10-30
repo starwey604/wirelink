@@ -52,6 +52,14 @@ if(WIRELINK_BUILD_FOREIGN_TESTS)
   set(WIRELINK_BUILD_STORAGE ON)
   set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
+# Reject removed execution workloads rather than silently ignoring old CI knobs.
+foreach(_removed WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK WIRELINK_BUILD_BULK_BENCHMARK
+    WIRELINK_BUILD_RPC_PEER_BENCHMARK WIRELINK_BUILD_EXECUTOR_BENCHMARK
+    WIRELINK_BUILD_API_BENCHMARKS WIRELINK_BUILD_HOST_BENCHMARKS)
+  if(${_removed})
+    message(FATAL_ERROR "${_removed} was removed; see benchmarks/retired-execution-workloads.csv and current presets")
+  endif()
+endforeach()
 option(WIRELINK_BUILD_API_BENCHMARK "Build the fixed-contract kernel API microbenchmark" OFF)
 option(WIRELINK_BUILD_FRAMING_BENCHMARK "Build independent framing tool benchmark" OFF)
 if(DEFINED WIRELINK_LINK_PROFILE)

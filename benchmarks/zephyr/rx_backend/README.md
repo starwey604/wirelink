@@ -1,3 +1,5 @@
+> This historical endpoint RX-backend selector experiment is retired. Current physical adapter ownership tests and UART/USB samples use packet ports and a C-owned staging FIFO. This directory no longer builds firmware.
+
 # RX ring backend benchmark (ESP32-S3)
 
 [中文](README-cn.md).

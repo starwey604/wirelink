@@ -1,3 +1,5 @@
+> replay-cache peer hook 基准已删除。peer identity 和旧响应隔离由 `tests/session` 验证，不再提供 cache hook。
+
 # RPC peer 快路径基准
 
 [English](README.md)。这个主机微基准单独隔离可靠 RPC 请求前生成的 steady-session 检查。

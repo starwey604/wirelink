@@ -1,3 +1,5 @@
+> 旧 endpoint RX backend 选择器实验已停止维护，构建文件已删除。当前 packet port 和 C-owned staging FIFO 的所有权测试见 static_uart/static_usb，固件示例见 samples/zephyr。
+
 # RX ring backend 基准（ESP32-S3）
 
 [English](README.md)。

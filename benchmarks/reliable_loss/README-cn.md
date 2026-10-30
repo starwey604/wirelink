@@ -1,3 +1,5 @@
+> ARQ 执行引擎基准已删除。本目录仅保留历史报告读取器与测试。新合同的显式应用重试见 `../mixed_traffic` 和 `tests/session`，两类采集不能混比。
+
 # 可靠路径丢包基准
 
 [English](README.md)。

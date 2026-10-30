@@ -1,3 +1,5 @@
+> The ARQ engine workload has been retired. This directory retains historical report readers/tests only. Current explicit application retries are covered by `../mixed_traffic` and `tests/session`; captures are different workloads.
+
 # Reliable-path packet-loss benchmark
 
 [中文](README-cn.md).
