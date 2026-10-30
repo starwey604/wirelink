@@ -1,49 +1,38 @@
-# RPC platform, storage and CPU probes
+# RPC owner platform and storage probes
 
-A standalone validation app, not product firmware. Two Zephyr tasks exchange
-native packets through bounded RAM queues with latched data/credit notifications.
-One task owns each endpoint. This is not USB/UART/DMA hardware validation.
+A standalone validation application, with one owner task per C kernel. Two sole
+producers copy native packets into the peer's two RX units; SENT means the copy
+actually finished. Full RX applies backpressure and latched data/credit wakes.
+There is no USB/UART/DMA or physical network in this test.
 
-The sample checks one/four-slot endpoint creation from a two-block pool, allocation
-and init failure rollback, pool exhaustion, 100 synchronous string-bearing calls,
-rejection, a 2023-byte response, 20 asynchronous completions, and a separate task
-interrupting a long synchronous wait. Both owners stop/join before destruction;
-copied responses remain valid, and no endpoint allocator is called during RPCs.
+The application wrapper has a one-command pointer queue and callback-result
+handoff after the core pass returns. It has no operation matching table or RPC
+deadline executor. The kernel owns four calls/four replies. The wrapper accounts
+for time in its outer queue before core admission; failed admission creates no
+core call or later callback. Borrowed responses are copied before callback exit,
+and callers can release job storage only after callback/step completion.
 
-It reports cycle-counter frequency, endpoint bytes, wait counts and unused stack.
-`scheduled_RAM` measures 100 round trips with interrupts/scheduling enabled and a
-completion-containing owner pass, not isolated RPC completion CPU cost. Separate
-bounded IRQ-off batches measure an idle step, encode/decode of 2023 bytes and
-volatile full-value copy after other tasks have joined. No subtractive timer
-overhead correction is applied. The IRQ-enabled round-trip measurement uses the
-system cycle clock to include sleep. Simulator cycles and stacks are not hardware
-measurements; QEMU numbers are functional diagnostics only.
+Checks include fixed-pool init failure rollback and exhaustion; four concurrent
+calls with the peer owner paused; fifth-call rejection; actual RX-full/credit
+recovery; 100 synchronous string/NUL calls; business rejection; a 2023-byte
+response; expired outer-queue admission; and a third task waking a long wait to
+close. Both owners and all producer tasks join before freeing pool storage.
+Copied values remain valid and hot RPC work performs no allocations. Idle owners
+must sleep instead of exchanging endless notifications. The old one-slot knob
+is explicitly rejected.
 
-## Build and run
-
-From an initialized Zephyr workspace:
-
-```sh
-west build -s /path/to/wirelink/samples/zephyr/rpc_platform -b native_sim \
-  -d /path/to/build/rpc-platform-native -- \
-  -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
-```
-
-Repeat with a separate directory and `-DWIRELINK_RPC_TEST_CAPACITY=1`. The sample
-matrix runs `native_sim`, RISC-V and x86_64 QEMU.
-
-## ESP32-S3 hardware run
+Cycle/stack output is diagnostic. Scheduled RAM round trips include task and
+wait work; bounded IRQ-off idle/codec/full-value-copy batches run only after
+other tasks join. The idle core has zero clock reads. Native virtual cycles may
+be zero; QEMU/native values and reported stacks are not physical hardware CPU
+measurements or comparisons with the removed runtime.
 
 ```sh
-west build -b esp32s3_devkitc/esp32s3/procpu \
-  /path/to/wirelink/samples/zephyr/rpc_platform -d build/rpc-platform-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
-west flash -d build/rpc-platform-hw
-python benchmarks/zephyr/capture_serial.py \
-  --port /dev/ttyACM0 --out rpc-platform.log --until "ALL PASS" --seconds 120
+west twister -T /path/to/wirelink/samples/zephyr/rpc_platform \
+  -p native_sim -p qemu_riscv32 -p qemu_x86_64 \
+  --extra-args WIRELINK_WLC_EXECUTABLE=/path/to/matching/wlc
 ```
 
-`boards/esp32s3_devkitc_esp32s3_procpu.overlay` routes the console to the board
-USB Serial/JTAG port. Record the board clocks/cache configuration, RAM and build
-flags with the result, and do not compare hardware numbers with simulator numbers.
+Expected marker: `RPC_PLATFORM ALL PASS`. A production application must provide
+a fresh initialization identity and define its own retry/idempotency/long-job
+protocol. This in-process fixture uses fresh monotonically allocated identities.

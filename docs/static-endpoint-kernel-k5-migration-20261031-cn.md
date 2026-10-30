@@ -111,3 +111,9 @@ udp_validation 移除旧 ARQ／CRC selector／replay／inspect-release 用例，
 endpoint_clock 改为 owner 显式传 now，验证 idle 后首调用、短 handler／拒绝／未安装 handler 的本地 timeout，并断言 admission／codec／core 不取时钟。20,000 次 idle step 的 core clock reads 为零，仅报当前诊断 cycles。rpc_usability 固定四槽，验证第五次拒绝、callback 再提交、反向拒绝、UTF-8/NUL、完整 2023 B owned response、物理 TX 仍被借用时的回绕 timeout、真实 stop/drain 及新实例旧 handle 拒绝。原 one-slot knob 删除且明确失败；四槽大响应在 Cortex-M3 64 KiB 也实际跑通，没有缩 schema／server-only。
 
 首次八配置失败来自两条 fixture 假设：未安装 handler 的 step 会返回 NOT_SUPPORTED；timeout 后停止仍借用 TX 的模型 driver 会发布 TX_ERROR，step 报 IO。按明确场景接收这些错误，仍断言本地唯一 terminal、未提前释放的物理 lease、最终 quiescent；未修改 core、未 xfail。修正后 native／M3／RISC-V／x86_64 **8/8** 运行通过。共用 loopback helper 的 fixture 身份改为每次初始化递增；生产仍必须提供真实 fresh identity。日志 `twister-clock-rpc*`。
+
+## 两 owner、固定池及同步等待 sample
+
+rpc_platform 使用同一 C kernel 与每端一个 owner task，两个单生产者实际 copy 到 peer RX unit 后才返回 SENT；满 RX 通过真实空间与锁存通知解锁。外层仅一项命令指针队列和 callback 返回／core pass 后的完成交接，不建 RPC matching 表或 deadline 引擎。固定池由应用显式 allocate/init/free；初始化失败回滚、池满、join 前不释放，热路径无分配。
+
+peer 暂停时实际填满 RX、四调用接纳／第五次拒绝，恢复后全部完成；100 次同步 UTF-8/NUL 调用、业务拒绝、2023 B response、外层队列已过期不创建 core call、第三任务唤醒长等待 close、双 owner／producer join、池回收及 idle 不自旋均通过。native／RISC-V／x86_64 **3/3**；软件 cycles/stack 仅诊断，native 虚拟 cycles 为零如实保留，IRQ-off 有界 primitive 批次只在其他线程 join 后执行，core reads=0。不重现旧一槽／create facade。日志 `twister-rpc-platform*`。

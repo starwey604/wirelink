@@ -13,5 +13,3 @@ common:
     regex: ['RPC_PLATFORM ALL PASS']
 tests:
   sample.wirelink.rpc_platform: {}
-  sample.wirelink.rpc_platform.one_slot:
-    extra_args: [WIRELINK_RPC_TEST_CAPACITY=1]
