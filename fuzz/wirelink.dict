@@ -10,3 +10,8 @@ wlc_sequence="\x10"
 wlc_string="\x1A"
 wlc_bytes="\x22"
 wlc_enabled="\x28\x01"
+
+native_data="\xa4\x00\x00\x15"
+native_response="\xa4\x00\x00\x16"
+unsupported_reliable="\xa5\x00\x00\x15"
+rpc_operation_one="\x02"
