@@ -27,7 +27,9 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
   wl_pump_result_t result;
   size_t index;
 
-  if (ctx == NULL || event_budget == 0U || out_result == NULL) {
+  if (ctx == NULL || event_budget == 0U || out_result == NULL ||
+      (hooks != NULL && ((hooks->service != NULL && hooks->adapter_readiness == NULL) ||
+       (hooks->application_step != NULL && hooks->application_readiness == NULL)))) {
     return WL_ERR_INVALID_ARG;
   }
   if (wl_ctx_impl(ctx)->initialized == 0U) return WL_ERR_NOT_INITIALIZED;
@@ -38,8 +40,12 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
   result.service_result = WL_ERR_NO_DATA;
   result.poll_result = WL_ERR_NO_DATA;
 
-  if (hooks != NULL && hooks->service != NULL) {
+  if (hooks != NULL && hooks->service != NULL &&
+      hooks->adapter_readiness != NULL &&
+      hooks->adapter_readiness(hooks->adapter_user_data, ctx, now_ms).runnable) {
+    ++result.services;
     result.service_result = hooks->service(hooks->adapter_user_data);
+    result.did_work |= result.service_result == WL_OK;
     if (!service_result_expected(result.service_result)) {
       result.service_errors = 1U;
     }
@@ -47,11 +53,19 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
 
   for (index = 0U; index < event_budget; ++index) {
     wl_event_t event;
+    wl_readiness_t readiness;
     wl_pump_event_disposition_t disposition = WL_PUMP_EVENT_UNHANDLED;
-    int poll_result = wl_poll(ctx, now_ms, &event);
+    int poll_result;
+    if (wl_link_get_readiness(ctx, now_ms, &readiness) != WL_OK ||
+        !readiness.runnable) break;
+    ++result.polls;
+    poll_result = wl_poll(ctx, now_ms, &event);
 
     result.poll_result = poll_result;
     if (poll_result == WL_ERR_NO_DATA) {
+      /* Runnable protocol work can consume ACK/control/invalid input without
+       * producing an application event. Readiness excluded empty polls. */
+      result.did_work = 1U;
       break;
     }
     if (poll_result != WL_OK) {
@@ -60,7 +74,7 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
     }
 
     ++result.events;
-    result.progress = 1U;
+    result.did_work = 1U;
     if (is_rx_event(&event)) {
       ++result.rx_events;
       if (hooks != NULL && hooks->on_event != NULL) {
@@ -86,43 +100,37 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
     }
   }
 
-  if (hooks != NULL && hooks->application_progress != NULL &&
-      hooks->application_progress(hooks->application_user_data, ctx, now_ms) !=
+  if (hooks != NULL && hooks->application_step != NULL &&
+      hooks->application_readiness != NULL &&
+      hooks->application_readiness(hooks->application_user_data, ctx, now_ms).runnable &&
+      hooks->application_step(hooks->application_user_data, ctx, now_ms) !=
           0U) {
-    result.progress = 1U;
+    result.did_work = 1U;
   }
   *out_result = result;
   return WL_OK;
 }
 
-wl_err_t wl_pump_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
+wl_err_t wl_pump_get_readiness(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
                           const wl_pump_hooks_t *hooks,
-                          wl_poll_hint_t *out_hint) {
-  wl_poll_hint_t hint;
+                          wl_readiness_t *out_hint) {
+  wl_readiness_t hint;
   int result;
 
   if (ctx == NULL || out_hint == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  result = wl_poll_get_hint(ctx, now_ms, &hint);
+  result = wl_link_get_readiness(ctx, now_ms, &hint);
   if (result != WL_OK) {
     *out_hint = hint;
     return result;
   }
-  if (hooks != NULL && hooks->application_deadline_hint != NULL) {
-    const uint32_t deadline =
-        hooks->application_deadline_hint(hooks->application_user_data, now_ms);
-    if (deadline < hint.next_deadline_ms) {
-      hint.next_deadline_ms = deadline;
-    }
-  }
-  if (hooks != NULL && hooks->adapter_deadline_hint != NULL) {
-    const uint32_t deadline =
-        hooks->adapter_deadline_hint(hooks->adapter_user_data, now_ms);
-    if (deadline < hint.next_deadline_ms) {
-      hint.next_deadline_ms = deadline;
-    }
-  }
+  if (hooks != NULL && hooks->application_readiness != NULL)
+    wl_readiness_merge(&hint, hooks->application_readiness(
+        hooks->application_user_data, ctx, now_ms));
+  if (hooks != NULL && hooks->adapter_readiness != NULL)
+    wl_readiness_merge(&hint, hooks->adapter_readiness(
+        hooks->adapter_user_data, ctx, now_ms));
   *out_hint = hint;
   return WL_OK;
 }

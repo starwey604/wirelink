@@ -14,14 +14,17 @@ extern "C" {
 
 typedef int (*wl_pump_service_fn)(void *user_data);
 typedef void (*wl_pump_quiesce_fn)(void *user_data);
-typedef uint8_t (*wl_pump_application_progress_fn)(void *user_data,
+typedef uint8_t (*wl_pump_application_step_fn)(void *user_data,
                                                     wl_ctx_t *ctx,
                                                     wl_time_ms_t now_ms);
+typedef wl_readiness_t (*wl_pump_readiness_fn)(const void *user_data,
+    const wl_ctx_t *ctx, wl_time_ms_t now_ms);
 typedef uint32_t (*wl_pump_deadline_hint_fn)(const void *user_data,
-                                             wl_time_ms_t now_ms);
+    wl_time_ms_t now_ms);
 typedef enum wl_pump_event_disposition {
   WL_PUMP_EVENT_UNHANDLED = 0,
   WL_PUMP_EVENT_CONSUMED = 1,
+  WL_PUMP_EVENT_LEASED = 2, /* Owner retains RX lease and must release it. */
 } wl_pump_event_disposition_t;
 typedef wl_pump_event_disposition_t (*wl_pump_event_fn)(
     void *user_data, wl_ctx_t *ctx, const wl_event_t *event,
@@ -32,13 +35,15 @@ typedef struct wl_pump_hooks {
   void *adapter_user_data;
   wl_pump_service_fn service;
   wl_pump_quiesce_fn quiesce;
-  wl_pump_deadline_hint_fn adapter_deadline_hint;
+  wl_pump_readiness_fn adapter_readiness;
   void *application_user_data;
-  wl_pump_application_progress_fn application_progress;
-  wl_pump_deadline_hint_fn application_deadline_hint;
+  wl_pump_application_step_fn application_step;
+  wl_pump_readiness_fn application_readiness;
   /*
    * Return CONSUMED only after releasing an RX event or taking a terminal TX
-   * handle. UNHANDLED asks the pump to perform that default owner action.
+   * handle. LEASED retains an RX event until the owner explicitly releases it;
+   * the callback must keep its event/token and release it before close.
+   * UNHANDLED asks the pump to perform that default owner action.
    * The callback receives RX events and terminal TX events with nonzero handles;
    * other event kinds have no application-owned resource to discharge.
    */
@@ -48,11 +53,13 @@ typedef struct wl_pump_hooks {
 typedef struct wl_pump_result {
   size_t events;
   size_t rx_events;
+  size_t polls;
+  size_t services;
   uint32_t poll_errors;
   uint32_t service_errors;
   int service_result;
   int poll_result;
-  uint8_t progress;
+  uint8_t did_work;
 } wl_pump_result_t;
 
 /*
@@ -64,10 +71,10 @@ wl_err_t wl_pump_step(wl_ctx_t *ctx, wl_time_ms_t now_ms,
                       size_t event_budget, const wl_pump_hooks_t *hooks,
                       wl_pump_result_t *out_result);
 
-/* Merge core, application, and adapter relative deadlines without side effects. */
-wl_err_t wl_pump_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
+/* Merge all runnable, blocked and deadline sources without scheduling effects. */
+wl_err_t wl_pump_get_readiness(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
                           const wl_pump_hooks_t *hooks,
-                          wl_poll_hint_t *out_hint);
+                          wl_readiness_t *out_hint);
 
 /* Stop adapter-side producers before owner storage is detached or destroyed. */
 void wl_pump_quiesce(const wl_pump_hooks_t *hooks);

@@ -14,29 +14,30 @@ struct wl_rpc_executor;
 
 /* Optional owner-local product policy, composed with generated dispatch.
  * Observe events before dispatch; never release RX or take the observed TX.
- * progress runs after all events, before generated RPC service. Return true
- * only for work that needs another pass, not for already consumed work.
+ * step runs after events, before generated RPC service. did_work records the
+ * completed pass; runnable requests another bounded pass. Explicit activation,
+ * resource release or a due deadline schedules the callback.
  * No callback may recursively step/close the endpoint. */
 typedef struct {
   void *user_data;
   void (*on_event)(void *user_data, wl_ctx_t *link,
                    const wl_event_t *event, wl_time_ms_t now_ms);
-  wl_pump_application_progress_fn progress;
+  wl_work_result_t (*step)(void *user_data, wl_ctx_t *link, wl_time_ms_t now_ms);
   wl_pump_deadline_hint_fn deadline_hint;
 } wl_endpoint_policy_t;
 
 /* Statically assembled owner-local services. The array and contexts are
  * borrowed until close. Callbacks run on the endpoint owner, never recursively
- * step/close it or release/take observed events. Progress follows generated
- * RPC progress, in rotating order; each callback should do bounded work and
- * return true only when another immediate pass can make progress. A blocked
+ * step/close it or release/take observed events. Step follows generated RPC
+ * service in rotating order, only after activation, resource release or a due
+ * deadline. Return did_work for consumed work and runnable for further work. A blocked
  * service must supply a deadline or arrange a transport/owner wakeup.
  * A nonzero RX session is observed before dispatch, including direct routes.
  * The initial observation has previous_session == 0. Close runs in reverse
  * array order, after adapter quiescence, while the link is still valid. */
 typedef struct {
   void *user_data;
-  wl_pump_application_progress_fn progress;
+  wl_work_result_t (*step)(void *user_data, wl_ctx_t *link, wl_time_ms_t now_ms);
   wl_pump_deadline_hint_fn deadline_hint;
   void (*on_peer_session)(void *user_data, wl_ctx_t *link,
                          uint64_t previous_session, uint64_t session,
@@ -62,6 +63,8 @@ typedef struct wl_endpoint {
   wl_time_ms_t private_now;
   uint8_t private_stepping;
   uint8_t private_policy_pending;
+  uint64_t private_services_active;
+  uint32_t private_resource_generation;
   uint8_t private_ready;
   uint8_t private_started;
 } wl_endpoint_t;
@@ -73,9 +76,6 @@ typedef struct {
   void *context;
   wl_err_t (*step)(void *context);
   wl_err_t (*close)(void *context);
-  /* One means get_hint includes all follow-up work. Zero preserves the
-   * conservative progress contract of custom drivers. */
-  uint8_t readiness_complete;
 } wl_endpoint_driver_t;
 
 wl_err_t wl_endpoint_init(wl_endpoint_t *endpoint, const wl_config_t *config,
@@ -93,6 +93,10 @@ wl_err_t wl_endpoint_attach(wl_endpoint_t *endpoint,
 wl_err_t wl_endpoint_set_policy(wl_endpoint_t *endpoint,
                                 const wl_endpoint_policy_t *policy);
 /* Before the first step only. NULL with zero count clears the binding. */
+/* Owner-only explicit resource/new-work activation. Notify after activation;
+ * callbacks may activate another service during a pass. At most 64 services. */
+wl_err_t wl_endpoint_activate_service(wl_endpoint_t *endpoint, size_t index);
+wl_err_t wl_endpoint_activate_policy(wl_endpoint_t *endpoint);
 wl_err_t wl_endpoint_set_services(wl_endpoint_t *endpoint,
     const wl_endpoint_service_t *services, size_t count);
 /* Setup-only platform integration; a NULL descriptor disables sync waiting.
@@ -108,8 +112,13 @@ wl_err_t wl_endpoint_set_rpc_executor(wl_endpoint_t *endpoint,
 const struct wl_rpc_executor *wl_endpoint_rpc_executor(const wl_endpoint_t *endpoint);
 wl_err_t wl_endpoint_get_clock(const wl_endpoint_t *endpoint, wl_clock_t *clock);
 wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, size_t event_budget);
-wl_err_t wl_endpoint_get_hint(const wl_endpoint_t *endpoint,
-                             wl_poll_hint_t *hint);
+wl_err_t wl_endpoint_get_readiness(const wl_endpoint_t *endpoint,
+                             wl_readiness_t *hint);
+/* Same side-effect-free query at a caller-supplied snapshot in this endpoint's
+ * clock domain. Keep this timestamp with the relative deadline and rebase with
+ * wl_wait_remaining before waiting. Does not read the clock or drive work. */
+wl_err_t wl_endpoint_get_readiness_at(const wl_endpoint_t *endpoint,
+    wl_time_ms_t now_ms, wl_readiness_t *hint);
 /* Assembly bridge, not a business operation. Inside a step returns the pass
  * snapshot; outside a step reads the configured clock once. Does not poll. */
 wl_err_t wl_endpoint_now(const wl_endpoint_t *endpoint, wl_time_ms_t *now_ms);

@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/rpc_async.h"
+#include "wirelink/port.h"
+#include "rpc_internal.h"
 #include <string.h>
 
 const char *wl_rpc_status_str(wl_rpc_status_t status) {
@@ -82,7 +84,7 @@ wl_err_t wl_rpc_async_init(wl_rpc_async_t *async, wl_ctx_t *link,
   return WL_OK;
 }
 
-static wl_err_t submit_oldest(wl_rpc_async_t *async, wl_time_ms_t now_ms) {
+static wl_err_t submit_oldest(wl_rpc_async_t *async, wl_time_ms_t now_ms, uint8_t *did_work) {
   wl_rpc_async_slot_t *oldest = NULL;
   wl_rpc_client_result_t result, candidate;
   size_t index = 0U;
@@ -100,7 +102,8 @@ static wl_err_t submit_oldest(wl_rpc_async_t *async, wl_time_ms_t now_ms) {
       result = candidate;
     }
   }
-  if (oldest != NULL) {
+  if (oldest != NULL && wl_tx_can_submit(async->private_state.link, oldest->private_state.delivery)) {
+    if (did_work != NULL) *did_work = 1U;
     wl_tx_handle_t tx = 0U;
     const uint8_t *payload = async->private_state.requests +
         index * async->private_state.request_capacity;
@@ -174,6 +177,7 @@ wl_err_t wl_rpc_async_submit(wl_rpc_async_t *async, uint16_t request_id,
   slot->private_state.length = length;
   slot->private_state.observer = *observer;
   slot->private_state.order = async->private_state.next_order++;
+  ++async->private_state.allocated_count;
   if (out_call != NULL) {
     out_call->private_state.owner = async;
     out_call->private_state.incarnation = async->private_state.incarnation;
@@ -185,9 +189,12 @@ wl_err_t wl_rpc_async_submit(wl_rpc_async_t *async, uint16_t request_id,
     uint16_t expired;
     /* A new submission after idle must not transmit an older queued request
      * whose deadline already passed. Never restart its acceptance timer. */
-    (void)wl_rpc_client_poll(async->private_state.client, now_ms, &expired);
+    wl_rpc_deadline_hint_t deadline;
+    if (wl_rpc_client_get_deadline_hint(async->private_state.client, now_ms, &deadline) == WL_RPC_OK &&
+        deadline.next_deadline_ms == 0U)
+      (void)wl_rpc_client_poll(async->private_state.client, now_ms, &expired);
   }
-  (void)submit_oldest(async, now_ms);
+  (void)submit_oldest(async, now_ms, NULL);
   async->private_state.submitting = 0U;
   return WL_OK;
 }
@@ -235,6 +242,7 @@ static wl_err_t notify_terminal(wl_rpc_async_t *async, wl_rpc_async_slot_t *slot
   rpc = wl_rpc_client_release_handle(async->private_state.client, &slot->private_state.handle);
   if (rpc != WL_RPC_OK) return map_error(rpc);
   memset(slot, 0, sizeof(*slot));
+  --async->private_state.allocated_count;
   observer.notify(observer.context, observer.callback, observer.user_data);
   return WL_OK;
 }
@@ -271,15 +279,21 @@ wl_err_t wl_rpc_async_cancel_complete(wl_rpc_async_t *async, const wl_rpc_call_t
 }
 
 wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
-    uint16_t *out_notified) {
+    wl_rpc_async_service_result_t *out_result) {
   wl_err_t error = WL_OK;
-  if (async == NULL || out_notified == NULL) return WL_ERR_INVALID_ARG;
-  *out_notified = 0U;
+  if (async == NULL || out_result == NULL) return WL_ERR_INVALID_ARG;
+  memset(out_result, 0, sizeof(*out_result));
   if (async->private_state.client == NULL) return WL_ERR_NOT_INITIALIZED;
   if (async->private_state.servicing || async->private_state.submitting)
     return WL_ERR_REENTRANT;
   async->private_state.servicing = 1U;
+  wl_tx_handle_t retiring = async->private_state.retiring_tx;
   collect_cancelled_tx(async);
+  out_result->did_work = retiring != 0U && async->private_state.retiring_tx == 0U;
+  if (async->private_state.allocated_count == 0U) {
+    async->private_state.servicing = 0U;
+    return WL_OK;
+  }
   for (uint16_t i = 0U; i < async->private_state.count; ++i) {
     wl_rpc_async_slot_t *slot = &async->private_state.slots[i];
     wl_rpc_client_result_t result;
@@ -291,24 +305,36 @@ wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
     if (!terminal(result.state)) continue;
     error = notify_terminal(async, slot, &result);
     if (error != WL_OK) break;
-    ++*out_notified;
+    ++out_result->notified;
+    out_result->did_work = 1U;
   }
-  if (error == WL_OK) error = submit_oldest(async, now_ms);
+  if (error == WL_OK) error = submit_oldest(async, now_ms, &out_result->did_work);
   async->private_state.servicing = 0U;
   return error;
 }
 
-uint32_t wl_rpc_async_notification_deadline(const wl_rpc_async_t *async) {
-  if (async == NULL || async->private_state.client == NULL) return WL_RPC_NO_DEADLINE_MS;
+wl_readiness_t wl_rpc_async_get_readiness(const wl_rpc_async_t *async) {
+  wl_readiness_t value = wl_readiness_idle();
+  if (async == NULL || async->private_state.client == NULL) return value;
+  if (async->private_state.retiring_tx != 0U) {
+    if (wl_tx_can_take(async->private_state.link, async->private_state.retiring_tx))
+      value.runnable = 1U;
+    else value.blocked = 1U;
+  }
+  if (async->private_state.allocated_count == 0U) return value;
   for (uint16_t i = 0U; i < async->private_state.count; ++i) {
     const wl_rpc_async_slot_t *slot = &async->private_state.slots[i];
-    wl_rpc_client_result_t result;
-    if (slot->private_state.operation_id != 0U &&
-        wl_rpc_client_get_by_handle(async->private_state.client,
-            &slot->private_state.handle, &result) == WL_RPC_OK && terminal(result.state))
-      return 0U;
+    wl_rpc_client_state_t state;
+    if (slot->private_state.operation_id == 0U) continue;
+    if (wl_rpc_client_state_by_handle(async->private_state.client,
+        &slot->private_state.handle, &state) != WL_RPC_OK) continue;
+    if (terminal(state)) value.runnable = 1U;
+    else if (state == WL_RPC_CLIENT_QUEUED &&
+             wl_tx_can_submit(async->private_state.link, slot->private_state.delivery))
+      value.runnable = 1U;
+    else value.blocked = 1U;
   }
-  return WL_RPC_NO_DEADLINE_MS;
+  return value;
 }
 
 uint8_t wl_rpc_async_retire_tx(wl_rpc_async_t *async, wl_tx_handle_t handle) {
@@ -319,7 +345,7 @@ uint8_t wl_rpc_async_retire_tx(wl_rpc_async_t *async, wl_tx_handle_t handle) {
 }
 
 wl_err_t wl_rpc_async_close(wl_rpc_async_t *async) {
-  uint16_t notified;
+  wl_rpc_async_service_result_t service;
   wl_err_t error;
   if (async == NULL) return WL_ERR_INVALID_ARG;
   if (async->private_state.servicing || async->private_state.submitting)
@@ -331,7 +357,7 @@ wl_err_t wl_rpc_async_close(wl_rpc_async_t *async) {
     if (slot->private_state.operation_id != 0U)
       (void)wl_rpc_client_cancel_handle(async->private_state.client, &slot->private_state.handle);
   }
-  error = wl_rpc_async_service(async, 0U, &notified);
+  error = wl_rpc_async_service(async, 0U, &service);
   if (error == WL_OK) async->private_state.client = NULL;
   return error;
 }

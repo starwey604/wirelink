@@ -94,6 +94,12 @@ typedef union wl_rpc_client_handle {
   uint8_t private_bytes[WL_RPC_CLIENT_HANDLE_STORAGE_SIZE];
 } wl_rpc_client_handle_t;
 
+/* Produced only by response_prepare; distinct from cancellation authority. */
+typedef union wl_rpc_client_response {
+  wl_max_align_t align;
+  uint8_t private_bytes[WL_RPC_CLIENT_HANDLE_STORAGE_SIZE];
+} wl_rpc_client_response_t;
+
 typedef union wl_rpc_server {
   wl_max_align_t align;
   uint8_t private_bytes[WL_RPC_SERVER_STORAGE_SIZE];
@@ -109,12 +115,16 @@ typedef union wl_rpc_server_cache_slot {
   uint8_t private_bytes[WL_RPC_SERVER_CACHE_SLOT_STORAGE_SIZE];
 } wl_rpc_server_cache_slot_t;
 
+/* Stable response/TX storage for correlate executions; never replay history. */
+#define WL_RPC_SERVER_RESPONSE_SLOT_STORAGE_SIZE 64U
+typedef union wl_rpc_server_response_slot {
+  wl_max_align_t align;
+  uint8_t private_bytes[WL_RPC_SERVER_RESPONSE_SLOT_STORAGE_SIZE];
+} wl_rpc_server_response_slot_t;
+
 typedef struct wl_rpc_client_config {
   wl_rpc_client_slot_t *slots;
   uint16_t slot_count;
-  uint8_t *response_storage;
-  size_t response_storage_size;
-  uint16_t response_capacity_per_slot;
   /* Zero selects operation ID 1. Allocation always skips reserved ID zero. */
   uint32_t next_operation_id;
 } wl_rpc_client_config_t;
@@ -133,8 +143,9 @@ typedef struct wl_rpc_client_result {
   /* One only after a reliable WL_EVT_TX_SUCCESS; local completion leaves zero.
    */
   uint8_t link_delivery_confirmed;
-  const uint8_t *response_data;
-  size_t response_length;
+  /* Index into the generated, correctly typed result pool. */
+  uint16_t result_index;
+  uint8_t response_valid;
 } wl_rpc_client_result_t;
 
 #define WL_RPC_NO_DEADLINE_MS UINT32_MAX
@@ -184,17 +195,20 @@ wl_rpc_err_t wl_rpc_client_link_failed(wl_rpc_client_t *client,
 wl_rpc_err_t wl_rpc_client_on_tx_event(wl_rpc_client_t *client,
                                        const wl_event_t *event);
 
-/*
- * Correlate a decoded application response. A matching response may complete
- * LINK_PENDING before its independent core TX transaction terminates. The
- * payload is moved into caller-supplied storage and retained until release.
- */
-wl_rpc_err_t wl_rpc_client_on_response(wl_rpc_client_t *client,
-                                       uint16_t response_message_id,
-                                       uint32_t operation_id,
-                                       int32_t application_status,
-                                       const uint8_t *response_payload,
-                                       size_t response_length);
+/* Authorize writing one generated result member. Checks method, active state
+ * and deadline before exposing its index. No business pointer enters the core.
+ * Decode failure leaves the operation pending; do not commit a partial value.
+ * All operations run on the same owner, without reentry between prepare/commit. */
+wl_rpc_err_t wl_rpc_client_response_prepare(
+    wl_rpc_client_t *client, uint16_t request_message_id,
+    uint16_t response_message_id, uint32_t operation_id, wl_time_ms_t now_ms,
+    wl_rpc_client_response_t *out_authority, uint16_t *out_result_index);
+/* Publish only after successful owned decode (or a bodyless rejection).
+ * Revalidates generation/state and deadline; stale authority cannot complete a
+ * released/reused slot. A successful status publishes response_valid. */
+wl_rpc_err_t wl_rpc_client_response_commit(
+    wl_rpc_client_t *client, const wl_rpc_client_response_t *authority,
+    int32_t application_status, wl_time_ms_t now_ms);
 
 /* Advance all end-to-end deadlines. Returns the number newly timed out. */
 wl_rpc_err_t wl_rpc_client_poll(wl_rpc_client_t *client, wl_time_ms_t now_ms,
@@ -210,8 +224,7 @@ wl_rpc_err_t wl_rpc_client_get_deadline_hint(const wl_rpc_client_t *client,
 wl_rpc_err_t wl_rpc_client_cancel(wl_rpc_client_t *client,
                                   uint32_t operation_id);
 
-/* The returned response pointer remains valid until this operation is released.
- */
+/* Inspect metadata; generated APIs borrow the corresponding typed result. */
 wl_rpc_err_t wl_rpc_client_get(const wl_rpc_client_t *client,
                                uint32_t operation_id,
                                wl_rpc_client_result_t *out_result);
@@ -283,17 +296,25 @@ typedef struct wl_rpc_server_config {
   wl_rpc_cache_policy_t cache_policy;
 } wl_rpc_server_config_t;
 
+typedef struct wl_rpc_server_response_pool {
+  wl_rpc_server_response_slot_t *slots;
+  uint16_t slot_count;
+  uint8_t *storage;
+  size_t storage_size;
+  uint16_t capacity_per_slot;
+} wl_rpc_server_response_pool_t;
+
 typedef struct wl_rpc_server_response {
   wl_rpc_request_identity_t identity;
   int32_t application_status;
   const uint8_t *response_data;
   size_t response_length;
-  /* Opaque cache generation used to validate lifecycle transitions. */
+  /* Opaque execution generation used to validate lifecycle transitions. */
   uint64_t generation;
 } wl_rpc_server_response_t;
 
 /*
- * A generation-scoped writable view of the cache storage reserved by begin().
+ * A generation-scoped writable view of response storage reserved at admission.
  * It is borrowed only while request remains pending and must not be retained or
  * written after completion, rejection, abandon, expiry, or session discard.
  */
@@ -333,6 +354,23 @@ typedef struct wl_rpc_peer_observation {
 
 wl_rpc_err_t wl_rpc_server_init(wl_rpc_server_t *server,
                                 const wl_rpc_server_config_t *config);
+
+/* Shared pending capacity, separate replay and correlate response pools.
+ * config's cache group may be empty (all fields zero) for all-correlate.
+ * A NULL correlate pool selects replay-only initialization.
+ * Correlate slots are reserved before execution and freed only after sent or
+ * a reliable TX terminal. They are never history or eviction candidates. */
+wl_rpc_err_t wl_rpc_server_init_with_correlate(
+    wl_rpc_server_t *server, const wl_rpc_server_config_t *config,
+    const wl_rpc_server_response_pool_t *correlate);
+
+/* Each valid arrival admits a distinct generation, even for the same identity.
+ * Does not fingerprint, suppress duplicates, compare or replay history.
+ * Fingerprint must be zero. Admission still reserves response and pending
+ * capacity before a handler may run; NO_SLOT/CACHE_FULL mean no execution. */
+wl_rpc_err_t wl_rpc_server_begin_correlate(
+    wl_rpc_server_t *server, const wl_rpc_request_identity_t *identity,
+    wl_time_ms_t now_ms, wl_rpc_server_request_t *out_request);
 
 /*
  * NEW reserves a pending slot. PENDING_DUPLICATE suppresses re-execution.
@@ -380,7 +418,7 @@ wl_rpc_err_t wl_rpc_server_complete(wl_rpc_server_t *server,
                                     size_t response_length, wl_time_ms_t now_ms,
                                     wl_rpc_server_response_t *out_response);
 
-/* Application rejection is a completed, replayable nonzero status. */
+/* Nonzero application rejection; only replay executions retain its history. */
 wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
                                   const wl_rpc_server_request_t *request,
                                   int32_t application_status,
@@ -393,6 +431,9 @@ wl_rpc_err_t wl_rpc_server_reject(wl_rpc_server_t *server,
  * bytes remain stable until exactly one matching defer/submitted/sent call.
  * NOT_FOUND means that no response currently needs service.
  */
+/* Non-mutating readiness query for the same oldest response as acquire. */
+wl_rpc_err_t wl_rpc_server_response_peek(const wl_rpc_server_t *server,
+                                        uint16_t *message_id);
 wl_rpc_err_t wl_rpc_server_response_acquire(
     wl_rpc_server_t *server, wl_rpc_server_response_t *out_response);
 
@@ -411,7 +452,8 @@ wl_rpc_err_t wl_rpc_server_response_sent(
 
 /*
  * Consume a matching reliable terminal event. Any terminal result leaves a
- * replayable delivered cache entry; a duplicate request schedules it again.
+ * delivered history entry for replay, or releases a correlate response slot.
+ * A duplicate replay request schedules its retained response again.
  * Link-level retry remains bounded by the protocol's reliable TX policy.
  */
 wl_rpc_err_t wl_rpc_server_on_tx_event(wl_rpc_server_t *server,
@@ -463,6 +505,11 @@ wl_rpc_err_t wl_rpc_server_poll(wl_rpc_server_t *server, wl_time_ms_t now_ms,
 wl_rpc_err_t wl_rpc_server_get_deadline_hint(const wl_rpc_server_t *server,
                                              wl_time_ms_t now_ms,
                                              wl_rpc_deadline_hint_t *out_hint);
+
+/* Pending-only query for generated servers without replay history. */
+wl_rpc_err_t wl_rpc_server_get_pending_deadline_hint(
+    const wl_rpc_server_t *server, wl_time_ms_t now_ms,
+    wl_rpc_deadline_hint_t *out_hint);
 
 #ifdef __cplusplus
 }

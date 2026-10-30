@@ -19,7 +19,7 @@ typedef wl_err_t (*wl_rpc_async_encode_fn)(const void *request,
     uint8_t *out, size_t capacity, size_t *length);
 
 typedef struct {
-  /* prepare copies/decodes a terminal result into generator-owned scratch.
+  /* prepare copies a terminal result into generator-owned scratch.
    * It must not call user code. After it returns, RPC/job slots are released;
    * notify then calls the typed business callback using that scratch.
    * callback is converted back to its ORIGINAL function-pointer type before
@@ -66,6 +66,7 @@ struct wl_rpc_async {
     uint8_t servicing;
     uint8_t submitting;
     uint8_t closing;
+    uint16_t allocated_count;
   } private_state;
 };
 
@@ -100,12 +101,16 @@ wl_err_t wl_rpc_async_cancel_complete(wl_rpc_async_t *async, const wl_rpc_call_t
  * Callbacks may submit/cancel, but cannot recursively service/close. The owner
  * MUST continue draining independent link terminal events after RPC release.
  * Cancelled TX has no event; service collects it after its I/O lease drains. */
+typedef struct {
+  uint16_t notified;
+  uint8_t did_work;
+} wl_rpc_async_service_result_t;
 wl_err_t wl_rpc_async_service(wl_rpc_async_t *async, wl_time_ms_t now_ms,
-    uint16_t *out_notified);
+    wl_rpc_async_service_result_t *out_result);
 
 /* Merge with RPC/link/adapter deadlines: terminal notifications are immediate;
  * queued link-blocked requests otherwise use existing readiness/deadlines. */
-uint32_t wl_rpc_async_notification_deadline(const wl_rpc_async_t *async);
+wl_readiness_t wl_rpc_async_get_readiness(const wl_rpc_async_t *async);
 
 /* Recognize a terminal transaction detached from an already-notified RPC.
  * Returns one exactly once for that handle. The OWNER still calls wl_tx_take;

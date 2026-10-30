@@ -10,6 +10,8 @@
 #include "wirelink/rx_ring_state.h"
 #include "wirelink/wirelink.h"
 
+#include "link_profile.h"
+
 enum {
   WL_RX_SOURCE_NONE = 0,
   WL_RX_SOURCE_RING,
@@ -54,6 +56,12 @@ typedef struct {
   uint32_t tx_sequence;
   uint32_t tx_waiting_seq;
   uint8_t tx_inflight;
+  uint8_t tx_writable;
+  uint32_t resource_generation;
+  uint8_t tx_drain_required;
+  uint8_t tx_drain_pending;
+  uint8_t tx_drain_reliable;
+  wl_io_token_t tx_drain_token;
   wl_tx_wait_reason_t tx_wait_state;
   uint8_t tx_cancel_requested;
   uint16_t tx_generation;
@@ -92,6 +100,8 @@ typedef struct {
 
   wl_span_t rx_payload;
   wl_span_t tx_payload;
+  /* Immutable mode implementation selected at init; public opaque storage
+   * already has room. Existing field offsets remain unchanged. */
 } wl_ctx_impl_t;
 
 _Static_assert(sizeof(wl_ctx_impl_t) <= WL_CONTEXT_STORAGE_SIZE,

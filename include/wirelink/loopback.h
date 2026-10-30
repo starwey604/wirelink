@@ -50,6 +50,9 @@ wl_err_t wl_loopback_init(wl_loopback_t *loopback, wl_ctx_t *endpoint_a,
 wl_err_t wl_loopback_connect(wl_loopback_t *loopback, wl_endpoint_t *endpoint_a,
                             wl_endpoint_t *endpoint_b);
 
+/* Same owner as both links; pending delivery is runnable only with RX room. */
+wl_readiness_t wl_loopback_readiness(const wl_loopback_t *loopback);
+
 /*
  * Attempt at most unit_budget pending unit deliveries. A destination with an
  * unreleased RX event applies backpressure without completing or copying the

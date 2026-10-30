@@ -22,12 +22,12 @@ wl_err_t wl_rx_unit_queue_init(wl_ctx_t *ctx,
   if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config.envelope == WL_ENVELOPE_COBS_STREAM) {
+  if (wl_link_envelope(&wl_ctx_impl(ctx)->config) == WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   if (config->unit_size < wl_frame_raw_size(
                               wl_ctx_impl(ctx)->config.max_payload_len,
-                              wl_ctx_impl(ctx)->config.integrity)) {
+                              wl_link_integrity(&wl_ctx_impl(ctx)->config))) {
     return WL_ERR_BUF_TOO_SMALL;
   }
 
@@ -44,6 +44,18 @@ wl_err_t wl_rx_unit_queue_init(wl_ctx_t *ctx,
   }
   queue->initialized = 1U;
   return WL_OK;
+}
+
+uint8_t wl_rx_can_accept_unit(const wl_ctx_t *ctx) {
+  if (ctx == NULL) return 0U;
+  const wl_ctx_impl_t *impl = wl_ctx_impl_const(ctx);
+  if (!impl->initialized || wl_link_envelope(&impl->config) == WL_ENVELOPE_COBS_STREAM) return 0U;
+  const wl_rx_unit_queue_state_t *queue = &impl->rx_units;
+  if (!queue->initialized) return !impl->rx_event_leased && !impl->has_event;
+  if (queue->claim_active) return 0U;
+  uint32_t write = atomic_load_explicit(&queue->write_cursor, memory_order_relaxed);
+  uint32_t read = atomic_load_explicit(&queue->read_cursor, memory_order_acquire);
+  return (uint32_t)(write - read) < queue->slot_count;
 }
 
 wl_err_t wl_rx_unit_claim(wl_ctx_t *ctx, size_t maximum_length,

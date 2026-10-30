@@ -7,6 +7,7 @@
 #include "wirelink/wirelink.h"
 
 #include "context.h"
+#include "frame_internal.h"
 #include "rx_ring.h"
 
 uint64_t wl_link_session_id(const wl_ctx_t *ctx) {
@@ -21,11 +22,11 @@ static int storage_overlaps(const uint8_t *a, size_t a_size,
 }
 
 static size_t wl_max_unit_size(const wl_config_t *config) {
-  const size_t raw = wl_frame_raw_size(config->max_payload_len, config->integrity);
+  const size_t raw = wl_frame_raw_size(config->max_payload_len, wl_link_integrity(config));
   if (raw == 0U) {
     return 0U;
   }
-  switch (config->envelope) {
+  switch (wl_link_envelope(config)) {
   case WL_ENVELOPE_COBS_STREAM:
     return wl_cobs_encoded_max_size(raw) + 1U;
   case WL_ENVELOPE_BUS_LENGTH16:
@@ -47,12 +48,10 @@ wl_err_t wl_config_requirements(const wl_config_t *config,
       config->max_payload_len > WL_FRAME_MAX_PAYLOAD) {
     return WL_ERR_INVALID_ARG;
   }
-  if (config->envelope < WL_ENVELOPE_COBS_STREAM ||
-      config->envelope > WL_ENVELOPE_BUS_LENGTH16) {
+  if (!wl_profile_envelope_valid(config->envelope)) {
     return WL_ERR_INVALID_ARG;
   }
-  if (config->integrity < WL_INTEGRITY_NONE ||
-      config->integrity > WL_INTEGRITY_CRC32) {
+  if (!wl_profile_integrity_valid(config->integrity)) {
     return WL_ERR_INVALID_ARG;
   }
   if (config->session_id == 0ULL) {
@@ -61,8 +60,11 @@ wl_err_t wl_config_requirements(const wl_config_t *config,
   if (config->ack_timeout_ms >= UINT32_C(0x80000000)) {
     return WL_ERR_INVALID_ARG;
   }
+  if (!wl_profile_supported(config->envelope, config->integrity)) {
+    return WL_ERR_NOT_SUPPORTED;
+  }
   unit = wl_max_unit_size(config);
-  control = wl_frame_encode_overhead(config->envelope, config->integrity);
+  control = wl_frame_encode_overhead(wl_link_envelope(config), wl_link_integrity(config));
   if (unit == 0U || control == 0U ||
       (config->max_transmission_unit != 0U &&
        config->max_transmission_unit < unit)) {
@@ -72,20 +74,23 @@ wl_err_t wl_config_requirements(const wl_config_t *config,
   out_requirements->tx_unit_size = unit;
   out_requirements->control_unit_size = control;
   out_requirements->rx_fifo_size =
-      (config->envelope == WL_ENVELOPE_COBS_STREAM)
+      (wl_link_envelope(config) == WL_ENVELOPE_COBS_STREAM)
           ? wl_rx_ring_storage_size(unit)
           : 0U;
   out_requirements->rx_fallback_size =
-      (config->envelope == WL_ENVELOPE_COBS_STREAM) ? unit - 1U : unit;
+      (wl_link_envelope(config) == WL_ENVELOPE_COBS_STREAM) ? unit - 1U : unit;
   return WL_OK;
 }
 
 wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
             const wl_storage_t *storage) {
   wl_storage_requirements_t requirements;
-  if (ctx == NULL || storage == NULL ||
-      wl_config_requirements(config, &requirements) != WL_OK) {
+  if (ctx == NULL || storage == NULL) {
     return WL_ERR_INVALID_ARG;
+  }
+  wl_err_t config_error = wl_config_requirements(config, &requirements);
+  if (config_error != WL_OK) {
+    return config_error;
   }
   if (storage->tx_payload == NULL || storage->tx_unit == NULL || storage->control_unit == NULL ||
       storage->rx_fallback == NULL ||
@@ -132,6 +137,7 @@ wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
     return WL_ERR_INVALID_ARG;
   }
 
+  wl_ctx_impl(ctx)->tx_writable = 1U;
   wl_ctx_impl(ctx)->initialized = 1U;
   return WL_OK;
 }

@@ -36,7 +36,7 @@ enum {
 };
 
 typedef int32_t wl_tx_wait_reason_t;
-enum { WL_TX_WAIT_NONE = 0, WL_TX_WAIT_ACK };
+enum { WL_TX_WAIT_NONE = 0, WL_TX_WAIT_ACK, WL_TX_WAIT_DRAIN };
 
 typedef int32_t wl_event_type_t;
 enum {
@@ -65,11 +65,35 @@ typedef struct {
   uint16_t retries_used;
 } wl_tx_result_t;
 
-#define WL_POLL_NO_DEADLINE_MS UINT32_MAX
+#define WL_NO_DEADLINE UINT32_MAX
 typedef struct {
-  uint32_t work_pending;
+  uint32_t runnable;
   uint32_t next_deadline_ms;
-} wl_poll_hint_t;
+  uint32_t blocked;
+} wl_readiness_t;
+
+/* History never implies another pass. Relative deadlines use the caller's
+ * monotonic snapshot; zero is due, WL_NO_DEADLINE permits unbounded wait. */
+typedef struct {
+  uint8_t did_work;
+  uint8_t runnable;
+} wl_work_result_t;
+
+static inline wl_readiness_t wl_readiness_idle(void) {
+  wl_readiness_t value = {0U, WL_NO_DEADLINE, 0U};
+  return value;
+}
+static inline wl_readiness_t wl_readiness_at(uint32_t deadline) {
+  wl_readiness_t value = {deadline == 0U, deadline, deadline != WL_NO_DEADLINE};
+  return value;
+}
+static inline void wl_readiness_merge(wl_readiness_t *value,
+                                      wl_readiness_t source) {
+  value->runnable |= source.runnable;
+  value->blocked |= source.blocked;
+  if (source.next_deadline_ms < value->next_deadline_ms)
+    value->next_deadline_ms = source.next_deadline_ms;
+}
 
 typedef struct {
   uint16_t max_payload_len;
@@ -125,6 +149,9 @@ typedef struct wl_tx_payload_claim {
   uint32_t token;
 } wl_tx_payload_claim_t;
 
+/* Invalid selectors return INVALID_ARG. Valid selectors outside the core's
+ * compiled link profile return NOT_SUPPORTED, also propagated by wl_init.
+ * Requirements and context are unchanged when configuration is rejected. */
 wl_err_t wl_config_requirements(const wl_config_t *config,
                                 wl_storage_requirements_t *out_requirements);
 wl_err_t wl_init(wl_ctx_t *ctx, const wl_config_t *config,
@@ -164,8 +191,8 @@ wl_err_t wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
 wl_err_t wl_tx_cancel(wl_ctx_t *ctx, wl_tx_handle_t handle);
 
 wl_err_t wl_poll(wl_ctx_t *ctx, wl_time_ms_t now_ms, wl_event_t *out_event);
-wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
-                          wl_poll_hint_t *out_hint);
+wl_err_t wl_link_get_readiness(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
+                          wl_readiness_t *out_hint);
 void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event);
 
 #ifdef __cplusplus

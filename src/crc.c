@@ -8,7 +8,7 @@
 
 #include "crc_internal.h"
 
-static const uint16_t WL_CRC16_TABLE[256] = {
+const uint16_t wl_crc16_table[256] = {
     0x0000u,
 
     0x1021u,
@@ -1103,8 +1103,7 @@ static const uint32_t WL_CRC32_TABLE[256] = {
 uint16_t wl_crc16_ccitt_false_update(uint16_t state, const uint8_t *data,
                                      size_t length) {
   for (size_t i = 0U; i < length; ++i) {
-    state = (uint16_t)((state << 8u) ^
-                       WL_CRC16_TABLE[(uint8_t)((state >> 8u) ^ data[i])]);
+    state = wl_crc16_byte(state, data[i]);
   }
   return state;
 }

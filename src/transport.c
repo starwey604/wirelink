@@ -23,6 +23,52 @@ wl_err_t wl_set_sink(wl_ctx_t *ctx, wl_sink_fn sink, void *user_data) {
   return WL_OK;
 }
 
+wl_err_t wl_set_tx_drain_required(wl_ctx_t *ctx, uint8_t required) {
+  if (ctx == NULL) return WL_ERR_INVALID_ARG;
+  wl_ctx_impl_t *impl = wl_ctx_impl(ctx);
+  if (!impl->initialized) return WL_ERR_NOT_INITIALIZED;
+  if (impl->tx_inflight || impl->control_inflight || impl->tx_drain_pending)
+    return WL_ERR_BUSY;
+  impl->tx_drain_required = required != 0U;
+  return WL_OK;
+}
+
+wl_err_t wl_tx_writable(wl_ctx_t *ctx) {
+  if (ctx == NULL) return WL_ERR_INVALID_ARG;
+  if (!wl_ctx_impl(ctx)->initialized) return WL_ERR_NOT_INITIALIZED;
+  wl_ctx_impl(ctx)->tx_writable = 1U;
+  ++wl_ctx_impl(ctx)->resource_generation;
+  return WL_OK;
+}
+
+uint8_t wl_tx_can_take(const wl_ctx_t *ctx, wl_tx_handle_t handle) {
+  if (ctx == NULL) return 0U;
+  const wl_ctx_impl_t *impl = wl_ctx_impl_const(ctx);
+  return impl->initialized && handle != 0U && handle == impl->tx_handle &&
+      !(impl->tx_inflight && impl->in_flight_reliable) &&
+      (impl->tx_state == WL_TX_STATE_SUCCESS || impl->tx_state == WL_TX_STATE_FAILED ||
+       impl->tx_state == WL_TX_STATE_CANCELLED);
+}
+
+uint32_t wl_link_resource_generation(const wl_ctx_t *ctx) {
+  return ctx == NULL ? 0U : wl_ctx_impl_const(ctx)->resource_generation;
+}
+
+uint8_t wl_tx_can_submit(const wl_ctx_t *ctx, wl_delivery_t delivery) {
+  if (ctx == NULL) return 0U;
+  const wl_ctx_impl_t *impl = wl_ctx_impl_const(ctx);
+  return impl->initialized && impl->sink != NULL && !impl->tx_inflight &&
+      !impl->tx_drain_pending && !impl->control_pending &&
+      !impl->control_inflight && !impl->tx_queued && !impl->tx_claim_active &&
+      (delivery == WL_DELIVERY_RELIABLE ? impl->tx_handle == 0U :
+       !wl_tx_retry_due(impl, impl->now_ms));
+}
+
+uint8_t wl_rx_has_space(const wl_ctx_t *ctx) {
+  return ctx != NULL && wl_ctx_impl_const(ctx)->initialized &&
+      wl_rx_ring_has_space(&wl_ctx_impl_const(ctx)->rx_ring);
+}
+
 wl_err_t wl_get_config(const wl_ctx_t *ctx, wl_config_t *out_config) {
   if (ctx == NULL || out_config == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -97,6 +143,7 @@ wl_err_t wl_tx_take(wl_ctx_t *ctx, wl_tx_handle_t handle,
   out_result->state = wl_ctx_impl(ctx)->tx_state;
   out_result->result = wl_ctx_impl(ctx)->tx_result_code;
   out_result->retries_used = wl_ctx_impl(ctx)->tx_retries_used;
+  ++wl_ctx_impl(ctx)->resource_generation;
   wl_ctx_impl(ctx)->tx_handle = 0U;
   wl_ctx_impl(ctx)->tx_pending_event = WL_EVT_NONE;
   wl_ctx_impl(ctx)->tx_state = WL_TX_STATE_IDLE;
@@ -116,7 +163,7 @@ wl_err_t wl_feed_recover_reset(wl_ctx_t *ctx) {
   if (wl_ctx_impl(ctx)->initialized == 0U) {
     return WL_ERR_NOT_INITIALIZED;
   }
-  if (wl_ctx_impl(ctx)->config.envelope != WL_ENVELOPE_COBS_STREAM) {
+  if (wl_link_envelope(&wl_ctx_impl(ctx)->config) != WL_ENVELOPE_COBS_STREAM) {
     return WL_ERR_NOT_SUPPORTED;
   }
   if (wl_ctx_impl(ctx)->rx_event_leased != 0U) {
@@ -148,6 +195,7 @@ void wl_event_release(wl_ctx_t *ctx, const wl_event_t *event) {
       wl_ctx_impl(ctx)->rx_event_leased != 0U &&
       event->lease == wl_ctx_impl(ctx)->rx_event_generation) {
     wl_ctx_impl(ctx)->rx_event_leased = 0U;
+    ++wl_ctx_impl(ctx)->resource_generation;
     if (wl_ctx_impl(ctx)->rx_pending_consume != 0U) {
       if (wl_ctx_impl(ctx)->rx_candidate_source == WL_RX_SOURCE_UNIT) {
         (void)wl_rx_unit_consumer_consume(ctx);

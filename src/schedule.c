@@ -8,7 +8,7 @@
 #include "rx_ring.h"
 #include "unit_rx.h"
 
-static int wl_rx_work_pending(const wl_ctx_t *ctx, const wl_ctx_impl_t *impl) {
+static int wl_rx_runnable(const wl_ctx_t *ctx, const wl_ctx_impl_t *impl) {
   size_t delimiter_offset;
 
   if (impl->rx_event_leased != 0U) {
@@ -23,16 +23,16 @@ static int wl_rx_work_pending(const wl_ctx_t *ctx, const wl_ctx_impl_t *impl) {
   return wl_rx_unit_consumer_has_data(ctx);
 }
 
-wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
-                     wl_poll_hint_t *out_hint) {
+wl_err_t wl_link_get_readiness(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
+                     wl_readiness_t *out_hint) {
   const wl_ctx_impl_t *impl;
 
   if (out_hint == NULL) {
     return WL_ERR_INVALID_ARG;
   }
-  *out_hint = (wl_poll_hint_t){
-      .work_pending = 0U,
-      .next_deadline_ms = WL_POLL_NO_DEADLINE_MS,
+  *out_hint = (wl_readiness_t){
+      .runnable = 0U,
+      .next_deadline_ms = WL_NO_DEADLINE,
   };
   if (ctx == NULL) {
     return WL_ERR_INVALID_ARG;
@@ -45,9 +45,18 @@ wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
   if (impl->has_event != 0U || impl->tx_unreliable_completions != 0U ||
       (impl->tx_pending_event != WL_EVT_NONE &&
        !(impl->tx_inflight != 0U && impl->in_flight_reliable != 0U)) ||
-      wl_rx_work_pending(ctx, impl) != 0) {
-    out_hint->work_pending = 1U;
+      (impl->control_pending == 0U && wl_rx_runnable(ctx, impl) != 0)) {
+    out_hint->runnable = 1U;
   }
+
+  if (impl->control_pending || impl->tx_queued) {
+    if (impl->tx_writable && !impl->tx_inflight && !impl->control_inflight &&
+        !impl->tx_drain_pending && !impl->tx_claim_active)
+      out_hint->runnable = 1U;
+    else out_hint->blocked = 1U;
+  }
+  out_hint->blocked |= impl->tx_inflight || impl->control_inflight ||
+      impl->tx_drain_pending || impl->rx_event_leased || impl->tx_claim_active;
 
   /*
    * A pending control unit has priority over DATA and suppresses timeout work
@@ -67,9 +76,10 @@ wl_err_t wl_poll_get_hint(const wl_ctx_t *ctx, wl_time_ms_t now_ms,
 
     if (elapsed >= impl->config.ack_timeout_ms) {
       out_hint->next_deadline_ms = 0U;
-      out_hint->work_pending = 1U;
+      out_hint->runnable = 1U;
     } else {
       out_hint->next_deadline_ms = impl->config.ack_timeout_ms - elapsed;
+      out_hint->blocked = 1U;
     }
   }
   return WL_OK;

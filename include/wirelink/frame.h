@@ -89,12 +89,18 @@ typedef struct {
 /* Internal hard limit used by the current parser/encoder implementation. */
 #define WL_PACKET_MAX_PAYLOAD WL_FRAME_MAX_PAYLOAD
 
+/* Size helpers return zero for invalid or uncompiled selectors. A fixed
+ * cobs-crc16 core accepts only CRC16 (and COBS for envelope-aware helpers).
+ * Raw decode remains a fully validating tool for that compiled integrity. */
 size_t wl_frame_overhead(wl_integrity_t integrity);
 size_t wl_frame_packet_header_size(wl_packet_type_t type, uint8_t flags);
 size_t wl_frame_encode_overhead(wl_envelope_type_t envelope, wl_integrity_t integrity);
 size_t wl_frame_raw_size(size_t payload_len, wl_integrity_t integrity);
 
-/* Overlap is allowed and produces the same result as disjoint buffers. */
+/* Overlap is allowed and produces the same result as disjoint buffers.
+ * Invalid selectors return INVALID_ARG; valid but uncompiled selectors
+ * return NOT_SUPPORTED. Encode resets *out_len to zero on failure; decode
+ * leaves *out_view unchanged on failure. Neither downgrades integrity. */
 int wl_frame_encode(const wl_wire_packet_t *packet, wl_envelope_type_t envelope,
                    uint8_t *out, size_t out_cap, size_t *out_len);
 int wl_frame_decode(const uint8_t *in, size_t in_len, wl_integrity_t integrity,

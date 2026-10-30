@@ -6,6 +6,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+extern const uint16_t wl_crc16_table[256];
+
+static inline uint16_t wl_crc16_byte(uint16_t state, uint8_t value) {
+  return (uint16_t)((uint16_t)(state << 8U) ^
+                    wl_crc16_table[(uint8_t)((state >> 8U) ^ value)]);
+}
+
 /*
  * Incremental CRC state helpers used when a wire frame is held in disjoint
  * spans. The CRC-32C state is unfinalized; callers apply the final XOR after

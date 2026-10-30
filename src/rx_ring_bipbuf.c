@@ -41,6 +41,14 @@ typedef struct {
   _Atomic size_t write_cursor;
   _Atomic unsigned int overflow_events;
 
+  /* Owner-only delimiter search cache. Consume invalidates it; newly
+   * published bytes extend a negative search, never re-scan the old prefix. */
+  size_t find_read;
+  size_t find_scanned;
+  size_t find_offset;
+  uint8_t find_valid;
+  uint8_t find_found;
+
   /* Producer-private reservation state. */
   size_t reservation_cursor;
   size_t reservation_length;
@@ -407,43 +415,56 @@ wl_span_t wl_rx_ring_consumer_peek(wl_rx_ring_state_t *state) {
       contiguous_length(backend->capacity, read_cursor, readable)};
 }
 
+uint8_t wl_rx_ring_has_space(const wl_rx_ring_state_t *state) {
+  if (state == NULL) return 0U;
+  const wl_rx_bipbuf_state_t *backend = rx_state_const(state);
+  const size_t read = atomic_load_explicit(&backend->read_cursor, memory_order_acquire);
+  const size_t write = atomic_load_explicit(&backend->write_cursor, memory_order_acquire);
+  return backend->capacity != 0U &&
+      cursor_distance(backend->capacity * 2U, read, write) < backend->capacity;
+}
+
 int wl_rx_ring_consumer_find(const wl_rx_ring_state_t *state, uint8_t value,
                              size_t *out_offset) {
-  const wl_rx_bipbuf_state_t *backend;
-  size_t read_cursor;
-  size_t readable;
-  size_t first_length;
-  const uint8_t *match;
-
-  if (state == NULL || out_offset == NULL) {
-    return WL_ERR_INVALID_ARG;
-  }
-  backend = rx_state_const(state);
-  if (backend->memory == NULL || backend->capacity == 0U) {
+  if (state == NULL || out_offset == NULL) return WL_ERR_INVALID_ARG;
+  /* This query is owner-only, including through a const core readiness query.
+   * Producer publication touches only the SPSC cursors and byte storage. */
+  wl_rx_bipbuf_state_t *backend = rx_state((wl_rx_ring_state_t *)(void *)state);
+  if (backend->memory == NULL || backend->capacity == 0U)
     return WL_ERR_NOT_INITIALIZED;
-  }
-
-  readable = readable_snapshot(backend, &read_cursor);
-  first_length = contiguous_length(backend->capacity, read_cursor, readable);
-  match = memchr(backend->memory +
-                     cursor_physical(backend->capacity, read_cursor),
-                 value, first_length);
-  if (match != NULL) {
-    *out_offset =
-        (size_t)(match -
-                 (backend->memory +
-                  cursor_physical(backend->capacity, read_cursor)));
-    return WL_OK;
-  }
-
-  if (first_length < readable) {
-    const size_t second_length = readable - first_length;
-    match = memchr(backend->memory, value, second_length);
-    if (match != NULL) {
-      *out_offset = first_length + (size_t)(match - backend->memory);
+  size_t read;
+  const size_t readable = readable_snapshot(backend, &read);
+  size_t offset = 0U;
+  if (value == 0U && backend->find_valid && backend->find_read == read &&
+      backend->find_scanned <= readable) {
+    if (backend->find_found) {
+      *out_offset = backend->find_offset;
       return WL_OK;
     }
+    offset = backend->find_scanned;
   }
+  if (value == 0U) {
+    backend->find_valid = 1U;
+    backend->find_read = read;
+    backend->find_found = 0U;
+  }
+  while (offset < readable) {
+    const size_t cursor = cursor_advance(backend->capacity * 2U, read, offset);
+    const size_t length = contiguous_length(backend->capacity, cursor, readable - offset);
+    const uint8_t *base = backend->memory + cursor_physical(backend->capacity, cursor);
+    const uint8_t *match = memchr(base, value, length);
+    if (match != NULL) {
+      *out_offset = offset + (size_t)(match - base);
+      if (value == 0U) {
+        backend->find_offset = *out_offset;
+        backend->find_found = 1U;
+        backend->find_scanned = readable;
+      }
+      return WL_OK;
+    }
+    offset += length;
+  }
+  if (value == 0U) backend->find_scanned = readable;
   return WL_ERR_NO_DATA;
 }
 
@@ -499,6 +520,7 @@ int wl_rx_ring_consumer_consume(wl_rx_ring_state_t *state, size_t length) {
   if (length > readable) {
     return WL_ERR_NO_DATA;
   }
+  backend->find_valid = 0U;
   atomic_store_explicit(&backend->read_cursor,
                         cursor_advance(backend->capacity * 2U, read_cursor,
                                        length),
