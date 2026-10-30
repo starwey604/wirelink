@@ -24,6 +24,30 @@ static int free_tx(const wl_kernel_t *kernel, unsigned first, unsigned end) {
   return -1;
 }
 
+/* Admission order across requests, replies and ordinary messages is observable
+ * by applications (e.g. Progress followed by Control STOP). At most nine TX
+ * owners exist. This queue stores owner indices only, no extra RPC state. */
+static void queue_push(wl_kernel_t *kernel, unsigned index) {
+  unsigned tail = (kernel->tx_head + kernel->tx_count) % WL_KERNEL_TX_COUNT;
+  kernel->tx_queue[tail] = (uint8_t)index;
+  ++kernel->tx_count;
+}
+static void queue_pop(wl_kernel_t *kernel) {
+  kernel->tx_head = (uint8_t)((kernel->tx_head + 1U) % WL_KERNEL_TX_COUNT);
+  --kernel->tx_count;
+}
+static void queue_remove(wl_kernel_t *kernel, unsigned index) {
+  unsigned kept = 0U, count = kernel->tx_count;
+  for (unsigned n = 0U; n < count; ++n) {
+    uint8_t value = kernel->tx_queue[(kernel->tx_head + n) % WL_KERNEL_TX_COUNT];
+    if (value != index) {
+      kernel->tx_queue[(kernel->tx_head + kept) % WL_KERNEL_TX_COUNT] = value;
+      ++kept;
+    }
+  }
+  kernel->tx_count = (uint8_t)kept;
+}
+
 wl_err_t wl_kernel_init(wl_kernel_t *kernel, const wl_kernel_config_t *config) {
   if (kernel == NULL || config == NULL || config->port == NULL ||
       config->route == NULL || config->port->config.instance == 0U)
@@ -108,6 +132,7 @@ wl_err_t wl_kernel_call_start(wl_kernel_t *kernel, uint16_t request_id,
   tx->call_slot = (uint8_t)slot;
   tx->generation = call->generation;
   kernel->operation = operation;
+  queue_push(kernel, (unsigned)tx_index);
   *out = (wl_kernel_call_handle_t){instance(kernel), call->generation, operation, (uint8_t)slot};
   return WL_OK;
 }
@@ -130,7 +155,9 @@ wl_err_t wl_kernel_send(wl_kernel_t *kernel, uint16_t id,
   if (kernel->closed) return WL_ERR_INVALID_STATE;
   wl_kernel_tx_t *tx = &kernel->tx[MESSAGE_TX];
   if (tx->state != FREE) return WL_ERR_WOULD_BLOCK;
-  return encode_frame(tx, id, WL_KERNEL_NATIVE_HEADER, value, encode);
+  wl_err_t error = encode_frame(tx, id, WL_KERNEL_NATIVE_HEADER, value, encode);
+  if (error == WL_OK) queue_push(kernel, MESSAGE_TX);
+  return error;
 }
 
 wl_err_t wl_kernel_reply_reserve(wl_kernel_t *kernel, unsigned *out) {
@@ -171,6 +198,7 @@ wl_err_t wl_kernel_reply_finish(wl_kernel_t *kernel, unsigned index, uint16_t id
     }
   }
   if (error != WL_OK) tx->state = FREE;
+  else queue_push(kernel, index);
   return error;
 }
 
@@ -182,7 +210,10 @@ static void finish_call(wl_kernel_t *kernel, unsigned slot, wl_kernel_result_t r
   kernel->calls[slot].state = CALL_FREE;
   for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i)
     if (kernel->tx[i].state == READY && kernel->tx[i].call_slot == slot &&
-        kernel->tx[i].generation == saved.generation) kernel->tx[i].state = FREE;
+        kernel->tx[i].generation == saved.generation) {
+      kernel->tx[i].state = FREE;
+      queue_remove(kernel, i);
+    }
   saved.complete(kernel, &saved, result, body, length);
 }
 
@@ -254,19 +285,20 @@ static int terminal(wl_kernel_t *kernel, uint32_t now, const uint32_t *generatio
 static int submit_tx(wl_kernel_t *kernel, wl_err_t *out_error) {
   if (kernel->closed || kernel->tx_blocked || wl_packet_tx_active(kernel->port))
     return 0;
-  for (unsigned n = 0U; n < WL_KERNEL_TX_COUNT; ++n) {
-    unsigned index = kernel->tx_cursor;
-    kernel->tx_cursor = (uint8_t)((index + 1U) % WL_KERNEL_TX_COUNT);
+  while (kernel->tx_count != 0U) {
+    unsigned index = kernel->tx_queue[kernel->tx_head];
     wl_kernel_tx_t *tx = &kernel->tx[index];
-    if (tx->state != READY) continue;
+    if (tx->state != READY) { queue_pop(kernel); continue; }
     if (index < WL_KERNEL_CALLS &&
         (kernel->calls[tx->call_slot].state != CALL_WAITING ||
          kernel->calls[tx->call_slot].generation != tx->generation)) {
       tx->state = FREE;
+      queue_pop(kernel);
       continue;
     }
     wl_err_t error = wl_packet_tx_submit(kernel->port, tx->storage.data,
                                           tx->length, &kernel->flight_token);
+    if (error != WL_ERR_WOULD_BLOCK) queue_pop(kernel);
     if (error == WL_ERR_WOULD_BLOCK) kernel->tx_blocked = 1U;
     else if (error == WL_OK) {
       kernel->flight = (uint8_t)index;
@@ -366,6 +398,7 @@ wl_err_t wl_kernel_close(wl_kernel_t *kernel) {
   if (kernel == NULL) return WL_ERR_INVALID_ARG;
   if (kernel->in_step) return WL_ERR_REENTRANT;
   kernel->closed = 1U;
+  kernel->tx_count = 0U;
   wl_packet_stop(kernel->port);
   for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i)
     if (kernel->calls[i].state == CALL_WAITING) {

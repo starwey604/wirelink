@@ -93,7 +93,9 @@ struct wl_kernel {
   wl_packet_token_t flight_token;
   uint32_t operation;
   uint8_t flight;
-  uint8_t tx_cursor;
+  uint8_t tx_queue[WL_KERNEL_TX_COUNT];
+  uint8_t tx_head;
+  uint8_t tx_count;
   uint8_t call_cursor;
   uint8_t rx_held;
   uint8_t rx_blocked;

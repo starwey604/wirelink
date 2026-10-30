@@ -156,3 +156,10 @@ checks two-slot backpressure and borrowed RX, inline/asynchronous TX, late
 completion rejection, latched wakes, boundary/disconnect faults and stop/reinit.
 It supplies completion events at the public Astrial boundary, without claiming
 to simulate the USB controller. Both GCC and Clang ASan/UBSan pass all 7 tests.
+
+TX admission preserves a single FIFO order across client requests, constructed
+replies and ordinary messages. This matters when a caller accepts a stream
+Progress marker and then submits a Control STOP RPC. A fixed nine-index queue
+refers to the existing TX owners; it adds no second call table or payload pool.
+Cancel/timeout removes an unsent index before its storage can be reused; BUSY
+keeps the head, and an asynchronous source stays leased until completion.

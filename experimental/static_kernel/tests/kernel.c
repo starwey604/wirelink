@@ -331,14 +331,45 @@ static void test_errors_close_and_wrap(void) {
   run(&f, 0U);
 }
 
+static void test_tx_admission_order(void) {
+  fixture_t f = {.sink_result = WL_PACKET_BUSY};
+  init(&f, 901U);
+  uint32_t sample = 7U;
+  CHECK(wl_kernel_send(&f.kernel, 102U, &sample, encode) == WL_OK);
+  CHECK(start(&f, 0U, 1U, 0U, 100U) == WL_OK);
+  CHECK(start(&f, 1U, 2U, 0U, 100U) == WL_OK);
+  run(&f, 0U);
+  CHECK(f.submitted == 0U);
+  /* Cancel/reuse a queued owner index without moving the new request ahead. */
+  CHECK(wl_kernel_cancel(&f.kernel, f.completions[0].handle) == WL_OK);
+  run(&f, 0U);
+  CHECK(start(&f, 2U, 3U, 0U, 100U) == WL_OK);
+  f.sink_result = WL_PACKET_SENT;
+  wl_packet_activity(&f.port);
+  run(&f, 0U);
+  CHECK(f.submitted == 3U);
+  wl_kernel_frame_t frame;
+  CHECK(wl_kernel_native_none_read(f.frames[0], f.lengths[0], &frame) == WL_OK);
+  CHECK(frame.message_id == 102U);
+  wl_kernel_rpc_metadata_t metadata;
+  for (unsigned i = 1U; i < 3U; ++i) {
+    CHECK(wl_kernel_native_none_read(f.frames[i], f.lengths[i], &frame) == WL_OK);
+    CHECK(frame.message_id == 100U);
+    CHECK(wl_kernel_rpc_read(frame.payload, frame.length, 1, &metadata) == WL_OK);
+    CHECK(metadata.operation == i + 1U);
+  }
+}
+
 #ifdef WL_PACKET_ZTEST
 ZTEST(static_kernel, calls) { test_calls(); }
 ZTEST(static_kernel, physical_lease_and_callbacks) { test_physical_lease_and_callbacks(); }
 ZTEST(static_kernel, reply_backpressure) { test_reply_backpressure(); }
 ZTEST(static_kernel, errors_close_and_wrap) { test_errors_close_and_wrap(); }
+ZTEST(static_kernel, tx_admission_order) { test_tx_admission_order(); }
 ZTEST_SUITE(static_kernel, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_tx_admission_order();
   test_calls();
   test_physical_lease_and_callbacks();
   test_reply_backpressure();
