@@ -1,127 +1,107 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "bridge.h"
-#include "../support/test_environment.h"
-#include "calculator_endpoint.h"
+#include "calculator_kernel.h"
+#include "wirelink/packet_loopback.h"
 #include "wirelink/storage/fixed_pool.h"
-#include "wirelink/loopback.h"
+#include "../support/test_environment.h"
 #include <stdlib.h>
-
+#include <string.h>
+#define CHECK(x) do { if (!(x)) abort(); } while (0)
 typedef struct {
-  union { calculator_endpoint_t alignment; unsigned char bytes[2 * sizeof(calculator_endpoint_t)]; } storage;
+  calculator_kernel_t endpoint;
+  wl_packet_port_t port;
+  uint8_t rx[2][2053];
+} owner_t;
+typedef struct {
+  owner_t blocks[2];
   wl_fixed_pool_t pool;
-  calculator_endpoint_t *client, *server;
-  wl_loopback_t cable;
+  owner_t *client, *server;
+  wl_packet_loopback_t cable;
   uint32_t time;
   unsigned allocations, deallocations;
-  int fail_second;
+  bool fail_second, initialized, done;
+  wl_kernel_result_t result;
+  int32_t sum;
 } bridge_t;
-
 static void *allocate(void *context, size_t size, size_t alignment) {
-  bridge_t *bridge = context;
-  ++bridge->allocations;
+  bridge_t *bridge = context; ++bridge->allocations;
   if (bridge->fail_second && bridge->allocations == 2) return NULL;
   wl_allocator_t pool = wl_fixed_pool_allocator(&bridge->pool);
   return pool.allocate(pool.context, size, alignment);
 }
 static void deallocate(void *context, void *pointer, size_t size, size_t alignment) {
-  bridge_t *bridge = context;
-  ++bridge->deallocations;
+  bridge_t *bridge = context; ++bridge->deallocations;
   wl_allocator_t pool = wl_fixed_pool_allocator(&bridge->pool);
-  memset(pointer, 0xdd, size);
-  pool.deallocate(pool.context, pointer, size, alignment);
+  memset(pointer, 0xdd, size); pool.deallocate(pool.context, pointer, size, alignment);
 }
-static wl_time_ms_t now(void *context) { return ((bridge_t *)context)->time; }
-static int32_t add(void *context, const add_request_value_t *request, add_response_value_t *response) {
-  (void)context;
-  response->has_sum = true;
-  response->sum = request->left + request->right;
-  return 0;
+static int32_t add(void *user, const add_request_t *request, add_response_value_t *response) {
+  (void)user; response->has_sum = true; response->sum = request->left; return 0;
 }
-static int transfer(void *context) {
-  bridge_t *bridge = context;
-  wl_loopback_service_result_t result;
-  const int error = wl_loopback_service(&bridge->cable, 4, &result);
-  return error == WL_ERR_NO_DATA || error == WL_ERR_WOULD_BLOCK ? WL_OK : error;
+static void completed(void *user, wl_kernel_result_t result, const add_response_t *response) {
+  bridge_t *bridge = user; bridge->result = result;
+  if (result.outcome == WL_KERNEL_SUCCESS) { CHECK(response); bridge->sum = response->sum; }
+  bridge->done = true;
 }
-static int service(void *context) {
-  bridge_t *bridge = context;
-  int error = transfer(bridge);
-  if (error != WL_OK) return error;
-  error = calculator_endpoint_step(bridge->server);
-  return error == WL_OK ? transfer(bridge) : error;
-}
-static uint32_t hint(const void *context, wl_time_ms_t time) {
-  const bridge_t *bridge = context;
-  wl_adapter_stats_t a, b;
-  wl_readiness_t peer;
-  (void)wl_loopback_get_stats(&bridge->cable, WL_LOOPBACK_ENDPOINT_A, &a);
-  (void)wl_loopback_get_stats(&bridge->cable, WL_LOOPBACK_ENDPOINT_B, &b);
-  (void)wl_link_get_readiness(wl_endpoint_link(calculator_endpoint_handle(bridge->server)), time, &peer);
-  return a.tx_active || b.tx_active || peer.runnable ? 0U : peer.next_deadline_ms;
-}
-static wl_readiness_t hint_readiness(const void *context, const wl_ctx_t *link, wl_time_ms_t time) {
-  (void)link;
-  return wl_readiness_at(hint(context, time));
-}
-static void quiesce(void *context) { wl_loopback_quiesce(&((bridge_t *)context)->cable); }
-static wl_err_t storage_wait(void *context, uint32_t maximum) {
-  ((bridge_t *)context)->time += maximum;
-  return WL_ERR_NO_DATA;
-}
-
 void *storage_bridge_create(int fail_second) {
-  bridge_t *bridge = calloc(1, sizeof(*bridge)); /* Native binding object only. */
-  calculator_endpoint_config_t config;
-  if (bridge == NULL) return NULL;
-  bridge->fail_second = fail_second;
-  if (wl_fixed_pool_init(&bridge->pool, bridge->storage.bytes, sizeof(bridge->storage.bytes),
-      sizeof(calculator_endpoint_t), CALCULATOR_ENDPOINT_ALIGNMENT, 2) != WL_OK) goto fail;
-  wl_allocator_t allocator = {allocate, deallocate, bridge};
-  if (calculator_endpoint_config_defaults(&config, test_environment_id(81, (wl_clock_t){0}), wl_link_defaults()) != WL_OK) goto fail;
-  config.environment.clock = (wl_clock_t){now, bridge};
-  if (calculator_endpoint_create(&bridge->client, &config, &allocator) != WL_OK) goto fail;
-  config.on_add = add;
-  if (calculator_endpoint_create(&bridge->server, &config, &allocator) != WL_OK) goto fail;
-  if (wl_loopback_init(&bridge->cable, wl_endpoint_link(calculator_endpoint_handle(bridge->client)),
-      wl_endpoint_link(calculator_endpoint_handle(bridge->server))) != WL_OK) goto fail;
-  wl_pump_hooks_t hooks = {0};
-  hooks.adapter_user_data = bridge;
-  hooks.service = transfer;
-  hooks.quiesce = quiesce;
-  hooks.adapter_readiness = hint_readiness;
-  if (wl_endpoint_attach(calculator_endpoint_handle(bridge->server), &hooks) != WL_OK) goto fail;
-  hooks.service = service;
-  if (wl_endpoint_attach(calculator_endpoint_handle(bridge->client), &hooks) != WL_OK) goto fail;
-  wl_waiter_t waiter = {storage_wait, bridge, NULL};
-  if (wl_endpoint_set_waiter(calculator_endpoint_handle(bridge->client), &waiter) != WL_OK) goto fail;
-  return bridge;
-fail:
-  storage_bridge_destroy(bridge);
-  return NULL;
+  bridge_t *bridge = calloc(1, sizeof(*bridge)); /* Foreign test wrapper only. */
+  if (!bridge) return NULL;
+  bridge->fail_second = fail_second != 0;
+  CHECK(wl_fixed_pool_init(&bridge->pool, bridge->blocks, sizeof(bridge->blocks),
+    sizeof(owner_t), _Alignof(owner_t), 2) == WL_OK);
+  bridge->client = allocate(bridge, sizeof(owner_t), _Alignof(owner_t));
+  if (bridge->client) bridge->server = allocate(bridge, sizeof(owner_t), _Alignof(owner_t));
+  if (!bridge->client || !bridge->server) { storage_bridge_destroy(bridge); return NULL; }
+  CHECK(wl_packet_loopback_init(&bridge->cable, &bridge->client->port, &bridge->server->port, NULL, NULL) == WL_OK);
+  owner_t *owners[2] = {bridge->client, bridge->server};
+  for (unsigned side = 0; side < 2; ++side) {
+    owner_t *owner = owners[side]; uint64_t instance;
+    CHECK(wl_session_next((wl_session_source_t){test_next_session, NULL}, 0, &instance) == WL_OK);
+    wl_packet_config_t packet = {.instance = instance, .rx_storage = &owner->rx[0][0],
+      .rx_unit_size = sizeof(owner->rx[0]), .rx_storage_size = sizeof(owner->rx),
+      .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
+      .user = &bridge->cable.directions[side]};
+    CHECK(wl_packet_init(&owner->port, &packet) == WL_OK);
+    calculator_kernel_handlers_t handlers = {.on_rpc_add = add};
+    CHECK(calculator_kernel_init(&owner->endpoint, &owner->port, &handlers, NULL, NULL) == WL_OK);
+  }
+  bridge->initialized = true; return bridge;
 }
 int storage_bridge_call(void *object, int32_t left, int32_t *sum) {
   bridge_t *bridge = object;
-  if (bridge == NULL || bridge->client == NULL || sum == NULL) return -1;
-  add_request_value_t request;
-  add_response_value_t response;
-  add_request_value_clear(&request);
-  request.has_left = request.has_right = true;
-  request.left = left; request.right = 0;
-  const wl_rpc_completion_t result = calculator_endpoint_add_sync(bridge->client, &request, &response, 1000);
-  if (result.status != WL_RPC_SUCCESS) return -1;
-  *sum = response.sum;
-  return 0;
+  if (!bridge || !bridge->initialized || !sum) return -1;
+  add_request_value_t request = {.has_left = true, .left = left, .has_right = true, .right = 0};
+  wl_kernel_call_handle_t handle; bridge->done = false;
+  if (calculator_kernel_add_start(&bridge->client->endpoint, &request, bridge->time, 1000,
+      completed, bridge, &handle) != WL_OK) return -1;
+  memset(&request, 0, sizeof(request));
+  for (unsigned pass = 0; pass < 1000 && !bridge->done; ++pass) {
+    CHECK(calculator_kernel_step(&bridge->client->endpoint, bridge->time) == WL_OK);
+    CHECK(calculator_kernel_step(&bridge->server->endpoint, bridge->time) == WL_OK);
+    CHECK(wl_packet_loopback_service(&bridge->cable, 2) == WL_OK); ++bridge->time;
+  }
+  if (!bridge->done || bridge->result.outcome != WL_KERNEL_SUCCESS) return -1;
+  *sum = bridge->sum; return 0;
 }
 int storage_bridge_close(void *object) {
   bridge_t *bridge = object;
-  if (bridge == NULL) return 0;
-  if (calculator_endpoint_destroy(&bridge->client) != WL_OK ||
-      calculator_endpoint_destroy(&bridge->server) != WL_OK) return -1;
+  if (!bridge) return 0;
+  if (bridge->initialized) {
+    owner_t *owners[2] = {bridge->client, bridge->server};
+    bool cancelled[2] = {bridge->cable.directions[0].pending != 0,
+      bridge->cable.directions[1].pending != 0};
+    for (unsigned side = 0; side < 2; ++side) CHECK(wl_kernel_close(&owners[side]->endpoint.core) == WL_OK);
+    wl_packet_loopback_stop(&bridge->cable);
+    for (unsigned side = 0; side < 2; ++side) {
+      wl_err_t error = calculator_kernel_step(&owners[side]->endpoint, bridge->time);
+      CHECK(error == WL_OK || (cancelled[side] && error == WL_ERR_IO));
+      CHECK(wl_kernel_quiescent(&owners[side]->endpoint.core));
+    }
+    bridge->initialized = false;
+  }
+  if (bridge->client) { deallocate(bridge, bridge->client, sizeof(owner_t), _Alignof(owner_t)); bridge->client = NULL; }
+  if (bridge->server) { deallocate(bridge, bridge->server, sizeof(owner_t), _Alignof(owner_t)); bridge->server = NULL; }
   return wl_fixed_pool_in_use(&bridge->pool) == 0 ? 0 : -1;
 }
-void storage_bridge_destroy(void *object) {
-  if (storage_bridge_close(object) != 0) abort();
-  free(object);
-}
+void storage_bridge_destroy(void *object) { CHECK(storage_bridge_close(object) == 0); free(object); }
 unsigned storage_bridge_allocations(void *object) { return ((bridge_t *)object)->allocations; }
 unsigned storage_bridge_deallocations(void *object) { return ((bridge_t *)object)->deallocations; }

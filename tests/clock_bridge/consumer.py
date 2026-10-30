@@ -29,7 +29,7 @@ def pump(pair, count=6):
     for _ in range(count):
         before = reads(pair)
         check(step(pair) == 0)
-        check(reads(pair) == before + 2)  # Inline reply reuses the server pass.
+        check(reads(pair) == before + 1)  # One explicit outer clock read shared by both kernel steps.
 
 
 for native in (0, 1):
@@ -70,4 +70,4 @@ try:
     check(result(pair, c.byref(value)) == 3)
 finally:
     destroy(pair)
-print("Python -> exported C -> generated endpoint: OK (native/manual/wrap/reject/close)")
+print("Python -> exported C -> generated kernel: OK (native/manual/wrap/reject/close)")

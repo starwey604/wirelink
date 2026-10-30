@@ -14,7 +14,7 @@ int main() {
     for (int i = 0; i < 6; ++i) {
       const auto reads = clock_bridge_reads(pair.get());
       if (clock_bridge_step(pair.get()) != 0) return 4;
-      if (clock_bridge_reads(pair.get()) != reads + 2U) return 5;
+      if (clock_bridge_reads(pair.get()) != reads + 1U) return 5;
     }
     const auto reads = clock_bridge_reads(pair.get());
     std::int32_t sum{};
@@ -23,5 +23,5 @@ int main() {
     if (clock_bridge_result(pair.get(), &sum) != 1 || sum != 42) return 7;
     if (clock_bridge_step(pair.get()) != -1 || clock_bridge_reads(pair.get()) != reads) return 8;
   }
-  std::puts("C++ -> exported C -> generated endpoint: OK (native/manual clocks)");
+  std::puts("C++ -> exported C -> generated kernel: OK (native/manual clocks)");
 }
