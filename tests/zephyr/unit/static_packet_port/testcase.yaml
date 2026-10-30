@@ -1,0 +1,4 @@
+tests:
+  wirelink.static_packet_port:
+    type: unit
+    tags: [wirelink, kernel, ownership]
