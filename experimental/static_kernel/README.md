@@ -247,3 +247,17 @@ copy it into the peer's RX claim. Full peer slots apply backpressure; stop
 confirms cancellation without a driver thread. The generated fixture runs four
 calls in each direction concurrently with budget-one core passes, then closes
 and drains both endpoints. No old link objects are involved.
+
+K3 has a standalone local installation check, pending K5 default-package
+convergence. Set `BUILD_TESTING=OFF WIRELINK_KERNEL_INSTALL=ON` to build/install
+the new core without enabling a C++ compiler. The `WirelinkKernel` CMake package
+exports only the new kernel, port, stream/FIFO/loopback and independent framing
+tools. It installs the required codec/tool headers without the old endpoint/RPC
+API. Matching WLC remains an independently built tool.
+
+`tests/package/static_kernel` finds only that installed package and generates
+its own non-benchmark schema. It verifies eight bidirectional native calls,
+a C++ typed consumer with C-owned atomics, and real COBS/CRC16 RPC. No source-tree
+include directory or legacy library is supplied to these consumers. This
+package name is temporary evaluation infrastructure, not a second product mode
+or a published release.

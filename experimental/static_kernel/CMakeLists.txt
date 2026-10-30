@@ -1,14 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-project(wirelink_static_kernel_prototype LANGUAGES C CXX)
+project(wirelink_static_kernel_prototype VERSION 0.1.0 LANGUAGES C)
 include(CTest)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 add_library(wirelink_packet_port src/packet_port.c)
-target_include_directories(wirelink_packet_port PUBLIC include ../../include)
+function(wl_kernel_headers target)
+  target_include_directories(${target} PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../../include>
+    $<INSTALL_INTERFACE:include>)
+endfunction()
+wl_kernel_headers(wirelink_packet_port)
 add_library(wirelink_kernel_wire src/native_none.c src/rpc_wire.c)
-target_include_directories(wirelink_kernel_wire PUBLIC include ../../include)
+wl_kernel_headers(wirelink_kernel_wire)
 add_library(wirelink_packet_loopback src/packet_loopback.c)
 target_link_libraries(wirelink_packet_loopback PUBLIC wirelink_packet_port)
 add_library(wirelink_kernel src/kernel.c)
@@ -20,6 +26,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(wirelink_packet_loopback PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 if(BUILD_TESTING)
+  enable_language(CXX)
   add_executable(packet_port_test tests/packet_port.c)
   target_link_libraries(packet_port_test PRIVATE wirelink_packet_port)
   add_test(NAME packet_port COMMAND packet_port_test)
@@ -105,8 +112,13 @@ endif()
 
 add_library(wirelink_packet_stream src/packet_stream.c)
 target_link_libraries(wirelink_packet_stream PUBLIC wirelink_packet_port)
-add_library(wirelink_stream_cobs_crc16 src/cobs_crc16_stream.c ../../src/cobs.c ../../src/crc.c)
-target_link_libraries(wirelink_stream_cobs_crc16 PUBLIC wirelink_packet_stream wirelink_kernel_wire)
+add_library(wirelink_kernel_framing_primitives ../../src/cobs.c ../../src/crc.c)
+wl_kernel_headers(wirelink_kernel_framing_primitives)
+add_library(wirelink_kernel_frame_tools ../../src/frame.c ../../src/frame_cobs_crc16.c)
+target_link_libraries(wirelink_kernel_frame_tools PUBLIC wirelink_kernel_framing_primitives)
+add_library(wirelink_stream_cobs_crc16 src/cobs_crc16_stream.c)
+target_link_libraries(wirelink_stream_cobs_crc16 PUBLIC wirelink_packet_stream wirelink_kernel_wire
+  PRIVATE wirelink_kernel_framing_primitives)
 add_library(wirelink_stream_length16_none src/length16_none_stream.c)
 target_link_libraries(wirelink_stream_length16_none PUBLIC wirelink_packet_stream wirelink_kernel_wire)
 foreach(target wirelink_packet_stream wirelink_stream_cobs_crc16 wirelink_stream_length16_none)
@@ -114,8 +126,8 @@ foreach(target wirelink_packet_stream wirelink_stream_cobs_crc16 wirelink_stream
 endforeach()
 if(BUILD_TESTING)
   # Frozen public framing utility is an independent oracle, not an engine dependency.
-  add_executable(packet_stream_test tests/packet_stream.c ../../src/frame.c ../../src/frame_cobs_crc16.c)
-  target_link_libraries(packet_stream_test PRIVATE wirelink_stream_cobs_crc16 wirelink_stream_length16_none)
+  add_executable(packet_stream_test tests/packet_stream.c)
+  target_link_libraries(packet_stream_test PRIVATE wirelink_stream_cobs_crc16 wirelink_stream_length16_none wirelink_kernel_frame_tools)
   target_compile_options(packet_stream_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   add_test(NAME packet_stream COMMAND packet_stream_test)
 endif()
@@ -136,6 +148,7 @@ endif()
 
 option(WIRELINK_KERNEL_BUILD_ASIO_UDP "Build isolated packet UDP adapter" OFF)
 if(WIRELINK_KERNEL_BUILD_ASIO_UDP)
+  enable_language(CXX)
   find_path(WIRELINK_KERNEL_ASIO_INCLUDE_DIR asio.hpp
     HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../../../astrial/3rdparty/asio/include)
   if(NOT WIRELINK_KERNEL_ASIO_INCLUDE_DIR)
@@ -185,4 +198,36 @@ if(WIRELINK_KERNEL_BUILD_ASTRIAL_SERIAL)
     add_test(NAME kernel_packet_serial COMMAND kernel_packet_serial_test)
     set_tests_properties(kernel_packet_serial PROPERTIES TIMEOUT 10)
   endif()
+endif()
+
+# Local K3 package qualification, to converge into the default package in K5.
+option(WIRELINK_KERNEL_INSTALL "Install standalone new-contract core package" OFF)
+if(WIRELINK_KERNEL_INSTALL)
+  include(GNUInstallDirs)
+  include(CMakePackageConfigHelpers)
+  set(_kernel_targets wirelink_packet_port wirelink_kernel_wire wirelink_kernel
+    wirelink_packet_stream wirelink_stream_cobs_crc16 wirelink_stream_length16_none
+    wirelink_byte_fifo wirelink_byte_fifo_cobs wirelink_packet_loopback
+    wirelink_kernel_framing_primitives wirelink_kernel_frame_tools)
+  foreach(target IN LISTS _kernel_targets)
+    string(REGEX REPLACE "^wirelink_" "" name ${target})
+    set_target_properties(${target} PROPERTIES EXPORT_NAME ${name})
+  endforeach()
+  install(TARGETS ${_kernel_targets} EXPORT WirelinkKernelTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  install(DIRECTORY include/wirelink DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  install(FILES ../../include/wirelink/codec.h ../../include/wirelink/types.h
+    ../../include/wirelink/span.h ../../include/wirelink/profile.h
+    ../../include/wirelink/clock.h ../../include/wirelink/frame.h
+    ../../include/wirelink/cobs.h ../../include/wirelink/crc.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/wirelink)
+  set(_kernel_cmake ${CMAKE_INSTALL_LIBDIR}/cmake/WirelinkKernel)
+  configure_package_config_file(cmake/WirelinkKernelConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkKernelConfig.cmake
+    INSTALL_DESTINATION ${_kernel_cmake})
+  write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/WirelinkKernelConfigVersion.cmake
+    VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion)
+  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/WirelinkKernelConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/WirelinkKernelConfigVersion.cmake DESTINATION ${_kernel_cmake})
+  install(EXPORT WirelinkKernelTargets NAMESPACE WirelinkKernel:: DESTINATION ${_kernel_cmake})
 endif()
