@@ -1,0 +1,35 @@
+{
+  "accepted_utc": "2026-10-31T03:00:59.710383+00:00",
+  "authorization": "User accepts and freezes current reviewed version, retires remaining legacy execution entries, and focuses subsequent research on notification/progress costs.",
+  "source_heads": {
+    "wirelink": "d6ac418508d1f45c80d6e2694e014187809b3d7b",
+    "wirelink/wlc": "7eabbf4dd767f968123917ba02431fa0a0ef184e",
+    "wirelink-cross-benchmark": "73ad75edba2e1452fbf8d2f6a445b2ceabe5a32f",
+    "astrial": "7ffc5c34327d231e4bbca4fadb2157b8bba5a42d"
+  },
+  "measured_code_head": "5453d035a11cbc1136164b42a30096bae3e8bfcb",
+  "accepted_evidence_index": "/home/ww/codings/wirelink-static-kernel-fixes-20261031/final-evidence-index.json",
+  "accepted_evidence_sha256": "fe08b808f6350daf93870fafe8c9558ec35d76a6dd57bcf9dd204c73966934f3",
+  "registration_sha256": "44c9d6d556208bc7d282bf40becfe62de5ec49883cb02a88928008a999f4e959",
+  "actual_dirty_sources": "baseline/*.tar.gz and input.json; tags alone do not contain pre-existing dirty inputs",
+  "release": false,
+  "local_tags": {
+    "/home/ww/codings/wirelink": {
+      "tag": "baseline/static-kernel-accepted-20261031",
+      "tag_object": "2d09c5a283b4ec3829667f2044e974da5d2be1f2",
+      "commit": "d6ac418508d1f45c80d6e2694e014187809b3d7b"
+    },
+    "/home/ww/codings/wirelink/wlc": {
+      "tag": "baseline/static-kernel-accepted-20261031",
+      "tag_object": "b0f0c17d610f371eabc17fac640efdce2f11f8c7",
+      "commit": "7eabbf4dd767f968123917ba02431fa0a0ef184e"
+    },
+    "/home/ww/codings/wirelink-cross-benchmark": {
+      "tag": "baseline/static-kernel-accepted-20261031",
+      "tag_object": "a8c0d90d1c2d2f19df2018b9de1dd64bc4ccc9b8",
+      "commit": "73ad75edba2e1452fbf8d2f6a445b2ceabe5a32f"
+    }
+  },
+  "input_manifest_sha256": "1b1939b7cf915e76d6206b06b9b33e91bb6ae816a0a1288df58d50860d900643",
+  "future_reference": "Current accepted kernel is A_current for notification/progress research; historical pre-static-kernel A is not the next optimization baseline."
+}
