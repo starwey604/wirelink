@@ -1,5 +1,7 @@
 # K5 默认产品迁移与删除记录
 
+评审补正：此前“全部 benchmark 消费者已迁移”的表述遗漏了相邻仓的旧常规 Wirelink USB 入口。F3 已显式退役它，并提供实际构建／归档／验证通过的统一当前命令；F1/F2 及受影响 USB 应用同步修复，见[审核修复结果](static-endpoint-kernel-review-fixes-20261031-cn.md)。下面保留各历史迁移点记录。
+
 K4 的 18 份完整采集及独立重放通过，见 [结果与限制](static-endpoint-kernel-k4-result-20261031-cn.md)。K5 默认产品迁移已经完成，并完成最终源码的独立完整硬件确认；K6 的交付状态和证据索引见[最终结果](static-endpoint-kernel-refactor-result-20261031-cn.md)。以下逐节保留当时的进度，不把早期“待完成”解释为最终状态。入口根仓 `cefa8aa`、WLC `af819f7`、benchmark `27d517b`，dirty 输入归档于 `/home/ww/codings/wirelink-static-kernel-final-20261031/entry/`。此前 K3/K4 索引不再追加。
 
 ## 逐项替换责任
