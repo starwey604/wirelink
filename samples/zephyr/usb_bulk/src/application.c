@@ -92,7 +92,9 @@ static wl_err_t end(usb_sample_application_t *app, const wl_kernel_frame_t *fram
 }
 wl_err_t usb_sample_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
   usb_sample_application_t *app = core->user;
-  if (app->output_pending) return WL_ERR_INVALID_STATE; /* Owner gate invariant. */
+  /* A fair kernel may grant RX a turn before submitting the previous echo.
+   * Retain that input without decoding or applying any business side effect. */
+  if (app->output_pending) return WL_ERR_WOULD_BLOCK;
   switch (frame->message_id) {
     case BULK_BEGIN_MESSAGE_ID: return begin(app, frame);
     case BULK_CHUNK_MESSAGE_ID: return chunk(app, frame);
@@ -143,11 +145,13 @@ wl_err_t usb_sample_pass(usb_sample_application_t *app, wl_kernel_t *core, uint3
   }
   wl_err_t error = flush(app, core);
   if (error != WL_OK) return error;
-  /* Only this raw echo/object tool has this application gate. With output
-   * pending, one step may consume a physical completion or submit its occupied
-   * ordinary snapshot, but must not consume another RX. No RPC is registered. */
+  /* Only this raw echo/object tool has this application gate. A pending output
+   * applies pressure in route, independently of the kernel's RX/TX preference.
+   * Three events allow completion, a blocked RX turn and TX submission without
+   * consuming the only wake before the queued output can progress. No RPC is
+   * registered, so this gate cannot suppress a client deadline. */
   if (!app->output_pending || tx_progress(app, core)) {
-    error = wl_kernel_step(core, now, 1);
+    error = wl_kernel_step(core, now, 3U);
     if (error != WL_OK) return error;
   }
   return flush(app, core);
