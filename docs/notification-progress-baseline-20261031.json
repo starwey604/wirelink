@@ -31,5 +31,7 @@
     }
   },
   "input_manifest_sha256": "1b1939b7cf915e76d6206b06b9b33e91bb6ae816a0a1288df58d50860d900643",
-  "future_reference": "Current accepted kernel is A_current for notification/progress research; historical pre-static-kernel A is not the next optimization baseline."
+  "future_reference": "Current accepted kernel is A_current for notification/progress research; historical pre-static-kernel A is not the next optimization baseline.",
+  "retention_note": "notification-progress-retention-20261031.json",
+  "historical_full_artifact_replay_after_authorized_prune": false
 }

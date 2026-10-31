@@ -23,3 +23,5 @@ RPC RTT p50、MCU RPC CPU、MCU Sample CPU 相对旧引擎的配对降幅为72.0
 先做当前通知链、owner 推进链、实际 publication/notify/ready/step/wait 的分开账本，再决定是否有可证优化。初期不改 core/adapter/runtime，不搜索 inline、padding、cache、频率或调度组合。软件通知计数不等于 OS 唤醒次数；软件模型不等于硬件时延；inclusive IRQ/thread cycles 不相加或直接当作纯框架成本。
 
 任何候选变更都相对 A_current，同样的工作量／资源／observer／环境，先过 deadline、公平性、背压、逻辑与物理生命周期和 lost-wake 回归，再预登记实际性能比较。旧资料只作历史证据；新的研究结果不改变旧采集标签。
+
+旧构建已按用户要求永久清理；实际保留集合和历史索引限制见[清理记录](notification-progress-retention-20261031-cn.md)。
