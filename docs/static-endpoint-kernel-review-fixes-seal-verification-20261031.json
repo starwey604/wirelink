@@ -1,0 +1,11 @@
+{
+  "verified_utc": "2026-10-31T02:54:06.053179+00:00",
+  "verified": true,
+  "index_sha256": "fe08b808f6350daf93870fafe8c9558ec35d76a6dd57bcf9dd204c73966934f3",
+  "files": 19137,
+  "payload_bytes": 789731242,
+  "symlinks": 7525,
+  "external_inputs": 57,
+  "all_indexed_regular_files_readonly": true,
+  "scope": "Independent full reread after sealing; symlink text verified without traversing targets. Does not reopen hardware or rewrite raw replay results."
+}
