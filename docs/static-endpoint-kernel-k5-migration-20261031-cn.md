@@ -1,6 +1,6 @@
 # K5 默认产品迁移与删除记录
 
-K4 的 18 份完整采集及独立重放通过，见 [结果与限制](static-endpoint-kernel-k4-result-20261031-cn.md)。开始 K5，尚未完成默认产品迁移或 K6。入口根仓 `cefa8aa`、WLC `af819f7`、benchmark `27d517b`，dirty 输入归档于 `/home/ww/codings/wirelink-static-kernel-final-20261031/entry/`。此前 K3/K4 索引不再追加。
+K4 的 18 份完整采集及独立重放通过，见 [结果与限制](static-endpoint-kernel-k4-result-20261031-cn.md)。K5 默认产品迁移已经完成，并完成最终源码的独立完整硬件确认；K6 的交付状态和证据索引见[最终结果](static-endpoint-kernel-refactor-result-20261031-cn.md)。以下逐节保留当时的进度，不把早期“待完成”解释为最终状态。入口根仓 `cefa8aa`、WLC `af819f7`、benchmark `27d517b`，dirty 输入归档于 `/home/ww/codings/wirelink-static-kernel-final-20261031/entry/`。此前 K3/K4 索引不再追加。
 
 ## 逐项替换责任
 
@@ -117,3 +117,24 @@ endpoint_clock 改为 owner 显式传 now，验证 idle 后首调用、短 handl
 rpc_platform 使用同一 C kernel 与每端一个 owner task，两个单生产者实际 copy 到 peer RX unit 后才返回 SENT；满 RX 通过真实空间与锁存通知解锁。外层仅一项命令指针队列和 callback 返回／core pass 后的完成交接，不建 RPC matching 表或 deadline 引擎。固定池由应用显式 allocate/init/free；初始化失败回滚、池满、join 前不释放，热路径无分配。
 
 peer 暂停时实际填满 RX、四调用接纳／第五次拒绝，恢复后全部完成；100 次同步 UTF-8/NUL 调用、业务拒绝、2023 B response、外层队列已过期不创建 core call、第三任务唤醒长等待 close、双 owner／producer join、池回收及 idle 不自旋均通过。native／RISC-V／x86_64 **3/3**；软件 cycles/stack 仅诊断，native 虚拟 cycles 为零如实保留，IRQ-off 有界 primitive 批次只在其他线程 join 后执行，core reads=0。不重现旧一槽／create facade。日志 `twister-rpc-platform*`。
+
+
+## K5 收口：全部仓内消费者与正式构建
+
+最终代码边界为根仓 `68db8235771f6d5d14e74007b79c48917351d3a7`、独立 WLC `7eabbf4dd767f968123917ba02431fa0a0ef184e`、独立 benchmark `cd8b9ca`。后续仅提交交付文档。逐文件[删除／替换清单](static-endpoint-kernel-retirement-20261031.csv)覆盖入口到代码边界的全部 **358 个删除文件**及 80 个修改的核心／公开接口／adapter／runtime／构建／generator 文件；区分原型迁移与旧引擎删除，包含入口与最终源码 SHA。新增文件和其余消费者修改可由 git 历史核对。已有测试、benchmark、fuzz、安装消费者 CSV 保留各自更具体的退役原因。没有整批 xfail 旧测试。
+
+UART DMA/IRQ/poll、USB bulk、真实 UDP、serial/USB desktop adapter、两 owner 和固定池均已接到正式 packet port。USB CDC 因当前驱动无法提供真实物理 drain，明确不支持，不用软件队列清空伪装完成。raw USB echo 和 packet tools 在实际 driver stop/join 前持有 buffer／callback；typed serial 保留完整业务字段，只承诺本地发送。应用 object upload 明确处理 chunk/status、有限重试、重复与 commit，不把它重新命名成基础可靠链路。
+
+framing、codec validation、API、mixed traffic、owner-pass、footprint 与统一 benchmark registry 已迁移到可区分的当前格式；旧 ARQ/Bulk/peer-cache/rx-backend 执行 workload 删除，历史解析器和 frozen vectors 保留并标明范围。mixed traffic 的模型时间、firmware cycles 和 IRQ-off 代理分别报告，不能互作硬件延迟。当前 parser 真实拒绝缺项、重复、错误窗口和旧格式；normalizer 不把新旧语义数据自动拼接比较。六个保留 fuzz 入口和有结构的 kernel/stream 输入通过。
+
+中英文入门、RPC、async、values、adapter、storage、session、开发、协议及迁移清单已更新；教程代码与真正编译源逐字核对。站点 39 页构建和 902 条站内链接通过；文档检查只剩一条原有历史记录的段落长度提示。原有八份脏文档正文保留在历史折叠区，提交只纳入新的当前合同说明。原有 benchmark 222 份脏输入和 Astrial 685 份输入 hash 未变，没有修改其他工程的 vendor 副本。
+
+CI 使用 matching WLC 源码 pin、固定 Zephyr 与显式平台补丁、当前安装消费者和独立 C/C++ ABI 检查；移除旧 bootstrap/runtime 选项并明确诊断。一次实际发现的 `-fshort-enums` 调用边界错误已修复：kernel outcome 与 packet submit 的公开 ABI 改为固定 `int32_t`，C/C++ 消费者真实通过。Linux 等价构建与检查已本地执行，macOS/MSVC、manylinux 容器和远程 CI 尚未实际执行，不以工作流文本代替运行证据。WLC pin 发布可用性须由维护者在后续发布流程确认，本轮没有 push 或发布。
+
+## 最终源码确认
+
+`/home/ww/codings/wirelink-static-kernel-final-20261031/final-input/` 归档实际源码，包括原有脏输入；`final-source/` 从归档提取后构建。B 的正式 host target 与 Zephyr 模块没有 prototype include／source 列表，不再手工编译另一份 core。实际四个核心 object 的代码及 literal 与 K4 相同；两个公开 header 因 ABI 修复改变，最终链接布局也改变，因此重新登记并完成 **三轮 A/B/C × observer off/on 的全部 18 份采集**，没有用 K4 原型结果替代最终产品。
+
+全部 18 份的完整工作量、身份、环境、错误与字节账本在线通过，独立 raw replay 通过。主要配对收益为 off RPC RTT p50 **71.903%**、on MCU RPC active/call **69.555%**。MCU Sample 中位数下降 63.656%，但 A 跨 5% 稳定阈值，该项不可判定；15 项保护观察不可判定，无可判定的重复保护回退。libcsp 部分目标未达，详见最终结果；未再调整调频、布局或 workload 追数。
+
+最终软件确认：core 五平台 **37/37 执行配置、198/198 case**，另 18 个静态平台过滤；sample 四平台 **21 个执行配置、25/25 case**，另两个仅构建配置；WLC **110 passed、0 failed、0 ignored**，clippy/fmt 通过。完整命令、之前各迁移点的 sanitizer／TSan／安装／SDK／fuzz 结果与失败修正均保留于证据根目录。最后将板卡交回 `static-kernel-final-20261031-B-o1`，smoke 合格，host I/O 关闭。K5 至此完成，K6 由最终结果与封存索引交付。
