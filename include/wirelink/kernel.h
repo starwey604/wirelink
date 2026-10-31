@@ -102,6 +102,7 @@ struct wl_kernel {
   uint8_t rx_held;
   uint8_t rx_blocked;
   uint8_t tx_blocked;
+  uint8_t rx_turn;
   uint8_t in_step;
   uint8_t closed;
 };
@@ -116,6 +117,8 @@ wl_err_t wl_kernel_call_start(wl_kernel_t *, uint16_t request_id,
                               wl_kernel_call_handle_t *);
 wl_err_t wl_kernel_cancel(wl_kernel_t *, wl_kernel_call_handle_t);
 wl_err_t wl_kernel_send(wl_kernel_t *, uint16_t, const void *, wl_kernel_encode_fn);
+/* budget is 1..WL_KERNEL_BUDGET events. Eligible terminals precede RX;
+ * RX/TX turns persist across calls so even budget=1 makes progress both ways. */
 wl_err_t wl_kernel_step(wl_kernel_t *, uint32_t now, unsigned budget);
 /* Runnability and earliest client deadline only. Outer runtime must use a
  * latched event and check activity again across query/wait. */

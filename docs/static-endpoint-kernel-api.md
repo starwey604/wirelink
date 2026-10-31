@@ -27,6 +27,15 @@ from the current deadline pass. Callbacks may submit/cancel, but recursive
 step/close is rejected. The owner supplies a monotonic modular `uint32_t` tick;
 there are no clock reads, threads, OS calls or heap allocations in core code.
 
+Every budget from 1 through `WL_KERNEL_BUDGET` is supported. RX/TX preference
+persists across owner passes: after a TX submission, queued runnable RX receives
+a turn before another submission, even if completion consumed a whole pass.
+Physical completion and eligible terminals still take precedence. Empty or
+reply-pressure-blocked RX does not prevent TX progress; receiving continuously
+does not remove TX's turn. This bounds I/O starvation, not elapsed response time
+under an arbitrary external owner schedule. Rebuild consumers after private
+kernel storage layout changes.
+
 Each accepted call receives one terminal callback: success, business rejection,
 local error, timeout, cancellation or close. Response views borrow storage only
 until callback return. Copy via public value conversion to retain nested data.

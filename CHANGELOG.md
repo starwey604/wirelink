@@ -8,6 +8,9 @@ versioning after 1.0; compatibility expectations for pre-1.0 releases are descri
 - Drain every eligible call terminal before RX dispatch, including simultaneous
   deadlines and cancellation with a small event budget. A queued late response
   cannot complete another already expired call successfully.
+- Persist RX/TX turns across owner passes so all event budgets from 1 to 16
+  progress under continuous ordinary traffic, including asynchronous consumed/
+  drained completions. Rebuild consumers for the private kernel layout change.
 - **Breaking execution/API/ABI change:** replace the old ctx/protocol/RPC/pump
   engines with one allocation-free C11 static endpoint kernel and packet port.
   Four calls/four replies, admission snapshots, one terminal callback, explicit

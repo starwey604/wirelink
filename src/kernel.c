@@ -364,8 +364,22 @@ wl_err_t wl_kernel_step(wl_kernel_t *kernel, uint32_t now, unsigned budget) {
     /* Every eligible terminal in this step's generation snapshot precedes
      * RX. If the budget ends here, leave RX queued for a later owner pass. */
     while (count < budget && terminal(kernel, now, generations)) ++count;
-    if (count < budget && submit_tx(kernel, &error)) ++count;
-    if (count < budget && receive(kernel, &error)) ++count;
+    int received = 0;
+    /* Preserve a pending RX turn when a small budget ends after TX submit or
+     * physical completion. An empty/blocked RX never prevents TX progress. */
+    if (count < budget && kernel->rx_turn && receive(kernel, &error)) {
+      ++count;
+      received = 1;
+      kernel->rx_turn = 0U;
+    }
+    if (count < budget && submit_tx(kernel, &error)) {
+      ++count;
+      kernel->rx_turn = 1U;
+    }
+    if (count < budget && !received && receive(kernel, &error)) {
+      ++count;
+      kernel->rx_turn = 0U;
+    }
     if (result == WL_OK) result = error;
     if (before == count) break;
   }

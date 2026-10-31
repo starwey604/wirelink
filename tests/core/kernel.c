@@ -457,6 +457,49 @@ static void test_simultaneous_deadlines(void) {
   }
 }
 
+static void test_small_budget_io_fairness(void) {
+  for (unsigned budget = 1U; budget <= WL_KERNEL_BUDGET; ++budget) {
+    for (unsigned asynchronous = 0U; asynchronous < 2U; ++asynchronous) {
+      fixture_t f = {0};
+      init(&f, 908U);
+      CHECK(start(&f, 0U, 1U, 0U, 10U) == WL_OK);
+      run(&f, 0U);
+      CHECK(f.submitted == 1U);
+      inject(&f, 101U, 908U, f.completions[0].handle.operation, 0, 42U);
+      f.sink_result = asynchronous ? WL_PACKET_STARTED : WL_PACKET_SENT;
+      uint32_t sequence = 0U;
+      unsigned completion_stage = 0U;
+      for (uint32_t now = 1U; now <= 8U; ++now) {
+        uint32_t sample = 7U;
+        wl_err_t error = wl_kernel_send(&f.kernel, 102U, &sample, encode);
+        CHECK(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
+        /* Keep RX busy as well: granting RX a turn must not starve TX. */
+        if (wl_packet_rx_available(&f.port)) inject(&f, 102U, 700U, now, 0, sample);
+        CHECK(wl_kernel_step(&f.kernel, now, budget) == WL_OK);
+        if (asynchronous && wl_packet_tx_active(&f.port)) {
+          if (sequence != f.token.sequence) {
+            sequence = f.token.sequence;
+            completion_stage = 0U;
+          }
+          if (completion_stage < 2U) {
+            CHECK(wl_packet_tx_publish(&f.port, f.token,
+                completion_stage == 0U ? WL_PACKET_CONSUMED : WL_PACKET_DRAINED) == WL_OK);
+            ++completion_stage;
+          }
+        }
+        /* Even budget=1 services the response before its deadline, despite
+         * continuous bidirectional telemetry and split physical completion. */
+        if (now >= 4U)
+          CHECK(f.completions[0].count == 1U && f.completions[0].result.outcome == WL_KERNEL_SUCCESS);
+      }
+      CHECK(f.completions[0].value == 42U);
+      CHECK(f.messages != 0U && f.submitted >= 3U);
+      run(&f, 11U);
+      CHECK(f.completions[0].count == 1U && f.completions[0].result.outcome == WL_KERNEL_SUCCESS);
+    }
+  }
+}
+
 #ifdef WL_PACKET_ZTEST
 ZTEST(static_kernel, calls) { test_calls(); }
 ZTEST(static_kernel, physical_lease_and_callbacks) { test_physical_lease_and_callbacks(); }
@@ -465,9 +508,11 @@ ZTEST(static_kernel, errors_close_and_wrap) { test_errors_close_and_wrap(); }
 ZTEST(static_kernel, tx_admission_order) { test_tx_admission_order(); }
 ZTEST(static_kernel, budget_deadline_and_response_boundary) { test_budget_deadline_and_response_boundary(); }
 ZTEST(static_kernel, simultaneous_deadlines) { test_simultaneous_deadlines(); }
+ZTEST(static_kernel, small_budget_io_fairness) { test_small_budget_io_fairness(); }
 ZTEST_SUITE(static_kernel, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_small_budget_io_fairness();
   test_simultaneous_deadlines();
   test_budget_deadline_and_response_boundary();
   test_tx_admission_order();
