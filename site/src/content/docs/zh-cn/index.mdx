@@ -23,7 +23,9 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <span></span><i></i><span></span><i></i><span></span>
 </div>
 
-Wirelink 是一个不依赖动态分配的 C11 点对点协议引擎。它可以运行在串口、保留包边界的传输，或者应用自己提供的传输之上。你可以先在本机运行示例，再把相同的消息模型带到固件中。
+Wirelink 0.13 使用不依赖动态分配的 C11 静态端点内核。应用提供存储、owner、单调时间和传输。
+
+当前支持普通消息与四路 RPC，业务自行处理重试、幂等和长任务；已删除自动 ARQ/replay/deferred 执行。
 
 <CardGrid>
   <Card title="一次准备好工具" icon="add-document">
@@ -32,7 +34,7 @@ Wirelink 是一个不依赖动态分配的 C11 点对点协议引擎。它可以
   <Card title="保持资源有界" icon="setting">
     生成的 endpoint 使用显式存储和有界工作量。核心不占有线程、堆、硬件或时钟。
   </Card>
-  <Card title="分别选择保证" icon="open-book">
-    逐步学习 latest、FIFO、RPC、大块传输、所有权和会话行为，避免把不同保证混在一起。
+  <Card title="明确应用责任" icon="open-book">
+    学习借用结果、物理发送租约、应用 job ID 和重复执行规则；独立容器由应用选择。
   </Card>
 </CardGrid>

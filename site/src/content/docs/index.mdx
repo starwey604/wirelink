@@ -23,9 +23,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <span></span><i></i><span></span><i></i><span></span>
 </div>
 
-Wirelink is an allocation-free C11 protocol engine for two endpoints connected by
-a serial, packet, or application-provided transport. Start with a localhost
-example, then carry the same message model to firmware.
+Wirelink 0.13 uses an allocation-free C11 static endpoint kernel. Applications supply storage, one owner, monotonic time and a transport. Ordinary messages and four-call RPC share one core; applications define retries, idempotency and jobs. Automatic ARQ, replay and deferred execution were removed.
 
 <CardGrid>
   <Card title="Prepare once" icon="add-document">
@@ -36,8 +34,8 @@ example, then carry the same message model to firmware.
     Generated endpoints use explicit storage and bounded work. The core does not
     own threads, a heap, hardware, or a clock.
   </Card>
-  <Card title="Choose the right guarantee" icon="open-book">
-    Learn latest values, FIFO streams, RPC, bulk transfer, ownership, and session
-    behavior as separate decisions.
+  <Card title="Define application behavior" icon="open-book">
+    Learn borrowed results, physical TX leases, job IDs and duplicate execution.
+    Applications choose independent containers and business retry rules.
   </Card>
 </CardGrid>

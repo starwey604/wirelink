@@ -1,177 +1,65 @@
 ---
-title: Display the latest temperature
-description: Run two Wirelink endpoints and observe latest-value delivery.
+title: "Telemetry with one owner"
+description: "Telemetry with one owner — Wirelink 0.13"
 sidebar:
   order: 2
 ---
 
-import Checklist from '../../../components/tutorial/Checklist.astro';
-import MultipleChoice from '../../../components/tutorial/MultipleChoice.astro';
+Ordinary telemetry invokes a borrowed typed callback. This example sends 12 samples and poisons source values after admission. There is no retained mailbox: copy any value needed after callback return into application storage.
 
-A sensor produces readings while a display wants the current temperature. In
-this lesson, two independent programs exchange that value over localhost UDP.
-No development board or virtual serial port is required.
-
-**After this lesson, you can:**
-
-- run a Wirelink publisher and subscriber;
-- explain what `latest` retains after receipt;
-- distinguish latest-value retention from unreliable delivery.
-
-## Before you begin
-
-Complete [development environment setup](../environment-setup/) first. That
-lesson installs and verifies the compilers, CMake, Cargo, WLC, and standalone
-Asio used below. Run the remaining commands from the Wirelink repository root.
-
-## Build the example
-
-Configure and build the tutorial programs:
+This page uses current WLC/codegen 0.13 and profile v2. The C11 peers share one application owner and a real RAM-copy loopback, without opening hardware. Incrementing fixture instance IDs are only for this isolated example; production needs platform randomness or a durable unique allocator.
 
 ```sh
 cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_TESTING=OFF \
-  -DWIRELINK_BUILD_GETTING_STARTED=ON
-cmake --build build/tutorials --config Release --parallel
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+cmake --build build/tutorials --parallel
+ctest --test-dir build/tutorials --output-on-failure
 ```
 
-CMake finds `wlc` and Asio from the environment prepared in the previous lesson.
-It checks the WLC version and codegen contract before generating any C source.
+Run target `wirelink_telemetry_demo` (under its examples subdirectory).
 
-## Run the two endpoints
+[00_telemetry/publisher.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)
 
-Start the subscriber in terminal A:
-
-```sh
-./build/tutorials/examples/00_telemetry/telemetry_subscriber
-```
-
-After it prints `telemetry subscriber ready`, start the publisher in terminal B:
-
-```sh
-./build/tutorials/examples/00_telemetry/telemetry_publisher
-```
-
-The subscriber should print readings similar to:
-
-```text
-latest sample=1 temperature=23.50 C
-latest sample=2 temperature=23.50 C
-latest sample=3 temperature=23.50 C
-latest sample=4 temperature=23.50 C
-latest sample=5 temperature=23.50 C
-```
-
-UDP does not guarantee delivery, so every intermediate sample need not appear.
-The subscriber exits after receiving sample 5 or reports a timeout after ten
-seconds.
-
-The link and the receiving endpoint make separate decisions. Loss can happen on
-the UDP link; after a sample arrives, the `latest` slot replaces its older value:
-
-```mermaid
-flowchart LR
-  accTitle: Latest-value data path
-  accDescr: Samples cross an unreliable UDP link before the subscriber keeps the most recently received value for the display.
-  Publisher["Publisher<br/>samples 1 through 5"]
-  Link["UDP link<br/>may lose a sample"]
-  Endpoint["Subscriber endpoint"]
-  Latest["latest slot<br/>keeps one value"]
-  Display["Display reads<br/>current value"]
-
-  Publisher --> Link --> Endpoint --> Latest --> Display
-```
-
-:::note[Windows executable path]
-Visual Studio multi-configuration builds place the executable under the
-`Release` directory, for example
-`build/tutorials/examples/00_telemetry/Release/telemetry_subscriber.exe`.
-:::
-
-## Describe the message
-
-The example defines its data in
-[`telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl):
-
-```text
-version 1;
-
-message Telemetry @id(10) {
-  required uint32 sample @id(1);
-  required int32 temperature_centi_c @id(2);
+```c
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "telemetry_kernel.h"
+#include "loopback_owner.h"
+extern unsigned telemetry_received;
+void telemetry_receive(void *, const telemetry_t *);
+static telemetry_kernel_t endpoints[2];
+static example_pair_t pair;
+int main(void) {
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  const telemetry_kernel_handlers_t handlers = {.on_message_telemetry = telemetry_receive};
+  for (unsigned side = 0; side < 2; ++side)
+    EXAMPLE_REQUIRE(telemetry_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+  for (unsigned sample = 0; sample < 12; ++sample) {
+    telemetry_value_t message = {.has_sample = true, .sample = sample,
+      .has_temperature_centi_c = true, .temperature_centi_c = -1234};
+    EXAMPLE_REQUIRE(telemetry_kernel_send_telemetry(&endpoints[0], &message) == WL_OK);
+    memset(&message, 0, sizeof(message)); /* Admission copied the source. */
+    example_pair_wait(&pair, &telemetry_received, sample + 1);
+  }
+  example_pair_close(&pair);
+  puts("12 ordinary telemetry messages received; both endpoints quiescent");
+  return 0;
 }
 ```
 
-This **schema**, or message definition, gives both endpoints the same field
-names, types, and stable IDs. The endpoints encode those fields rather than
-sending the memory layout of a C structure.
+[00_telemetry/subscriber.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c)
 
-## Choose how received values are kept
-
-The accompanying
-[`telemetry.bind.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.bind.wl)
-contains two independent choices:
-
-```text
-profile version 1;
-
-latest Telemetry {
-  delivery = unreliable;
+```c
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "telemetry_kernel.h"
+#include "loopback_owner.h"
+unsigned telemetry_received;
+void telemetry_receive(void *user, const telemetry_t *message) {
+  (void)user;
+  EXAMPLE_REQUIRE(message->sample == telemetry_received);
+  EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
+  ++telemetry_received;
 }
 ```
 
-- `latest Telemetry` keeps the last received value and replaces an older unread value.
-- `delivery = unreliable` does not wait for a link acknowledgement or retransmit loss.
-
-Latest-value retention describes storage **after receipt**. Unreliable delivery
-describes what happens **on the link**. A frequently refreshed temperature can
-often tolerate a lost intermediate reading, which is why this example combines
-the two choices.
-
-<MultipleChoice
-  id="latest-versus-delivery"
-  question="The publisher sends samples 3, 4, and 5 before the application reads again. All three reach the subscriber. Which value does latest retention return?"
-  checkLabel="Check answer"
-  choices={[
-    {
-      label: 'Sample 3, because it arrived first',
-      correct: false,
-      feedback: 'Latest retention replaces an unread older value when a newer value arrives.',
-    },
-    {
-      label: 'Sample 5, because it arrived last',
-      correct: true,
-      feedback: 'Correct. Latest retention returns the most recently received value.',
-    },
-    {
-      label: 'All three samples in order',
-      correct: false,
-      feedback: 'A FIFO retains an ordered sequence. Latest retention keeps one current value.',
-    },
-  ]}
-/>
-
-## Try one change
-
-Open
-[`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)
-and change `value.temperature_centi_c` from `2350` to `2410`. Rebuild and run
-both programs. The display should now report `24.10 C`.
-
-This change confirms that the generated message carries the application value;
-it does not change the retention or delivery policy.
-
-<Checklist
-  id="getting-started"
-  title="Lesson complete"
-  items={[
-    'I can run the publisher and subscriber.',
-    'I can explain which value latest retention keeps.',
-    'I can distinguish retention from delivery.',
-  ]}
-/>
-
-## Next step
-
-[Request a result from a device](../request-a-result/) when a controller needs
-one answer associated with one operation, rather than the current retained value.
+[Kernel API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [Migration](/wirelink/reference/development-contract/) · [Application jobs](/wirelink/learn/deferred-rpc/)

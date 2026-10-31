@@ -1,191 +1,51 @@
 ---
-title: 配置开发环境
-description: 一次安装并验证 Wirelink 学习路径使用的全部工具。
+title: "构建环境与安装（0.13）"
+description: "构建环境与安装（0.13） — Wirelink 0.13"
 sidebar:
   order: 1
 ---
 
-import { TabItem, Tabs } from '@astrojs/starlight/components';
-import Checklist from '../../../../components/tutorial/Checklist.astro';
-import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+[English](https://github.com/starwey604/wirelink/blob/main/docs/installation.md).
 
-Wirelink 由两部分组成。核心库编进你的应用，负责成帧、完整性校验、可靠投递和状态运行时。WLC 是运行在开发机上的 schema 编译器，它读取 `.wl` 消息定义，生成对应的 C 源码。
+纯 core 使用 ISO C11、CMake 3.21+。host Executor、C++ Session、桌面 adapter 需要 C++20；MSVC 的 C 源使用 `/experimental:c11atomics`，原子存储由 C 持有，C++ 不假定 `std::atomic` ABI。
 
-本课把这两部分工具一次装好并验证，后续课程直接进入写代码。
+benchmark 工具使用 Python 3.11+，其余测试依对应 CMake 声明。
 
-**完成本课后，你能够：**
-
-- 使用 CMake 构建 C11 和 C++20 程序；
-- 在终端直接运行 Cargo 和匹配的 WLC 编译器；
-- 让 CMake 自动找到 standalone Asio。
-
-## 构建路径
-
-这两部分形成一条构建路径。CMake 负责协调生成和编译：
-
-```mermaid
-flowchart TB
-  accTitle: Wirelink 构建路径
-  accDescr: CMake 运行 WLC 把 schema 生成 C 源码，再与应用程序和 Wirelink 核心一起编译。
-  CMake["CMake 构建"] --> WLC["用 WLC 处理 .wl schema"]
-  WLC --> Generated["生成的 C 源码和头文件"]
-  Generated --> Compiler["编译生成代码、应用代码和 Wirelink 核心"]
-  Compiler --> Program["Wirelink 应用"]
-```
-
-最终产物是普通的 C11 程序。
-
-## 安装 C 工具链和 CMake
-
-最初几课需要 Git、CMake 3.21 或更新版本、C11 编译器、C++20 编译器，以及 standalone Asio。选择与你的系统对应的命令。
-
-<Tabs syncKey="host-system">
-  <TabItem label="Ubuntu / WSL">
-    ```sh
-    sudo apt update
-    sudo apt install build-essential cmake git curl libasio-dev
-    ```
-
-    `build-essential` 会安装 GCC、G++ 和本机构建工具。这也是 Ubuntu 与 WSL 2 中 Ubuntu 环境的最短配置路径。
-  </TabItem>
-
-  <TabItem label="Fedora">
-    ```sh
-    sudo dnf install gcc gcc-c++ cmake git curl asio-devel
-    ```
-  </TabItem>
-
-  <TabItem label="macOS">
-    先安装 Apple 命令行编译器，再使用 Homebrew 安装 CMake 和 Asio：
-
-    ```sh
-    xcode-select --install
-    brew install cmake asio
-    ```
-
-    该环境使用 Apple Clang 代替 GCC；它支持教程需要的语言功能。
-  </TabItem>
-</Tabs>
-
-:::note[原生 Windows]
-Wirelink 也支持 Visual Studio 2022。安装 **Desktop development with C++** 工作负载，以及 Git、CMake 和 standalone Asio。学习路径使用 shell 命令；如果你的机器上还没有原生的 CMake 环境，使用 WSL 2 中的 Ubuntu 会更直接。
-:::
-
-检查编译器别名和 CMake。最后一个命令应显示 CMake 3.21 或更新版本：
+默认 core 和 checked-in bare-metal 示例不需要 WLC：
 
 ```sh
-cc --version
-c++ --version
-cmake --version
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+cmake --install build/core --prefix /absolute/prefix
 ```
 
-## 安装 Rust 和 Cargo
+生成需要从匹配的独立源码构建 **WLC 0.13.0 / codegen 0.13**。Rust/Cargo 只用于构建编译器，不进入 C core。
 
-[Rustup](https://rust-lang.org/tools/install/) 会一次装好当前稳定版 Rust 工具链和 Cargo。在 Linux、WSL 或 macOS 中运行官方安装命令：
+编译器模板保留 LF。
 
 ```sh
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
+/path/to/matching-wlc/target/release/wlc --version
+/path/to/matching-wlc/target/release/wlc codegen-contract
 ```
 
-选择默认的 stable 工具链。安装后打开新终端，或者在当前 shell 中载入新环境：
+预期输出 `wlc 0.13.0` 和 `0.13`；`WIRELINK_WLC_EXECUTABLE` 使用该绝对路径。helper 校验 compiler/生成 manifest，不 bootstrap 旧发布版，也不假定已有 0.13 发布包。
+
+codegen 版本描述接口/布局，不是 wire 版本。
 
 ```sh
-. "$HOME/.cargo/env"
-cargo --version
+cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build build/tutorials --parallel
+ctest --test-dir build/tutorials --output-on-failure
 ```
 
-原生 Windows 用户从同一个 Rust 页面运行 `rustup-init.exe`，然后重新打开 PowerShell。Rustup 默认把命令安装到 `%USERPROFILE%\.cargo\bin`。
+安装后用 `find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)`，设置 `CMAKE_PREFIX_PATH=/absolute/prefix`。基础 C 包不要求 C++ compiler；可选 host/adapter component 必须已构建/安装，消费者 project 需启用 CXX。
 
-## 安装匹配的 WLC 编译器
+Asio UDP 使用 standalone Asio，当前本地验证版本 1.38.1，commit `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`。设置 `WIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/asio/include` 并启用 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON`；UDP 示例还需 `WIRELINK_BUILD_PLATFORM=ON`。
 
-当前开发树与 WLC 0.12.0、生成契约 0.12 配套。请使用随此树保存的匹配 WLC 源码；目前尚未固定 0.12 发布归档。从本地 checkout 安装：
+Astrial 使用 `WIRELINK_ASTRIAL_SOURCE_DIR`，native USB 另需 backend 的 libusb 依赖，均不进入 C core。
 
-```sh
-cargo install --path /path/to/wirelink/wlc --locked
-```
-
-命令把 `wlc` 可执行文件放入 Cargo 的二进制目录，通常是 `$HOME/.cargo/bin`。CMake 会从主机 `PATH` 中查找它，检查版本和生成契约，然后自动使用它。
-
-:::caution[请使用上面的本地源码安装命令]
-crates.io 上的 `wlc` 包名属于另一个 Wayland 项目。执行 `cargo install wlc` 安装的是那个项目，而不是 Wirelink schema 编译器。
-:::
-
-验证安装结果：
-
-```sh
-wlc --version
-wlc codegen-contract
-```
-
-预期输出：
-
-```text
-wlc 0.12.0
-0.12
-```
-
-如果系统找不到 `wlc`，重启终端，并确认 Cargo 的二进制目录已经加入 `PATH`。
-
-## 获取 Wirelink 源码
-
-选择工作目录并克隆仓库：
-
-```sh
-git clone https://github.com/starwey604/wirelink.git
-cd wirelink
-```
-
-运行一次小型核心构建，让编译器和 CMake 一起验证工具链：
-
-```sh
-cmake -S . -B build/environment-check \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_TESTING=OFF \
-  -DWIRELINK_BUILD_EXAMPLES=OFF
-cmake --build build/environment-check --config Release --parallel
-```
-
-这个构建验证核心工具链。下一课会启用 UDP 教程，同时验证 WLC 和 Asio。
-
-## 检查理解
-
-<MultipleChoice
-  id="environment-wlc-discovery-zh-cn"
-  question="完成环境配置后，Wirelink 的 CMake 构建如何选择 WLC？"
-  checkLabel="检查答案"
-  emptyFeedback="请先选择一个答案。"
-  choices={[
-    {
-      label: '从主机 PATH 找到 wlc，再检查版本和生成契约',
-      correct: true,
-      feedback: '正确。只有两个兼容性检查都通过，构建才会复用已安装的编译器。',
-    },
-    {
-      label: '直接使用 GCC 编译每一个 .wl 文件',
-      correct: false,
-      feedback: 'WLC 先读取 .wl 定义；GCC 随后编译生成的 C 源码。',
-    },
-    {
-      label: '每次构建都下载最新 WLC 版本',
-      correct: false,
-      feedback: 'CMake 会先复用 PATH 中匹配的 wlc，也不会跟随未固定的最新版本。',
-    },
-  ]}
-/>
-
-<Checklist
-  id="environment-setup-zh-cn"
-  title="环境就绪检查"
-  progressTemplate="已完成 {done}/{total} 项"
-  items={[
-    'CMake 显示 3.21 或更新版本。',
-    'C 与 C++ 编译器可以从终端运行。',
-    'Cargo 可以从终端运行。',
-    'WLC 显示版本 0.12.0、生成契约 0.12。',
-    'Wirelink 核心构建成功完成。',
-  ]}
-/>
-
-## 下一步
-
-继续学习[显示最新温度](../getting-started/)，用两个本机程序跑通第一条消息。
+继续阅读[迁移](/wirelink/zh-cn/reference/development-contract/)、[遥测教程](/wirelink/zh-cn/learn/getting-started/)与[开发检查](https://github.com/starwey604/wirelink/blob/main/docs/development-current.md)。本地 Linux 通过不代表远程 Windows/macOS、manylinux 或硬件检查已执行。
