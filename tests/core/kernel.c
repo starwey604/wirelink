@@ -403,6 +403,60 @@ static void test_budget_deadline_and_response_boundary(void) {
   CHECK(start(&h, 0U, 1U, 0U, 10U) == WL_ERR_ID_EXHAUSTED && h.kernel.operation == 0U);
 }
 
+static void test_simultaneous_deadlines(void) {
+  for (unsigned budget = 1U; budget <= WL_KERNEL_BUDGET; ++budget) {
+    for (unsigned calls = 2U; calls <= WL_KERNEL_CALLS; calls += 2U) {
+      for (unsigned wrap = 0U; wrap < 2U; ++wrap) {
+        uint32_t begin = wrap ? UINT32_MAX - 4U : 0U;
+        uint32_t deadline = begin + 10U;
+        for (unsigned boundary = 0U; boundary < 3U; ++boundary) {
+          for (unsigned cancel = 0U; cancel < 2U; ++cancel) {
+            fixture_t f = {0};
+            init(&f, 906U);
+            for (unsigned i = 0U; i < calls; ++i)
+              CHECK(start(&f, i, i, begin, 10U) == WL_OK);
+            run(&f, begin);
+            CHECK(f.submitted == calls);
+            if (cancel) CHECK(wl_kernel_cancel(&f.kernel, f.completions[0].handle) == WL_OK);
+            inject(&f, 101U, 906U, f.completions[calls - 1U].handle.operation, 0, 42U);
+            uint32_t now = deadline - 1U + boundary;
+            for (unsigned pass = 0U; pass < 16U && ready(&f, now); ++pass)
+              CHECK(wl_kernel_step(&f.kernel, now, budget) == WL_OK);
+            CHECK(!ready(&f, now));
+            CHECK(!wl_packet_rx_ready(&f.port));
+            for (unsigned i = 0U; i < calls; ++i) {
+              completion_t *c = &f.completions[i];
+              if (cancel && i == 0U)
+                CHECK(c->count == 1U && c->result.outcome == WL_KERNEL_CANCELLED);
+              else if (boundary == 0U && i == calls - 1U)
+                CHECK(c->count == 1U && c->result.outcome == WL_KERNEL_SUCCESS && c->value == 42U);
+              else if (boundary != 0U)
+                CHECK(c->count == 1U && c->result.outcome == WL_KERNEL_TIMED_OUT);
+              else CHECK(c->count == 0U);
+            }
+            run(&f, deadline + 1U);
+            for (unsigned i = 0U; i < calls; ++i) CHECK(f.completions[i].count == 1U);
+            inject(&f, 101U, 906U, f.completions[calls - 1U].handle.operation, 0, 99U);
+            run(&f, deadline + 2U);
+            CHECK(f.completions[calls - 1U].count == 1U);
+          }
+        }
+      }
+    }
+    fixture_t f = {0};
+    init(&f, 907U);
+    CHECK(start(&f, 0U, 1U, 0U, 10U) == WL_OK);
+    CHECK(start(&f, 1U, 2U, 0U, 100U) == WL_OK);
+    run(&f, 0U);
+    f.callback_action = 1;
+    CHECK(wl_kernel_step(&f.kernel, 10U, budget) == WL_OK);
+    CHECK(f.completions[0].count == 1U && f.completions[4].count == 0U);
+    run(&f, 10U);
+    CHECK(f.completions[1].count == 1U && f.completions[1].result.outcome == WL_KERNEL_CANCELLED);
+    CHECK(f.completions[4].count == 1U && f.completions[4].result.outcome == WL_KERNEL_TIMED_OUT);
+  }
+}
+
 #ifdef WL_PACKET_ZTEST
 ZTEST(static_kernel, calls) { test_calls(); }
 ZTEST(static_kernel, physical_lease_and_callbacks) { test_physical_lease_and_callbacks(); }
@@ -410,9 +464,11 @@ ZTEST(static_kernel, reply_backpressure) { test_reply_backpressure(); }
 ZTEST(static_kernel, errors_close_and_wrap) { test_errors_close_and_wrap(); }
 ZTEST(static_kernel, tx_admission_order) { test_tx_admission_order(); }
 ZTEST(static_kernel, budget_deadline_and_response_boundary) { test_budget_deadline_and_response_boundary(); }
+ZTEST(static_kernel, simultaneous_deadlines) { test_simultaneous_deadlines(); }
 ZTEST_SUITE(static_kernel, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_simultaneous_deadlines();
   test_budget_deadline_and_response_boundary();
   test_tx_admission_order();
   test_calls();

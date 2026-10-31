@@ -361,7 +361,9 @@ wl_err_t wl_kernel_step(wl_kernel_t *kernel, uint32_t now, unsigned budget) {
     unsigned before = count;
     wl_err_t error = WL_OK;
     if (wl_packet_tx_ready(kernel->port)) { error = complete_tx(kernel); ++count; }
-    if (count < budget && terminal(kernel, now, generations)) ++count;
+    /* Every eligible terminal in this step's generation snapshot precedes
+     * RX. If the budget ends here, leave RX queued for a later owner pass. */
+    while (count < budget && terminal(kernel, now, generations)) ++count;
     if (count < budget && submit_tx(kernel, &error)) ++count;
     if (count < budget && receive(kernel, &error)) ++count;
     if (result == WL_OK) result = error;

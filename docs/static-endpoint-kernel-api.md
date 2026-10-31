@@ -21,7 +21,8 @@ concurrent call returns `WL_ERR_WOULD_BLOCK`. Terminal handles become invalid;
 operation/generation counters exhaust explicitly instead of wrapping.
 
 `wl_kernel_step(core, now, budget)` advances bounded owner work. Deadline
-processing precedes RX. A generation snapshot excludes callback-created calls
+processing drains all eligible terminals before RX; if the event budget is
+exhausted, RX stays queued. A generation snapshot excludes callback-created calls
 from the current deadline pass. Callbacks may submit/cancel, but recursive
 step/close is rejected. The owner supplies a monotonic modular `uint32_t` tick;
 there are no clock reads, threads, OS calls or heap allocations in core code.

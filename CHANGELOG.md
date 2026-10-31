@@ -5,6 +5,9 @@ versioning after 1.0; compatibility expectations for pre-1.0 releases are descri
 
 ## Unreleased — 0.13 development
 
+- Drain every eligible call terminal before RX dispatch, including simultaneous
+  deadlines and cancellation with a small event budget. A queued late response
+  cannot complete another already expired call successfully.
 - **Breaking execution/API/ABI change:** replace the old ctx/protocol/RPC/pump
   engines with one allocation-free C11 static endpoint kernel and packet port.
   Four calls/four replies, admission snapshots, one terminal callback, explicit
