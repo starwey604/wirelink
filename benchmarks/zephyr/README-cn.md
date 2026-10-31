@@ -1,85 +1,40 @@
-# Zephyr 固件基准
+# 当前 Zephyr 固件诊断
 
-[English](README.md)。
+[English](README.md).
 
-这些 app 在 ESP32-S3 DevKitC 上跑 `benchmarks/` 的负载，并通过板载 USB Serial/JTAG console
-输出 cycle 或墙时。不需要 J-Link 或 RTT 探针。参考板是 `esp32s3_devkitc/esp32s3/procpu`。
+固件与 host 使用同一 C workload。native/QEMU 检查正确性；已标识板卡上的 cycle 是独立 intrinsic 诊断，不等于 USB 延迟或全系统 active CPU。
 
-| App | 主机对应 |
+| App | 当前格式 / 读取器 |
 | --- | --- |
-| `codec_plan` | [codec_plan](../codec_plan/README-cn.md) |
-| `framing` | [framing](../framing/README-cn.md) |
-| `mixed_traffic` | [mixed_traffic](../mixed_traffic/README-cn.md) |
-| `rpc_validation` | [rpc_validation](../rpc_validation/README-cn.md) |
-| [rx_backend](rx_backend/README-cn.md) | 仅 Zephyr 的 RX ring 测试 |
+| codec_plan | `codec_plan_*_v1`，codec_plan/compare.py，独立冻结纯 codec |
+| framing | `framing_cpu_*_v3`，framing/compare.py，独立 framing 工具 |
+| mixed_traffic | `mixed_kernel_fw_*_v1`，42 traffic/21 cycle；compare_kernel_firmware.py |
+| rpc_validation | `rpc_validation_*_v3`，rpc_validation/compare.py，公开 codec 操作 |
 
-每个 app 的 `boards/esp32s3_devkitc_esp32s3_procpu.overlay` 都选择
-`zephyr,console = &usb_serial` 并启用 `&usb_serial`，
-所以固件输出和主机 `compare.py` 日志使用同一文本格式。
-构建正确时 `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y`。
+旧 RX backend selector 实验已删除，文件哈希与替代见 `../retired-execution-workloads.csv`。历史读取器不代表仍支持旧可执行负载，不能和 ARQ/replay 采集混比。
 
-## 构建与烧录
-
-从已初始化的 Zephyr workspace，把本仓库作为 module 加入并构建。
-以 `framing` 为例：
+从匹配的 Zephyr workspace 使用新构建目录：
 
 ```sh
 west build -b esp32s3_devkitc/esp32s3/procpu \
-  /path/to/wirelink/benchmarks/zephyr/framing -d build/framing-hw -- \
-  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink
-west flash -d build/framing-hw --esp-device /dev/ttyACM0
-```
-
-烧录用开发板的 UART 桥，采集用 USB Serial/JTAG console，否则两个进程会抢同一个口。
-UART 桥是 `ttyACM0` 时，console 就是 `ttyACM1`。
-app 启动时等两秒，让主机在复位后有时间重新打开 console。
-
-`rpc_validation` 和 `codec_plan` 链接冻结的生成产物：
-
-```sh
+  /path/to/wirelink/benchmarks/zephyr/framing -d build/framing-hw
 west build -b esp32s3_devkitc/esp32s3/procpu \
-  /path/to/wirelink/benchmarks/zephyr/rpc_validation -d build/rpc-hw -- \
-  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink \
-  -DRPC_VALIDATION_CODEC_DIR=/path/to/frozen-codec \
-  -DRPC_VALIDATION_OPTIMIZED_CODEC=1
-```
-
-`mixed_traffic` 在构建时生成 codec 和 runtime，需要指向配套 WLC：
-
-```sh
+  /path/to/wirelink/benchmarks/zephyr/rpc_validation -d build/codec-validation-hw -- \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/mixed_traffic -d build/mixed-hw -- \
-  -DZEPHYR_EXTRA_MODULES=/path/to/wirelink \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc -DWIRELINK_WLC_AUTO_DOWNLOAD=OFF
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
 ```
 
-ESP32-S3 的 Xtensa 工具链不支持 link-time optimization，所以这些构建都不启用 LTO。
-`codec_plan` 可在支持 LTO 的主机工具链上启用。
+codec_plan 要求 `CODEC_PLAN_CODEC_DIR` 中有另行生成的纯 `plan.c/.h/_values.h`；保留 baseline 冻结产物，candidate 在新目录生成并登记 compiler。当前 public codec validation 不再使用私有 fingerprint seam，不能设置 `RPC_VALIDATION_OPTIMIZED_CODEC=1`。
 
-改核心前先冻结基线的 ELF、map 和 `.config`；candidate 在另一个目录构建。
-两侧必须使用相同板子、工具链和优化设置。
+ESP32-S3 app 使用 USB Serial/JTAG console，启动后等两秒输出。先发现实际板卡、烧录桥、console 路径，不能假定稳定设备名。只在明确选择时刷相应固件，烧录桥与 console 分开占用，结束后关闭进程。临时诊断镜像不满足静态内核计划的最终合格新 B 交回要求。
 
-## Linux USB 权限
-
-`west flash` 和 `capture_serial.py` 需要读写开发板的串口。安装一次
-[`contrib/udev/99-wirelink.rules`](../../contrib/udev/99-wirelink.rules)，
-或把用户加入 `uucp` 组；见 [contrib/udev](../../contrib/udev/README.md)。
-
-## 采集
-
-先启动采集，再复位板子，以记录启动横幅和全部样本：
+采集脚本独占新输出文件，找不到结束标记则失败：
 
 ```sh
-python benchmarks/zephyr/capture_serial.py \
-  --port /dev/ttyACM0 --out after.log --until result=pass --seconds 120
+python benchmarks/zephyr/capture_serial.py --port DISCOVERED_CONSOLE \
+  --out complete.log --until result=pass --seconds 120
 ```
 
-Linux 端口名是 `/dev/ttyACM*`，macOS 是 `/dev/cu.usbmodem*`，Windows 是 `COM*`。
-脚本需要 `pyserial`，并在复位导致 USB 重新枚举时自动重开端口。
-脚本以独占方式创建 `--out`，文件已存在则直接失败，绝不把旧日志追加进新采集；
-若 `--until` marker 始终未出现则以退出码 `2` 结束——不完整的采集不会伪装成成功
-（退出码遵循 [SPEC.md](SPEC-cn.md)）。不用脚本时，Linux 上
-`cat /dev/ttyACM0 > after.log` 也可以；看到 pass marker 后停止。
-
-保留原始日志、ELF、SHA-256 和 `.config`。固件日志用对应主机基准的 `compare.py` 比较，
-不要把固件数字与主机数字互比。`native_sim` 和 QEMU 仍是正确性门槛，不是计时时钟。
+保存源码/toolchain/生成 C、observer/LTO/cache、ELF/bin/map、config/命令、全部 raw 与失败尝试，使用对应格式读取器核对完整矩阵。IRQ-masked mixed 模型 cycle 包含 copy、故障注入和应用记账；模拟 ms 单独报告。诊断和 board build 都不等于物理 I/O 资格。

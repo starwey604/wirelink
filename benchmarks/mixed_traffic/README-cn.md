@@ -29,3 +29,5 @@ Zephyr 集成测试复用同一模型。固件 wrapper 的 `mixed_kernel_fw_*_v1
 复制、丢包检查与应用 bookkeeping，只是 IRQ 屏蔽的固有成本诊断，不是端到端 CPU，
 不能与旧 retry 引擎数字比较。当前 RPC／Sample 实板证据由独立静态内核 USB workload
 提供；模型测试本身不需刷板。
+
+当前固件采集使用 `compare_kernel_firmware.py before.log after.log`，必须含完整 42 条 traffic 与 21 组 cycle，核对重复执行计数，拒绝复位、缺失、混用旧格式和 clock/layout 上下文变化。模拟毫秒和 IRQ-masked 模型 cycle 分开，不代表物理吞吐或旧 ARQ CPU 对照。

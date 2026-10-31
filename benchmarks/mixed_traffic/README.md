@@ -56,3 +56,5 @@ copying, loss inspection and application bookkeeping; they are not end-to-end
 active CPU and cannot be compared with old retry-engine groups. No board flash
 is needed for model correctness tests; the dedicated static-kernel USB workload
 supplies current RPC/Sample hardware evidence.
+
+Current firmware captures use `compare_kernel_firmware.py before.log after.log`. It requires all 42 traffic rows and 21 cycle groups, validates actual duplicate-execution counters and rejects resets, missing/end records, mixed old formats or changed clock/layout context. Simulated milliseconds and IRQ-masked model cycles remain distinct; no physical throughput or historical ARQ CPU comparison is implied.

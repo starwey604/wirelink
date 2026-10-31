@@ -18,7 +18,7 @@ if(Python3_Interpreter_FOUND)
   foreach(_script reliable_loss/test_compare.py footprint/test_compare.py
       framing/test_compare.py api/test_kernel_reports.py api/test_reports.py
       api/test_executor_reports.py mixed_traffic/test_compare_firmware.py
-      mixed_traffic/test_compare.py codec_plan/test_compare.py rpc_validation/test_compare.py)
+      mixed_traffic/test_compare.py mixed_traffic/test_kernel_firmware.py codec_plan/test_compare.py rpc_validation/test_compare.py)
     string(REPLACE "/" "_" _name "${_script}")
     string(REPLACE ".py" "" _name "${_name}")
     add_test(NAME benchmark_${_name} COMMAND "${Python3_EXECUTABLE}"

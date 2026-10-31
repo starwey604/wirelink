@@ -20,6 +20,11 @@ cargo clippy --manifest-path /path/to/matching-wlc/Cargo.toml --all-targets --al
 cargo fmt --manifest-path /path/to/matching-wlc/Cargo.toml --check
 ```
 
+Old GETTING_STARTED/COMPOSED_SERVICES build switches now reject explicitly;
+use WIRELINK_BUILD_WLC_EXAMPLES. Build the documentation site through its npm
+scripts. Old host profiling switches are removed; explicit outer profiling
+and its tests remain separate from core execution.
+
 Use a matching local WLC 0.13 executable and fresh build/output directories.
 Relevant optional configurations:
 
