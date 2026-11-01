@@ -8,7 +8,9 @@ import statistics
 import sys
 
 
-def replay(root):
+def replay(root, *, registration_format='cache-phase-QP-pairs-v1', qualification_root=None):
+    if qualification_root is None:
+        qualification_root = root.parent
     sys.path.insert(0, str(root/'tools'))
     from usb_evidence import require, sha, verify_files, validate_screen_rows
     from probe_validation import probe_windows
@@ -16,7 +18,7 @@ def replay(root):
     from host_state import window_state
     reg_path = root/'final-registration.json'
     reg = json.loads(reg_path.read_text())
-    require(reg['format'] == 'cache-phase-QP-pairs-v1', 'registration format')
+    require(reg['format'] == registration_format, 'registration format')
     require(json.loads((root/'status.json').read_text())['stage'] == 'complete',
             'matrix or board return incomplete')
     order = [(r, g, o) for r, groups in enumerate(['QP', 'PQ', 'QP'], 1)
@@ -34,7 +36,7 @@ def replay(root):
         require(q['artifacts'] == p['artifacts'] and q['build_id'] == p['build_id'], 'Q/P image differs')
         require(a['runner_sha256'] == q['runner_sha256'] == p['runner_sha256'], 'host differs')
     for key, receipt in reg['qualifications'].items():
-        path = root.parent/'captures'/('qualification-'+key)/'manifest.json'
+        path = qualification_root/'captures'/('qualification-'+key)/'manifest.json'
         require(sha(path) == receipt['sha256'], 'reused qualification changed')
         m = json.loads(path.read_text())
         require(m['complete'] and m['qualification_only'] and m['mode'] == 'smoke' and

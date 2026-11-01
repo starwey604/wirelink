@@ -90,6 +90,8 @@ on的P前两轮均有500次2412／2413快档、499次3382慢档和一次首调�
 
 下一步优先用平台PMU区分window exception与指令侧stall，保持core无时钟／平台依赖；同时保留成功前admission重试这个未计数条件。若仍只有阶段总量，应继续报告范围限制，不做“消掉某几个通知就能回收多少CPU”的推算。O4/O5和120%目标仍未作新判定。
 
+该判别已执行，见[PMU window／stall对照](static-endpoint-pmu-window-diagnosis-20261101-cn.md)：新块96个抽样调用的内部／外层window事件均为6／6，耗时却不同；新探针仍改变未抽中调用的分布。它降低了D中异常次数解释的优先级，尚不能把stall／miss归因推广到原A。
+
 ## 检查、交回与清理
 
 - 两套研究固件／host的off/on构建通过。正式产品源码未改。core、packet port、wire、生成代码和adapter的对象text/literal与绑定原A build.json的既有O0记录一致；原A对象已删除，本轮复用该记录。observer text也相同，on的一个literal section因断言源文件路径不同而变；`observer-string-referents.json`核对了实际字符串引用，没有把该例外说成整个对象字节相同。
