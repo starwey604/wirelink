@@ -136,3 +136,42 @@ for the actual capture dependency and register-interface evidence.
 /path/to/python-with-pyelftools -B -m unittest discover \
   -s benchmarks/notification_progress/a_residency -p 'test_tag_mapping.py'
 ```
+
+## Separate Progress work, successful traffic and owner cost offline
+
+`inspect_stream.py` reads the required-fixed candidate's retained disassembly,
+symbol tables and raw A/B screen. It needs neither candidate ELF files nor a
+board connection:
+
+```sh
+/path/to/python-with-pyelftools -B \
+  benchmarks/notification_progress/a_residency/inspect_stream.py \
+  --evidence /absolute/wirelink-required-fixed-20261101 \
+  --baseline /absolute/wirelink-cpu-optimization-20261101 \
+  --a-disassembly /absolute/wirelink-a-residency-20261101/final \
+  --out /absolute/new-stream-inspection.json
+```
+
+The tool reuses the raw screen/qualification/state replay. It compares function
+operations and branch destinations separately from literal referents and layout.
+Padding is excluded from business instruction counts; internal branches retain
+their destination instruction ordinal. Integer literals use their value, not
+objdump's arbitrary nearest-symbol annotation. A matching operation/CFG model
+does not establish matching data references or dynamic execution frequency.
+
+For this frozen 32 B/5 s screen, completed USB byte ledgers also determine
+successful ordinary Progress counts: subtract the three control exchanges,
+43-byte data frames and one 23-byte DRAIN/END marker in each direction; remaining
+bytes must divide exactly into 23-byte Progress frames. Control sizes include
+the actual tagged-varuint fields and raw JSON spelling. These counts cover
+preparation, window and drain together, not just the CPU window. Failed send
+attempts, empty service passes and wakes remain unknown.
+
+CPU components are divided by concurrent goodput to obtain cost per equivalent
+payload frame. Inclusive owner/thread/IRQ spans overlap and must not be summed
+or subtracted into exclusive costs. All 36 stream observations are retained;
+state-ineligible pairs stay marked and are not promoted to acceptance evidence.
+
+The [inspection result](../../../docs/static-endpoint-required-fixed-stream-inspection-20261101-cn.md)
+records the concrete findings and remaining frequency-versus-execution-cost
+question. Focused helper tests run with `-p test_stream.py` in this directory.
