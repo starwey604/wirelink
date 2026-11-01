@@ -94,6 +94,8 @@ r2的初测CPU-on样本曾是611 cycles／stall3／miss0与1107／499／1，wind
 
 下一判别应先使用现有A-off/on的实际ELF、map和调用链，筛选业务编码、窗口异常处理及相邻observer代码的指令驻留候选。动态证据必须重新说明其对原main栈帧、布局和执行相位的影响；本轮不能以追加更多API内读数替代这一约束。暂不针对某个探针镜像做padding、函数重排、IRAM或inline优化，也不把inclusive stall推算成可回收通知CPU。
 
+原A静态筛选已完成，见[实际机器码与驻留候选](static-endpoint-a-residency-analysis-20261101-cn.md)：11个Sample业务函数的归一化指令结构相同，读钟与窗口向量已在IRAM，on的成功路径行足迹反而更小。优先候选转为编码桥接／叶函数／literal行与前序owner、USB、周期observer的驻留交互；低位index模型仅用于筛选，未确认为硬件冲突。
+
 ## 检查、恢复与删除编译payload
 
 - 两版诊断应用的off/on及对应host构建通过。GCC／Clang严格C11、ASan/UBSan的状态、PMU占用、回绕、导出边界及raw拒绝测试通过。探针源码与用法在`benchmarks/notification_progress/pmu_sample/`。
