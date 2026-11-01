@@ -1,6 +1,6 @@
 # 静态端点 CPU 优化执行记录
 
-日期：2026-11-01。按[CPU 优化计划](static-endpoint-cpu-optimization-plan-20261031-cn.md)执行，当前完成 O0、O1 首轮及 O3 首个候选的筛查。O3 候选因保护项回退撤回，正式内核继续使用本轮 A。
+日期：2026-11-01。本文记录 O0、O1 首轮及撤回的 O3 候选；A 是其后优化的对照基线。后续 [O2 两种通知候选及最终交回](static-endpoint-cpu-o2-result-20261101-cn.md)均因保护回退未采用，正式产品仍保持 A。
 
 ## O0：本轮 A 已重新构建并通过资格检查
 
@@ -60,7 +60,7 @@ Sample API 的实际编码／接纳函数内部未加事件计数，仍出现三
 
 **据此先试 O3 的空调用路径，再回到 O2。** 空调用表的扫描和 generation 快照是确定存在且可按状态跳过的工作；通知虽大量合并，却不能由此推出它是 CPU 主因。Sample 的空 pass 又包含应用 1 ms pacing timeout，不能当作可随意删除的通知冗余。该候选只增加 owner 私有 active-call count，保护当前轮 generation 快照与 F1/F2，不同时改 TX ready 队列、USB service 或通知；后续筛查及撤回结果见下节。
 
-O2／O4／O5 尚未开始；本轮计数还不足以给出 74 µs 的独占成本分解。
+本节计数不足以给出 74 µs 的独占成本分解。O2 已在后续独立记录中评估，O4／O5 仍未执行。
 
 
 ## O3：空调用快路径 CPU 有下降，但延迟保护失败，撤回候选
@@ -89,11 +89,11 @@ O2／O4／O5 尚未开始；本轮计数还不足以给出 74 µs 的独占成�
 
 **不采用当前 active-call 候选。** 已精确撤销本轮对 `src/kernel.c`、`include/wirelink/kernel.h` 的改动；产品保持单一 A 路径，无新增字段、hook 或 fallback。保留与候选无关的空入口 generation 回归测试（budget1–16、创建／取消两类），在恢复 A 后再次通过 GCC 和 Clang ASan/UBSan kernel 测试及严格 C11 warning 检查。
 
-## 当前交回与下一步
+## 第一轮交回与后续安排
 
 板卡已由同一 controller 刷回本轮 A-on：`kernel-usb-6b7697df31604f96-wirelink-on`，bin SHA256 `dc129aa2a42f32cb7a9d18e95e426e62f5664ccf1a7905bc7d8e4b1e2ad80275`；最后一份 `O3-screen/captures/return-A-on/` smoke 通过，采集器和通信句柄已退出关闭。
 
-下一步回到 **O2 的 USB callback 通知合并**，先完成发布／持久条件／最终 wake 的责任表与交错测试。优先研究 callback 内 RX commit、RX_REARM 与尾部 wake 的先后关系，而不是继续叠加空扫描快路径。尾部 wake 的停止确认职责必须保留；owner release 的资源通知也不能按“通常已满”一概删除。若拆分 activity 发布与外层通知，必须迁移正式 sample 与 benchmark 共用 adapter，使用无新增探针的 A/B 重新筛查。还没有产品收益被接纳，O2／O4／O5 未完成，未对 libcsp 的120%目标作新结论。
+第一轮据此转向 **O2 的 USB callback 通知合并**，先完成发布／持久条件／最终 wake 的责任表与交错测试。优先研究 callback 内 RX commit、RX_REARM 与尾部 wake 的先后关系，而不是继续叠加空扫描快路径。尾部 wake 的停止确认职责必须保留；owner release 的资源通知也不能按“通常已满”一概删除。若拆分 activity 发布与外层通知，必须迁移正式 sample 与 benchmark 共用 adapter，使用无新增探针的 A/B 重新筛查。O2 的后续结果与当前下一步见独立执行记录；O4／O5 尚未执行，未对 libcsp 的120%目标作新结论。
 
 ### 已删除本轮废弃产物，未归档镜像
 

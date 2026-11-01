@@ -23,11 +23,19 @@ struct queued_request {
 static struct queued_request queued[QUEUED_REQUESTS];
 static size_t queued_count;
 static bool complete_out_inline;
+static bool complete_in_inline;
+static void (*after_buffer_free)(void);
 
 int __wrap_usbd_ep_enqueue(const struct usbd_class_data *class_data,
                            struct net_buf *buffer) {
   struct udc_buf_info *info = udc_get_buf_info(buffer);
 
+  if (complete_in_inline && USB_EP_DIR_IS_IN(info->ep)) {
+    complete_in_inline = false;
+    zassert_ok(class_data->api->request((struct usbd_class_data *)class_data,
+                                       buffer, 0));
+    return 0;
+  }
   if (complete_out_inline && !USB_EP_DIR_IS_IN(info->ep)) {
     complete_out_inline = false;
     zassert_ok(class_data->api->request((struct usbd_class_data *)class_data,
@@ -52,6 +60,7 @@ int __wrap_usbd_ep_buf_free(struct usbd_context *context,
                             struct net_buf *buffer) {
   ARG_UNUSED(context);
   net_buf_unref(buffer);
+  if (after_buffer_free != NULL) after_buffer_free();
   return 0;
 }
 
