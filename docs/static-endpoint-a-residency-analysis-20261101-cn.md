@@ -143,3 +143,5 @@ owner推进和USB组按真实调用职责收集函数完整体及literal，未�
 下一轮若做动态判别，首选**保持原A ELF不变的PC／驻留观测**，从`0x4200c560`桥接入口、put32／measure及上述五条literal行开始，关联前序idle、owner和USB活动。先确认实际index或tag访问方式；若只有总miss数或会改变main布局的探针，就不能据此给这些桶定罪。当前没有理由对生成函数做重排、padding或IRAM迁移。
 
 本轮交付可复算的静态筛选，不启动该动态实验。分析器及用法在`benchmarks/notification_progress/a_residency/`；4项工具测试和实际A-off/on分析通过。未构建任何新固件／host，没有新增需要保留的编译缓存或镜像；下载的手册缓存和中间分析目录已删除，只保留相关原文节选、源码和最终文本证据。
+
+后续[ROM映射与调试通道核对](static-endpoint-cache-tag-access-20261101-cn.md)已为64组／2048 B映射补上官方S3 ROM实现依据，83条候选行分组全部一致。现有USB／COM连接无法同时提供独立JTAG，且两种ROM tag遍历都暂停cache；运行时驻留采集尚未执行。

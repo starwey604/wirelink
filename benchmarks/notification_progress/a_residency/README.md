@@ -74,6 +74,10 @@ Whole-function envelopes also do not establish that their lines are accessed
 between two Samples. Same-line references are deduplicated and distinguished
 from different-tag candidates.
 
+The subsequent `tag_mapping.py` audit corroborates this index mapping with the
+published S3 ROM implementation for the configured mode. It does not establish
+which of those lines were resident or fetched during a Sample.
+
 ```sh
 /path/to/python-with-pyelftools -B -m unittest discover \
   -s benchmarks/notification_progress/a_residency -p 'test_*.py'
@@ -85,3 +89,50 @@ identity, bounded indirect-call resolution and duplicate local symbols.
 The actual A inventory is in
 `/home/ww/codings/wirelink-a-residency-20261101/final/`; the interpretation is in
 `docs/static-endpoint-a-residency-analysis-20261101-cn.md`.
+
+## Check the ROM mapping offline before planning a tag capture
+
+```sh
+/path/to/python-with-pyelftools -B \
+  benchmarks/notification_progress/a_residency/tag_mapping.py \
+  --inventory /absolute/wirelink-a-residency-20261101/final/result.json \
+  --rom-asm /absolute/Cache_Get_Virtual_Addr.asm \
+  --out /absolute/new-mapping.json
+```
+
+The reference disassembly is retained in
+`/home/ww/codings/wirelink-cache-tag-20261101/Cache_Get_Virtual_Addr.asm`.
+To recreate it, obtain **`esp32s3_rev0_rom.elf`** from the official
+[20260528 ROM release](https://github.com/espressif/esp-rom-elfs/releases/tag/20260528),
+check the release's transfer checksum and use the matching Xtensa objdump:
+
+```sh
+xtensa-espressif_esp32s3_zephyr-elf-objdump -d \
+  --disassemble=Cache_Get_Virtual_Addr esp32s3_rev0_rom.elf \
+  > Cache_Get_Virtual_Addr.asm
+```
+
+Follow the vendor's revision-selection rule; the measured S3 is revision0.2,
+for which this release provides rev0. Do not select the similarly named S31 ELF.
+The audit interprets only this one helper's integer/load/branch instructions,
+using post-ENTRY arguments. It checks all 64 groups at offset endpoints for four
+address tags (512 cases), then reclassifies the prior candidate lines.
+It never executes code on the target. The legacy tag aperture formula comes
+separately from the eight-way, one-bank traversal path.
+
+`locate`, `legacy_tag_address` and `decode_tag` expose the corresponding offline
+mapping and SDK raw-word fields. An invalid raw tag has no resident line address;
+one invalid way does not establish a miss. `fifo_field` is a field name, not a
+verified replacement-policy model. The decoder has only synthetic raw-word
+tests so far: no target tag snapshot has been captured.
+
+Both ROM tag traversal APIs suspend cache, and the second also writes tag-query
+selector registers. Do not invoke them through a debugger and call the result
+an undisturbed live timing measurement. This tool produces no target read/write
+commands. See the [connection and ROM audit](../../../docs/static-endpoint-cache-tag-access-20261101-cn.md)
+for the actual capture dependency and register-interface evidence.
+
+```sh
+/path/to/python-with-pyelftools -B -m unittest discover \
+  -s benchmarks/notification_progress/a_residency -p 'test_tag_mapping.py'
+```
