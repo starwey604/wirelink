@@ -57,6 +57,37 @@ modified. Do not use D as a product performance candidate.
   fault-injection, close-race or scheduler tests. No bounded event trace or
   exclusive function timing is produced by this first count pass.
 
+## Keep lock and power transitions out of an environment comparison
+
+Run the read-only Linux/Hyprland sidecar throughout **all** compared states:
+
+```sh
+python -B benchmarks/notification_progress/hardware/host_state.py \
+  --session 2 --usb-path 3-2.4 --seconds 900 \
+  --out /absolute/new-host-state.jsonl
+```
+
+Select the actual graphical session from `loginctl list-sessions`. The sidecar
+does not lock/unlock, blank a display, inhibit sleep, change power settings or
+open USB/serial handles. It records logind and Hyprlock state, Hyprland DPMS,
+reported CPU frequency/policy, package temperatures and throttle counters,
+power source/profile, CPU pressure and physical USB/controller runtime power.
+Missing readings stay unknown. Frequency is a sysfs report, not an APERF or
+exclusive CPU-time measurement. Polling runs once per second; each row records
+its sampling duration and monotonic/boottime anchors. Brief transitions between
+polls can escape detection; retain system suspend/USB event logs as well.
+
+Use `window_state` to require bracketing samples, one boot, the expected lock
+state and no sampling/suspend gap. Also inspect power, display, thermal and USB
+records: lock-state validation alone does not freeze those variables. Keep the
+same sidecar in every arm; its overhead is part of this diagnostic environment,
+not a new product score. An unlocked/locked/unlocked comparison must use the
+same firmware and host binaries, identical warmup/workload and unchanged native
+worker scheduling. Do not mix states, silently drop a crossing window, or infer
+that a constant governor fixes the actual CPU frequency. Keep complete per-call
+Sample cycle distributions: a two-mode distribution can move its p50 abruptly
+when the faster mode reaches half the observations.
+
 ## Replay raw records without restoring build caches
 
 ```sh
