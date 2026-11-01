@@ -103,14 +103,14 @@ def walk_success(code, choices):
 
 
 class Image:
-    def __init__(self, root, objdump):
+    def __init__(self, root, objdump, *, elf_artifact='artifacts/firmware.elf'):
         self.root = root
         self.receipt = json.loads((root/'build.json').read_text())
         require(self.receipt['complete'] and self.receipt['library'] == 'wirelink', 'A receipt')
         # Bind this machine-code analysis to the ELF already used by the A measurements.
         # This digest checks artifact identity, not ordinary source-file changes.
         payload = (root/'device/zephyr/zephyr.elf').read_bytes()
-        expected = self.receipt['artifacts']['artifacts/firmware.elf']
+        expected = self.receipt['artifacts'][elf_artifact]
         require(len(payload) == expected['size'] and hashlib.sha256(payload).hexdigest() ==
                 expected['sha256'], 'ELF does not match retained A build receipt')
         elf = ELFFile(io.BytesIO(payload))
