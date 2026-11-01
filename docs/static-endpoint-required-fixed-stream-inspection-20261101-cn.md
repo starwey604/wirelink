@@ -118,6 +118,8 @@ H2D owner 两对分别增加30.72%／26.79%；双向 owner 增加12.81%／15.74%
 
 诊断计数会改变程序布局与时序，应用它检验计数假设，不能替代未加探针产品 A/B 的时间收益。本轮没有启动这个新硬件实验，也没有新增需要清理的固件、构建缓存或镜像。
 
+后续[阶段总量计数与原镜像控制](static-endpoint-owner-census-result-20261102-cn.md)已完成：24项计数版没有复现原回退，而同状态的未加计数原A/B控制仍出现回退。该配置的计数不能外推到原产品；下一项收缩为owner本地直接增量，先检查是否保留原对比方向。
+
 新增工具与六项针对性测试位于 `benchmarks/notification_progress/a_residency/inspect_stream.py`、`test_stream.py`。证据在 `/home/ww/codings/wirelink-required-fixed-20261101/stream-inspection/result-checked.json`，保留全部函数比较、Progress 成功路径、36份 stream 的计数与 CPU 归一化值和原资格标记。旧的12份 screen、六份 qualification 与最终 A-on smoke 已由既有入口重放通过；未访问串口、USB或调试器。
 
 复算命令见该目录 README。工具仅依赖保留的文本／原始数据及 Python 环境中的 pyelftools，不依赖已删除的候选 ELF 或编译器。
