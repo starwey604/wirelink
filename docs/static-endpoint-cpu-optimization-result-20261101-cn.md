@@ -1,6 +1,6 @@
 # 静态端点 CPU 优化执行记录
 
-日期：2026-11-01。按[CPU 优化计划](static-endpoint-cpu-optimization-plan-20261031-cn.md)执行，当前完成 O0 和 O1 首轮，首个产品候选选择 O3 空调用路径。
+日期：2026-11-01。按[CPU 优化计划](static-endpoint-cpu-optimization-plan-20261031-cn.md)执行，当前完成 O0、O1 首轮及 O3 首个候选的筛查。O3 候选因保护项回退撤回，正式内核继续使用本轮 A。
 
 ## O0：本轮 A 已重新构建并通过资格检查
 
@@ -36,7 +36,7 @@ D 和正式 A 分开。已按预登记的三轮 A/D（AD／DA／AD）交错比�
 | MCU Sample active/frame | 不适用 | 1.3231 |
 | 32 B 单向 d2h goodput | 0.7400 | 1.2372 |
 
-Sample API 的实际编码／接纳函数内部未加事件计数，仍出现三倍左右的耗时，说明整套诊断构建的扰动包括代码工作集和执行时序变化。当前没有 miss 计数，不能将它进一步归因于 ICache。后续不使用 D 的 timing 估算可回收的 74 µs，也不把 D 的 owner pass 数冒充 A 的原生调度次数。
+Sample API 的实际编码／接纳函数内部未加事件计数，仍出现三倍左右的耗时，说明扰动会延伸到未插桩的 Sample 接纳路径；代码布局／工作集、执行时序及 observer 交互仍需区分。当前没有 miss 计数，不能将它归因于 ICache。后续不使用 D 的 timing 估算可回收的 74 µs，也不把 D 的 owner pass 数冒充 A 的原生调度次数。
 
 ### D-on 实测账本决定首个候选
 
@@ -58,6 +58,45 @@ Sample API 的实际编码／接纳函数内部未加事件计数，仍出现三
 
 全部 D step 都没有 outbound call；业务 handler 次数与 10000 RPC／200 低频 RPC 匹配。正常阶段无 RX abort、TX error、submit BUSY、terminal 回调；回收／错误仍由既有健康和 console 账本覆盖。本轮没有新增硬件故障注入或逐事件 trace。
 
-**先做 O3 的空调用路径，再回到 O2。** 空调用表的扫描和 generation 快照是确定存在且可按状态跳过的工作；通知虽大量合并，却不能由此推出它是 CPU 主因。Sample 的空 pass 又包含应用 1 ms pacing timeout，不能当作可随意删除的通知冗余。首个候选只增加 owner 私有 active-call count，保护当前轮 generation 快照与 F1/F2，不同时改 TX ready 队列、USB service 或通知。
+**据此先试 O3 的空调用路径，再回到 O2。** 空调用表的扫描和 generation 快照是确定存在且可按状态跳过的工作；通知虽大量合并，却不能由此推出它是 CPU 主因。Sample 的空 pass 又包含应用 1 ms pacing timeout，不能当作可随意删除的通知冗余。该候选只增加 owner 私有 active-call count，保护当前轮 generation 快照与 F1/F2，不同时改 TX ready 队列、USB service 或通知；后续筛查及撤回结果见下节。
 
 O2／O4／O5 尚未开始；本轮计数还不足以给出 74 µs 的独占成本分解。
+
+
+## O3：空调用快路径 CPU 有下降，但延迟保护失败，撤回候选
+
+候选只在 owner 内维护 `active_calls`：成功 start 加一，逻辑 finish 在 callback 前减一；取消、timeout／TX 错误标记和 close 保持计数，直到唯一终态交付；init/reinit 清零。没有调用时跳过 terminal／ready 调用槽扫描和 generation 快照。空入口使用空快照，即使 RX callback 创建或取消已到期调用，也不将新 generation 纳入当前轮。未同时修改 TX ready 队列、packet port、adapter 或通知。
+
+候选通过 GCC Release、Clang ASan/UBSan 各 47/47 CTest；Zephyr core／USB 16/16 用例、UART／UDP socket／waiter 30/30 用例，后者 4 配置运行、1 个配置静态过滤。native_sim 实际采用 `-m32`。测试独立扫描调用状态核对派生计数，覆盖 start 失败、cancel、response、TX 错误、timeout、callback 重入、close/reinit、耗尽及 budget1–16；另加空入口 callback 创建／取消新 generation 的回归测试。
+
+在新登记块 `O3-screen/` 中，A/B 产品固件均无新增探针，三轮顺序 AB／BA／AB，每轮 off/on 分开刷写重置，共 12 份 screen capture。1000 warmup＋10000 RPC、idle5s、200 低频 RPC、1000 Sample、32 B 三方向 stream 的工作量与 O1 对齐；A/B 四大小 smoke 和 A 的编码边界资格验证通过。逐 native worker 的 policy0、nice16、affinity0–5、系统功耗设置与 USB 拓扑门禁均通过，未修改调度条件。全部原始数据已独立重放；不是 O5 的完整 A/B/C。
+
+| 指标 | A 三轮原值 | B 三轮原值 | 三轮配对 B/A 中位数 |
+| --- | --- | --- | ---: |
+| on RPC active，µs/call | 413.728／415.026／419.234 | 394.994／395.034／402.471 | 0.95472（下降4.53%） |
+| off RPC p50，µs | 331.893／333.628／334.279 | 358.185／357.603／363.350 | 1.07922（回退7.92%） |
+| off RPC p99，µs | 483.256／496.886／494.650 | 527.846／527.831／539.143 | 1.08995（回退8.99%） |
+| on Sample API p99，µs | 7.4625／7.4625／7.4625 | 14.0292／14.0292／14.0292 | 1.87996（回退88.00%） |
+| on Sample active，µs/frame | 158.657／158.624／166.678 | 152.063／152.005／143.957 | 不可判定：A/B跨度均超过5% |
+
+`O3-screen/O3-analysis.json` 保留全部 CPU、延迟、goodput、idle、host 全线程 CPU、资源和每轮原值。重复保护失败有 off RPC p50/p99、off host RPC CPU、on Sample API p99 共四项；七项因参考波动不可判定，另有一次 off 双向 d2h goodput 异常。不能以 RPC CPU 下降掩盖这些结果，也不追加采样追求通过。
+
+本候选的无调用分支在源码上不再访问上述调用槽；未制作 B 的诊断计数固件，不能将 O1 D 的 owner pass 次数当作 B 的实测减少量。A/B 六份 on 记录的 RPC IRQ 均为 20002、Sample IRQ 均为 1002，仍不能用 IRQ 次数解释每事件 CPU 或 Sample API 变化。
+
+### 资源与机器码对照
+
+`O3-resource-audit.json` 在删除编译产物前完成检查：port、native/RPC wire、USB adapter、生成 codec/kernel 和两个 observer 对象的 `.text*`／`.literal*` 内容均相同，只有 kernel 对象改变。A/B endpoint4408 B、port88 B、adapter152 B、静态 data/BSS 和 IRAM 均不变；B `.text` 增加80 B（off59616→59696，on61872→61952）。未迁入 IRAM、改变缓存、padding、编译／线程参数或业务工作量。该对照缩小变更范围，但不能把候选整体 CPU 差异拆成扫描的独占成本，更不能宣称 miss 根因。
+
+**不采用当前 active-call 候选。** 已精确撤销本轮对 `src/kernel.c`、`include/wirelink/kernel.h` 的改动；产品保持单一 A 路径，无新增字段、hook 或 fallback。保留与候选无关的空入口 generation 回归测试（budget1–16、创建／取消两类），在恢复 A 后再次通过 GCC 和 Clang ASan/UBSan kernel 测试及严格 C11 warning 检查。
+
+## 当前交回与下一步
+
+板卡已由同一 controller 刷回本轮 A-on：`kernel-usb-6b7697df31604f96-wirelink-on`，bin SHA256 `dc129aa2a42f32cb7a9d18e95e426e62f5664ccf1a7905bc7d8e4b1e2ad80275`；最后一份 `O3-screen/captures/return-A-on/` smoke 通过，采集器和通信句柄已退出关闭。
+
+下一步回到 **O2 的 USB callback 通知合并**，先完成发布／持久条件／最终 wake 的责任表与交错测试。优先研究 callback 内 RX commit、RX_REARM 与尾部 wake 的先后关系，而不是继续叠加空扫描快路径。尾部 wake 的停止确认职责必须保留；owner release 的资源通知也不能按“通常已满”一概删除。若拆分 activity 发布与外层通知，必须迁移正式 sample 与 benchmark 共用 adapter，使用无新增探针的 A/B 重新筛查。还没有产品收益被接纳，O2／O4／O5 未完成，未对 libcsp 的120%目标作新结论。
+
+### 已删除本轮废弃产物，未归档镜像
+
+按用户要求，永久删除 D 的两个固件／host 构建、拒绝的 B 固件／host／重复 compiler 二进制、全部本轮软件检查构建树，以及 A 的中间对象、archive、CMakeFiles、Ninja cache 和生成发现链接。相关 Python cache 也已删除。没有压缩、备份或转移这些编译产物；只保留源代码／源补丁、原始 capture、注册和测试记录。删除明细见 `cleanup.json`、`python-cache-cleanup.json`。
+
+本轮 A-off/on 的当前固件、gated host、生成物、配置及必要的 `--no-rebuild` 刷写元数据保留，构建身份验证与只读 flash context 检查通过。24 份已登记 O1／O3 screen capture 在删除后均可从 raw 独立重放，结果未变。D/B 的历史构建清单仍记录原镜像身份，但镜像已删除，不能再宣称可完整验证这些历史 build bundle；需要重建时登记新身份，不恢复旧缓存。

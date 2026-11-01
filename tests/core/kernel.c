@@ -40,6 +40,7 @@ struct fixture {
   wl_packet_token_t token;
   completion_t completions[8];
   int callback_action;
+  unsigned message_start;
 };
 
 static wl_err_t encode(const void *value, uint8_t *data, size_t capacity, size_t *length) {
@@ -109,7 +110,17 @@ static wl_err_t route(wl_kernel_t *kernel, const wl_kernel_frame_t *frame) {
   fixture_t *f = (fixture_t *)kernel;
   if (frame->message_id == 101U || frame->message_id == 106U)
     return wl_kernel_response(kernel, frame->message_id, frame->payload, frame->length);
-  if (frame->message_id == 102U) { ++f->messages; return WL_OK; }
+  if (frame->message_id == 102U) {
+    ++f->messages;
+    if (f->message_start) {
+      unsigned action = f->message_start;
+      f->message_start = 0U;
+      CHECK(start(f, 0U, 1U, 0U, 1U) == WL_OK);
+      if (action == 2U)
+        CHECK(wl_kernel_cancel(kernel, f->completions[0].handle) == WL_OK);
+    }
+    return WL_OK;
+  }
   if (frame->message_id != 100U) return WL_ERR_NOT_SUPPORTED;
   wl_kernel_rpc_metadata_t metadata;
   wl_err_t status = wl_kernel_rpc_read(frame->payload, frame->length, 1, &metadata);
@@ -500,7 +511,34 @@ static void test_small_budget_io_fairness(void) {
   }
 }
 
+static void test_empty_entry_generation_snapshot(void) {
+  for (unsigned budget = 1U; budget <= WL_KERNEL_BUDGET; ++budget) {
+    for (unsigned action = 1U; action <= 2U; ++action) {
+      fixture_t f = {0};
+      init(&f, 909U);
+      CHECK(!ready(&f, 10U));
+      f.message_start = action;
+      /* RX creates an already-due (or cancelled) call after an empty entry
+       * snapshot. Its new generation must wait for the next owner step. */
+      inject(&f, 102U, 700U, 1U, 0, 7U);
+      CHECK(wl_kernel_step(&f.kernel, 10U, budget) == WL_OK);
+      CHECK(f.completions[0].count == 0U);
+      CHECK(ready(&f, 10U));
+      run(&f, 10U);
+      CHECK(f.completions[0].count == 1U);
+      CHECK(f.completions[0].result.outcome ==
+          (action == 1U ? WL_KERNEL_TIMED_OUT : WL_KERNEL_CANCELLED));
+      CHECK(wl_kernel_close(&f.kernel) == WL_OK);
+      run(&f, 10U);
+      CHECK(wl_kernel_quiescent(&f.kernel));
+      init(&f, 910U);
+      CHECK(!ready(&f, 10U));
+    }
+  }
+}
+
 #ifdef WL_PACKET_ZTEST
+ZTEST(static_kernel, empty_entry_generation_snapshot) { test_empty_entry_generation_snapshot(); }
 ZTEST(static_kernel, calls) { test_calls(); }
 ZTEST(static_kernel, physical_lease_and_callbacks) { test_physical_lease_and_callbacks(); }
 ZTEST(static_kernel, reply_backpressure) { test_reply_backpressure(); }
@@ -512,6 +550,7 @@ ZTEST(static_kernel, small_budget_io_fairness) { test_small_budget_io_fairness()
 ZTEST_SUITE(static_kernel, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_empty_entry_generation_snapshot();
   test_small_budget_io_fairness();
   test_simultaneous_deadlines();
   test_budget_deadline_and_response_boundary();

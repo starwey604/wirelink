@@ -29,7 +29,7 @@ modified. Do not use D as a product performance candidate.
   Start/stop snapshots hold the local IRQ lock on the selected **single-core**
   ESP32-S3 configuration; this is not an SMP snapshot protocol. Deltas are modulo
   2^32; these bounded windows are well below one wrap per counter. There are no
-  reads/clears of product state, clock reads in core, hot-path prints or heap
+  consuming reads/clears of product state, clock reads in core, hot-path prints or heap
   allocations. A has no diagnostic declarations, hooks or new product switches.
 - Device windows begin after START's CPU snapshot and end at entry to STOP's
   handler. They include boundary control traffic. Because START/STOP execute
