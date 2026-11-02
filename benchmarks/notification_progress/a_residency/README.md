@@ -175,3 +175,34 @@ state-ineligible pairs stay marked and are not promoted to acceptance evidence.
 The [inspection result](../../../docs/static-endpoint-required-fixed-stream-inspection-20261101-cn.md)
 records the concrete findings and remaining frequency-versus-execution-cost
 question. Focused helper tests run with `-p test_stream.py` in this directory.
+
+## Inspect the actual H2D decoder before another optimization
+
+`inspect_receive.py` follows a canonical 39-byte StreamChunk body with a 32-byte
+payload in the retained product A/B assembly. It enumerates each conditional
+visit and the fixed32 hardware LOOP's four iterations, composing only reviewed
+callee paths. The result counts 480 image instructions plus three unexpanded
+ROM `__ashldi3` bodies, not cycles, IRQs or a runtime trace. The normal cursor
+already avoids field lookup; three one-byte varints still use the wide reader.
+
+```sh
+/path/to/python-with-pyelftools -B \
+  benchmarks/notification_progress/a_residency/inspect_receive.py \
+  --baseline /absolute/wirelink-cpu-optimization-20261101 \
+  --required-fixed /absolute/wirelink-required-fixed-20261101 \
+  --a-assembly /absolute/wirelink-a-residency-20261101/final \
+  --cc gcc --cc clang --out /absolute/new-receive-inspection.json
+```
+
+This also compiles a temporary host census of the frozen generated A source,
+checking ordered, reordered, unknown-field and two-byte-length cases. Temporary
+sources and executables are deleted on exit. `--include` can select the matching
+Wirelink public headers (default: this repository's `include/`). No device ELF,
+compiler rebuild, target connection or firmware change is needed. Descriptor
+definitions/header layouts and retained symbol locations are compared; deleted
+B ELF data bytes are not reread. The annotated instruction/literal line sets
+do not establish cache residency or conflict cost.
+
+The [receive inspection](../../../docs/static-endpoint-receive-inspection-20261102-cn.md)
+selects a single-byte `getv` candidate derived from original A, separately from
+the unpromoted fixed-encoder B. Focused walker tests use `-p test_receive.py`.
