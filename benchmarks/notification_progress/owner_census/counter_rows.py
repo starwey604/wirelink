@@ -12,7 +12,7 @@ def require(condition, message):
         raise ValueError(message)
 
 
-def counter_windows(console, rows):
+def expected_windows(rows):
     expected = []
     for row in rows:
         event = row['event']
@@ -25,6 +25,11 @@ def counter_windows(console, rows):
         elif event == 'stream':
             expected.append(dict(name=f"{row['size']}-{row['direction']}", phase=5,
                                  direction=row['direction'], size=row['size'], device=stream_device))
+    return expected
+
+
+def counter_windows(console, rows):
+    expected = expected_windows(rows)
     pages = list(LINE.finditer(console))
     width = (len(EVENTS) + 7) // 8
     require(len(pages) == len(expected) * width, 'missing/extra census pages')

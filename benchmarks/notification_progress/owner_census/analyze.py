@@ -35,8 +35,10 @@ def read_capture(root, builds, reg, ledger, name, group, observer, mode, qualifi
     path = root / 'captures' / name
     m = json.loads((path / 'manifest.json').read_text())
     b = builds[f'{group}-o{observer}']
-    require(m['format'] == ('owner-census-product-control-v1' if reg['format'] == 'owner-census-control-v1'
-                            else 'owner-census-capture-v1'), 'capture format')
+    formats = {'owner-census-control-v1': 'owner-census-product-control-v1',
+               'owner-census-AB-v1': 'owner-census-capture-v1',
+               'owner-local-AB-v1': 'owner-local-capture-v1'}
+    require(m['format'] == formats[reg['format']], 'capture format')
     require(m['complete'] and not m.get('error') and m['mode'] == mode
             and m['qualification_only'] is qualification and not m['formal_valid']
             and not m['full_valid'] and not m['performance_measurement'], 'capture status')
@@ -61,7 +63,11 @@ def read_capture(root, builds, reg, ledger, name, group, observer, mode, qualifi
     require(raw.count(b'usb_fs_v1,ready,') == raw.count(b'usb_fs_v1,final,') == 1 and
             not any(x in raw for x in [b'ASSERTION FAIL', b'FATAL ERROR', b'cpu_error=',
                                        b'init_error=', b'service_error=']), 'console health/reset')
-    windows = counter_windows(raw, rows) if b['diagnostic'] and mode != 'boundary' else []
+    local = reg['format'] == 'owner-local-AB-v1'
+    if local:
+        from local_rows import local_windows
+    reader = local_windows if local else counter_windows
+    windows = reader(raw, rows) if b['diagnostic'] and mode != 'boundary' else []
     require(not windows or windows == m['counter_windows'], 'raw counter derivation differs')
     if windows and mode == 'screen':
         for row in rows:
@@ -78,7 +84,8 @@ def read_capture(root, builds, reg, ledger, name, group, observer, mode, qualifi
             elif row['event'] == 'stream':
                 wire = ledger.successful_progress(begin, end, row, device, cpu)
                 window = next(w for w in windows if w['name'] == f"32-{row['direction']}")
-                require(window['counts']['progress_ok'] == wire['normal_frames']['device'] + 1,
+                admitted = (window['successful']['progress'] if local else window['counts']['progress_ok'])
+                require(admitted == wire['normal_frames']['device'] + 1,
                         'Progress admission/wire ledger')
                 window['wire_progress'] = wire
     if qualification:

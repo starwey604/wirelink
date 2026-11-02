@@ -110,6 +110,8 @@ H2D owner inclusive-IRQ 计时为68.74→89.48 μs／等效数据帧，双向为
 
 本轮没有实施这个新版本。当前24项D的计数与时间不用于接受 required-fixed；原A基线与候选未合入的决定不变。
 
+后续[五字段owner计数](static-endpoint-owner-local-result-20261102-cn.md)已通过方向保留门槛并完成同状态三对：H2D外层pass／帧稳定下降约6.9%，Progress尝试密度基本不变。后续优先研究接收解码等既定路径的执行成本，不继续增加通知／推进探针。该轮按用户新要求保留最后健康固件，没有回刷原A；见后续记录中的固件身份。
+
 ## 工具、验证与清理
 
 新增 `benchmarks/notification_progress/owner_census/` 的准备器、计数页校验、独立重放及用法；字节模型抽到 `a_residency/stream_ledger.py` 供两个工具共用，保留旧 `inspect_stream.py` 的函数入口。五项计数／稳定性单元测试和六项既有模型测试通过；原始重放验证25份采集、36个screen stream的Progress账本及两次回交原A-on。四项定向篡改／未完成恢复拒绝检查通过。

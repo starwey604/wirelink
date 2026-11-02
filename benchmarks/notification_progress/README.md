@@ -34,5 +34,20 @@ thread/IRQ observations must not be added/subtracted as exclusive costs.
 
 The research reference is `baseline/static-kernel-accepted-20261031`, with actual
 dirty inputs identified by `docs/notification-progress-baseline-20261031.json`.
-Next hardware work needs distinct publication/notify/wait/step counters and a
-separate observer-perturbation check before optimizing any notification path.
+Subsequent hardware work compared full-path counters and then a
+[five-field owner probe](../../docs/static-endpoint-owner-local-result-20261102-cn.md).
+The latter preserved the target regression directions without increased H2D
+outer passes/retries. Prioritize the actual H2D receive/decode execution cost
+before changing notification semantics; diagnostic and product evidence remain
+separate.
+
+## Leave the last tested firmware installed
+
+The user's handoff instruction from 2026-11-02 is **no automatic reflash of the
+original image when an experiment finishes**. Close owned USB/UART processes
+and handles, record the last attempted and last healthy firmware identities,
+and leave the last healthy tested image installed. This does not promote a
+diagnostic image to the accepted scientific baseline. Retain the existing A
+recovery assets; permanently delete obsolete build caches/images without
+archiving them. Historical controllers that restored A in `finally` must not be
+reused unchanged for new experiments.

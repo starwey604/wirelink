@@ -21,7 +21,7 @@
 生成 `usb_kernel.c` 显示：
 
 - 普通 Progress：`usb_kernel_send_progress_view → wl_kernel_send → encode_frame → usb_kernel_encode_progress_view → progress_encode → wlc_scalar_shape_2_encode`。
-- 普通 Chunk：对应 stream_chunk view 入口，最终进入 `stream_chunk_encode → wlc_encode`。其 descriptor 只有 fixed32 sequence 和 bytes data，不经过新的 required-fixed shape。
+- 普通 Chunk 的设备D2H发送：对应 stream_chunk view 入口，最终进入 `stream_chunk_encode → wlc_encode`。其 descriptor 只有 fixed32 sequence 和 bytes data，不经过新的 required-fixed shape。设备H2D接收则由生成route进入 `stream_chunk_decode → wlc_decode`。
 - Setpoint／Control RPC 使用 `usb_kernel_codecs.h` 中独立的 ManagedTagged private codec，该头文件没有改变。`usb.c` 中虽有四个 shape 的源码变化，但本次链接的普通编码 shape 只有 Sample 与 Progress；不能把 RPC 时间变化直接归因于 ControlRequest 编码被优化。
 
 32 B Chunk 的实际 native frame 长43 B，Progress 长23 B，两者 wire 长度在 A/B 中不变。

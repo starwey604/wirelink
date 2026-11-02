@@ -49,7 +49,9 @@ python -B -m unittest discover \
 
 The execution root freezes the collector/controller, source audit, firmware and
 shared-host identities, fresh qualifications and AB/BA/AB order per observer.
-It restores original A-on in `finally`. Scheduling timelines and the host-state
+That 24-counter execution restored original A-on in `finally`; subsequent runs
+follow the parent directory's no-automatic-reflash handoff policy. Scheduling
+timelines and the host-state
 sidecar apply to every arm; transition/gap-crossing pairs are excluded whole,
 without replacement. Comparisons also separate different power states.
 
@@ -73,3 +75,41 @@ registered, verifies original image identities and recovery, and never pools it
 with either matrix. Restoring the old HAL compile-time log literal using
 `SOURCE_DATE_EPOCH` reproduced B's original BIN identity before this control.
 All five new firmware build trees and the Rust cache were subsequently deleted.
+
+## Use five owner-local fields before adding more probes
+
+```sh
+python -B benchmarks/notification_progress/owner_census/prepare_local.py \
+  --frozen /absolute/wirelink-required-fixed-20261101/inputs \
+  --out /absolute/new-local-inputs
+python -B benchmarks/notification_progress/owner_census/analyze_local.py \
+  --evidence /absolute/wirelink-owner-local-20261102 \
+  --out /absolute/new-local-replay.json
+```
+
+This variant changes only the benchmark backend/main and adds a private header.
+Five plain uint32 fields count owner passes, Chunk attempts/WOULD_BLOCK and
+Progress attempts/WOULD_BLOCK. One owner writes them and takes the snapshots;
+there are no per-event helper calls or atomics. Shared core, port, adapter, SDK
+and host are unchanged. Check actual Xtensa call lists, frame sizes and counter
+loads/adds/stores before flashing; smaller source is not a timing guarantee.
+
+The CPU-on execution predeclares an exact-product AB control, then a local AB
+pilot. Both must stay in the same graphical/power state and both H2D and
+bidirectional D2H B/A must remain below0.95. Otherwise stop, without trying more
+configurations or replacing pairs. A passing pilot permits the remaining BA/AB
+count pairs. This is a direction-preservation gate, not equality of all timing
+behavior or product acceptance. The recorded run left the final healthy local B
+installed, with no automatic restoration.
+
+Snapshots span START/STOP including preparation/drain. Successful admissions
+are derived as attempts minus WOULD_BLOCK, checked against business/USB ledgers
+under the existing zero-error requirement. Do not divide 5 s window CPU by
+these whole-phase counts. Device Progress in single-direction D2H is the phase
+END marker: keep its counts/ratios, but do not interpret its per-frame density
+as hot-path amplification. Replay labels this boundary scope explicitly.
+
+The [five-field result](../../../docs/static-endpoint-owner-local-result-20261102-cn.md)
+contains the three same-state series, the limits of the gate and installed
+firmware identity. Existing 24-counter replay/entry points retain their original
+meaning and historical recovery checks.
