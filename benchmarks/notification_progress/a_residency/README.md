@@ -206,3 +206,32 @@ do not establish cache residency or conflict cost.
 The [receive inspection](../../../docs/static-endpoint-receive-inspection-20261102-cn.md)
 selects a single-byte `getv` candidate derived from original A, separately from
 the unpromoted fixed-encoder B. Focused walker tests use `-p test_receive.py`.
+
+## Validate the single-byte reader in a source copy
+
+`varint_fastpath.py` adds the proposed early return to a temporary copy of
+original A's generated C, then compares it with extracted original reader and
+decoder functions. It checks status, cursor, output and partial decode state
+with GCC/Clang and ASan/UBSan. It also cross-compiles the original and prototype
+using A's retained compile command, checking the original against frozen A
+assembly and enumerating single-byte, multi-byte and error paths.
+
+```sh
+/path/to/python-with-pyelftools -B \
+  benchmarks/notification_progress/a_residency/varint_fastpath.py \
+  --baseline /absolute/wirelink-cpu-optimization-20261101/A-on \
+  --a-assembly /absolute/wirelink-a-residency-20261101/final/A-on.asm \
+  --cc gcc --cc clang --out /absolute/new-varint-evidence
+```
+
+This check needs the original `device/compile_commands.json`, generated
+configuration headers and SDK paths as well as the frozen generated sources.
+Unlike `inspect_receive.py`, it invokes the Xtensa compiler. The output directory
+must not exist. Only text evidence remains: temporary generated C, host binaries
+and target objects are deleted on exit. WLC and the board are untouched.
+Object disassembly's adjusted display VMA is not a linked product address.
+
+The [feasibility result](../../../docs/static-endpoint-varint-feasibility-20261102-cn.md)
+records the 52-to-19 instruction reduction, 21-byte body growth and slower
+two-byte/truncated examples. Implement and qualify the generator candidate
+separately before any product adoption. Helper tests use `-p test_varint.py`.

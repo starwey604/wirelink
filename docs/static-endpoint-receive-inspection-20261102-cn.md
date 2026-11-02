@@ -79,6 +79,8 @@ benchmark `receive` 仍检查 active／phase／序号／长度／payload，累�
 
 这一步回答“能否稳定减少固定成本”，与原 A/B 回退的最终机制归因分别报告。
 
+后续[单字节reader可行性检查](static-endpoint-varint-feasibility-20261102-cn.md)已完成：独立临时副本的reader／Chunk差分通过，Xtensa单字节路径52→19条、ROM调用1→0，正文增加21 B。正式模板和产品固件仍待实施／链接／实测。
+
 ## 交付与复算
 
 - 工具：`benchmarks/notification_progress/a_residency/inspect_receive.py`、`receive_census.c`、`test_receive.py`。
