@@ -1,5 +1,7 @@
 # 原 A 的 Sample 机器码与指令驻留候选
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 ## 优先查调用之间的驻留，不改读钟或窗口向量
 
 直接分析保留的A-off/on ELF后，优先方向是：**Sample编码桥接入口、编码叶函数及literal行，与两次调用之间的owner推进／USB／周期observer路径的驻留交互。** 依据有三点：

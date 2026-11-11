@@ -1,5 +1,7 @@
 # O2：通知调用减少，但两种候选均未通过性能保护
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 日期：2026-11-01。O2 本轮完成两种通知收敛候选的正确性验证、实际计数及产品 A/B 筛查，**均不采用，正式源码保持 A**。保留 USB 发布／等待和最后访问的回归测试。接续 [O0/O1 与撤回的 O3](static-endpoint-cpu-optimization-result-20261101-cn.md)。证据目录：`/home/ww/codings/wirelink-cpu-o2-20261101/`。
 
 ## 候选的责任划分
@@ -24,7 +26,7 @@
 
 ## 实际计数证实减少了调用，未证实 CPU 收益
 
-r2/r3 分别制作独立 D-on 诊断构建，运行完整 screen 工作量并逐页核对七个阶段。产品性能构建不含这些探针。计数器、单核快照、phase 边界和 probe 扰动沿用 [O1 工具合同](../benchmarks/notification_progress/hardware/README.md)。
+r2/r3 分别制作独立 D-on 诊断构建，运行完整 screen 工作量并逐页核对七个阶段。产品性能构建不含这些探针。计数器、单核快照、phase 边界和 probe 扰动沿用 当时的O1工具合同（历史源码见提交`2db9675`）。
 
 | 计数 | 原 A 路径／先前同源码账本 | r2：全尾部合并 | r3：保留及时 progress wake |
 | --- | ---: | ---: | ---: |

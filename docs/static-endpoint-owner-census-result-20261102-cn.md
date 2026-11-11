@@ -1,5 +1,7 @@
 # Owner 阶段计数：原产品回退仍在，24项探针不能外推
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 ## 本轮收敛了观测方法，尚未分清原路径的频率与单位成本
 
 按[上一轮检查](static-endpoint-required-fixed-stream-inspection-20261101-cn.md)，本轮给原 A／required-fixed B 的独立源码副本加入相同的阶段计数，完成 off/on 三对交错采集。随后补做一对**未加计数、原镜像身份的 A/B-on 控制**。

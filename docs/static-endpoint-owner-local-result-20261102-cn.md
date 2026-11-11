@@ -1,5 +1,7 @@
 # 五字段 owner 计数：保留回退方向，外层推进没有放大
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 ## H2D先转向执行成本，不继续减少通知或owner pass
 
 按[上一阶段决定](static-endpoint-owner-census-result-20261102-cn.md)，本轮将24项全路径原子计数缩为owner本地五个uint32字段，先通过机器码检查和代表性门槛，再完成CPU-on三对AB／BA／AB。

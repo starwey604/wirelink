@@ -1,5 +1,7 @@
 # 单字节 varint 产品筛查：H2D CPU改善，保护项回退，候选不合入
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 ## 决定：保留合同测试，关闭这个组合候选的推广
 
 已将[离线原型](static-endpoint-varint-feasibility-20261102-cn.md)移入正式WLC模板，完成生成器检查、产品链接审计、正式USB sample构建，以及无新增探针的CPU-off／on各三对AB／BA／AB筛查。

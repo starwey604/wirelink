@@ -1,5 +1,7 @@
 # Required-fixed 后续检查：Progress 指令减少，owner 单位计时增加
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 ## 下一步优先查 owner 推进／重试频率，不继续扩大重构
 
 本轮只检查[上一轮候选](static-endpoint-required-fixed-result-20261101-cn.md)保留的实际 A/B 反汇编、冻结源码与原始 stream 数据，没有重新构建、刷板或添加探针。检查将问题缩小为两类：**同样的 owner 代码执行了更多次，或每次执行变贵。**

@@ -63,7 +63,7 @@ foreach(_removed WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK WIRELINK_BUILD_BULK_BENC
   endif()
 endforeach()
 option(WIRELINK_BUILD_API_BENCHMARK "Build the fixed-contract kernel API microbenchmark" OFF)
-option(WIRELINK_BUILD_NOTIFICATION_CENSUS "Build the non-timing notification/progress research model" OFF)
+option(WIRELINK_BUILD_NOTIFICATION_CENSUS "Build the deterministic notification/ownership census" OFF)
 option(WIRELINK_BUILD_FRAMING_BENCHMARK "Build independent framing tool benchmark" OFF)
 option(WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK "Build public codec validation diagnostics" OFF)
 option(WIRELINK_BUILD_FIFO_BENCHMARK "Build independent POSIX FIFO diagnostics" OFF)

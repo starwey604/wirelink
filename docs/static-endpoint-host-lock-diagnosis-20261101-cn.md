@@ -1,5 +1,7 @@
 # 锁屏排查：解锁状态也会出现 Sample 两档切换
 
+> 本轮研究已收敛。下文实验命令及分支状态为历史记录，临时入口已删除；当前状态见[收敛记录](static-endpoint-cpu-convergence-20261111-cn.md)。
+
 日期：2026-11-01。**暂不将锁屏认定为 Sample 波动的主因；保留 A，继续低扰动分段定位。** 同一固件在锁屏前、解锁后均复现低值轮。现有证据更直接地指向需要解释的两档调用耗时及相邻交替规律，而不是一个只由锁屏触发的回退。
 
 证据目录：`/home/ww/codings/wirelink-lock-screen-20261101/`。`analysis.json` 保存九份原始数据重放、完整指标、直方图和环境范围；`host-state.jsonl`、`measurement-system-events.json` 保存会话／电源时间线。
