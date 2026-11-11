@@ -8,6 +8,8 @@
 
 下一步应将这8行逻辑移入WLC模板，先跑生成器合同／输出检查和完整产品链接，再做无新增探针的A/V配对测量。原required-fixed B继续独立保留，不叠加到V。
 
+后续[正式实现及产品筛查](static-endpoint-varint-product-result-20261111-cn.md)已完成：H2D主CPU目标改善5.74%，但off stream与on Sample p99出现稳定保护失败，候选未合入；main仅保留正式合同测试。
+
 ## 只提前处理完整、规范的一个字节
 
 原型在 `size_t start = *at, n = 0U;` 前增加：

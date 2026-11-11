@@ -41,6 +41,11 @@ outer passes/retries. Prioritize the actual H2D receive/decode execution cost
 before changing notification semantics; diagnostic and product evidence remain
 separate.
 
+The subsequent [single-byte varint product screen](varint_product/README.md)
+reduced linked decode work and CPU-on H2D cost, but stable off-stream and on
+Sample p99 regressions blocked promotion. The generator change remains on an
+experimental WLC branch; main retains only its contract tests.
+
 ## Leave the last tested firmware installed
 
 The user's handoff instruction from 2026-11-02 is **no automatic reflash of the
