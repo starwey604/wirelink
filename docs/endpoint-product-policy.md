@@ -1,22 +1,23 @@
-# Product work belongs in the application
+# Schedule application work beside the kernel
 
-Generic endpoint policy/service descriptors and peer-observation hooks were
-removed. Keep application deadlines, upload fairness, control leases, latest
-values and jobs in an explicit owner loop. There is no framework job scheduler,
-replay cache or inferred remote-reboot reset for application state.
+[中文](endpoint-product-policy-cn.md)
 
-The generated core only performs bounded typed dispatch, four-call correlation
-and packet ownership. A caller snapshots admission inputs; handlers fill a
-response immediately. Application work must remain bounded and use readiness
-or a future deadline when blocked. Merge that hint with kernel and adapter
-readiness, then wait on a latched wake. Ordinary TX backpressure requires the
-application to retain its pending output until admission succeeds.
+Keep latest-value selection, ordered business work, jobs, retries and idempotency
+in explicit application state. Independent `Wirelink::containers` FIFO/LATEST/outbox
+primitives provide local storage rules; application code decides when to use them.
+The kernel handles typed dispatch, four-call correlation and packet ownership.
 
-See [04_composed_services](../examples/04_composed_services/README.md) for two
-independent ports/cores with application-owned fairness and business object
-transfer, and [03_device_service](../examples/03_device_service/README.md) for
-application job IDs. Their duplicate/commit behavior belongs to those protocols;
-local cancel/close cannot undo a remote effect. The core does not promise
-automatic retry, exactly-once execution or bandwidth reservation.
+Advance bounded business work in the owner loop. A blocked action provides
+readiness or a future deadline; merge that hint with kernel/adapter readiness
+and wait on a latched wake. Retain an ordinary output after `WL_ERR_WOULD_BLOCK`
+until it is admitted. Do not report immediate work repeatedly without a possible
+state transition.
 
-[Application layer](application-layer.md).
+[Composed services](../examples/04_composed_services/README.md) demonstrate two
+ports/cores with application-owned fairness and object transfer.
+[Application jobs](tutorial-jobs.md) demonstrate short admission, a job ID and
+ordinary completion. Applications define durable identity, status queries,
+result retention and shutdown actions. Local cancel/close cannot undo a remote
+effect; retry may execute the business operation again.
+
+See the [owner loop](tutorial-integration.md) for deadline/wait composition.

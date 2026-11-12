@@ -35,56 +35,10 @@
   filter: none;
 }
 
-.signal-strip {
-  display: grid;
-  grid-template-columns: auto 1fr auto 1fr auto;
-  align-items: center;
-  width: min(32rem, 86vw);
-  margin-block: 2.25rem 0.5rem;
-  color: var(--sl-color-accent-high);
-}
-
-.signal-strip span {
-  width: 0.7rem;
-  height: 0.7rem;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-  background: var(--sl-color-black);
-}
-
-.signal-strip i {
-  height: 2px;
-  background: currentColor;
-  opacity: 0.72;
-}
-
-.signal-strip span:nth-of-type(2) {
-  width: 1rem;
-  height: 1rem;
-  border-color: #d47a2f;
-  box-shadow: 0 0 0 5px color-mix(in srgb, #d47a2f 18%, transparent);
-}
-
 .sl-markdown-content {
   max-width: 76ch;
 }
 
 .sl-markdown-content code:not(:where(.not-content *)) {
   border-radius: 0.2rem;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .signal-strip span:nth-of-type(2) {
-    animation: wirelink-signal 2.8s ease-in-out infinite;
-  }
-}
-
-@keyframes wirelink-signal {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, #d47a2f 12%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 7px color-mix(in srgb, #d47a2f 22%, transparent);
-  }
 }

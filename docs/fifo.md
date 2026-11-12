@@ -1,12 +1,11 @@
-> This is an independent data container, linked through `Wirelink::containers`; it provides no generated route, reliable delivery or framework policy. C owns atomic storage; application code chooses its integration. See [kernel API](static-endpoint-kernel-api.md).
-
 # Allocation-free SPSC FIFO
 
-`wirelink/fifo.h` provides the application-layer `FIFO` delivery policy for
-values whose order and multiplicity must be preserved. It is independent of
-the endpoint kernel, allocates no memory, and does not change the Wirelink v1 frame.
-The same primitive can carry received typed values toward an application task
-or pre-encoded outbound commands toward Wirelink's single consumer.
+[中文](fifo-cn.md)
+
+`wirelink/fifo.h` provides an application queue preserving value order and
+multiplicity, linked through `Wirelink::containers`. C owns its atomic context;
+C++ uses opaque pointers. Queue owned receive values for a consumer or pending
+commands for the owner; application code defines network routes and retries.
 
 ## Storage and initialization
 
@@ -60,24 +59,25 @@ unchanged. FIFO deliberately has no drop-oldest policy because producer-side
 reclamation would violate consumer ownership. Use `LATEST` when freshness is
 more important than multiplicity.
 
-## Typed decode and command queues
+## Queue typed values and pending commands
 
-A WLC route can decode without an intermediate message copy: claim a slot,
-point the generated route scratch at `claim.value`, then publish from the typed
-handler. Any dispatch failure must abort the active claim. Fixed fields and
-inline packed arrays are self-contained. Borrowed `bytes` and `string` fields
-must be copied into slot-owned bounded backing before the Wirelink event is
-released. Repeated fields likewise need distinct backing storage and capacity
-for every FIFO slot.
+In a generated ordinary-message callback, claim a slot and use
+`*_value_from_view` to copy the borrowed message into a slot-owned `*_value_t`.
+Check conversion before publishing; abort on conversion failure. Copy every
+borrowed field before callback return. Configure slot size/alignment for the
+owned type, rather than copying a view containing pointers. See the
+[result-copy example](tutorial-rpc-values.md).
 
-For the reverse direction, an application can make the FIFO value an inline
-command record containing delivery, message ID, payload length, and a bounded
-encoded payload. The application producer encodes directly into the claimed
-record and wakes the Wirelink consumer after publication. If the core reports
-`WL_ERR_BUSY` or `WL_ERR_WOULD_BLOCK`, the consumer may keep the acquired head
-and retry it once after transport or protocol progress; release only after the
-command is accepted or definitively rejected. A result queue uses the same
-FIFO API with the roles reversed.
+A full queue returns `WL_ERR_QUEUE_FULL`; the application chooses dropping,
+recording or business flow control. This local rejection does not make the
+kernel retry an ordinary received message. Standalone-codec repeated views need
+per-slot backing and are not bounded kernel routes.
+
+For outbound work, publish a message ID, owned request or bounded encoded
+payload and wake the owner. The owner may retain the acquired head across
+`WL_ERR_WOULD_BLOCK`, retrying after real resource progress. Release after
+successful admission or definitive rejection. The [kernel model](kernel.md)
+explains input snapshots and waiting.
 
 ## Reset and statistics
 

@@ -16,7 +16,7 @@ export default defineConfig({
     starlight({
       title: 'Wirelink',
       description:
-        'A bounded C11 protocol engine for typed communication over point-to-point links.',
+        'An allocation-free C11 endpoint kernel for typed messages and RPC.',
       favicon: '/favicon.svg',
       disable404Route: true,
       customCss: ['./src/styles/custom.css'],
@@ -44,31 +44,18 @@ export default defineConfig({
         },
       ],
       sidebar: [
-        {
-          label: 'Overview',
-          translations: { 'zh-CN': '概览' },
-          items: [{ autogenerate: { directory: 'overview' } }],
-        },
-        {
-          label: 'Tutorials',
-          translations: { 'zh-CN': '教程' },
-          items: [{ autogenerate: { directory: 'learn' } }],
-        },
-        {
-          label: 'How-to',
-          translations: { 'zh-CN': '操作指南' },
-          items: [{ autogenerate: { directory: 'how-to' } }],
-        },
-        {
-          label: 'Concepts',
-          translations: { 'zh-CN': '概念' },
-          items: [{ autogenerate: { directory: 'concepts' } }],
-        },
-        {
-          label: 'Reference',
-          translations: { 'zh-CN': '参考' },
-          items: [{ autogenerate: { directory: 'reference' } }],
-        },
+        { label: 'Start here', translations: { 'zh-CN': '从这里开始' },
+          items: [{ autogenerate: { directory: 'overview' } }] },
+        { label: 'Run and learn', translations: { 'zh-CN': '运行与学习' },
+          items: [{ autogenerate: { directory: 'learn' } }] },
+        { label: 'Understand the kernel', translations: { 'zh-CN': '理解 kernel' },
+          items: [{ autogenerate: { directory: 'concepts' } }] },
+        { label: 'Integrate', translations: { 'zh-CN': '按需集成' },
+          items: [{ autogenerate: { directory: 'how-to' } }] },
+        { label: 'API and transport reference', translations: { 'zh-CN': 'API 与传输参考' },
+          items: [{ autogenerate: { directory: 'reference' } }] },
+        { label: 'Develop and verify', translations: { 'zh-CN': '开发与验证' },
+          items: [{ autogenerate: { directory: 'development' } }] },
       ],
     }),
   ],

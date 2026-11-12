@@ -1,65 +1,29 @@
 ---
-title: "Telemetry with one owner"
-description: "Telemetry with one owner — Wirelink 0.13"
+title: "Send telemetry"
+description: "Send 12 messages and close two endpoints."
 sidebar:
   order: 2
 ---
 
-Ordinary telemetry invokes a borrowed typed callback. This example sends 12 samples and poisons source values after admission. There is no retained mailbox: copy any value needed after callback return into application storage.
+Send 12 ordinary messages and print `12 ordinary telemetry messages received; both endpoints quiescent`.
 
-This page uses current WLC/codegen 0.13 and profile v2. The C11 peers share one application owner and a real RAM-copy loopback, without opening hardware. Incrementing fixture instance IDs are only for this isolated example; production needs platform randomness or a durable unique allocator.
+From the Wirelink root, use matching WLC 0.13.0 / contract 0.13. [Set up tools](/wirelink/learn/environment-setup/) first.
 
 ```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_telemetry_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_telemetry_demo$'
+/tmp/wirelink-docs-tutorials/examples/00_telemetry/wirelink_telemetry_demo
 ```
 
-Run target `wirelink_telemetry_demo` (under its examples subdirectory).
+## Reuse the source after admission
 
-[00_telemetry/publisher.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)
+`telemetry_kernel_send_telemetry` snapshots the value before `WL_OK`. The publisher clears its source immediately; the subscriber checks sample order and temperature inside a borrowed callback. To retain a value, copy it before returning. On `WL_ERR_WOULD_BLOCK`, keep the pending output in application storage and retry later.
 
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_kernel.h"
-#include "loopback_owner.h"
-extern unsigned telemetry_received;
-void telemetry_receive(void *, const telemetry_t *);
-static telemetry_kernel_t endpoints[2];
-static example_pair_t pair;
-int main(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const telemetry_kernel_handlers_t handlers = {.on_message_telemetry = telemetry_receive};
-  for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(telemetry_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
-  for (unsigned sample = 0; sample < 12; ++sample) {
-    telemetry_value_t message = {.has_sample = true, .sample = sample,
-      .has_temperature_centi_c = true, .temperature_centi_c = -1234};
-    EXAMPLE_REQUIRE(telemetry_kernel_send_telemetry(&endpoints[0], &message) == WL_OK);
-    memset(&message, 0, sizeof(message)); /* Admission copied the source. */
-    example_pair_wait(&pair, &telemetry_received, sample + 1);
-  }
-  example_pair_close(&pair);
-  puts("12 ordinary telemetry messages received; both endpoints quiescent");
-  return 0;
-}
-```
+The two C11 peers share one owner and RAM-copy loopback. One tick is one loop pass, not a millisecond. The owner advances both kernels and transport. Close stops retained transfers and steps both cores to quiescence.
 
-[00_telemetry/subscriber.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c)
-
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_kernel.h"
-#include "loopback_owner.h"
-unsigned telemetry_received;
-void telemetry_receive(void *user, const telemetry_t *message) {
-  (void)user;
-  EXAMPLE_REQUIRE(message->sample == telemetry_received);
-  EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
-  ++telemetry_received;
-}
-```
-
-[Kernel API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [Migration](/wirelink/reference/development-contract/) · [Application jobs](/wirelink/learn/deferred-rpc/)
+Read the [publisher, subscriber and lifecycle explanation](https://github.com/starwey604/wirelink/blob/main/docs/getting-started.md). Next, [request an RPC result](/wirelink/learn/request-a-result/).

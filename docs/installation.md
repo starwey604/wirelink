@@ -1,4 +1,4 @@
-# Build tools and installation (0.13)
+# Build tools and installation
 
 [中文](installation-cn.md).
 
@@ -11,10 +11,11 @@ Python as declared by their CMake targets.
 The default core and checked-in bare-metal example need no WLC:
 
 ```sh
-cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/absolute/prefix -DCMAKE_INSTALL_LIBDIR=lib
 cmake --build build/core --parallel
 ctest --test-dir build/core --output-on-failure
-cmake --install build/core --prefix /absolute/prefix
+cmake --install build/core
 ```
 
 Generation requires **WLC 0.13.0 / codegen 0.13**, built from the matching
@@ -29,7 +30,7 @@ cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
 
 Expect `wlc 0.13.0` and `0.13`. Set `WIRELINK_WLC_EXECUTABLE` to that absolute
 path. The helper checks compiler and generated manifest before compilation;
-it does not bootstrap an old release or assume a published 0.13 package.
+it uses the selected local tool.
 Codegen version describes interfaces/layout, not transport wire version.
 
 ```sh
@@ -40,7 +41,7 @@ cmake --build build/tutorials --parallel
 ctest --test-dir build/tutorials --output-on-failure
 ```
 
-Use `find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)` with
+Use `find_package(Wirelink 0.13.0 EXACT CONFIG REQUIRED)` with
 `CMAKE_PREFIX_PATH=/absolute/prefix` for installed consumers. The base C package
 requires no C++ compiler. Optional installed host/adapter components must have
 been built and require CXX in the consuming project.
@@ -52,6 +53,6 @@ Asio UDP requires standalone Asio headers; the locally qualified source is
 UDP example. Astrial adapters use `WIRELINK_ASTRIAL_SOURCE_DIR`; native USB also
 requires the backend's libusb dependency. These remain outside the C core.
 
-See [kernel API](static-endpoint-kernel-api.md), [telemetry](getting-started.md) and
-[development checks](development-current.md). Local Linux verification does
-not imply that remote Windows/macOS, manylinux or hardware checks have run.
+Continue with [telemetry](getting-started.md), [the kernel model](kernel.md) or
+the [development guide](development.md). Installed CMake/pkg-config consumers
+are demonstrated in [package checks](development.md#verify-an-installed-consumer).

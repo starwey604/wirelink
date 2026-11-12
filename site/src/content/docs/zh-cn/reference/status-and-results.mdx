@@ -1,33 +1,21 @@
 ---
-title: "当前状态码与 RPC 结果"
-description: "当前状态码与 RPC 结果 — Wirelink 0.13"
+title: "接纳错误与终态结果"
+description: "分别判读本地返回值和 RPC completion。"
 sidebar:
-  order: 3
+  order: 5
 ---
 
-`wl_err_t`、`wl_kernel_outcome_t`、`wl_packet_submit_t` 使用固定 int32_t；短枚举消费者也保持 C ABI。WL_OK 为 0，通用错误为负。
+接纳返回 `wl_err_t`：`WL_OK` 创建调用，失败不创建调用或后续回调。第五个并发 start 返回 `WL_ERR_WOULD_BLOCK`；终态后 handle 失效。
 
-业务拒绝 status 保留原始有符号值，需和本地错误 outcome 一起判读。
-
-| RPC outcome | 意义 |
+| RPC outcome | status 含义 |
 | --- | --- |
-| WL_KERNEL_SUCCESS | 匹配响应并成功解码 |
-| WL_KERNEL_REJECTED | 远端业务拒绝，status 是业务码 |
-| WL_KERNEL_LOCAL_ERROR | 本地失败，status 是 wl_err_t |
-| WL_KERNEL_TIMED_OUT | 本地截止时间到达 |
-| WL_KERNEL_CANCELLED | 本地取消 |
-| WL_KERNEL_CLOSED | 连接关闭 |
+| `WL_KERNEL_SUCCESS` | `WL_OK`；响应已解码 |
+| `WL_KERNEL_REJECTED` | 非零有符号业务 status |
+| `WL_KERNEL_LOCAL_ERROR` | 本地 `wl_err_t` |
+| `WL_KERNEL_TIMED_OUT` | `WL_ERR_TIMEOUT` |
+| `WL_KERNEL_CANCELLED` | `WL_ERR_CANCELLED` |
+| `WL_KERNEL_CLOSED` | `WL_ERR_INVALID_STATE` |
 
-| 常用错误 | 意义 |
-| --- | --- |
-| WL_ERR_WOULD_BLOCK | 有界容量背压，稍后按 readiness 重试 admission |
-| WL_ERR_QUEUE_FULL | 外部命令队列满 |
-| WL_ERR_NOT_SUPPORTED | 平台能力/旧帧类型不支持 |
-| WL_ERR_IO | 确定性 I/O 失败 |
-| WL_ERR_REENTRANT | 禁止的递归 owner 操作 |
-| WL_ERR_ID_EXHAUSTED | 安全关闭后以新实例重建 |
-| WL_ERR_CORRUPT_PAYLOAD | 元数据/业务体非法 |
+成功数据仅借用到回调返回，需要保留则先复制。本地终态不证明远端回滚或物理 TX 完成；普通发送报告本地接纳/I/O 推进，不报告对端确认。
 
-成功 admission 后只有一个终态；失败 admission 无未来 callback。普通 send 只有本地接纳/物理 I/O 进展，不产生远端 ACK。
-
-取消/超时不回滚远端。公开 codec 错误仍独立于上述执行结果，完整符号见安装头。
+[API 参考](https://github.com/starwey604/wirelink/blob/main/docs/kernel-api-cn.md#terminal-results)集中维护完整返回/生命周期合同。[安装类型](https://github.com/starwey604/wirelink/blob/main/include/wirelink/types.h)定义本地错误字面量，codec 错误是独立域。SDK close 抛出 `ClosedError`，显式原生 cancel 抛出 `CancelledError`，asyncio task cancel 抛出 `asyncio.CancelledError`。

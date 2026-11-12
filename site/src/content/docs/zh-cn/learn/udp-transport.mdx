@@ -1,30 +1,34 @@
 ---
-title: "双进程 UDP peer"
-description: "当前内核上的双进程 UDP — Wirelink 0.13"
+title: "推进 UDP owner loop"
+description: "合并 I/O、kernel 和业务 deadline。"
 sidebar:
   order: 9
 ---
 
-[English](/wirelink/learn/udp-transport/).
-
-C 业务与 Zephyr peer 共用 schema/profile，显式选择 native_packet/NONE。每端都保留 RPC 发起和处理角色，Add 使用短 typed handler，telemetry 走普通 send/direct route。
-
-应用按需保存收到的值，不依赖 LATEST、ACK 或 replay 执行层。
+运行本机 UDP client/server，输出 `20 + 22 = 42` 与 `telemetry sample=...`。准备 C11/C++20、匹配 WLC 0.13.0 / 契约 0.13、standalone Asio，并允许本机 UDP socket。在 Wirelink 根目录运行：
 
 ```sh
-cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching/wlc
-cmake --build build/udp --parallel
-ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
+cmake -S . -B /tmp/wirelink-docs-udp -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON \
+  -DWIRELINK_BUILD_PLATFORM=ON \
+  -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/include \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-udp --parallel \
+  --target udp_peer_client udp_peer_server
+ctest --test-dir /tmp/wirelink-docs-udp --output-on-failure -R '^wirelink_udp_peer$'
 ```
 
-可执行程序接收 `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT`。server 与 client 的本地/peer 参数互换，client 输出 `20 + 22 = 42` 和一条 telemetry。测试以三个新进程复用 client 地址/端口，并验证 peer 缺席时的有限超时。
+```sh
+# Terminal 1
+/tmp/wirelink-docs-udp/examples/05_zephyr_udp/udp_peer_server 127.0.0.1 49101 127.0.0.1 49100
+# Terminal 2
+/tmp/wirelink-docs-udp/examples/05_zephyr_udp/udp_peer_client 127.0.0.1 49100 127.0.0.1 49101
+```
 
-C 持有 kernel、port 和两个 RX unit。薄 C++ helper 管理 UDP/等待，初始化时获取新 instance。
+## 将 I/O 与 core 放在同一 owner
 
-它在调用方 owner 上 service 和 step，再合并 kernel/I/O readiness。它不创建 RPC 表或内部线程。
+C 持有 port、两份 `2053` 字节 RX unit 和生成 kernel，最大 datagram 为 `2052` 字节。薄 C++ helper 拥有 Asio socket/wait，但不创建 owner 线程；每轮先 service I/O，再 step kernel。
 
-admission 返回前编码快照，completion 在借用期复制响应。close 停止真实 I/O、推进到物理 quiescence 后释放 socket。重试/幂等/应用状态恢复由业务定义。
+`example_udp_wait` 用 `wl_kernel_ready` 查询 readiness/最早 deadline，扣除已耗时间，再交给 adapter 的锁存等待。server 还用下一次 20 毫秒 telemetry 尝试限制等待。这些时间都使用毫秒，不是 RAM 教程的循环 tick。
 
-板卡网络配置见 [Zephyr peer](/wirelink/zh-cn/learn/zephyr-udp-subscriber/)。软件互通和固件 build 不证明真实 Ethernet/Wi-Fi 性能或特定 PHY 已通过验证。
+同一 owner close kernel、停止 socket、step 并确认 quiescent 后释放 helper。若加入外部 worker，还需确认退出。查看[完整 owner loop 与 helper 源码](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-integration-cn.md)，再按[传输合同](/wirelink/zh-cn/reference/transports/)替换 UART/USB；板卡网络见 [Zephyr peer](/wirelink/zh-cn/learn/zephyr-udp-subscriber/)。

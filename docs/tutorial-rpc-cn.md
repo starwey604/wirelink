@@ -1,18 +1,34 @@
-# 同步 handler 的 RPC
+# 发起 RPC、处理拒绝和 timeout
 
-start 接纳时快照请求，每个方向可并发四次，第五次返回 WOULD_BLOCK。已接纳调用只完成一次，接纳失败不会再回调。handler 立即返回有符号业务状态；算术溢出以 status 1 拒绝。应用阻塞包装推进同一个 core，不建立第二套关联表。
+[English](tutorial-rpc.md) · [并发调用](tutorial-rpc-async-cn.md)
 
-本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
+运行 calculator 示例：四个请求得到 `42`，反向调用的有符号加法溢出被业务 status `1` 拒绝。随后用 lifecycle 示例观察本地 timeout 和取消：
 
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+```text
+four concurrent copied requests and reverse-direction rejection passed
+four calls, fifth blocked, cancel, three timeouts and recovery passed
 ```
 
-运行目标 `wirelink_calculator_demo` （位于对应 examples 子目录）。
+在 Wirelink 根目录运行，准备匹配的 WLC 0.13.0（contract 0.13），见[工具配置](development-cn.md#构建匹配-wlc-和生成教程)。C11 端点共享一个 owner 和 RAM-copy loopback，不打开硬件。一个 tick 是一次循环，不是毫秒。fixture instance ID 仅限进程内使用，生产环境使用新的平台身份。
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_calculator_demo wirelink_rpc_lifecycle
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_(calculator_demo|rpc_lifecycle)$'
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_calculator_demo
+```
+
+```sh
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_rpc_lifecycle
+```
+
+## 请求与结果
+
+`calculator_kernel_add_start` 接收 `add_request_value_t`、owner 的 `now`、timeout、callback/context 和输出 handle。只有 `WL_OK` 创建调用；输入在返回前已快照，任何失败都不会产生未来 completion。下文 `500` 是 loop tick。同步应用等待通过推进 owner 完成，不在 handler 内阻塞。
 
 [01_rpc/client.c](../examples/01_rpc/client.c)
 
@@ -45,6 +61,10 @@ int main(void) {
 }
 ```
 
+## 同步 handler 返回业务状态
+
+handler 在本次 owner callback 中填好响应。`0` 表示成功，非零有符号值表示业务拒绝，拒绝响应没有业务 body。生成 route 在解码业务请求、执行 handler 前 reserve reply 存储；保留响应的 TX 返回 BUSY 不重跑 handler。
+
 [01_rpc/server.c](../examples/01_rpc/server.c)
 
 ```c
@@ -60,4 +80,8 @@ int32_t calculator_add(void *user, const add_request_t *request, add_response_va
 }
 ```
 
-[内核 API](static-endpoint-kernel-api.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
+## Deadline 与远端副作用
+
+[lifecycle 源码](../examples/01_rpc/lifecycle.c)在 tick `0` 接纳四次调用，timeout 为 `2`，暂不推进传输；tick `2` 的 step 将仍排队的三个调用交付为 `WL_KERNEL_TIMED_OUT / WL_ERR_TIMEOUT`。排队时间计入 timeout，到期相等即触发且先于排队响应。
+
+取消/超时只结束本地调用，不撤销已租用请求或远端执行；恢复传输后，先前取消的请求仍会执行，但不会交付第二次终态。重试会产生新 operation，需要避免重复副作用时使用应用幂等键。完整终态见 [API 参考](kernel-api-cn.md#terminal-results)。继续阅读[保存结果](tutorial-rpc-values-cn.md)。

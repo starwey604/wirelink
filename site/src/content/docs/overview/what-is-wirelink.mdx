@@ -1,12 +1,16 @@
 ---
-title: "Current API boundary"
-description: "Current API boundary — Wirelink 0.13"
+title: "Where Wirelink fits"
+description: "Choose an endpoint kernel for device-to-host communication."
 sidebar:
   order: 1
 ---
 
-The public C surface is `kernel.h`, `kernel_wire.h`, `packet_port.h` and the selected optional connector/adapter headers. `wl_ctx_t`, protocol events, pump, reliable send, deferred reply and mapped runtime APIs are removed. One C owner drives admission/step/cancel/close; codecs and callbacks execute there. Generated C supplies static typed routes and bounded storage, not another execution engine.
+Use Wirelink when a device and its peer exchange typed messages/RPC and you need to choose memory, timing and transport explicitly. The portable core is ISO C11 and owns no heap, clock, thread or driver.
 
-C owns atomic packet/FIFO storage. C++ consumers use opaque pointers and may own non-atomic generated kernel storage. Optional `Wirelink::host` supplies bounded external commands and waits; `Wirelink::cpp_host` supplies owning UDP Sessions. A C-only package does not require C++. Review installed headers and the build-backed examples before adding a wrapper.
+Write messages in `.wl` and choose routes/connector in profile version 2. WLC generates codecs, typed routes and bounded storage around the shared C kernel. Firmware and C++/Python clients use the same communication contract.
 
-[Migration checklist](/wirelink/reference/development-contract/) · [Kernel API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [Development checks](https://github.com/starwey604/wirelink/blob/main/docs/development-current.md)
+- **Messages:** send telemetry or events, and copy any callback data you need to keep.
+- **RPC:** admit up to four outbound calls per endpoint; short handlers return a response or signed business status.
+- **Application work:** define retries, idempotency, latest values and long jobs in your own state.
+
+Start with [telemetry](/wirelink/learn/getting-started/) or [RPC](/wirelink/learn/request-a-result/). For physical I/O, choose [transport integration](/wirelink/reference/transports/). To understand ownership first, follow [the kernel](/wirelink/concepts/kernel/).

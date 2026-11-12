@@ -8,7 +8,7 @@ sidebar:
 The client/server use the same business schema, managed tagged RPC wire and
 native_packet/NONE profile as the [desktop peers](/wirelink/learn/udp-transport/).
 Both RPC roles remain in each generated kernel. Add is a short typed handler;
-ordinary telemetry runs at an application-selected 20 ms period.
+ordinary telemetry is attempted every 20 ms by the application.
 
 Configure a board's Ethernet/Wi-Fi driver, IPv4 address, network buffers and a
 real initialization-time fresh-instance source before opening the adapter. The
@@ -49,5 +49,5 @@ The peer sample's native32/64 client/server configurations are build-only checks
 Actual generated RPC/telemetry, four-call admission, late responses, cancellation,
 wraparound timeout and finite waits run in `samples/zephyr/udp_validation` over
 real Zephyr UDP loopback. Desktop peers also run as separate real UDP processes.
-These checks do not claim physical board/PHY interoperability or throughput;
-that acceptance requires the actual network hardware and configuration.
+Physical board/PHY interoperability and throughput require the actual network
+hardware and configuration, recorded alongside its build and capture.

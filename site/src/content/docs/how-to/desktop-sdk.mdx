@@ -1,0 +1,16 @@
+---
+title: "Use an owning C++ / Python SDK"
+description: "Build UDP clients and keep results after close."
+sidebar:
+  order: 1
+---
+
+Use the [Calculator guide](https://github.com/starwey604/wirelink/blob/main/examples/06_bindings/GUIDE.md) to build a C peer, read its real port and call it from C++/Python. The [Device SDK](https://github.com/starwey604/wirelink/blob/main/examples/07_device_sdk/README.md) exercises nested values, UTF-8/NUL, optional fields and open enums.
+
+WLC generates the RPC-only native-packet client. C owns endpoint/atomic storage; Session owns the UDP connection and owner thread. Sync/async methods share **four native call slots**; AsyncClient also limits **eight undelivered operations**. The 32-entry host command queue does not add call slots.
+
+C++ timeouts are `1..INT32_MAX` milliseconds. Python accepts positive seconds, rounds up to milliseconds and caps at `2147483.647` seconds. Queue time counts. Responses own data beyond close; dropping an Operation does not cancel it. Close reports `ClosedError`; explicit native cancellation reports `CancelledError`.
+
+Use context managers for deterministic close/join. The native owner does not run Python; blocking Python waits release the GIL. Local timeout/cancel cannot undo peer effects. RPC-only long jobs need an application status-query RPC.
+
+See [host owner/Session](https://github.com/starwey604/wirelink/blob/main/docs/host-runtime.md) for lifecycle and [WLC SDK generation](https://github.com/starwey604/wlc/blob/main/docs/sdk.md) for matching versions, build options and provenance.

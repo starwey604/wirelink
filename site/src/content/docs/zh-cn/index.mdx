@@ -1,40 +1,29 @@
 ---
 title: Wirelink
-description: 面向 MCU 与上位机的零动态分配点对点通信与 RPC 框架。
+description: "用类型化消息和 RPC 连接设备；存储、时间、执行与传输由应用掌控。"
 template: splash
 hero:
-  tagline: 写一份 .wl 消息定义，生成纯 C11 的静态编解码与 RPC 状态机。不调用 malloc，不创建隐藏线程，跑在你的串口、USB 或 UDP 之上。
+  tagline: "用类型化消息和 RPC 连接设备；存储、时间、执行与传输由应用掌控。"
   actions:
-    - text: 5 分钟看懂 Wirelink
-      link: ./overview/what-is-wirelink/
-      icon: right-arrow
+    - text: 运行一个端点
+      link: /wirelink/zh-cn/learn/getting-started/
       variant: primary
-    - text: 配置开发环境
-      link: ./learn/environment-setup/
-      icon: open-book
-    - text: 查看源码
-      link: https://github.com/starwey604/wirelink
-      icon: external
+    - text: 理解 kernel
+      link: /wirelink/zh-cn/concepts/kernel/
+      variant: secondary
+    - text: 参与开发
+      link: /wirelink/zh-cn/development/contributing/
+      variant: secondary
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+Wirelink 是无动态分配的 C11 端点 kernel。生成代码提供类型化 route 和静态容量，普通消息与四路并发 RPC 共用同一内核。MCU 主循环、RTOS task 和桌面 owner 可以各自选择合适的执行方式。
 
-<div class="signal-strip" aria-hidden="true">
-  <span></span><i></i><span></span><i></i><span></span>
-</div>
+## 从你的任务开始
 
-做机器人、工控设备或智能硬件时，MCU 与上位机之间总少不了一条串口、USB 或 UDP 链路。手写 `struct` 强转和状态机容易错位，直接上 Protobuf 或重型 RPC 框架又往往要妥协给动态内存（`malloc`）、C++ 运行时或后台线程。
+- **先跑通通信：** [配置工具](/wirelink/zh-cn/learn/environment-setup/)，运行[遥测](/wirelink/zh-cn/learn/getting-started/)和 [RPC](/wirelink/zh-cn/learn/request-a-result/)，再保存结果、处理背压和取消。
+- **接入自己的设备：** 阅读 [kernel 数据流](/wirelink/zh-cn/concepts/kernel/)，再按 [UART、USB、UDP 合同](/wirelink/zh-cn/reference/transports/)接入驱动。
+- **修改库或生成器：** 从[开发指南](/wirelink/zh-cn/development/contributing/)找到负责该行为的源码和决定性测试。
 
-Wirelink 提供了第三种选择：**你用 `.wl` 文件声明消息与 RPC 接口，编译器（WLC）为你生成完全静态的 C11 端点代码（以及配套的 C++/Python 上位机 SDK）**。内核只负责帧路由与状态推进，内存、时钟和硬件驱动完全掌握在你自己手里。
+## 按需集成
 
-<CardGrid>
-  <Card title="一份定义，两端同步" icon="add-document">
-    在 `.wl` 中集中定义消息字段和 RPC 接口。改一处字段，重新生成即可同步固件 C 代码与上位机 SDK，告别手写打包与字节对齐踩坑。
-  </Card>
-  <Card title="纯静态内存，零隐藏线程" icon="setting">
-    核心是纯 C11 编写的被动状态机。所有收发槽位和消息快照都在编译期确定大小，由你提供静态存储，并在主循环或 RTOS 任务里主动驱动。
-  </Card>
-  <Card title="传输层解耦，随处可跑" icon="open-book">
-    无论是串口（COBS + CRC16）、原生 USB Bulk，还是桌面 UDP，生成的业务层代码完全一致。你只需要在初始化时挂载对应的硬件适配器。
-  </Card>
-</CardGrid>
+[C++/Python SDK](/wirelink/zh-cn/how-to/desktop-sdk/)提供拥有结果的 UDP client；[Zephyr peer](/wirelink/zh-cn/learn/zephyr-udp-subscriber/)展示板卡网络接入。[API 参考](/wirelink/zh-cn/reference/kernel-api/)集中定义错误与所有权。

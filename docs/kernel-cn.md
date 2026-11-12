@@ -30,7 +30,7 @@ ctest --test-dir /tmp/wirelink-docs-core --output-on-failure
 3. **Packet port 与 connector**交换规范的 native/NONE DATA 包。流式 connector 在此边界外添加 COBS/CRC16 或 length16/NONE。
 4. **Adapter**通过实际驱动移动包或字节，发布输入、资源活动和带 token 的物理完成。
 
-生成端点包含共享的 `wl_kernel_t`，不会另建 RPC 引擎。Host Executor、C++ Session 和生成 SDK 使用同一个 kernel。独立 codec 和 FIFO/LATEST/outbox 容器也可单独使用。各层合同分别见 [profile](link-profiles-cn.md)、[wire 格式](packet-protocol.md)和 [adapter 生命周期](adapters-cn.md)。
+生成端点包含共享的 `wl_kernel_t`，不会另建 RPC 引擎。Host Executor、C++ Session 和生成 SDK 使用同一个 kernel。独立 codec 和 FIFO/LATEST/outbox 容器也可单独使用。各层合同分别见 [profile](link-profiles-cn.md)、[wire 格式](packet-protocol-cn.md)和 [adapter 生命周期](adapters-cn.md)。
 
 ## 一个 owner 执行业务工作
 
@@ -100,7 +100,7 @@ owner 提供单调的模 `uint32_t` tick。timeout 范围是 `1..INT32_MAX` tick
 3. 后续 `CONSUMED` 发布说明 port 的源字节已不再被读取。kernel 仍把 snapshot 保留到 `DRAINED`；源已消费不允许启动第二笔物理 TX。
 4. 实际 `DRAINED` 后，或真实完成/取消后发布 `TX_ERROR`，owner `step` 才释放物理 flight 和 snapshot。迟到响应不能再为已过期 operation 交付终态。
 
-取消也具有相同的逻辑/物理生命周期分离。timeout 和 cancel 都是本地结果，不能停止对端副作用。重试创建新的 operation。重复执行副作用存在风险时，应用应定义请求 ID 和幂等性。长任务可以先返回 job ID，再查询进度，见[应用 job](tutorial-rpc-deferred-cn.md)。
+取消也具有相同的逻辑/物理生命周期分离。timeout 和 cancel 都是本地结果，不能停止对端副作用。重试创建新的 operation。重复执行副作用存在风险时，应用应定义请求 ID 和幂等性。长任务可以先返回 job ID，再查询进度，见[应用 job](tutorial-jobs-cn.md)。
 
 ## 背压沿存储传播
 
@@ -121,7 +121,7 @@ native USB 的 RX 还需要严格 read headroom、正确的 MPS/ZLP 处理，以
 
 port activity bit 使阻塞的 TX 可以重试，但它本身不是 OS 等待原语。`on_error` 或终态计数也不是物理完成判据。[`Executor::run`](../runtime/host/src/executor.cpp) 提供可运行的 host 循环。
 
-Executor 的外部命令队列有 32 槽，每批最多执行八条命令，再推进 kernel。命令入队和其中 RPC 的接纳是两次独立的容量判断。Session/SDK wrapper 提供 owner，并拥有复制后的应用结果，不另建 kernel 调用表。见 [Session](session-cn.md) 和 [SDK 示例](../examples/06_bindings/README.md)。
+Executor 的外部命令队列有 32 槽，每批最多执行八条命令，再推进 kernel。命令入队和其中 RPC 的接纳是两次独立的容量判断。Session/SDK wrapper 提供 owner，并拥有复制后的应用结果，不另建 kernel 调用表。见 [Session](host-runtime-cn.md) 和 [SDK 示例](../examples/06_bindings/README.md)。
 
 ## 先关闭、结束 I/O，再释放存储
 
@@ -139,4 +139,4 @@ kernel quiescence 描述 core/port 状态，不代表外部线程已经退出。
 - [Kernel 与 packet-port API](kernel-api-cn.md)：签名、错误和所有权。
 - [RPC 调用](tutorial-rpc-cn.md)、[并发调用](tutorial-rpc-async-cn.md)、[保存结果](tutorial-rpc-values-cn.md)：应用任务。
 - [集成](tutorial-integration-cn.md)和 [adapter](adapters-cn.md)：owner loop 与物理传输合同。
-- [`kernel.c` 测试](../tests/core/kernel.c)、[`packet_port.c` 测试](../tests/core/packet_port.c)和[开发命令](development-current.md)：实现和检查。
+- [`kernel.c` 测试](../tests/core/kernel.c)、[`packet_port.c` 测试](../tests/core/packet_port.c)和[开发指南](development-cn.md)：实现和检查。

@@ -1,0 +1,29 @@
+---
+title: "Accept an application job"
+description: "Return a job ID and advance work outside the RPC handler."
+sidebar:
+  order: 6
+---
+
+StartSelfTest returns a job ID immediately. A second Start returns `DEVICE_BUSY`; later the application sends ordinary progress for that ID. The demo prints `device/calculator handlers, application job ID, ordinary completion and retained results passed`.
+
+Use matching WLC 0.13.0 / contract 0.13 from the Wirelink root:
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_device_service_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_device_service_demo$'
+/tmp/wirelink-docs-tutorials/examples/03_device_service/wirelink_device_service_demo
+```
+
+## Keep work in application state
+
+The existing schema uses request `132`, response `133` and ordinary progress `134`. The short handler copies `pattern` into `device_service_t`; polling waits 20 loop ticks and attempts a send. `WL_ERR_WOULD_BLOCK` retains the output. `job_pending` clears after admission, not peer receipt.
+
+The owner can inspect `job_id`, `job_pending` and `due`; the client matches progress by ID. This example has no remote query RPC or completion history. A production query protocol defines running/done/unknown, result retention and restart identity. Lost ordinary messages require queries or application acknowledgment.
+
+Local cancel/timeout cannot undo the job. Applications define duplicate admission and shutdown actions. Read the [job source and full explanation](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-jobs.md), then [compose business modules](/wirelink/learn/device-service/).

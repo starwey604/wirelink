@@ -1,41 +1,29 @@
 ---
 title: Wirelink
-description: Bounded typed communication for embedded and desktop systems.
+description: "Connect devices with typed messages and RPC. Keep storage, time, execution and transport in your application."
 template: splash
 hero:
-  tagline: Exchange typed messages over point-to-point links while your application keeps control of memory, transport, and execution.
+  tagline: "Connect devices with typed messages and RPC. Keep storage, time, execution and transport in your application."
   actions:
-    - text: Learn more
-      link: ./overview/what-is-wirelink/
-      icon: right-arrow
+    - text: Run an endpoint
+      link: /wirelink/learn/getting-started/
       variant: primary
-    - text: Set up Wirelink
-      link: ./learn/environment-setup/
-      icon: open-book
-    - text: View source
-      link: https://github.com/starwey604/wirelink
-      icon: external
+    - text: Understand the kernel
+      link: /wirelink/concepts/kernel/
+      variant: secondary
+    - text: Develop and verify
+      link: /wirelink/development/contributing/
+      variant: secondary
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+Wirelink is an allocation-free C11 endpoint kernel. Generated code supplies typed routes and static capacities; ordinary messages and four concurrent RPC calls share the same core. Run it from an MCU loop, an RTOS task or a desktop owner.
 
-<div class="signal-strip" aria-hidden="true">
-  <span></span><i></i><span></span><i></i><span></span>
-</div>
+## Start with your task
 
-Wirelink 0.13 uses an allocation-free C11 static endpoint kernel. Applications supply storage, one owner, monotonic time and a transport. Ordinary messages and four-call RPC share one core; applications define retries, idempotency and jobs. Automatic ARQ, replay and deferred execution were removed.
+- **Run communication first:** [prepare the tools](/wirelink/learn/environment-setup/), run [telemetry](/wirelink/learn/getting-started/) and [RPC](/wirelink/learn/request-a-result/), then retain results and handle pressure/cancellation.
+- **Connect your device:** follow the [kernel data flow](/wirelink/concepts/kernel/), then bind a driver using the [UART, USB and UDP contracts](/wirelink/reference/transports/).
+- **Change the library or generator:** use the [development guide](/wirelink/development/contributing/) to find the owning source layer and decisive checks.
 
-<CardGrid>
-  <Card title="Prepare once" icon="add-document">
-    Install the compiler, CMake, Cargo, and WLC once. Every lesson after that
-    starts from a checked toolchain instead of repeating setup instructions.
-  </Card>
-  <Card title="Keep resource use bounded" icon="setting">
-    Generated endpoints use explicit storage and bounded work. The core does not
-    own threads, a heap, hardware, or a clock.
-  </Card>
-  <Card title="Define application behavior" icon="open-book">
-    Learn borrowed results, physical TX leases, job IDs and duplicate execution.
-    Applications choose independent containers and business retry rules.
-  </Card>
-</CardGrid>
+## Integrate as needed
+
+The [C++/Python SDK](/wirelink/how-to/desktop-sdk/) provides owning UDP clients. [Zephyr peers](/wirelink/learn/zephyr-udp-subscriber/) cover board network setup. The [API reference](/wirelink/reference/kernel-api/) defines errors and ownership.

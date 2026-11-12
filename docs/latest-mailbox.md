@@ -1,11 +1,11 @@
-> This is an independent data container, linked through `Wirelink::containers`; it provides no generated route, reliable delivery or framework policy. C owns atomic storage; application code chooses its integration. See [kernel API](static-endpoint-kernel-api.md).
-
 # Allocation-free LATEST mailbox
 
-`wirelink/latest.h` supplies the application-layer `LATEST` delivery policy.
-It is independent of the endpoint kernel and does not change the v1 frame or any frozen
-core structure.  One producer normally decodes a WLC message directly into a
-claimed slot, and one consumer borrows the freshest published typed value.
+[中文](latest-mailbox-cn.md)
+
+`wirelink/latest.h` provides application latest-value storage, linked through
+`Wirelink::containers`. C owns its atomic context; C++ uses opaque pointers.
+One producer publishes complete values and one consumer borrows the freshest
+published value. Application code connects message callbacks to this mailbox.
 
 ## Storage and initialization
 
@@ -55,42 +55,19 @@ Initialization and reset require external quiescence.  Apart from those
 operations the API is exactly SPSC: using multiple producers or consumers is
 outside the C memory model contract, even if calls happen not to overlap.
 
-### Decode a generated message directly into a mailbox slot
+## Retain owned values in a generated callback
 
-A `LATEST` route using WLC-generated bindings does not need an intermediate
-decoded-message copy.  The application wrapper claims before dispatch, points
-the message route's typed scratch at that claim, and lets the typed handler
-publish it:
+Configure each mailbox slot for a generated owned `*_value_t`. In an ordinary
+message callback, claim a slot, copy with `*_value_from_view`, check the result
+and publish; abort if conversion fails. The consumer then acquires/releases an
+owned value whose string/bytes/nested storage is independent of RX. See the
+[build-backed copy example](tutorial-rpc-values.md).
 
-```c
-wl_latest_write_claim_t claim;
-if (wl_latest_write_claim(&route->mailbox, &claim) == WL_OK) {
-    route->active_claim = &claim;
-    route->router.control_setpoint.scratch = claim.value;
-    control_dispatch_result_t dispatched =
-        control_dispatch_event(ctx, event, &route->router);
-
-    /* A successful handler published and cleared active_claim. */
-    if (route->active_claim != NULL) {
-        (void)wl_latest_write_abort(&route->mailbox, &claim);
-        route->active_claim = NULL;
-    }
-    handle_dispatch_result(dispatched);
-}
-```
-
-The typed handler verifies that its message is `active_claim->value`, publishes
-the claim, and clears `active_claim` before returning zero. The wrapper owns
-all remaining failure paths, so codec/missing-route/handler errors abort once
-after the dispatcher has released the RX event. Fixed fields and inline fixed
-arrays are decoded directly into the mailbox slot, eliminating a
-decoded-message-to-mailbox copy. The integration fixture under
-`tests/zephyr/integration/application_runtime` is the complete executable
-pattern.
-
-A retained type must be self-contained: generated borrowed `bytes`/`string`
-pointers into the RX event are not eligible unless the route provides bounded
-backing storage and copies them before `wl_event_release()`.
+Generated routes use their own decode storage; application code does not replace
+route scratch or release kernel RX. Copying a borrowed view only retains RX
+pointers and cannot extend their lifetime. Finish deep copying before callback
+return. Mailbox claim/publish remains an application-producer operation, separate
+from network delivery and idempotency.
 
 ## Why non-atomic values are race-free
 

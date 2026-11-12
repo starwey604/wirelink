@@ -1,52 +1,31 @@
 ---
-title: "四路并发调用"
-description: "四路并发调用 — Wirelink 0.13"
+title: "处理容量与取消"
+description: "验证四路调用、接纳失败、本地取消和排队超时。"
 sidebar:
   order: 5
 ---
 
-调用方在接纳时提供 now 和有界 timeout，外层 owner 把单调 tick 传给 step，C 内核不读取时钟。本地取消/超时只结束本地等待，不能撤销远端执行。
+接纳四次、第五次背压，取消一笔并使三笔到期，再恢复传输完成新请求。预期输出 `four calls, fifth blocked, cancel, three timeouts and recovery passed`。
 
-重试创建新 operation，业务可能重复执行。结果视图只在完成 callback 期间有效。
-
-
-本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。
-
-示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
+在 Wirelink 根目录使用匹配 WLC 0.13.0 / 契约 0.13：
 
 ```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_rpc_lifecycle
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_rpc_lifecycle$'
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_rpc_lifecycle
 ```
 
-运行目标 `wirelink_calculator_demo` （位于对应 examples 子目录）。
+## 只重试未接纳的工作
 
-[01_rpc/client_async.c](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client_async.c)
+第五次 start 返回 `WL_ERR_WOULD_BLOCK`，不创建调用或回调。只保存 `WL_OK` 返回的 handle。cancel 安排稍后的一次终态；取消已失效 handle 返回 `WL_ERR_NOT_FOUND`。
 
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "service.h"
-#include "loopback_owner.h"
-static unsigned completed;
-static void done(void *user, wl_kernel_result_t result, const add_response_t *response) {
-  (void)user;
-  EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response && response->sum == 42);
-  ++completed;
-}
-void calculator_async_example(calculator_kernel_t *client, calculator_kernel_t *server) {
-  /* Four accepted calls coexist; no terminal slot needs inspect/release. */
-  (void)server;
-  for (int32_t i = 0; i < 4; ++i) {
-    add_request_value_t request = {.has_left = true, .left = i, .has_right = true, .right = 42 - i};
-    wl_kernel_call_handle_t handle;
-    EXAMPLE_REQUIRE(calculator_kernel_add_start(client, &request, 0, 500, done, NULL, &handle) == WL_OK);
-    memset(&request, 0, sizeof(request));
-  }
-}
-unsigned calculator_async_count(void) { return completed; }
-```
+fixture 暂停物理 TX。一笔请求已租用，另外三笔在 tick `2` 到期且未发送。恢复真实 RAM copy 后，取消请求和新请求都会执行，所以 `effects == 2`；旧响应不能产生第二次终态。
 
-[内核 API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [迁移清单](/wirelink/zh-cn/reference/development-contract/) · [应用长任务](/wirelink/zh-cn/learn/deferred-rpc/)
+call slot 与物理 snapshot 生命周期不同，逻辑终态不归还 USB/DMA lease。回调可以提交/取消，不能递归 step/close；保存响应需在返回前复制。
+
+查看 [lifecycle.c 与断言说明](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-rpc-async-cn.md)。下一篇：[接纳应用任务](/wirelink/zh-cn/learn/application-jobs/)。

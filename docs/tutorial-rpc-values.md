@@ -1,18 +1,42 @@
-# Retaining bounded results
+# Retain an RPC result containing strings
 
-The completion helper copies the borrowed response using the public value conversion before returning. This example validates eight replies and reads the owned UTF-8/NUL result after both endpoints close. Bounded strings carry a length; embedded NUL does not terminate the logical value. No terminal inspect/release slot remains.
+[中文](tutorial-rpc-values-cn.md) · [Concurrent calls](tutorial-rpc-async.md)
 
-This page uses current WLC/codegen 0.13 and profile v2. The C11 peers share one application owner and a real RAM-copy loopback, without opening hardware. Incrementing fixture instance IDs are only for this isolated example; production needs platform randomness or a durable unique allocator.
+Complete eight queries, close both endpoints, then read the copied UTF-8/NUL name. Expect:
 
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+```text
+bounded UTF-8/NUL response copied before callback exit and retained after close
 ```
 
-Run target `wirelink_device_info_demo` (under its examples subdirectory).
+Run from the Wirelink root with matching WLC 0.13.0 (contract 0.13); see [tool setup](development.md#build-matching-wlc-and-generated-tutorials). The C11 endpoints share one owner and a RAM-copy loopback, without hardware. Its tick is one loop pass, not a millisecond. Fixture instance IDs are process-local; production uses a fresh platform identity.
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_device_info_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_device_info_demo$'
+/tmp/wirelink-docs-tutorials/examples/02_device_info/wirelink_device_info_demo
+```
+
+## Convert to an owned value before returning
+
+The generated completion passes `const info_response_t *` only for the callback lifetime; do not save its pointer. `EXAMPLE_COMPLETION(info, info_response)` calls `info_response_value_from_view` to copy bounded strings/bytes and nested values into `info_response_value_t`. The helper comes from [loopback_owner.h](../examples/common/loopback_owner.h):
+
+```c
+#define EXAMPLE_COMPLETION(name, type) \
+  static unsigned name##_count; \
+  static wl_kernel_result_t name##_result; \
+  static type##_value_t name##_value; \
+  static void name##_completed(void *user, wl_kernel_result_t result, const type##_t *view) { \
+    (void)user; name##_result = result; \
+    if (result.outcome == WL_KERNEL_SUCCESS) \
+      EXAMPLE_REQUIRE(view && type##_value_from_view(view, &name##_value) == WL_CODEC_OK); \
+    ++name##_count; \
+  }
+```
 
 [02_device_info/client.c](../examples/02_device_info/client.c)
 
@@ -61,4 +85,4 @@ int32_t device_info_query(void *user, const info_request_t *request, info_respon
 }
 ```
 
-[Kernel API](static-endpoint-kernel-api.md) · [Application jobs](tutorial-rpc-deferred.md)
+`name.length == 11` includes embedded NUL; that byte does not terminate the logical string. Bounds count UTF-8 bytes. After conversion, application-owned `info_value` remains readable after close; the original handle expires at any terminal. See the [result contract](kernel-api.md#terminal-results), then [concurrency and pressure](tutorial-rpc-async.md).

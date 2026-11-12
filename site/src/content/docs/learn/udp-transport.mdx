@@ -1,35 +1,34 @@
 ---
-title: "Desktop UDP peers"
-description: "Desktop UDP peers — Wirelink 0.13"
+title: "Drive a UDP owner loop"
+description: "Merge I/O, kernel and application deadlines."
 sidebar:
   order: 9
 ---
 
-C business code uses the same schema/profile as the Zephyr peers, with explicit
-native_packet/NONE and both RPC roles. Add is a short typed handler; telemetry
-uses ordinary send/direct routes. No retained mailbox, reliable DATA/ACK or replay
-semantics are implied.
+Run desktop UDP client/server peers and print `20 + 22 = 42` plus `telemetry sample=...`. Provide C11/C++20, matching WLC 0.13.0 / contract 0.13, standalone Asio and local UDP socket access. Run from the Wirelink root:
 
 ```sh
-cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching/wlc
-cmake --build build/udp --parallel
-ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
+cmake -S . -B /tmp/wirelink-docs-udp -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON \
+  -DWIRELINK_BUILD_PLATFORM=ON \
+  -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/include \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-udp --parallel \
+  --target udp_peer_client udp_peer_server
+ctest --test-dir /tmp/wirelink-docs-udp --output-on-failure -R '^wirelink_udp_peer$'
 ```
 
-The two executables accept `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT` arguments.
-Start the server with the addresses/ports reversed relative to the client. The
-client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
-address/port across three new processes and verifies absent-peer timeout.
+```sh
+# Terminal 1
+/tmp/wirelink-docs-udp/examples/05_zephyr_udp/udp_peer_server 127.0.0.1 49101 127.0.0.1 49100
+# Terminal 2
+/tmp/wirelink-docs-udp/examples/05_zephyr_udp/udp_peer_client 127.0.0.1 49100 127.0.0.1 49101
+```
 
-C owns kernel/port/two RX units. The desktop C++ helper only owns packet UDP and
-wait resources: it initializes a fresh instance identity outside the core,
-services I/O and advances the same kernel on the calling owner, and merges
-kernel/I/O waiting without an RPC registry or thread. Admission encodes before
-return; completion copies the borrowed response. Close stops actual I/O, steps
-until physical quiescence, then frees socket resources.
+## Put I/O and core work on the same owner
 
-See the [Zephyr peer walkthrough](/wirelink/learn/zephyr-udp-subscriber/) for
-board network provisioning. Software loopback does not establish physical
-Ethernet/Wi-Fi performance or validate a particular board/PHY.
+C owns the port, two `2053`-byte RX units and generated kernel; maximum datagram size is `2052` bytes. A thin C++ helper owns Asio socket/wait resources without creating an owner thread. Each pass services I/O, then steps the kernel.
+
+`example_udp_wait` queries readiness/earliest deadline with `wl_kernel_ready`, subtracts elapsed work and invokes the adapter's latched wait. The server also limits waiting by the next 20-millisecond telemetry attempt. These clocks use milliseconds, unlike the RAM tutorials' loop ticks.
+
+The same owner closes the kernel, stops the socket, steps and requires quiescence before freeing the helper. External workers, if added, must also exit. Read the [complete owner loop and helper sources](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-integration.md), then substitute UART/USB using the [transport contracts](/wirelink/reference/transports/). For a board, follow [Zephyr peers](/wirelink/learn/zephyr-udp-subscriber/).

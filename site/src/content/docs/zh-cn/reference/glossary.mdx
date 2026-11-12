@@ -1,21 +1,21 @@
 ---
-title: "当前术语"
-description: "当前术语 — Wirelink 0.13"
+title: "所有权术语"
+description: "Kernel、adapter 和应用任务中的术语。"
 sidebar:
-  order: 1
+  order: 6
 ---
 
-| 术语 | 当前含义 |
+| 术语 | 含义 |
 | --- | --- |
-| owner | 执行 core/codec/业务的唯一上下文 |
-| producer | 串行发布 I/O/completion 的上下文 |
-| admission | 编码/快照成功，占有有界容量 |
-| borrowed view | callback 内有效，跨边界需要复制 |
-| owned value | 内含有界数据的可保存值 |
-| instance/operation | 通信匹配身份，不是认证或业务幂等键 |
-| CONSUMED | 结束源内存借用 |
+| owner | 执行 core、codec 和业务回调的唯一上下文 |
+| producer | 串行发布 I/O 包、活动和 completion 的上下文 |
+| admission | 编码快照成功并占用有界存储 |
+| borrowed view | 回调内有效，保留时需要复制的数据 |
+| owned value | 内含有界数据的值 |
+| instance/operation | 通信匹配身份 |
+| CONSUMED | 结束源借用 |
 | DRAINED | 结束物理传输 |
-| quiescent | 内核/port 无残留所有权，外部还需实际 producer 退出证明 |
+| quiescent | Core/port 所有权已收尾，外部 producer 也需退出 |
 | job ID | 应用为长任务定义的身份 |
 
-旧 replay/TTL、ACK/ARQ、deferred token 和通用 service/policy 不是当前内核能力。
+沿 [kernel 数据流](/wirelink/zh-cn/concepts/kernel/)查看这些术语如何连接。

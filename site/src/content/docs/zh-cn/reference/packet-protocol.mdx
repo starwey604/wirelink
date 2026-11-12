@@ -1,0 +1,17 @@
+---
+title: "Packet 与 RPC wire 格式"
+description: "区分 packet 头、RPC 元数据与 body codec。"
+sidebar:
+  order: 3
+---
+
+canonical native/NONE DATA 包由四字节 Compact-v1 前缀和 payload 组成。RPC payload 在 managed tagged body 前增加 client instance、operation 身份与拒绝 status 元数据。
+
+[Packet/RPC 参考](https://github.com/starwey604/wirelink/blob/main/docs/packet-protocol-cn.md)定义确切字节、长度、校验和冻结向量。区分以下层次：
+
+- **公开 Schema-v1：** tagged 独立/普通消息 codec，保留完整合法字段值域。
+- **普通 positional-v1：** 显式选择、依赖 schema 的消息编码。
+- **Managed tagged RPC：** 元数据记录 instance/operation，body 使用私有 codec。标量 fixed32 表示不同于公开 Schema-v1。
+- **Connector：** 在 canonical packet 外使用 native/NONE、COBS/CRC16 或 length16/NONE。
+
+双方带外约定消息 ID、codec 和 connector。instance 用于调用匹配，integrity 用于检错；认证和业务幂等各需自己的机制。参阅 [schema/profile 生成](/wirelink/zh-cn/reference/schema-and-binding/)与[传输边界](/wirelink/zh-cn/reference/transports/)。

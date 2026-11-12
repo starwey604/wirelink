@@ -32,8 +32,8 @@
   "artifacts": [
     {"path": "CMakeLists.txt", "size": 4512, "digest": "0x226dcb7958845aaf"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 7219, "digest": "0xc347209a2ffb797a"},
-    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 272, "digest": "0xcb616019c25ddafe"},
+    {"path": "README.md", "size": 7403, "digest": "0x0cd53bc6f8ba8f55"},
+    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 212, "digest": "0x4982545d69a87047"},
     {"path": "generated/device.c", "size": 80819, "digest": "0x268b09a954355819"},
     {"path": "generated/device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
     {"path": "generated/device_kernel.c", "size": 6616, "digest": "0x6f78f0f37b1c4774"},

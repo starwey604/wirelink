@@ -1,0 +1,22 @@
+---
+title: "Kernel and packet-port API"
+description: "Find the operation and its ownership/error contract."
+sidebar:
+  order: 1
+---
+
+Choose the operation you are integrating. The [complete API reference](https://github.com/starwey604/wirelink/blob/main/docs/kernel-api.md) gives signatures, arguments, lifetime and every admission/error condition.
+
+| Task | Entry points |
+| --- | --- |
+| Assemble the core | `wl_kernel_init`, generated `*_kernel_init` |
+| Start/cancel an RPC | `wl_kernel_call_start`, `wl_kernel_cancel`, typed `*_start` |
+| Send a message | `wl_kernel_send`, typed `*_send_*` |
+| Advance or wait | `wl_kernel_step`, `wl_kernel_ready` |
+| Close and release | `wl_kernel_close`, `wl_kernel_quiescent` |
+| Publish/borrow RX | packet RX claim/commit/abort, peek/release |
+| Transfer TX | submit, token-bound completion publication/take |
+
+One owner performs kernel operations and callbacks. A serialized producer publishes I/O through the port; C owns atomic storage. Success at admission snapshots input; failure creates no call or future completion. A terminal invalidates its call handle but does not necessarily end a physical lease.
+
+Check [terminal outcomes](/wirelink/reference/status-and-results/) beside the operation's return code. For the overall sequence, read [how the kernel works](/wirelink/concepts/kernel/); for physical stop/drain, read [transport contracts](/wirelink/reference/transports/).

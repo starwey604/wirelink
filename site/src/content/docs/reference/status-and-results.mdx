@@ -1,0 +1,21 @@
+---
+title: "Admission errors and terminal results"
+description: "Read the local return value separately from RPC completion."
+sidebar:
+  order: 5
+---
+
+Admission returns `wl_err_t`: `WL_OK` creates a call; a failure creates no call or later callback. A fifth concurrent start returns `WL_ERR_WOULD_BLOCK`. A completed handle is no longer valid.
+
+| RPC outcome | Meaning of status |
+| --- | --- |
+| `WL_KERNEL_SUCCESS` | `WL_OK`; response decoded |
+| `WL_KERNEL_REJECTED` | Signed nonzero business status |
+| `WL_KERNEL_LOCAL_ERROR` | Local `wl_err_t` |
+| `WL_KERNEL_TIMED_OUT` | `WL_ERR_TIMEOUT` |
+| `WL_KERNEL_CANCELLED` | `WL_ERR_CANCELLED` |
+| `WL_KERNEL_CLOSED` | `WL_ERR_INVALID_STATE` |
+
+Copy borrowed success data before callback return. A local terminal does not establish remote rollback or physical TX completion. Ordinary sends report local admission/I/O progress, not peer acknowledgment.
+
+The [API reference](https://github.com/starwey604/wirelink/blob/main/docs/kernel-api.md#terminal-results) owns the complete return/lifetime contract. [Installed types](https://github.com/starwey604/wirelink/blob/main/include/wirelink/types.h) define local error literals; codec errors remain a separate domain. SDK close raises `ClosedError`, explicit native cancel raises `CancelledError`, and asyncio task cancel raises `asyncio.CancelledError`.

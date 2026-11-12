@@ -1,0 +1,17 @@
+---
+title: "Packet and RPC wire format"
+description: "Distinguish packet headers, RPC metadata and body codecs."
+sidebar:
+  order: 3
+---
+
+A canonical native/NONE DATA packet has a four-byte Compact-v1 prefix and payload. RPC payload adds client instance, operation identity and rejection status metadata before its managed tagged body.
+
+The [packet/RPC reference](https://github.com/starwey604/wirelink/blob/main/docs/packet-protocol.md) defines exact bytes, lengths, validation and frozen vectors. Keep these layers separate:
+
+- **Public Schema-v1:** tagged standalone/ordinary codec, full legal field domains.
+- **Ordinary positional-v1:** explicitly selected schema-dependent message encoding.
+- **Managed tagged RPC:** instance/operation metadata and private business codec; scalar fixed32 representation differs from public Schema-v1.
+- **Connector:** native/NONE, COBS/CRC16 or length16/NONE around canonical packets.
+
+Peers agree on message IDs, codec and connector out of band. Instance identity correlates calls; integrity detects corruption. Authentication and business idempotency need their own mechanisms. See [schema/profile generation](/wirelink/reference/schema-and-binding/) and [transport boundaries](/wirelink/reference/transports/).

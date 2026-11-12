@@ -18,4 +18,4 @@ are only for isolated in-process tests. Production endpoints use fresh identity
 sources. The default `examples/bare_metal_loopback.c` and tutorials are compiled
 acceptance examples, with no hardware or second protocol engine.
 
-[Kernel API](static-endpoint-kernel-api.md).
+[Kernel API](kernel-api.md).

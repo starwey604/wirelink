@@ -1,0 +1,23 @@
+---
+title: "Schema and profile generation"
+description: "Define message values, select routes and retain provenance."
+sidebar:
+  order: 4
+---
+
+Write message/enum declarations and explicit IDs in `.wl`; use a separate profile to choose deployment routes. The [schema reference](https://github.com/starwey604/wirelink/blob/main/docs/schema-v1.md) defines grammar, bounds, presence, evolution and tagged bytes.
+
+A profile referring to an existing Telemetry message can send and receive it:
+
+```text
+profile version 2;
+endpoint { envelope = native_packet; }
+send Telemetry { delivery = unreliable; }
+direct Telemetry { delivery = unreliable; }
+```
+
+WLC 0.13.0 / codegen contract 0.13 emits public codecs without a profile, or typed kernel routes/storage and the selected connector with a version-2 profile. Repeated `--profile` composes declarations with conflict checks. The [profile reference](https://github.com/starwey604/wirelink/blob/main/docs/link-profiles.md) owns connector and capacity rules.
+
+Borrowed public codecs support nested and repeated views. Finite types also get owned values. Repeated views are a standalone-codec capability, not bounded kernel routes. UTF-8 bounds count bytes, NUL is legal, optional absence differs from present-empty and unknown signed enum values are preserved.
+
+Keep generated files and provenance together, and use one output directory per deployment. Read [WLC code generation](https://github.com/starwey604/wlc/blob/main/docs/codegen.md) for dependencies, plans and identity. For owning clients, use [SDK generation](/wirelink/how-to/desktop-sdk/).

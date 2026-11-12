@@ -1,12 +1,17 @@
 # Four concurrent RPC calls
 
 Build `wirelink_calculator_demo` with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching
-local WLC. The example starts four calls, invalidates each source request after
-admission, then advances both endpoints from one application loop. A reverse
-call proves both roles are retained and distinguishes business rejection from
-local failure. The short handler returns a response directly.
+WLC 0.13.0 / contract 0.13. Four calls snapshot their requests before the source
+is cleared; one application owner loop advances both endpoints. A reverse call
+checks both RPC roles and distinguishes business rejection from local failure.
 
-The old deferred-server example was removed with deferred reply tokens. Long
-work belongs to an application job-ID/status protocol; see the multi-business
-example's migration. Cancellation and timeout are local and cannot undo remote
-side effects; no retry or replay suppression runs automatically.
+`wirelink_rpc_lifecycle` exercises a fifth admission returning `WL_ERR_WOULD_BLOCK`,
+local cancellation, three queued timeouts, a TX lease surviving its call and
+successful reuse. Its deterministic tick is one loop pass, not milliseconds.
+Both examples use RAM-copy loopback, without hardware.
+
+Follow the [RPC tutorial](../../docs/tutorial-rpc.md) and
+[cancellation/capacity tutorial](../../docs/tutorial-rpc-async.md) for commands
+and build-backed source. For longer work, use an
+[application job protocol](../../docs/tutorial-jobs.md). Local timeout/cancel
+cannot undo remote effects; applications own retries and idempotency.

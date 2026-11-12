@@ -1,87 +1,69 @@
 # Wirelink
 
-Wirelink is an allocation-free C11 endpoint kernel with static typed routing,
-four concurrent RPC calls in each direction, ordinary messages and explicit
-packet ownership. Applications supply storage, a single owner, monotonic time
-snapshots and a transport. The core owns no OS, thread, heap, clock or driver.
+Wirelink is an allocation-free C11 kernel for typed messages and RPC over
+point-to-point links. Your application supplies storage, one owner, monotonic
+time and a transport. Generated routes, host wrappers and SDKs share the same
+kernel; retries, idempotency and long-running jobs belong to the application.
 
-Wirelink 0.13 uses WLC codegen 0.13 and SDK binding API 3. Generated routes,
-host runtimes and SDKs share the [kernel and ownership contract](docs/kernel-api.md).
-Applications define retry, idempotency and long-running jobs.
+## Run an endpoint
 
-Ordinary messages use Compact-v1 DATA packets. RPC uses managed v4 metadata.
-WLC supplies tagged SchemaV1 codecs and explicit ordinary PositionalV1 codecs.
-The application selects the transport and security boundary.
-
-## Start here
-
-- [Install the matching local tools](docs/installation.md) ([中文](docs/installation-cn.md)).
-- [Telemetry](docs/getting-started.md), [RPC](docs/tutorial-rpc.md),
-  [owned results](docs/tutorial-rpc-values.md) and
-  [application jobs](docs/tutorial-rpc-deferred.md), with build-backed C listings.
-- [How the kernel works](docs/kernel.md) ([中文](docs/kernel-cn.md)),
-  [kernel API](docs/kernel-api.md) ([中文](docs/kernel-api-cn.md)),
-  [adapter lifecycle](docs/adapters.md) and [API map](docs/api-boundary.md).
-- [C++/Python generated SDK examples](examples/06_bindings/README.md).
-
-## Build and install
+With a C11 compiler and CMake 3.21+, run from this repository:
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
 cmake --build build/core --parallel
 ctest --test-dir build/core --output-on-failure
-cmake --install build/core --prefix /path/to/prefix
+./build/core/examples/wirelink_bare_metal_loopback
 ```
 
-The default bare-metal loopback example uses checked-in generated C, so WLC is
-not required. The installed `Wirelink::wirelink` target links this same kernel
-and types; `wirelink.pc` supports C pkg-config consumers.
+The example uses checked-in generated C, without WLC or hardware. It prints:
 
-Build WLC from its matching independent 0.13 source tree when regenerating.
-No released 0.13 archive/source pair is assumed, and the helper does not fall
-back to an older compiler. Enable `WIRELINK_BUILD_WLC_EXAMPLES=ON` and pass
-`WIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc` for the C tutorials.
-
-```cmake
-find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)
-set(WIRELINK_WLC_EXECUTABLE "/absolute/path/to/matching-wlc")
-wirelink_wlc_generate(TARGET app_protocol
-  SCHEMA "schema.wl" PROFILE "app.bind.wl")
-target_link_libraries(my_application PRIVATE app_protocol)
+```text
+8 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
 ```
 
-A profile-v2 target contains public codec, one static kernel router and its
-selected connector. `wirelink_wlc_generate_codec` without a profile emits only
-standalone codec. Generate into a dedicated output directory with matching local WLC.
+To generate your own messages, [set up matching tools](docs/installation.md)
+([中文](docs/installation-cn.md)): Wirelink **0.13.0**, WLC **0.13.0** / contract
+**0.13**, SDK binding source API **3**. Then follow the build-backed tutorials:
+[telemetry](docs/getting-started.md), [RPC](docs/tutorial-rpc.md),
+[retained results](docs/tutorial-rpc-values.md),
+[cancellation and capacity](docs/tutorial-rpc-async.md),
+[application jobs](docs/tutorial-jobs.md).
 
-## Optional integrations
+## Understand the kernel
 
-| Component | Source / use |
-| --- | --- |
-| Platform clock and fresh instance source | `runtime/platform`, `WIRELINK_BUILD_PLATFORM` |
-| Bounded host owner thread/wait | `runtime/host`, `WIRELINK_BUILD_HOST_RUNTIME` |
-| Owning UDP C++ Session / generated SDK | `bindings/cpp`, `WIRELINK_BUILD_CPP_BINDINGS` |
-| Astrial native/NONE USB | `adapters/astrial_usb`, `WIRELINK_BUILD_ASTRIAL_USB_ADAPTER` |
-| Astrial COBS/CRC16 serial | `adapters/astrial`, `WIRELINK_BUILD_ASTRIAL_ADAPTER` |
-| Asio native/NONE UDP | `adapters/asio_udp`, `WIRELINK_BUILD_ASIO_UDP_ADAPTER` |
-| Zephyr UART/USB/UDP/wait | `zephyr/Kconfig`, `samples/zephyr`; same core with `CONFIG_WIRELINK=y` |
-| Independent FIFO/LATEST/outbox and fixed-pool allocation | `Wirelink::containers`, optional `WIRELINK_BUILD_STORAGE` |
-| Independent frozen frame/CRC/COBS tools | `Wirelink::frame_tools`, `Wirelink::framing_primitives` |
+Start with [how the kernel works](docs/kernel.md) ([中文](docs/kernel-cn.md)):
+message/RPC flow, owner execution, capacities, waiting and shutdown. Use the
+[kernel and packet-port API](docs/kernel-api.md) ([中文](docs/kernel-api-cn.md))
+for signatures, admission errors and buffer lifetimes.
 
-C owns C11 atomic port/FIFO storage; C++ sees opaque handles. RX has two units,
-TX separates source-consumed from physically-drained, and driver stop/join plus
-kernel quiescence precede destruction. USB boundary faults require real
-reset/reconfiguration. Current Zephyr CDC lacks the required TX-complete API and
-is explicitly rejected. See [adapter contracts](docs/adapters.md).
+For a deployment, read [profiles and capacity budgets](docs/link-profiles.md)
+and the [packet/RPC wire format](docs/packet-protocol.md). Peers agree on schema,
+message IDs and connector: native/NONE, COBS/CRC16 or length16/NONE.
 
-## Development and measurement
+## Develop and verify
 
-Primary C suites are in `tests/zephyr/unit` and `tests/zephyr/integration`, host
-ownership/adapter tests in `tests/core`, package consumers in `tests/package`,
-and compiler tests in the independent WLC repository. See
-[development commands](docs/development-current.md).
+The [development guide](docs/development.md) ([中文](docs/development-cn.md))
+maps each kind of change to its source and decisive checks. It includes core,
+generated tutorials, installed packages, host/SDK, sanitizer and Zephyr commands.
+Use the [benchmark guide](benchmarks/README.md) for measurement workloads and records.
 
-[Benchmarks](benchmarks/README.md) cover deterministic models, host
-microbenchmarks and physical transport measurements.
+## Integrate as needed
 
-Licensed under [Apache-2.0](LICENSE).
+- **Your transport:** [one owner loop](docs/tutorial-integration.md) and
+  [adapter contracts](docs/adapters.md) ([中文](docs/adapters-cn.md)) cover UART,
+  native USB bulk and UDP, including physical completion and recovery.
+- **Desktop clients:** [host owner and Session](docs/host-runtime.md),
+  [C++/Python Calculator SDK](examples/06_bindings/GUIDE.md), and
+  [owned Device SDK values](examples/07_device_sdk/README.md).
+- **Zephyr:** [samples](samples/zephyr/) and
+  [UDP peers](samples/zephyr/udp_peer/README.md).
+- **Existing build:** [installation and CMake](docs/installation.md);
+  `Wirelink::wirelink` links the C kernel, `wirelink.pc` serves C pkg-config users.
+- **Local storage:** independent [FIFO](docs/fifo.md),
+  [LATEST mailbox](docs/latest-mailbox.md) and optional fixed-pool storage;
+  application code chooses their integration with the kernel.
+
+[Documentation website](https://docs.silkenkite.ink/wirelink/) ·
+[WLC compiler](https://github.com/starwey604/wlc) ·
+[Apache-2.0 license](LICENSE)

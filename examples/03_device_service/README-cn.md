@@ -1,11 +1,13 @@
-# 多业务 handler 与应用长任务
+# 业务 handler 与应用任务
 
-这是纯 C11 验收例程：两个生成端点由同一个确定性的应用 owner loop 推进。设备信息、名称、寄存器、计数器、算术、范围及原 SelfTest 保留已有 message 类型／ID，短 handler 填 owned response 后返回业务 status。使用 matching WLC 0.13.0 配置 `WIRELINK_BUILD_WLC_EXAMPLES=ON`，运行 `wirelink_device_service_demo` 或 `ctest -R wirelink_device_service`。这里使用真实 packet loopback，不访问硬件；UDP 互通另由 UDP／SDK 例程验证。
+[English](README.md)
 
-共享 RPC 声明和 ordinary send/direct route 组合为一个 profile v2 kernel，两端均保留 RPC 发起／处理能力。100 通道 telemetry 纳入 TX 容量计算；没有框架 LATEST mailbox、通用 service scheduler 或独立 RPC 表。业务状态显式放在 `device_service_t`，业务模块只注册 typed handler。
+使用 `WIRELINK_BUILD_WLC_EXAMPLES=ON` 和匹配 WLC 0.13.0 / 契约 0.13 构建 `wirelink_device_service_demo`。两个 C11 端点共用确定性 owner 和 RAM-copy loopback。运行 `ctest -R wirelink_device_service` 检查 demo 与扩展测试。例程不访问硬件；UDP 互通由 UDP/SDK 例程覆盖。
 
-旧 deferred SelfTest reply token 删除。原 SelfTest 继续立即返回计算结果；新增应用 message 132–134：StartSelfTest(pattern)、即时 job_id 确认、普通 SelfTestProgress(job_id, observed) 完成消息。这是例程应用协议的显式扩展，没有更改 benchmark payload 或内核托管 RPC wire。单个活动任务由应用状态几个字段表示，应用循环推进；ordinary TX 满时保留完成结果，直到接纳成功。任务忙时返回 DEVICE_BUSY，没有在 core 中重建 job service。
+`services.bind.wl` 保存共享 RPC 声明；CMake 将普通接收/发送 route 组合为 profile-v2 kernel。两种 RPC 角色均启用。业务状态位于 `device_service_t`，模块注册短类型化 handler，填写自持响应并返回有符号业务 status。100 通道普通 telemetry 消息参与 TX 字节容量推导。
 
-应用自行定义重试、幂等和状态丢失恢复。本地 cancel／timeout 不能回滚已启动的任务，重复请求可能重复执行；生产业务需要规定持久 job 身份、状态查询和去重规则。callback 的 response view 仅借用到返回，例程立即复制 owned value；包含 NUL 的有界名称在 close／物理 quiescent 后仍能读取，不需要 inspect/release 终态槽。
+StartSelfTest（消息 132）立即返回 job_id（133）。应用轮询等待 20 个 owner tick，发送普通 SelfTestProgress（134）。一次只运行一个 job；第二个 Start 返回 DEVICE_BUSY。普通 TX 背压时保留结果直到接纳成功。现有 SelfTest RPC 直接返回计算结果。源码和 owner 流程见[任务教程](../../docs/tutorial-jobs-cn.md)。
 
-扩展测试在临时副本中只改四份应用文件：schema、共享 binding、业务 handler／注册、client 用例，然后用原 CMake／owner 构建并执行 GetBuildLabel。测试还校验原树不变，没有要求修改传输、通用 dispatcher 或通信状态表。
+例程跟踪本地 job 状态，按 job ID 匹配收到的 progress；没有远程状态查询 RPC 或完成历史。生产协议需要定义查询/保留/重启行为以恢复丢失的普通 progress。本地 cancel/timeout 不能撤回任务，重复请求可能再次执行。
+
+完成回调在返回前复制借用 view。保存的值，包括含 NUL 的 UTF-8 名称，在 close 和物理 quiescent 后仍可读取。`device_service_extension.py` 在临时副本的四个应用文件中加入 GetBuildLabel，通过相同 CMake/owner 构建运行，并检查原源码未变；它不修改传输或通用 RPC 表。

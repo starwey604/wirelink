@@ -207,7 +207,7 @@ Cancellation has the same separation of logical and physical lifetimes. Timeout
 and cancellation are local outcomes; neither stops a peer's side effects.
 Retrying creates a new operation. Use application request IDs and idempotency
 when repeating an effect would be unsafe. Long work can return a job ID and be
-queried later; see [application jobs](tutorial-rpc-deferred.md).
+queried later; see [application jobs](tutorial-jobs.md).
 
 ## Backpressure travels through storage
 
@@ -250,7 +250,7 @@ Executor has a 32-slot external command queue and executes at most eight
 commands per batch before kernel work. Posting a command and admitting its RPC
 are separate capacity decisions. Session/SDK wrappers supply the owner and
 own copied application results; they do not add another kernel call table.
-See [Session](session.md) and [SDK examples](../examples/06_bindings/README.md).
+See [Session](host-runtime.md) and [SDK examples](../examples/06_bindings/README.md).
 
 ## Close, finish I/O, then release storage
 
@@ -286,4 +286,4 @@ types and C/C++ storage boundaries are specified in the [API reference](kernel-a
   and physical transport contracts.
 - [`kernel.c` tests](../tests/core/kernel.c),
   [`packet_port.c` tests](../tests/core/packet_port.c) and
-  [development commands](development-current.md): implementation and checks.
+  [development guide](development.md): implementation and checks.

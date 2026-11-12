@@ -38,4 +38,4 @@ timeout／cancel 不回滚远端动作；请求不自动重试／去重，普通
 
 peer 的 native32/64 client/server 四配置是 build-only。`samples/zephyr/udp_validation` 在真实 Zephyr UDP loopback 上检查四并发、第五次拒绝和迟到响应。它也覆盖取消、回绕 timeout 与有限等待；desktop 用两个真实进程验证互通。
 
-尚不据此声称具体硬件板卡／PHY 互通或吞吐合格；该验收需要实际网络硬件与配置。
+真实板卡／PHY 互通和吞吐验收需要实际网络硬件与配置，并记录构建与采集输入。

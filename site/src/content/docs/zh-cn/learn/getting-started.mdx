@@ -1,69 +1,29 @@
 ---
-title: "单 owner 遥测"
-description: "单 owner 遥测 — Wirelink 0.13"
+title: "发送遥测"
+description: "发送 12 条消息并关闭两端。"
 sidebar:
   order: 2
 ---
 
-普通遥测进入借用的 typed callback。本例发送 12 条消息，接纳后立即清空源值。
+发送 12 条普通消息，输出 `12 ordinary telemetry messages received; both endpoints quiescent`。
 
-框架不保留 LATEST mailbox，跨 callback 保存的值由应用自行复制。
-
-本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。
-
-示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
+在 Wirelink 根目录使用匹配 WLC 0.13.0 / 契约 0.13。先[配置工具](/wirelink/zh-cn/learn/environment-setup/)。
 
 ```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_telemetry_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_telemetry_demo$'
+/tmp/wirelink-docs-tutorials/examples/00_telemetry/wirelink_telemetry_demo
 ```
 
-运行目标 `wirelink_telemetry_demo` （位于对应 examples 子目录）。
+## 接纳后复用源值
 
-[00_telemetry/publisher.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)
+`telemetry_kernel_send_telemetry` 在返回 `WL_OK` 前完成快照。publisher 立即清空源值，subscriber 在借用回调中检查序号和温度。需要保存的值在返回前复制；遇到 `WL_ERR_WOULD_BLOCK`，由应用保留待发值并稍后重试。
 
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_kernel.h"
-#include "loopback_owner.h"
-extern unsigned telemetry_received;
-void telemetry_receive(void *, const telemetry_t *);
-static telemetry_kernel_t endpoints[2];
-static example_pair_t pair;
-int main(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const telemetry_kernel_handlers_t handlers = {.on_message_telemetry = telemetry_receive};
-  for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(telemetry_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
-  for (unsigned sample = 0; sample < 12; ++sample) {
-    telemetry_value_t message = {.has_sample = true, .sample = sample,
-      .has_temperature_centi_c = true, .temperature_centi_c = -1234};
-    EXAMPLE_REQUIRE(telemetry_kernel_send_telemetry(&endpoints[0], &message) == WL_OK);
-    memset(&message, 0, sizeof(message)); /* Admission copied the source. */
-    example_pair_wait(&pair, &telemetry_received, sample + 1);
-  }
-  example_pair_close(&pair);
-  puts("12 ordinary telemetry messages received; both endpoints quiescent");
-  return 0;
-}
-```
+两个 C11 peer 共用一个 owner 和 RAM-copy loopback。一个 tick 是一轮循环，不是毫秒。owner 推进两端 kernel 和传输；关闭时停止保留传输并 step 到两端 quiescent。
 
-[00_telemetry/subscriber.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c)
-
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "telemetry_kernel.h"
-#include "loopback_owner.h"
-unsigned telemetry_received;
-void telemetry_receive(void *user, const telemetry_t *message) {
-  (void)user;
-  EXAMPLE_REQUIRE(message->sample == telemetry_received);
-  EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
-  ++telemetry_received;
-}
-```
-
-[内核 API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [迁移清单](/wirelink/zh-cn/reference/development-contract/) · [应用长任务](/wirelink/zh-cn/learn/deferred-rpc/)
+查看 [publisher、subscriber 与生命周期说明](https://github.com/starwey604/wirelink/blob/main/docs/getting-started-cn.md)。下一篇：[发起 RPC](/wirelink/zh-cn/learn/request-a-result/)。

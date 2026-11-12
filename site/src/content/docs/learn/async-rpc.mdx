@@ -1,47 +1,31 @@
 ---
-title: "Four concurrent calls"
-description: "Four concurrent calls — Wirelink 0.13"
+title: "Handle capacity and cancellation"
+description: "Exercise four calls, failed admission, local cancellation and queued timeouts."
 sidebar:
   order: 5
 ---
 
-The caller supplies now and a bounded timeout at admission. The outer owner passes its monotonic tick to step; the C kernel reads no clock. Local cancellation/timeout completes locally and cannot undo a request already executed remotely. Retrying creates a fresh operation and may repeat business execution. Results are borrowed during the completion callback only.
+Admit four calls, block a fifth, cancel one and expire three. Resume transport and complete another request. Expect `four calls, fifth blocked, cancel, three timeouts and recovery passed`.
 
-This page uses current WLC/codegen 0.13 and profile v2. The C11 peers share one application owner and a real RAM-copy loopback, without opening hardware. Incrementing fixture instance IDs are only for this isolated example; production needs platform randomness or a durable unique allocator.
+Use matching WLC 0.13.0 / contract 0.13 from the Wirelink root:
 
 ```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_rpc_lifecycle
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_rpc_lifecycle$'
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_rpc_lifecycle
 ```
 
-Run target `wirelink_calculator_demo` (under its examples subdirectory).
+## Retry only work that was not admitted
 
-[01_rpc/client_async.c](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client_async.c)
+`WL_ERR_WOULD_BLOCK` on the fifth start creates no call or callback. Retain a handle only after `WL_OK`. Cancel schedules one later terminal; cancelling an expired handle returns `WL_ERR_NOT_FOUND`.
 
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "service.h"
-#include "loopback_owner.h"
-static unsigned completed;
-static void done(void *user, wl_kernel_result_t result, const add_response_t *response) {
-  (void)user;
-  EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response && response->sum == 42);
-  ++completed;
-}
-void calculator_async_example(calculator_kernel_t *client, calculator_kernel_t *server) {
-  /* Four accepted calls coexist; no terminal slot needs inspect/release. */
-  (void)server;
-  for (int32_t i = 0; i < 4; ++i) {
-    add_request_value_t request = {.has_left = true, .left = i, .has_right = true, .right = 42 - i};
-    wl_kernel_call_handle_t handle;
-    EXAMPLE_REQUIRE(calculator_kernel_add_start(client, &request, 0, 500, done, NULL, &handle) == WL_OK);
-    memset(&request, 0, sizeof(request));
-  }
-}
-unsigned calculator_async_count(void) { return completed; }
-```
+The fixture holds physical TX. One request is leased; the other three expire unsent at tick `2`. On resuming real RAM copying, the cancelled request and the new request both execute, so `effects == 2`. The old response cannot deliver another terminal.
 
-[Kernel API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [Migration](/wirelink/reference/development-contract/) · [Application jobs](/wirelink/learn/deferred-rpc/)
+Call slots and physical snapshots have different lifetimes. A logical terminal does not return a USB/DMA lease. Callback code may submit/cancel, but cannot recursively step/close; copy responses before returning.
+
+Read [lifecycle.c and its assertions](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-rpc-async.md). Next, [accept an application job](/wirelink/learn/application-jobs/).

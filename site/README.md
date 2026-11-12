@@ -3,7 +3,7 @@
 This directory contains the Astro and Starlight site published at
 <https://docs.silkenkite.ink/wirelink/>.
 
-Node.js 22.19 through 24.x is required; `.node-version` pins the CI version.
+Node.js 22.23.4 through 24.x is required; `.node-version` pins the CI version.
 Install dependencies and start the local development server from this directory:
 
 ```sh
@@ -17,12 +17,14 @@ Build and check the static site with:
 npm run build
 ```
 
-## Chinese documentation checks
+## Documentation checks
 
-Scripts in `scripts/` check Chinese paragraph layout and terminology:
+Scripts in `scripts/` check bilingual topic parity, local routes, repository/GitHub
+paths and anchors, and tutorial commands against `docs/`. External service/repository
+URLs are not fetched. Chinese checks enforce paragraph layout and terminology:
 
 ```sh
-npm run check:docs   # CI: hard-wrapped paragraphs, curly quotes, term/phrasing hints
+npm run check:docs   # CI: links, tutorial parity, Chinese paragraphs and terminology
 npm run fix:docs     # expand hard-wrapped paragraphs to one line per paragraph
 ```
 

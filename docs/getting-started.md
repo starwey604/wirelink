@@ -1,18 +1,29 @@
-# Telemetry with one owner
+# Send telemetry with one owner
 
-Ordinary telemetry invokes a borrowed typed callback. This example sends 12 samples and poisons source values after admission. There is no retained mailbox: copy any value needed after callback return into application storage.
+[中文](getting-started-cn.md) · [RPC](tutorial-rpc.md)
 
-This page uses current WLC/codegen 0.13 and profile v2. The C11 peers share one application owner and a real RAM-copy loopback, without opening hardware. Incrementing fixture instance IDs are only for this isolated example; production needs platform randomness or a durable unique allocator.
+Send 12 telemetry messages, then close both endpoints. A successful run prints:
 
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+```text
+12 ordinary telemetry messages received; both endpoints quiescent
 ```
 
-Run target `wirelink_telemetry_demo` (under its examples subdirectory).
+Run from the Wirelink root with matching WLC 0.13.0 (contract 0.13); see [tool setup](development.md#build-matching-wlc-and-generated-tutorials). The C11 endpoints share one owner and a RAM-copy loopback, without hardware. Its tick is one loop pass, not a millisecond. Fixture instance IDs are process-local; production uses a fresh platform identity.
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_telemetry_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_telemetry_demo$'
+/tmp/wirelink-docs-tutorials/examples/00_telemetry/wirelink_telemetry_demo
+```
+
+## Reuse the source after admission
+
+`telemetry_kernel_send_telemetry` encodes a snapshot before `WL_OK`, so immediately clearing `message` below is safe. An occupied ordinary snapshot returns `WL_ERR_WOULD_BLOCK`: retain the value in the application and retry later.
 
 [00_telemetry/publisher.c](../examples/00_telemetry/publisher.c)
 
@@ -42,6 +53,10 @@ int main(void) {
 }
 ```
 
+## Read or copy in the handler
+
+The receive view is borrowed until callback return. Copy into application storage if retaining it; this handler only checks the sequence and temperature immediately.
+
 [00_telemetry/subscriber.c](../examples/00_telemetry/subscriber.c)
 
 ```c
@@ -57,4 +72,4 @@ void telemetry_receive(void *user, const telemetry_t *message) {
 }
 ```
 
-[Kernel API](static-endpoint-kernel-api.md) · [Application jobs](tutorial-rpc-deferred.md)
+`example_pair_step` steps both kernels on the same owner, services loopback and increments its tick. `example_pair_close` closes both cores, stops retained transfers, then steps to quiescence. See the [execution model](kernel.md).

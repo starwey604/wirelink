@@ -1,43 +1,32 @@
-# Multiple business handlers and application jobs
+# Business handlers and application jobs
 
-This C11 acceptance example uses two generated endpoints and one deterministic
-application owner loop. Device information, settings, register access, counters,
-arithmetic, limits and SelfTest retain their original message types/IDs. Each
-short handler fills an owned response and returns a signed business status.
-[中文](README-cn.md).
+[中文](README-cn.md)
 
-Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching local WLC 0.13.0. Run
-`wirelink_device_service_demo`, or `ctest -R wirelink_device_service` to also run
-the extension acceptance test. The default bare-metal example remains independent
-of a local schema compiler. Actual UDP peers are exercised in the UDP/SDK examples;
-this example's deterministic loopback performs no hardware operations.
+Build `wirelink_device_service_demo` with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and
+matching WLC 0.13.0 / contract 0.13. Its two C11 endpoints share one deterministic
+owner and RAM-copy loopback. Run `ctest -R wirelink_device_service` for the demo
+and extension test. The example does not access hardware; UDP interoperability
+is covered by the UDP/SDK examples.
 
-`services.bind.wl` contains shared RPC declarations. CMake composes the receive
-and send routes into one profile-v2 kernel, with both RPC roles retained. The
-100-channel ordinary telemetry message sizes TX correctly; there is no retained
-LATEST policy or framework service scheduler. Application state lives in
-`device_service_t`; business modules register typed callbacks in handlers.
+`services.bind.wl` holds shared RPC declarations; CMake composes the ordinary
+receive/send routes into a profile-v2 kernel. Both RPC roles are enabled. Business
+state lives in `device_service_t`, and modules register short typed handlers that
+fill owned responses and return signed business status. The 100-channel ordinary
+telemetry message participates in TX byte sizing.
 
-The old deferred SelfTest reply token was removed. The original SelfTest payload
-still returns its short calculation directly. New application messages 132–134
-add StartSelfTest(pattern), its immediate job_id acknowledgment, and an ordinary
-SelfTestProgress(job_id, observed) completion. This is an example application
-protocol addition, not a change to benchmark payloads or kernel RPC wire. One
-active job uses a few fields in application state and advances in the application
-loop; pending ordinary TX backpressure keeps the result until admission succeeds.
-A busy job returns DEVICE_BUSY. There is no generic job service in the core.
+StartSelfTest (message 132) returns job_id (133) immediately. Application polling
+waits 20 owner ticks and sends ordinary SelfTestProgress (134). One job is active;
+a second Start returns DEVICE_BUSY. Pending ordinary TX backpressure retains the
+result until admission. The existing SelfTest RPC returns its calculation directly.
+See the [job tutorial](../../docs/tutorial-jobs.md) for source and owner flow.
 
-The application owns retry/idempotency and recovery from lost ordinary status.
-Local cancel/timeout cannot undo a started job; duplicate RPCs may execute twice.
-A production long-job protocol should define durable job identity/status queries
-and duplicate handling according to its business needs.
+The example tracks local job state and matches received progress by job ID; it
+has no remote status-query RPC or completion history. Production protocols need
+to define query/retention/restart behavior to recover lost ordinary progress.
+Local cancel/timeout cannot undo a job, and repeated requests may execute again.
 
-The completion callback copies borrowed response views into owned values before
-returning. Saved data, including NUL in a bounded UTF-8 name, remains valid after
-both cores close and their real packet leases quiesce. No inspect/release terminal
-slot is kept. All endpoint operations/callbacks share the owner.
-
-`device_service_extension.py` copies the example, adds GetBuildLabel in exactly
-four application files (schema, shared binding, business handler/registration,
-client use case), then builds/runs the same owner and CMake unchanged. It verifies
-the original tree is untouched. No transport dispatcher or RPC table is patched.
+Completion callbacks copy borrowed views before returning. Saved values, including
+a UTF-8 name containing NUL, remain readable after close and physical quiescence.
+`device_service_extension.py` adds GetBuildLabel in four application files in a
+temporary copy, builds/runs it through the same CMake/owner, and checks the original
+sources remain unchanged. It does not modify transport or a generic RPC table.

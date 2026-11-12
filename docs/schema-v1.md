@@ -1,17 +1,15 @@
 # WLC schema and payload format v1
 
-Status: **frozen pre-1.0 baseline, including required fields, exact-width
-integers, dense numeric arrays, and bounded borrowed fields**.
+[中文](schema-v1-cn.md) · [Packet and codec selection](packet-protocol.md)
 
 This document defines the application-payload format carried by a Wirelink
 `DATA` packet. It is deliberately separate from the Wirelink packet header,
-COBS envelope, integrity trailer, and link-level ACK. A generated codec never
-implements retransmission or treats a link ACK as an application result.
+COBS envelope and integrity trailer. A generated codec encodes business values;
+the [kernel](kernel.md) manages calls and packet ownership.
 
 ## 1. Schema source
 
-The payload encoding remains v1. New source uses explicit `@id(n)` attributes;
-the previous `= n` spelling remains accepted for existing schemas:
+Schema-v1 uses explicit `@id(n)` attributes or the equivalent `= n` spelling:
 
 ```text
 schema         = "version" positive-integer ";" item+
@@ -44,9 +42,9 @@ identities, generated C and encoded bytes. Changing only the spelling does not
 require a schema revision increment. IDs are never allocated from source order.
 
 There are no implicit IDs, maps, `oneof`, services, extensions, or
-schema-level reliability annotations in v1. Reliability is selected by the
-binding profile or the application send API. A packed field is a fixed-count
-numeric array, not a general repeated-field encoding. A required field cannot
+schema-level reliability annotations in v1. Profile v2 selects ordinary DATA
+routes and RPC pairs; retry/idempotency belongs to the application. A packed
+field is a fixed-count numeric array, not a general repeated-field encoding. A required field cannot
 declare a default or be repeated; fixed-count required vectors use
 `required packed`.
 
@@ -123,8 +121,9 @@ fit its bound in encoded UTF-8 bytes at schema-analysis time.
 
 A business codec payload is a sequence of zero or more tagged fields. There is no payload
 header and no schema revision field: the Wirelink DATA `message_id` chooses the
-generated decoder. Managed RPC has a separate private tagged body encoding and metadata; it
-does not change these public codec bytes. See [RPC runtime](rpc-runtime.md).
+generated decoder. Managed RPC has separate tagged body encoding and metadata;
+scalar `fixed32` uses varint there instead of public Schema-v1's four-byte
+form. See [RPC wire and codec selection](packet-protocol.md).
 
 Each field begins with an unsigned-LEB128 key:
 
@@ -188,8 +187,8 @@ not reclassified as a missing field.
 
 ## 3. Generated C contract
 
-Generated code depends only on a small future `wirelink/codec.h` runtime. Its
-v1 public primitives are conceptually:
+Generated code uses `wirelink/codec.h`. Its public value-view primitives and
+status codes are:
 
 ```c
 typedef struct {
@@ -253,9 +252,9 @@ and frame-capacity checks after verifying it fits the target's `size_t`.
 
 The API is allocation-free. `bytes` and `string` decode to borrowed views into
 `input`; they are not NUL-terminated and are valid only while that input is
-valid. In particular, a decoded view derived from `wl_event_t.payload` must be
-consumed before `wl_event_release()`. This aligns generated decode with the
-core's RX borrowing model.
+valid. Kernel-delivered views must be copied before their handler/completion
+returns; direct packet-port users retain input until releasing the RX borrow.
+See [result ownership](kernel-api.md#terminal-results).
 
 Each repeated C field contains a caller-provided array pointer, count, and
 capacity. `*_clear()` resets presence and counts while preserving those array
@@ -291,10 +290,12 @@ and 120 element bytes. This dense representation is intended for fixed-shape
 control vectors, matrices, and similar numeric payloads where an ordinary
 repeated field's per-element tag is unnecessary.
 
-WLC always emits the codec pair and may additionally emit typed send/dispatch
-bindings and a profile-driven LATEST/FIFO/RPC runtime. Generated artifacts are
-separate translation units, so a codec-only target does not pull Wirelink core
-or application-runtime symbols into its link.
+WLC emits public codec and, with a profile-v2 deployment, typed routes and
+bounded storage for the shared kernel. A codec-only target does not link the
+execution kernel. General repeated/unbounded fields are valid for standalone
+Schema-v1 but have no finite route maximum; kernel-selected messages must have
+bounded storage, including through nesting. Fixed-count packed arrays are
+bounded. See [profile capacity](link-profiles.md).
 
 ## 4. Example
 
@@ -332,11 +333,11 @@ message ArmMitCommand @id(19) {
 }
 ```
 
-`MotorCommand` maps to Wirelink `message_id` 16. A reliable command is an
-application choice (`wl_send_reliable()`); it is not represented in the
-schema. `TelemetryBatch.samples` requires an application-provided static array
-of `sensor_sample_t` before decode, while `source` borrows the event payload.
-`ArmMitCommand.controls` is stored inline and, when present, always carries
+`MotorCommand` maps to Wirelink `message_id` 16. Delivery/retry policy is separate
+from the business schema. `TelemetryBatch.samples` demonstrates standalone
+repeated decoding: supply a static array of `sensor_sample_t` before decode;
+this unbounded repeated shape cannot be selected as a kernel route. `source`
+borrows input bytes. `ArmMitCommand.controls` is stored inline and, when present, always carries
 exactly thirty binary32 values.
 
 ## 5. Required generator and release gates

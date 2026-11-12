@@ -1,15 +1,12 @@
 # WLC Schema 与 Payload Format v1
 
-状态：1.0 前冻结的 baseline，包含 required field、exact-width integer、dense numeric
-array 和有界借用字段。英文版 [`schema-v1.md`](schema-v1.md) 是规范来源。
+[English](schema-v1.md) · [Packet 与 codec 选择](packet-protocol-cn.md)
 
-本文定义 Wirelink `DATA` 包承载的应用 payload，独立于 link header、COBS envelope、
-integrity trailer 和 link ACK。生成 codec 不负责重传，也不会把链路 ACK 当作应用结果。
+本文定义 Wirelink `DATA` 包承载的应用 payload，独立于 packet header、COBS envelope 和 integrity trailer。生成 codec 编码业务值，[kernel](kernel-cn.md)管理调用和包所有权。
 
 ## 1. Schema 源码
 
-payload 编码仍为 v1。新源码推荐用 `@id(n)` 显式标记编号；已有 schema 的 `= n`
-写法继续支持：
+Schema-v1 使用显式 `@id(n)` 属性或等价的 `= n` 写法：
 
 ```text
 schema         = "version" positive-integer ";" item+
@@ -39,9 +36,7 @@ enum           = "enum" identifier id-attribute "{" enum-item* "}"
 可选字段默认值仍写 `[default = literal]`。两种编号拼法产生相同的语义模型、标识摘要、
 生成 C 和编码字节；仅修改拼法不需要递增 schema revision。编号不会按声明顺序自动分配。
 
-v1 没有隐式 ID、map、`oneof`、service、extension 或 schema 级 reliability。可靠性由
-binding profile 或发送 API 选择。packed 是固定数量 numeric array，不是通用 repeated。
-required 不能带 default 或 repeated；固定数量必填 vector 使用 `required packed`。
+v1 没有隐式 ID、map、`oneof`、service、extension 或 schema 级 reliability。profile v2 选择普通 DATA route 和 RPC 对，retry/idempotency 属于应用。packed 是固定数量 numeric array，不是通用 repeated。required 不能带 default 或 repeated；固定数量必填 vector 使用 `required packed`。
 
 `version` 只用于 WLC 兼容性检查，不是 Wirelink packet version，也不写入 payload。
 首版为 `version 1`；兼容修改递增 revision，并对照前一 semantic model。
@@ -64,7 +59,7 @@ wire identity。default 只影响本地 decode。向既有 message 新增 requir
 | `bytes` | `wl_codec_bytes_t` | length-delimited bytes |
 | `string` | `wl_codec_string_t` | length-delimited，有效 UTF-8 |
 
-`bytes<MAX>`/`string<MAX>` 的 `MAX` 为 1…65535，按编码字节计数，不含 NUL。encode 前和
+`bytes<MAX>`/`string<MAX>` 的 `MAX` 为 1…65535，按编码字节计数，不另加终止 NUL；内嵌 NUL 计入长度。encode 前和
 decode length 后立即验证；越界为 `WL_CODEC_ERR_INVALID_VALUE`，UTF-8 错误仍为
 `WL_CODEC_ERR_UTF8`。decode 继续 zero-copy，只产生借用 view。
 
@@ -80,9 +75,7 @@ binary32/binary64，使用 `memcpy` 搬运 bits，保证 signed zero、infinity�
 
 ## 2. Wire Format
 
-业务 codec 的 payload 是零个或多个 tagged field，没有 payload header 或 schema revision；
-DATA `message_id` 选择 decoder。托管 RPC 会在这些字节前添加自己的通信元数据，接收时
-先由 RPC runtime 取出，再调用 codec；见 [RPC runtime](rpc-runtime-cn.md)。
+业务 codec 的 payload 是零个或多个 tagged field，没有 payload header 或 schema revision；DATA `message_id` 选择 decoder。Managed RPC 使用独立 tagged body 编码和 metadata，其中 scalar `fixed32` 使用 varint，而非公开 Schema-v1 的四字节表示，见 [RPC wire 与 codec 选择](packet-protocol-cn.md)。
 每个字段以 unsigned LEB128 key 开始：
 
 ```text
@@ -106,7 +99,7 @@ zigzag64(v) = (uint64_t(v) << 1) ^ uint64_t(v >> 63)
 
 允许的未知 field 会被跳过且不保留。缺失 optional/optional-packed 的 `has_` 为 false，
 值取 default 或零/空；显式出现且等于 default 仍会编码并保持 `has_=true`。required 使用
-相同 wire/C 表示，但 encode/decode 缠失时返回
+相同 wire/C 表示，但 encode/decode 缺失时返回
 `WL_CODEC_ERR_MISSING_REQUIRED_FIELD`。畸形字段仍报告 malformed，不改报 missing。
 
 ## 3. 生成 C API
@@ -120,8 +113,7 @@ encoded size 为 `SIZE_MAX`。
 nested message 都可参与计算；无界 string/bytes 或无 schema count 的普通 repeated 会
 使上限不可用。上限包含 key 和所有 length prefix。
 
-API 无动态分配。解码的 bytes/string 借用 `input`，不以 NUL 结尾；来自
-`wl_event_t.payload` 的 view 必须在 `wl_event_release()` 前消费。
+API 无动态分配。解码的 bytes/string 借用 `input`，不保证 NUL 结尾。kernel 交付的 view 必须在 handler/completion 返回前复制；直接 packet-port 使用者在 release RX borrow 前保留输入。见[结果所有权](kernel-api-cn.md#terminal-results)。
 
 repeated C field 包含调用方 array pointer、count、capacity；`*_clear()` 清 presence/count
 但保留 pointer/capacity。输入超出存储时返回 `WL_CODEC_ERR_CAPACITY`，不分配。decode
@@ -130,8 +122,7 @@ flag，无 runtime count/capacity/pointer。plain packed 可选，required packe
 例如 30 个 float32 的 field 由 1-byte key、1-byte length 和 120-byte body 组成，共
 122 bytes。
 
-WLC 始终生成 codec，可额外生成 typed send/dispatch 和 profile-driven LATEST/FIFO/RPC
-runtime。它们是独立 translation unit，因此 codec-only target 不会引入 core/runtime。
+WLC 生成公开 codec，带 profile-v2 deployment 时另外生成共享 kernel 的带类型 route 和有界存储。codec-only target 不链接执行 kernel。general repeated/无界字段对 standalone Schema-v1 有效，但没有有限 route maximum；kernel 所选消息必须拥有有界存储，嵌套内也如此。fixed-count packed array 是有界的，见 [profile 容量](link-profiles-cn.md)。
 
 ## 4. 示例与语义
 
@@ -169,10 +160,7 @@ message ArmMitCommand @id(19) {
 }
 ```
 
-`MotorCommand = 16` 对应 `message_id=16`；是否可靠由
-`wl_send_reliable()` 或 profile 决定。`TelemetryBatch.samples` decode 前需要应用提供
-静态 array，`source` 借用 event payload。`ArmMitCommand.controls` 内联存储，出现时
-始终含 30 个 binary32 值。
+`MotorCommand` 对应 `message_id=16`，delivery/retry 策略独立于业务 schema。`TelemetryBatch.samples` 演示 standalone repeated decode，解码前需要静态 `sensor_sample_t` array；此无界 repeated 形态不能选择为 kernel route。`source` 借用输入字节。`ArmMitCommand.controls` 内联存储，出现时始终含 30 个 binary32 值。
 
 ## 5. Generator 与发布 Gate
 

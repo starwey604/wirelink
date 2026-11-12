@@ -1,17 +1,16 @@
 ---
-title: "当前 API 边界"
-description: "当前 API 边界 — Wirelink 0.13"
+title: "Wirelink 适合什么场景"
+description: "为设备与上位机选择端点 kernel。"
 sidebar:
   order: 1
 ---
 
-公开 C surface 是 `kernel.h`、`kernel_wire.h`、`packet_port.h` 及选定 connector/adapter。旧 ctx/event/pump/reliable/deferred/mapped 接口已删除。
+设备与对端交换类型化消息/RPC，需要显式选择内存、时间和传输时，可以使用 Wirelink。可移植 core 使用 ISO C11；堆、时钟、线程和驱动由外层提供。
 
-单 C owner 执行 admission/step/cancel/close、codec 和 callback。生成 C 提供静态 typed route 与有界容量，所有包装共用同一执行内核。
+在 `.wl` 中定义消息，用 profile version 2 选择 route/connector。WLC 围绕共享 C kernel 生成 codec、类型化 route 和有界存储。固件与 C++/Python client 使用同一通信合同。
 
-C 持有 packet/FIFO 原子存储，C++ 使用 opaque pointer，可持有不含 C atomic 的生成 kernel。可选 `Wirelink::host` 提供有界外部命令与等待，`Wirelink::cpp_host` 提供 owning UDP Session。
+- **消息：** 发送遥测或事件，复制需要跨回调保留的数据。
+- **RPC：** 每端最多四个出站调用；短 handler 返回响应或有符号业务 status。
+- **应用工作：** 用自己的状态定义重试、幂等、最新值和长任务。
 
-基础 C 包不需要 C++。包装接口前核对安装头与可编译示例。
-
-
-[迁移清单](/wirelink/zh-cn/reference/development-contract/) · [内核 API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [开发验证](https://github.com/starwey604/wirelink/blob/main/docs/development-current.md)
+从[遥测](/wirelink/zh-cn/learn/getting-started/)或 [RPC](/wirelink/zh-cn/learn/request-a-result/)开始；物理 I/O 接入见[传输集成](/wirelink/zh-cn/reference/transports/)。先理解所有权则阅读 [kernel](/wirelink/zh-cn/concepts/kernel/)。

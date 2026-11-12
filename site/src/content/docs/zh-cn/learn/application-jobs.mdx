@@ -1,0 +1,29 @@
+---
+title: "接纳应用任务"
+description: "返回 job ID，在 RPC handler 之外推进工作。"
+sidebar:
+  order: 6
+---
+
+StartSelfTest 立即返回 job ID；第二个 Start 返回 `DEVICE_BUSY`，随后应用发送带该 ID 的普通 progress。demo 输出 `device/calculator handlers, application job ID, ordinary completion and retained results passed`。
+
+在 Wirelink 根目录使用匹配 WLC 0.13.0 / 契约 0.13：
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_device_service_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_device_service_demo$'
+/tmp/wirelink-docs-tutorials/examples/03_device_service/wirelink_device_service_demo
+```
+
+## 将工作保存在应用状态
+
+现有 schema 使用请求 `132`、响应 `133`、普通 progress `134`。短 handler 将 `pattern` 复制到 `device_service_t`；轮询等待 20 个循环 tick 后尝试发送。`WL_ERR_WOULD_BLOCK` 时保留输出，`job_pending` 在接纳后清零，不证明对端已收到。
+
+owner 可查询 `job_id`、`job_pending` 和 `due`，client 按 ID 匹配 progress。例程没有远程查询 RPC 或完成历史。生产查询协议需定义 running/done/unknown、结果保留和重启身份；普通消息丢失后通过查询或应用确认恢复。
+
+本地 cancel/timeout 不撤回任务；重复接纳与关闭动作由应用定义。查看[任务源码和完整说明](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-jobs-cn.md)，再[组合业务模块](/wirelink/zh-cn/learn/device-service/)。

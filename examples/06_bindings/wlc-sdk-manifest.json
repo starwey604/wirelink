@@ -21,8 +21,8 @@
   "artifacts": [
     {"path": "CMakeLists.txt", "size": 4668, "digest": "0xa0c45a055c904c9d"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 7263, "digest": "0xe28e1899c59398ac"},
-    {"path": "cmake/CalculatorSdkConfig.cmake.in", "size": 288, "digest": "0xead13a55129ff62a"},
+    {"path": "README.md", "size": 7443, "digest": "0x29402d261b81ba99"},
+    {"path": "cmake/CalculatorSdkConfig.cmake.in", "size": 220, "digest": "0xa203b96461f8a2ef"},
     {"path": "generated/calculator.c", "size": 24000, "digest": "0x264b1dbc35f146e4"},
     {"path": "generated/calculator.h", "size": 1837, "digest": "0x9367696aa888af6d"},
     {"path": "generated/calculator_kernel.c", "size": 4072, "digest": "0x81505bba36c9750e"},

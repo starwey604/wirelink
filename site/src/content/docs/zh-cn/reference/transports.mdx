@@ -1,0 +1,36 @@
+---
+title: "绑定 UART、USB 或 UDP"
+description: "选择 connector，并确认真实驱动完成。"
+sidebar:
+  order: 2
+---
+
+先运行[单 owner UDP loop](/wirelink/zh-cn/learn/udp-transport/)，再按[完整 adapter 参考](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md)绑定驱动。确切配置字段、service/readiness 和恢复规则由该参考集中维护。
+
+## 选择物理边界
+
+### UART / host serial
+
+使用 **COBS/CRC16**。按显式 [IRQ](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md#zephyr-irq)、[DMA](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md#zephyr-dma)、[polling](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md#zephyr-polling) 或 [host serial](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md#astrial-serial) 配置确认源已消费和真实物理 TX drain。回调计数或软件队列为空不能代替 drain。
+
+### Native USB bulk
+
+使用 **native/NONE**。接收容量必须大于合法 frame 最大值；保留 MPS/ZLP 包边界，等待真实取消/缓冲区归还。
+
+边界故障会锁存，恢复需要真实 reset/reconfigure，不能只重开本地状态。缺少真实 TX-complete API 的 Zephyr CDC 配置会被拒绝。见 [USB 配置与恢复](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md#native-usb-bulk-配置与恢复)。
+
+### Fixed-peer UDP
+
+使用 **native/NONE**。保留完整 datagram，过滤预期 peer，拒绝超限输入，并使用有限等待。从可运行的 [UDP owner loop](/wirelink/zh-cn/learn/udp-transport/)开始接入。
+
+### 长度前缀流
+
+使用 **length16/NONE**。组装完整前缀/包体，区分 staging 背压与需要恢复的真实断流。
+
+## 绑定、推进，再关闭
+
+初始化 C 存储与新 instance，绑定 submit/notify，初始化生成 route，再启动 I/O。owner service 传输、step kernel、合并 readiness/deadline，然后等待锁存唤醒。BUSY 需要真实资源唤醒，而不是反复提交。
+
+关闭 kernel，停止/join 实际 producer，处理最终 completion。确认 core/port quiescence 后再释放；外部 notifier 退出单独确认。按 [profile 预算指南](https://github.com/starwey604/wirelink/blob/main/docs/link-profiles-cn.md)分别计算生成、RX/staging 和驱动内存。
+
+[HIL 检查](https://github.com/starwey604/wirelink/blob/main/docs/adapter-hil.md)说明物理验收条件。

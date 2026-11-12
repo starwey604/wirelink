@@ -1,0 +1,49 @@
+---
+title: "kernel 如何工作"
+description: "沿一个 owner 跟踪消息、RPC 与超时。"
+sidebar:
+  order: 1
+---
+
+类型化值依次成为 snapshot、packet 和物理 I/O，由应用决定各阶段何时推进。
+
+```text
+schema + profile → generated codec / routes / storage
+                 → shared C kernel → packet port / connector → adapter
+```
+
+## 单一 owner，独立 I/O producer
+
+owner 接纳、step、取消、运行 handler 并交付终态回调。I/O producer 通过 C 持有的原子存储发布完整 RX 包、资源活动和带 token 的 completion，不执行业务 codec 或回调。C++ adapter 通过 opaque pointer 使用这些 C 存储。
+
+kernel 有四个出站调用、四份 reply snapshot、一份普通 snapshot 和九索引接纳队列。
+
+port 有两个 RX unit 和一笔物理 TX。生成字节容量、逻辑槽位和硬件缓冲区分别预算。
+
+## 跟踪普通消息
+
+typed send 在 `WL_OK` 前完成编码，随后应用可复用输入。`WL_ERR_WOULD_BLOCK` 表示应用需保留值并自行重试。owner 将 snapshot 提交给 adapter；对端 owner 解码 RX 并调用借用回调，需要保留的值在返回前复制。
+
+## 跟踪 RPC
+
+start 快照输入并返回 handle，排队时间计入 timeout。对端先预留 reply 存储，再解码/执行短同步 handler；BUSY 时保留编码响应。匹配响应交付一次终态，view 借用到回调返回。
+
+独立接纳的重复请求可能再次执行。
+
+## 跟踪 TX 租用期间的超时
+
+owner 提供模 `uint32_t` tick。timeout 范围 `1..INT32_MAX` tick，到期相等即触发且先于 RX；`wl_kernel_step` 的 budget 范围为 `1..16`。RAM 教程使用循环 tick，host/UDP 例程使用毫秒。
+
+本地超时使 handle 失效，但 adapter 仍可能借用 snapshot。`CONSUMED` 结束源借用，`DRAINED` 结束物理传输；kernel 保留租用 snapshot 到真实 drain/error。
+
+取消不能撤回远端副作用。
+
+## 按所有权顺序等待与关闭
+
+将 `wl_kernel_ready` 及其最早 deadline 与 adapter/应用 readiness 合并。query/wait 之间使用锁存唤醒，有限等待前扣除 owner 工作耗时。
+
+关闭 kernel，停止/join 实际 I/O，处理最终 completion，再确认 quiescence 后释放存储。
+
+还要确认外部 notifier 已退出。重启取得新的非零 instance，operation/generation 身份不回绕。
+
+[完整 kernel 指南](https://github.com/starwey604/wirelink/blob/main/docs/kernel-cn.md)说明数据流和调度器。[API 参考](/wirelink/zh-cn/reference/kernel-api/)提供确切签名，[传输合同](/wirelink/zh-cn/reference/transports/)定义驱动边界。

@@ -1,0 +1,15 @@
+---
+title: "Troubleshoot UDP integration"
+description: "Locate the stalled boundary before changing behavior."
+sidebar:
+  order: 2
+---
+
+1. Check matching Wirelink/WLC 0.13.0 and codegen 0.13, profile version 2, schema IDs and native/NONE on both peers.
+2. Reverse local/peer addresses correctly. Fixed-peer filtering needs the expected source IP/port. Opening a client establishes local I/O, not peer liveness.
+3. Check oversized-datagram headroom and socket/network buffers. Service I/O and step the kernel on the owner; merge core/application deadlines with adapter readiness and a latched wake.
+4. For BUSY, verify a real resource wake. A blocked application action must not advertise unconditional runnable work.
+5. For timeout, retain packet/error/timing and handler-effect evidence from both peers. Local timeout does not establish that the peer did nothing.
+6. For close, identify borrowed RX, physical TX and external notifier activity separately. Stop real producers and require quiescence before release.
+
+Run the [desktop peer](/wirelink/learn/udp-transport/) first. The [adapter reference](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md) defines the boundary; [Zephyr network setup](/wirelink/learn/zephyr-udp-subscriber/) adds board/driver configuration.

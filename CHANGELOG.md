@@ -14,5 +14,5 @@
   desktop and Zephyr integration.
 - C++ and Python UDP SDKs with owned results and deterministic shutdown.
 
-See the [kernel API](docs/static-endpoint-kernel-api.md) for execution and
-ownership, and [development checks](docs/development-current.md) for validation.
+See the [kernel API](docs/kernel-api.md) for execution and
+ownership, and [development checks](docs/development.md) for validation.

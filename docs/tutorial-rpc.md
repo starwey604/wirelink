@@ -1,18 +1,34 @@
-# RPC with synchronous handlers
+# Call an RPC and handle rejection or timeout
 
-A start snapshots the request. Four calls may coexist in each direction; a fifth returns WOULD_BLOCK. Completion happens exactly once for an accepted call, and a failed admission has no future callback. The handler returns the signed business status immediately; overflow rejects with status 1. The blocking application loop advances the same core rather than creating another RPC table.
+[中文](tutorial-rpc-cn.md) · [Concurrent calls](tutorial-rpc-async.md)
 
-This page uses current WLC/codegen 0.13 and profile v2. The C11 peers share one application owner and a real RAM-copy loopback, without opening hardware. Incrementing fixture instance IDs are only for this isolated example; production needs platform randomness or a durable unique allocator.
+Run the calculator: four requests return `42`, and signed addition overflow on the reverse call is rejected with business status `1`. The lifecycle executable then demonstrates local timeout and cancellation:
 
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+```text
+four concurrent copied requests and reverse-direction rejection passed
+four calls, fifth blocked, cancel, three timeouts and recovery passed
 ```
 
-Run target `wirelink_calculator_demo` (under its examples subdirectory).
+Run from the Wirelink root with matching WLC 0.13.0 (contract 0.13); see [tool setup](development.md#build-matching-wlc-and-generated-tutorials). The C11 endpoints share one owner and a RAM-copy loopback, without hardware. Its tick is one loop pass, not a millisecond. Fixture instance IDs are process-local; production uses a fresh platform identity.
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_calculator_demo wirelink_rpc_lifecycle
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_(calculator_demo|rpc_lifecycle)$'
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_calculator_demo
+```
+
+```sh
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_rpc_lifecycle
+```
+
+## Start and receive a result
+
+`calculator_kernel_add_start` takes an `add_request_value_t`, owner `now`, timeout, callback/context and output handle. Only `WL_OK` creates a call: input is snapshotted before return and any failure has no future completion. Here `500` means loop ticks. Application waiting advances the owner rather than blocking inside a handler.
 
 [01_rpc/client.c](../examples/01_rpc/client.c)
 
@@ -45,6 +61,10 @@ int main(void) {
 }
 ```
 
+## Return business status from a synchronous handler
+
+Fill the response during this owner callback. Return `0` for success or a nonzero signed business status for rejection, which has no business body. Generated routing reserves reply storage before business decode/handler effects. A BUSY send of the retained reply does not run the handler again.
+
 [01_rpc/server.c](../examples/01_rpc/server.c)
 
 ```c
@@ -60,4 +80,8 @@ int32_t calculator_add(void *user, const add_request_t *request, add_response_va
 }
 ```
 
-[Kernel API](static-endpoint-kernel-api.md) · [Application jobs](tutorial-rpc-deferred.md)
+## Deadlines and remote effects
+
+The [lifecycle source](../examples/01_rpc/lifecycle.c) admits four calls at tick `0` with timeout `2` while withholding transport progress. Step at `2` delivers `WL_KERNEL_TIMED_OUT / WL_ERR_TIMEOUT` for the three still-queued calls. Timeout includes queue time; equality expires before queued responses.
+
+Cancel/timeout ends the local call, not an already leased request or remote execution. After transport resumes, the cancelled request still executes but cannot deliver a second terminal. A retry creates a new operation; use application idempotency keys where repeating effects is unsafe. See [terminal results](kernel-api.md#terminal-results) and continue with [retained results](tutorial-rpc-values.md).

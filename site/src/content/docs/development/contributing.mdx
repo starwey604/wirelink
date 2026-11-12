@@ -1,0 +1,41 @@
+---
+title: "Develop and verify the kernel"
+description: "Find the owning layer and the checks for your change."
+sidebar:
+  order: 1
+---
+
+Start with the behavior you need to change. The core owns admission, scheduling and packet lifetime; adapters own physical I/O; WLC owns typed generation. Keep OS, allocation, threads and clock reads outside the core.
+
+## Build, then select the decisive check
+
+From the Wirelink root:
+
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+```
+
+| Change | Owning source and check |
+| --- | --- |
+| Deadline, budget or cancellation | `src/kernel.c`, `tests/core/kernel.c`; `kernel` |
+| RX/TX token lifetime | `src/packet_port.c`; packet-port and concurrent tests |
+| RPC metadata | `src/native_none.c`, `src/rpc_wire.c`; `kernel_wire` and frozen vectors |
+| UART/USB/UDP completion | `adapters/`; corresponding static Zephyr integration and host adapter fixtures |
+| Typed routes or codec bounds | independent WLC; kernel/codec tests and generated-SDK consistency |
+
+For a deadline edit, verify equality/wrap, simultaneous expiry, budgets `1..16`, callback-created calls, exactly one terminal and RX/TX progress. Do not change time units or expected behavior to make a failing test pass.
+
+```sh
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure -R '^kernel$'
+```
+
+## Use the maintained build matrix
+
+The [repository development guide](https://github.com/starwey604/wirelink/blob/main/docs/development.md) owns commands for matching WLC, generated tutorials, host/Session, installed consumers, native/Python SDKs, sanitizers and Zephyr. It also maps failures to ownership boundaries.
+
+Use strict C11, two-space C indentation, SPDX headers and warning-clean GCC/Clang builds. Preserve full schema value domains and conformance bytes. Format Rust, keep generated output deterministic and update affected callers/tests/docs together. Retain hardware evidence separately from software models.
+
+For the site, use its `.node-version`, run `npm ci`, `npm run check:docs` and `npm run build` from `site/`. The checks cover bilingual topic parity, links and tutorial commands as well as Chinese paragraph style.

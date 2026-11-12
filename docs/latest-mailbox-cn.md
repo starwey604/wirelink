@@ -1,12 +1,8 @@
-> 当前为独立数据容器，通过 `Wirelink::containers` 使用；不提供生成 route、可靠交付或 framework policy。C 原子存储由 C 持有；与内核的集成由应用完成。见 [内核 API](static-endpoint-kernel-api.md)。
+# 无动态分配的 LATEST mailbox
 
-# 无动态分配的 LATEST Mailbox
+[English](latest-mailbox.md)
 
-> 英文版 [`latest-mailbox.md`](latest-mailbox.md) 是规范来源。
-
-`wirelink/latest.h` 实现应用层 `LATEST` 策略。它独立于 端点内核，不改变 v1
-frame 或冻结的核心结构。通常由一个 producer 将 WLC 消息直接解码进 claim 的 slot，
-再由一个 consumer 借用最新发布的类型化值。
+`wirelink/latest.h` 提供应用的最新值存储，通过 `Wirelink::containers` 链接。C 持有 context 原子存储，C++ 使用 opaque pointer。一个 producer 发布完整值，一个 consumer 借用最新发布值；应用决定如何连接消息回调与 mailbox。
 
 ## 存储与初始化
 
@@ -46,15 +42,11 @@ claim/view。
 初始化和 reset 需要外部 quiesce。其余操作严格为 SPSC；多 producer/consumer 即使
 调用时间没有重叠，也不在 C memory model 约定内。
 
-## 直接解码生成消息
+## 在生成回调中保存自持值
 
-WLC `LATEST` route 无需中间 decoded-message copy：wrapper 先 claim，把生成 route
-的 scratch 指向 `claim.value`，handler 成功后直接 publish。dispatcher 已释放 RX
-事件；codec、missing-route 或 handler 失败时，wrapper 对仍活动的 claim abort 一次。
+把 mailbox slot 配置为生成的自持 `*_value_t`。普通消息回调中 claim slot，用 `*_value_from_view` 复制借用输入，检查结果后 publish；转换失败则 abort。consumer 随后 acquire/release 自持值，slot 中的 string/bytes/嵌套内容不依赖 RX 缓冲区。见[可构建复制示例](tutorial-rpc-values-cn.md)。
 
-固定字段和内联固定数组可直接解码。保留类型必须自包含；借用 RX event 的
-`bytes`/`string` 指针不合格，除非 route 在 `wl_event_release()` 前把内容复制进有界的
-slot 自有存储。完整模式见 `tests/zephyr/integration/application_runtime`。
+生成 route 使用自身解码存储，应用不替换 route scratch，也不释放 kernel 的 RX。只复制 borrowed view 会保留指向 RX 的指针，不能延长生命周期；需要在回调返回前完成深复制。mailbox 的 claim/publish 仍是应用 producer 操作，不改变网络投递或幂等规则。
 
 ## 为什么普通值不会发生数据竞争
 

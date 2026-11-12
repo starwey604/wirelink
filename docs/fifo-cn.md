@@ -1,12 +1,8 @@
-> 当前为独立数据容器，通过 `Wirelink::containers` 使用；不提供生成 route、可靠交付或 framework policy。C 原子存储由 C 持有；与内核的集成由应用完成。见 [内核 API](static-endpoint-kernel-api.md)。
-
 # 无动态分配的 SPSC FIFO
 
-> 英文版 [`fifo.md`](fifo.md) 是规范来源。
+[English](fifo.md)
 
-`wirelink/fifo.h` 为必须保序且保留数量的值提供应用层 `FIFO` 策略。它独立于
-端点内核、不分配内存，也不改变 v1 frame。它既可把收到的类型化值送往应用 task，
-也可把预编码命令送往 Wirelink 的单一 consumer。
+`wirelink/fifo.h` 提供保持顺序和数量的应用队列，通过 `Wirelink::containers` 链接。C 持有 context 的原子存储，C++ 使用 opaque pointer。应用可用它把自持接收值交给 consumer，或把待发命令交给 owner；网络 route 与重试由应用定义。
 
 ## 存储与初始化
 
@@ -45,16 +41,13 @@ consumer 用 `wl_fifo_read_acquire()` 获取最早值；该指针在匹配的
 `full_rejections`，现有内容不变。FIFO 没有 drop-oldest，因为 producer 回收 slot 会
 破坏 consumer 所有权。新鲜度优先时使用 `LATEST`。
 
-## 类型化解码与命令队列
+## 保存类型化接收值与待发命令
 
-WLC route 可 claim slot 后把生成 scratch 指向 `claim.value`，从 handler 直接 publish，
-避免中间消息复制。任何 dispatch 失败都必须 abort。固定字段与内联数组可自包含；
-`bytes`、`string` 和 repeated 字段需要为每个 FIFO slot 单独提供有界 backing。
+在生成的普通消息回调中 claim 一个 slot，使用 `*_value_from_view` 把借用消息复制到 slot 内的自持 `*_value_t`，检查转换结果再 publish。转换失败则 abort；所有借用字段必须在回调返回前复制完成。slot 大小/对齐应按自持类型配置，不能只复制含指针的 view。参考[结果复制示例](tutorial-rpc-values-cn.md)。
 
-反向发送时，FIFO value 可做成包含 delivery、message ID、payload length 和有界编码
-payload 的内联 command record。应用 producer 直接编码进 claim 并唤醒 Wirelink
-consumer。若 core 返回 `WL_ERR_BUSY`/`WL_ERR_WOULD_BLOCK`，consumer 可以保留已
-acquire 的队首，在 transport/protocol 推进后重试；只有接受或确定拒绝后才 release。
+队列满返回 `WL_ERR_QUEUE_FULL`，由应用选择丢弃、记录或业务流控。这个本地拒绝不会让 kernel 重试收到的普通消息。独立 codec 的 repeated view 另需每个 slot 的 backing，不能当作 bounded kernel route。
+
+反向发送时，producer 可发布消息 ID、自持请求或有界编码 payload，并唤醒 owner。owner 暂时保留 acquire 的队首；发送接纳返回 `WL_ERR_WOULD_BLOCK` 时，等真实资源进展后重试。接纳成功或确定拒绝后 release。输入快照和等待顺序见 [kernel 模型](kernel-cn.md)。
 
 ## Reset 与统计
 

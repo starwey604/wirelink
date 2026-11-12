@@ -1,51 +1,33 @@
 ---
-title: "安装后的 CMake 集成"
-description: "安装后的 CMake 集成 — Wirelink 0.13"
+title: "使用安装后的 CMake 包"
+description: "在已有 C 应用中链接 core 或生成类型化 route。"
 sidebar:
   order: 8
 ---
 
-[English](https://github.com/starwey604/wirelink/blob/main/docs/installation.md).
-
-纯 core 使用 ISO C11、CMake 3.21+。host Executor、C++ Session、桌面 adapter 需要 C++20；MSVC 的 C 源使用 `/experimental:c11atomics`，原子存储由 C 持有，C++ 不假定 `std::atomic` ABI。
-
-benchmark 工具使用 Python 3.11+，其余测试依对应 CMake 声明。
-
-默认 core 和 checked-in bare-metal 示例不需要 WLC：
+在 Wirelink 根目录安装 core，再从包含你自己的 `main.c` 的独立项目消费。构建前配置安装 prefix，使 `wirelink.pc` 同样记录正确路径。
 
 ```sh
-cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
-cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure
-cmake --install build/core --prefix /absolute/prefix
+cmake -S . -B build/install-core -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX=/absolute/prefix -DCMAKE_INSTALL_LIBDIR=lib
+cmake --build build/install-core --parallel
+cmake --install build/install-core
 ```
 
-生成需要从匹配的独立源码构建 **WLC 0.13.0 / codegen 0.13**。Rust/Cargo 只用于构建编译器，不进入 C core。
-
-编译器模板保留 LF。
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(my_device LANGUAGES C)
+find_package(Wirelink 0.13.0 EXACT CONFIG REQUIRED)
+add_executable(app main.c)
+target_link_libraries(app PRIVATE Wirelink::wirelink)
+```
 
 ```sh
-cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml
-/path/to/matching-wlc/target/release/wlc --version
-/path/to/matching-wlc/target/release/wlc codegen-contract
+cmake -S /path/to/my-device -B build/my-device \
+  -DCMAKE_PREFIX_PATH=/absolute/prefix
+cmake --build build/my-device --parallel
 ```
 
-预期输出 `wlc 0.13.0` 和 `0.13`；`WIRELINK_WLC_EXECUTABLE` 使用该绝对路径。helper 校验 compiler/生成 manifest，不 bootstrap 旧发布版，也不假定已有 0.13 发布包。
+基础 target 只需要 C。可选 host/adapter component 需要 CXX，且必须在安装构建中启用。生成类型化 route 时，将 `WIRELINK_WLC_EXECUTABLE` 设为匹配 WLC 0.13.0，使用 `wirelink_wlc_generate(TARGET ... SCHEMA ... PROFILE ...)`；只生成 codec 则使用 `wirelink_wlc_generate_codec`。
 
-codegen 版本描述接口/布局，不是 wire 版本。
-
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
-```
-
-安装后用 `find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)`，设置 `CMAKE_PREFIX_PATH=/absolute/prefix`。基础 C 包不要求 C++ compiler；可选 host/adapter component 必须已构建/安装，消费者 project 需启用 CXX。
-
-Asio UDP 使用 standalone Asio，当前本地验证版本 1.38.1，commit `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`。设置 `WIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/asio/include` 并启用 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON`；UDP 示例还需 `WIRELINK_BUILD_PLATFORM=ON`。
-
-Astrial 使用 `WIRELINK_ASTRIAL_SOURCE_DIR`，native USB 另需 backend 的 libusb 依赖，均不进入 C core。
-
-继续阅读[迁移](/wirelink/zh-cn/reference/development-contract/)、[遥测教程](/wirelink/zh-cn/learn/getting-started/)与[开发检查](https://github.com/starwey604/wirelink/blob/main/docs/development-current.md)。本地 Linux 通过不代表远程 Windows/macOS、manylinux 或硬件检查已执行。
+[pkg-config 与安装后消费命令](https://github.com/starwey604/wirelink/blob/main/docs/development-cn.md#验证-installed-consumer)覆盖生成和可选 component。[WLC 指南](https://github.com/starwey604/wlc/blob/main/docs/codegen-cn.md)解释 import 与 provenance。

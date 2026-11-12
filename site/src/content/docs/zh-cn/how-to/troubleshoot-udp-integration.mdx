@@ -1,18 +1,15 @@
 ---
-title: "排查当前 UDP 集成"
-description: "排查当前 UDP 集成 — Wirelink 0.13"
+title: "排查 UDP 集成"
+description: "修改行为前先定位停滞边界。"
 sidebar:
-  order: 1
+  order: 2
 ---
 
-先检查 Wirelink/WLC/codegen 都是 0.13，profile 使用 version 2。双方 schema、消息 ID、native/NONE connector、地址/端口应一致。当前 adapter 使用 fixed peer；连接打开只建立本地 I/O，不证明 peer 在线。
+1. 检查双方匹配的 `Wirelink/WLC 0.13.0`、`codegen 0.13`、`profile version 2`、schema ID 和 `native/NONE`。
+2. 正确反转本地/peer 地址；fixed-peer 过滤要求预期源 IP/端口。打开 client 只建立本地 I/O，不证明对端在线。
+3. 检查超限包 headroom 与 socket/网络缓冲。owner 推进 I/O 和 kernel，再合并 deadline、readiness 与锁存唤醒。
+4. 遇到 BUSY 时检查真实资源唤醒；阻塞的应用动作不能无条件报告 runnable。
+5. 超时时保存两端包、错误、时间与 handler 副作用证据。本地超时不证明对端没有执行。
+6. 关闭时分别检查借用 RX、物理 TX 和外部 notifier 活动，停止真实 producer，quiescent 后释放。
 
-确认 source filter、接收 headroom 与网络缓冲。Asio 和 Zephyr UDP 的 socket I/O 都在应用 owner 执行。wait 合并 latched activity、有限 retry hint、kernel 与应用 deadline。
-
-应用阻塞时不能反复报告无条件 runnable。
-
-RPC 超时不说明远端未执行，重试可能再次产生副作用。排查时同时保留两端业务计数、包/字节、错误与原始时间信息，不用旧 ACK/replay 断言。
-
-close 时停止接纳并 join owner/notify producer，quiescent 后再释放 C-owned port。
-
-先用[双进程例程](/wirelink/zh-cn/learn/udp-transport/)检查软件，再记录真实板卡/网络验证。
+先运行[桌面 peer](/wirelink/zh-cn/learn/udp-transport/)。[Adapter 参考](https://github.com/starwey604/wirelink/blob/main/docs/adapters-cn.md)定义边界，[Zephyr 网络配置](/wirelink/zh-cn/learn/zephyr-udp-subscriber/)补充板卡/驱动要求。

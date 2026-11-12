@@ -1,0 +1,34 @@
+---
+title: "Bind UART, USB or UDP"
+description: "Choose a connector and establish real driver completion."
+sidebar:
+  order: 2
+---
+
+Start with the [one-owner UDP loop](/wirelink/learn/udp-transport/), then bind your driver using the [complete adapter reference](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md). It owns exact configuration fields, service/readiness and recovery rules.
+
+## Choose the physical boundary
+
+### UART / host serial
+
+Use **COBS/CRC16**. Establish source consumption and genuine physical TX drain using the explicit [IRQ](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md#zephyr-irq), [DMA](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md#zephyr-dma), [polling](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md#zephyr-polling) or [host serial](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md#astrial-serial) configuration. A callback count or empty software queue cannot substitute for drain.
+
+### Native USB bulk
+
+Use **native/NONE**. Receive capacity must exceed the legal frame maximum; preserve MPS/ZLP packet boundaries and wait for real cancellation/buffer return.
+
+A boundary fault is latched. Recovery needs real reset/reconfiguration, not just reopening local state. Zephyr CDC configurations lacking a genuine TX-complete API are rejected. See [USB configuration and recovery](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md#native-usb-bulk-configuration-and-recovery).
+
+### Fixed-peer UDP
+
+Use **native/NONE**. Preserve whole datagrams, filter the expected peer, reject oversized input and use finite waits. The [UDP owner loop](/wirelink/learn/udp-transport/) supplies a runnable starting point.
+
+### Length-delimited stream
+
+Use **length16/NONE**. Assemble a complete prefix/body and distinguish staging pressure from a real discontinuity requiring recovery.
+
+## Bind, advance, then close
+
+Initialize C-owned storage and fresh instance, bind submit/notify, initialize generated routes, then start I/O. The owner services transport, steps kernel, merges readiness/deadlines and waits with a latched wake. BUSY requires a real resource wake, not repeated submission.
+
+Close the kernel, stop/join real producers, process final completion and require core/port quiescence before release. Establish external notifier exit separately. Use the [profile budget guide](https://github.com/starwey604/wirelink/blob/main/docs/link-profiles.md) to size generated, RX/staging and driver memory independently. [HIL checks](https://github.com/starwey604/wirelink/blob/main/docs/adapter-hil.md) describe physical qualification.

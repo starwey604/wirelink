@@ -1,18 +1,29 @@
-# 单 owner 遥测
+# 用一个 owner 发送遥测
 
-普通遥测进入借用的 typed callback。本例发送 12 条消息，接纳后立即清空源值。框架不保留 LATEST mailbox，跨 callback 保存的值由应用自行复制。
+[English](getting-started.md) · [RPC](tutorial-rpc-cn.md)
 
-本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
+发送 12 条遥测消息，然后关闭两个端点。成功运行会输出：
 
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+```text
+12 ordinary telemetry messages received; both endpoints quiescent
 ```
 
-运行目标 `wirelink_telemetry_demo` （位于对应 examples 子目录）。
+在 Wirelink 根目录运行，准备匹配的 WLC 0.13.0（contract 0.13），见[工具配置](development-cn.md#构建匹配-wlc-和生成教程)。C11 端点共享一个 owner 和 RAM-copy loopback，不打开硬件。一个 tick 是一次循环，不是毫秒。fixture instance ID 仅限进程内使用，生产环境使用新的平台身份。
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_telemetry_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_telemetry_demo$'
+/tmp/wirelink-docs-tutorials/examples/00_telemetry/wirelink_telemetry_demo
+```
+
+## 接纳后复用发送值
+
+`telemetry_kernel_send_telemetry` 在返回 `WL_OK` 前编码 snapshot，所以下文立即清空 `message` 是安全的。普通 snapshot 忙时返回 `WL_ERR_WOULD_BLOCK`，消息尚未接纳，由应用保留值并稍后重试。
 
 [00_telemetry/publisher.c](../examples/00_telemetry/publisher.c)
 
@@ -42,6 +53,10 @@ int main(void) {
 }
 ```
 
+## 在 handler 内读取或复制
+
+接收 view 只借用到 callback 返回；需要保留时复制到应用存储。本例只立即验证 sequence 和 temperature。
+
 [00_telemetry/subscriber.c](../examples/00_telemetry/subscriber.c)
 
 ```c
@@ -57,4 +72,4 @@ void telemetry_receive(void *user, const telemetry_t *message) {
 }
 ```
 
-[内核 API](static-endpoint-kernel-api.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
+`example_pair_step` 在同一 owner 上 step 两个 kernel，再 service loopback 并递增 tick。`example_pair_close` close 两端、stop 实际保留传输，再 step 到 quiescence。见[执行模型](kernel-cn.md)。

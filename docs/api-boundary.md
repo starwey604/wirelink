@@ -1,7 +1,0 @@
-# Current API boundary
-
-The public C surface is `kernel.h`, `kernel_wire.h`, `packet_port.h` and the selected optional connector/adapter headers. `wl_ctx_t`, protocol events, pump, reliable send, deferred reply and mapped runtime APIs are removed. One C owner drives admission/step/cancel/close; codecs and callbacks execute there. Generated C supplies static typed routes and bounded storage, not another execution engine.
-
-C owns atomic packet/FIFO storage. C++ consumers use opaque pointers and may own non-atomic generated kernel storage. Optional `Wirelink::host` supplies bounded external commands and waits; `Wirelink::cpp_host` supplies owning UDP Sessions. A C-only package does not require C++. Review installed headers and the build-backed examples before adding a wrapper.
-
-[Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)

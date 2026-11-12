@@ -1,0 +1,45 @@
+---
+title: "开发与验证 kernel"
+description: "找到修改所属层和对应检查。"
+sidebar:
+  order: 1
+---
+
+从需要修改的行为开始定位。core 负责接纳、调度和 packet 生命周期；adapter 负责物理 I/O；WLC 负责类型化生成。操作系统、分配、线程和时钟读取保留在 core 外。
+
+## 先构建，再选择决定性检查
+
+在 Wirelink 根目录运行：
+
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+```
+
+| 修改 | 负责的源码与检查 |
+| --- | --- |
+| Deadline、budget 或取消 | `src/kernel.c`、`tests/core/kernel.c`；`kernel` |
+| RX/TX token 生命周期 | `src/packet_port.c`；packet-port 与并发测试 |
+| RPC 元数据 | `src/native_none.c`、`src/rpc_wire.c`；`kernel_wire` 与冻结向量 |
+| UART/USB/UDP completion | `adapters/`；对应 static Zephyr 集成与 host adapter fixture |
+| 类型化 route 或 codec bound | 独立 WLC；kernel/codec 测试与生成 SDK 一致性 |
+
+修改 deadline 时，验证相等/回绕、同时到期、budget `1..16`、回调中新调用、一次终态与 RX/TX 推进。不要通过改变时间单位或预期行为来使失败测试通过。
+
+```sh
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure -R '^kernel$'
+```
+
+## 使用维护中的构建矩阵
+
+[仓库开发指南](https://github.com/starwey604/wirelink/blob/main/docs/development-cn.md)集中维护匹配 WLC、生成教程与 host/Session 命令。安装后消费、原生/Python SDK、sanitizer 和 Zephyr 也在同一指南中。
+
+故障定位按所有权边界组织。
+
+使用严格 C11、两空格缩进、SPDX header，保持 GCC/Clang 无告警。保留完整 schema 值域与 conformance 字节。
+
+格式化 Rust，保持生成确定性，并同时更新受影响调用方/测试/文档。硬件证据与软件模型分别记录。
+
+维护网站时使用 `.node-version`，在 `site/` 运行 `npm ci`、`npm run check:docs` 和 `npm run build`。检查覆盖双语主题对应、链接、教程命令及中文段落格式。

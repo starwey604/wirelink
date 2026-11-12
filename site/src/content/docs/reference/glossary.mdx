@@ -1,0 +1,21 @@
+---
+title: "Ownership glossary"
+description: "Terms used by the kernel, adapters and application jobs."
+sidebar:
+  order: 6
+---
+
+| Term | Meaning |
+| --- | --- |
+| owner | The single context executing core, codecs and business callbacks |
+| producer | Serialized publication of I/O packets/activity/completion |
+| admission | Successful encoded snapshot occupying bounded storage |
+| borrowed view | Data valid within its callback; retaining requires a copy |
+| owned value | A value containing its bounded data |
+| instance/operation | Communication matching identity |
+| CONSUMED | End of source borrow |
+| DRAINED | End of physical transfer |
+| quiescent | Core/port ownership settled; external producers must also exit |
+| job ID | Application identity for longer work |
+
+Follow [the kernel trace](/wirelink/concepts/kernel/) to see these terms in one sequence.

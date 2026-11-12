@@ -1,0 +1,24 @@
+---
+title: "Kernel 与 packet-port API"
+description: "找到操作及其所有权/错误合同。"
+sidebar:
+  order: 1
+---
+
+先选择需要接入的操作。[完整 API 参考](https://github.com/starwey604/wirelink/blob/main/docs/kernel-api-cn.md)集中说明签名、参数、生命周期以及接纳/错误条件。
+
+| 任务 | 入口 |
+| --- | --- |
+| 组装 core | `wl_kernel_init`、生成的 `*_kernel_init` |
+| 发起/取消 RPC | `wl_kernel_call_start`、`wl_kernel_cancel`、类型化 `*_start` |
+| 发送消息 | `wl_kernel_send`、类型化 `*_send_*` |
+| 推进或等待 | `wl_kernel_step`、`wl_kernel_ready` |
+| 关闭与释放 | `wl_kernel_close`、`wl_kernel_quiescent` |
+| 发布/借用 RX | packet RX claim/commit/abort、peek/release |
+| 传输 TX | submit、带 token 的 completion 发布/取得 |
+
+同一 owner 执行 kernel 操作与回调。串行 producer 通过 port 发布 I/O，C 持有原子存储。
+
+接纳成功前快照输入，失败不创建调用或后续 completion。终态使 call handle 失效，不一定结束物理 lease。
+
+将[终态 outcome](/wirelink/zh-cn/reference/status-and-results/)与操作返回码分别判读。整体顺序见 [kernel 模型](/wirelink/zh-cn/concepts/kernel/)；物理 stop/drain 见[传输合同](/wirelink/zh-cn/reference/transports/)。

@@ -1,18 +1,42 @@
-# 保存有界结果
+# 保存包含字符串的 RPC 结果
 
-完成 helper 在 callback 返回前用公开 value conversion 复制借用响应。本例验证八次调用，并在两端关闭后读取 owned UTF-8/NUL 结果。有界字符串携带长度，内嵌 NUL 不表示逻辑值结束；不再保留 inspect/release 终态槽。
+[English](tutorial-rpc-values.md) · [并发调用](tutorial-rpc-async-cn.md)
 
-本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
+完成八次查询，关闭两端后继续读取已复制的 UTF-8/NUL 名称。预期输出：
 
-```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+```text
+bounded UTF-8/NUL response copied before callback exit and retained after close
 ```
 
-运行目标 `wirelink_device_info_demo` （位于对应 examples 子目录）。
+在 Wirelink 根目录运行，准备匹配的 WLC 0.13.0（contract 0.13），见[工具配置](development-cn.md#构建匹配-wlc-和生成教程)。C11 端点共享一个 owner 和 RAM-copy loopback，不打开硬件。一个 tick 是一次循环，不是毫秒。fixture instance ID 仅限进程内使用，生产环境使用新的平台身份。
+
+```sh
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
+  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_device_info_demo
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_device_info_demo$'
+/tmp/wirelink-docs-tutorials/examples/02_device_info/wirelink_device_info_demo
+```
+
+## Callback 返回前转换成 owned value
+
+生成 completion 传入的 `const info_response_t *` 仅在 callback 中有效，不能保存指针。`EXAMPLE_COMPLETION(info, info_response)` 调用 `info_response_value_from_view`，深复制有界 string/bytes 和嵌套值到 `info_response_value_t`。helper 来自 [loopback_owner.h](../examples/common/loopback_owner.h)：
+
+```c
+#define EXAMPLE_COMPLETION(name, type) \
+  static unsigned name##_count; \
+  static wl_kernel_result_t name##_result; \
+  static type##_value_t name##_value; \
+  static void name##_completed(void *user, wl_kernel_result_t result, const type##_t *view) { \
+    (void)user; name##_result = result; \
+    if (result.outcome == WL_KERNEL_SUCCESS) \
+      EXAMPLE_REQUIRE(view && type##_value_from_view(view, &name##_value) == WL_CODEC_OK); \
+    ++name##_count; \
+  }
+```
 
 [02_device_info/client.c](../examples/02_device_info/client.c)
 
@@ -61,4 +85,4 @@ int32_t device_info_query(void *user, const info_request_t *request, info_respon
 }
 ```
 
-[内核 API](static-endpoint-kernel-api.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
+`name.length == 11` 包含内嵌 NUL；逻辑字符串不是以该字节结束。上界按 UTF-8 字节计数。转换成功后的 `info_value` 由应用持有，即使关闭后仍可读；无论何种终态，原 handle 都失效。见[结果合同](kernel-api-cn.md#terminal-results)，下一篇是[并发与背压](tutorial-rpc-async-cn.md)。

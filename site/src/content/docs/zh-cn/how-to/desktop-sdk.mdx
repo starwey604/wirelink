@@ -1,0 +1,22 @@
+---
+title: "使用自持 C++ / Python SDK"
+description: "构建 UDP client，并在关闭后保留结果。"
+sidebar:
+  order: 1
+---
+
+按 [Calculator 指南](https://github.com/starwey604/wirelink/blob/main/examples/06_bindings/GUIDE.md)构建 C peer，读取其真实端口，再从 C++/Python 调用。[Device SDK](https://github.com/starwey604/wirelink/blob/main/examples/07_device_sdk/README.md)验证嵌套值、UTF-8/NUL、optional 和开放枚举。
+
+WLC 生成只含 RPC 的 native-packet client。C 持有端点/原子存储，Session 拥有 UDP 连接和 owner 线程。同步/异步共用 **四个原生 call slot**。
+
+AsyncClient 另限制 **八个尚未交付操作**。32 项 host 命令队列不会增加调用槽。
+
+C++ timeout 为 `1..INT32_MAX` 毫秒。Python 接收正秒数、向上取整到毫秒，上限 `2147483.647` 秒。排队计入 timeout。
+
+响应拥有数据，可以超过 close；丢弃 Operation 不取消调用。
+
+close 报告 `ClosedError`，显式原生取消报告 `CancelledError`。
+
+用 context manager 完成确定性 close/join。原生 owner 不执行 Python，阻塞 Python 等待释放 GIL。本地 timeout/cancel 不能撤回远端副作用；只含 RPC 的长任务需要应用状态查询 RPC。
+
+[Host owner/Session](https://github.com/starwey604/wirelink/blob/main/docs/host-runtime-cn.md)说明生命周期；[WLC SDK 生成](https://github.com/starwey604/wlc/blob/main/docs/sdk-cn.md)说明匹配版本、构建选项和 provenance。

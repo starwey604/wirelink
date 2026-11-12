@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.19.0 <25"
+    "node": ">=22.23.4 <25"
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
@@ -13,31 +13,30 @@
     "fix:docs": "node scripts/unwrap-mdx.mjs",
     "lint:docs": "node scripts/lint-zh-docs.mjs",
     "test:docs": "node --test scripts/*.test.mjs",
-    "check:docs": "node scripts/unwrap-mdx.mjs --check && node scripts/lint-zh-docs.mjs && node --test scripts/*.test.mjs",
+    "check:docs": "node scripts/check-links.mjs && node scripts/unwrap-mdx.mjs --check && node scripts/lint-zh-docs.mjs && node --test scripts/*.test.mjs",
     "prebuild": "npm run clean",
     "build": "astro check && astro build",
     "preview": "astro preview",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@astrojs/starlight": "0.42.0",
+    "@astrojs/starlight": "0.42.10",
     "@fontsource-variable/ibm-plex-sans": "5.3.0",
-    "astro": "7.3.2",
-    "astro-mermaid": "2.1.0",
-    "mermaid": "11.17.2",
-    "sharp": "0.35.4"
+    "astro": "7.4.11",
+    "astro-mermaid": "2.2.0",
+    "mermaid": "12.3.0",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.10",
+    "@astrojs/check": "0.9.12",
     "typescript": "6.0.3",
-    "wrangler": "4.130.0"
+    "wrangler": "4.160.1"
   },
   "overrides": {
-    "sharp": "0.35.4"
+    "sharp": "$sharp"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
-    "esbuild@0.28.1": true,
-    "workerd@1.20260908.1": true
+    "workerd@1.20261110.1": true
   }
 }

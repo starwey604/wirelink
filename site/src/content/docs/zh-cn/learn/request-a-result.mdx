@@ -1,73 +1,35 @@
 ---
-title: "同步 handler 的 RPC"
-description: "同步 handler 的 RPC — Wirelink 0.13"
+title: "发起 RPC"
+description: "发起调用、返回业务状态并处理本地到期。"
 sidebar:
   order: 3
 ---
 
-start 接纳时快照请求，每个方向可并发四次，第五次返回 WOULD_BLOCK。已接纳调用只完成一次，接纳失败不会再回调。
+运行四个快照请求和反向业务拒绝，输出 `four concurrent copied requests and reverse-direction rejection passed`。lifecycle 检查还覆盖本地到期。
 
-handler 立即返回有符号业务状态；算术溢出以 status 1 拒绝。应用阻塞包装推进同一个 core，不建立第二套关联表。
-
-
-本页对应当前 WLC/codegen 0.13 和 profile v2。源码为 C11，两个端点在同一应用 owner 上通过真实 RAM copy 连接，不打开硬件。
-
-示例 helper 的递增 instance 仅用于进程内测试；生产使用平台随机源或持久唯一分配器。
+在 Wirelink 根目录使用匹配 WLC 0.13.0 / 契约 0.13：
 
 ```sh
-cmake -S . -B build/tutorials -DCMAKE_BUILD_TYPE=Release \
+cmake -S . -B /tmp/wirelink-docs-tutorials -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
-cmake --build build/tutorials --parallel
-ctest --test-dir build/tutorials --output-on-failure
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc
+cmake --build /tmp/wirelink-docs-tutorials --parallel \
+  --target wirelink_calculator_demo wirelink_rpc_lifecycle
+ctest --test-dir /tmp/wirelink-docs-tutorials --output-on-failure \
+  -R '^wirelink_(calculator_demo|rpc_lifecycle)$'
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_calculator_demo
 ```
 
-运行目标 `wirelink_calculator_demo` （位于对应 examples 子目录）。
-
-[01_rpc/client.c](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c)
-
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "service.h"
-#include "loopback_owner.h"
-unsigned calculator_async_count(void);
-static calculator_kernel_t endpoints[2];
-static example_pair_t pair;
-EXAMPLE_COMPLETION(add, add_response)
-int main(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const calculator_kernel_handlers_t handlers = {.on_rpc_add = calculator_add};
-  for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
-  calculator_async_example(&endpoints[0], &endpoints[1]);
-  for (unsigned pass = 0; pass < 500 && calculator_async_count() != 4; ++pass) example_pair_step(&pair);
-  EXAMPLE_REQUIRE(calculator_async_count() == 4);
-  /* A blocking application wrapper uses the same start/owner advancement. */
-  add_request_value_t request = {.has_left = true, .left = INT32_MAX, .has_right = true, .right = 1};
-  wl_kernel_call_handle_t handle;
-  EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[1], &request, pair.now, 500,
-    add_completed, NULL, &handle) == WL_OK);
-  example_pair_wait(&pair, &add_count, 1);
-  EXAMPLE_REQUIRE(add_result.outcome == WL_KERNEL_REJECTED && add_result.status == 1);
-  example_pair_close(&pair);
-  puts("four concurrent copied requests and reverse-direction rejection passed");
-  return 0;
-}
+```sh
+/tmp/wirelink-docs-tutorials/examples/01_rpc/wirelink_rpc_lifecycle
 ```
 
-[01_rpc/server.c](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c)
+## 区分接纳与完成
 
-```c
-/* SPDX-License-Identifier: Apache-2.0 */
-#include "service.h"
-#include <limits.h>
-int32_t calculator_add(void *user, const add_request_t *request, add_response_value_t *response) {
-  (void)user;
-  const int64_t sum = (int64_t)request->left + request->right;
-  if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-  response->has_sum = true; response->sum = (int32_t)sum;
-  return 0;
-}
-```
+`calculator_kernel_add_start` 接收自持请求、owner 的 `now`、相对 timeout、回调/上下文与输出 handle。`WL_OK` 表示已有快照，不表示对端已执行；接纳失败不创建调用，也不再回调。
 
-[内核 API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) · [迁移清单](/wirelink/zh-cn/reference/development-contract/) · [应用长任务](/wirelink/zh-cn/learn/deferred-rpc/)
+短 handler 填写自持响应，返回零表示成功，非零有符号值表示业务 status。整数溢出返回 status `1`；解码/传输失败是本地错误，与业务拒绝分开。
+
+RAM loopback 使用循环 tick，`500` 不是毫秒。lifecycle 检查中，三个未发送调用在 tick `2` 到期。timeout/cancel 只结束本地调用，已租用请求仍可能在远端执行；重试可能重复副作用。
+
+查看 [client、handler 与 deadline 说明](https://github.com/starwey604/wirelink/blob/main/docs/tutorial-rpc-cn.md)。下一篇：[保存响应](/wirelink/zh-cn/learn/save-device-info/)。
