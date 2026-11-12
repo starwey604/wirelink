@@ -6,7 +6,7 @@ packet ownership. Applications supply storage, a single owner, monotonic time
 snapshots and a transport. The core owns no OS, thread, heap, clock or driver.
 
 Wirelink 0.13 uses WLC codegen 0.13 and SDK binding API 3. Generated routes,
-host runtimes and SDKs share the [kernel and ownership contract](docs/static-endpoint-kernel-api.md).
+host runtimes and SDKs share the [kernel and ownership contract](docs/kernel-api.md).
 Applications define retry, idempotency and long-running jobs.
 
 Ordinary messages use Compact-v1 DATA packets. RPC uses managed v4 metadata.
@@ -19,7 +19,8 @@ The application selects the transport and security boundary.
 - [Telemetry](docs/getting-started.md), [RPC](docs/tutorial-rpc.md),
   [owned results](docs/tutorial-rpc-values.md) and
   [application jobs](docs/tutorial-rpc-deferred.md), with build-backed C listings.
-- [Kernel API](docs/static-endpoint-kernel-api.md),
+- [How the kernel works](docs/kernel.md) ([中文](docs/kernel-cn.md)),
+  [kernel API](docs/kernel-api.md) ([中文](docs/kernel-api-cn.md)),
   [adapter lifecycle](docs/adapters.md) and [API map](docs/api-boundary.md).
 - [C++/Python generated SDK examples](examples/06_bindings/README.md).
 
