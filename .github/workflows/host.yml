@@ -73,9 +73,9 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build and install normal-width library
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install -DCMAKE_INSTALL_LIBDIR=lib
           cmake --build build --parallel
-          cmake --install build --prefix ${{ github.workspace }}/install
+          cmake --install build
       - name: Build and test poisoned-result short-enum consumer
         run: |
           cmake -S tests/package/consumer -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_C_FLAGS=-fshort-enums -DCMAKE_CXX_FLAGS=-fshort-enums

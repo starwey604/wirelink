@@ -11,7 +11,7 @@ runs:
     - uses: actions/checkout@v5
       with:
         repository: starwey604/wlc
-        ref: 7eabbf4dd767f968123917ba02431fa0a0ef184e
+        ref: 01cf6a7af313a20b7dd03170d50976997902274a
         path: .tools/wlc
     - name: Select the locally qualified Rust compiler
       shell: bash
