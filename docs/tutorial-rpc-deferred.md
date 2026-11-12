@@ -21,4 +21,4 @@ Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and local WLC 0.13. Run
 `wirelink_device_service_demo`; `ctest -R wirelink_device_service` also verifies
 adding an RPC in four application files with unchanged infrastructure.
 
-[Migration](migration-0.13.md) · [Concurrent calls](tutorial-rpc-async.md)
+[Concurrent calls](tutorial-rpc-async.md)

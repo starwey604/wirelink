@@ -19,4 +19,4 @@ application job IDs. Their duplicate/commit behavior belongs to those protocols;
 local cancel/close cannot undo a remote effect. The core does not promise
 automatic retry, exactly-once execution or bandwidth reservation.
 
-[Migration](migration-0.13.md) · [Application layer](application-layer.md).
+[Application layer](application-layer.md).

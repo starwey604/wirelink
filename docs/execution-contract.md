@@ -4,4 +4,4 @@ One owner supplies a monotonic tick and bounded budget to `wl_kernel_step`. Dead
 
 An accepted call has one terminal callback and its handle then expires. Failure to admit has no future callback. Callback results are borrowed; copy before returning. Callback admission/cancel is allowed, recursive step/close is rejected. A logical terminal cannot release a physical USB/DMA borrow. Close the kernel, stop/join actual producers, process final completion and require quiescence before freeing storage. A fresh instance is mandatory on restart.
 
-[Migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)

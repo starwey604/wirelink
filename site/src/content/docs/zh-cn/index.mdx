@@ -1,11 +1,11 @@
 ---
 title: Wirelink
-description: 面向嵌入式与桌面系统的有界类型化通信。
+description: 面向 MCU 与上位机的零动态分配点对点通信与 RPC 框架。
 template: splash
 hero:
-  tagline: 在点对点链路上交换类型明确的消息，同时让应用继续掌控内存、传输和执行。
+  tagline: 写一份 .wl 消息定义，生成纯 C11 的静态编解码与 RPC 状态机。不调用 malloc，不创建隐藏线程，跑在你的串口、USB 或 UDP 之上。
   actions:
-    - text: 了解更多
+    - text: 5 分钟看懂 Wirelink
       link: ./overview/what-is-wirelink/
       icon: right-arrow
       variant: primary
@@ -23,18 +23,18 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
   <span></span><i></i><span></span><i></i><span></span>
 </div>
 
-Wirelink 0.13 使用不依赖动态分配的 C11 静态端点内核。应用提供存储、owner、单调时间和传输。
+做机器人、工控设备或智能硬件时，MCU 与上位机之间总少不了一条串口、USB 或 UDP 链路。手写 `struct` 强转和状态机容易错位，直接上 Protobuf 或重型 RPC 框架又往往要妥协给动态内存（`malloc`）、C++ 运行时或后台线程。
 
-当前支持普通消息与四路 RPC，业务自行处理重试、幂等和长任务；已删除自动 ARQ/replay/deferred 执行。
+Wirelink 提供了第三种选择：**你用 `.wl` 文件声明消息与 RPC 接口，编译器（WLC）为你生成完全静态的 C11 端点代码（以及配套的 C++/Python 上位机 SDK）**。内核只负责帧路由与状态推进，内存、时钟和硬件驱动完全掌握在你自己手里。
 
 <CardGrid>
-  <Card title="一次准备好工具" icon="add-document">
-    一次安装编译器、CMake、Cargo 和 WLC。后续课程从已经验证的工具链开始，不再重复环境安装步骤。
+  <Card title="一份定义，两端同步" icon="add-document">
+    在 `.wl` 中集中定义消息字段和 RPC 接口。改一处字段，重新生成即可同步固件 C 代码与上位机 SDK，告别手写打包与字节对齐踩坑。
   </Card>
-  <Card title="保持资源有界" icon="setting">
-    生成的 endpoint 使用显式存储和有界工作量。核心不占有线程、堆、硬件或时钟。
+  <Card title="纯静态内存，零隐藏线程" icon="setting">
+    核心是纯 C11 编写的被动状态机。所有收发槽位和消息快照都在编译期确定大小，由你提供静态存储，并在主循环或 RTOS 任务里主动驱动。
   </Card>
-  <Card title="明确应用责任" icon="open-book">
-    学习借用结果、物理发送租约、应用 job ID 和重复执行规则；独立容器由应用选择。
+  <Card title="传输层解耦，随处可跑" icon="open-book">
+    无论是串口（COBS + CRC16）、原生 USB Bulk，还是桌面 UDP，生成的业务层代码完全一致。你只需要在初始化时挂载对应的硬件适配器。
   </Card>
 </CardGrid>

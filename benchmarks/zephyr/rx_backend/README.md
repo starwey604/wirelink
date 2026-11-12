@@ -123,13 +123,3 @@ staging-buffer sizes, and UART fixture.
   portability claims.
 
 ## Continuous-stream status
-
-Continuous streaming exposes a path the stop-and-wait workload cannot see. The
-former direct-ring implementation lost bytes whenever a finite-timeout receive
-buffer was released without a queued successor. The UART adapter now uses two
-caller-owned staging buffers, and the 2026-09-22 ESP32-S3 acceptance run passed
-all seven payload profiles with `received == 2200` and zero `dropped`,
-`overflow`, `malformed`, `bad_integrity`, and `adapter_errors`. Keep those
-conditions as the regression gate. See the continuous/burst RX failure and fix
-section in [../../../docs/rx-performance.md](../../../docs/rx-performance.md)
-for the original evidence, design, and acceptance table.

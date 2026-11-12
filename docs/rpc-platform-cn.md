@@ -4,4 +4,4 @@
 
 owner callback 可 request_stop，不能 join/销毁自身。外部 stop 关闭逻辑工作、停止真实 producer、处理最终 completion 并 join 后才释放存储。notify 必须非阻塞、latched、线程安全且不重入业务。启用 WIRELINK_BUILD_HOST_RUNTIME；测试见 runtime/host/tests 与 benchmarks/owner_pass。
 
-[迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)
+[内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)

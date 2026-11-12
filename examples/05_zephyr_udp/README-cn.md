@@ -22,4 +22,4 @@ C 持有 kernel、port 和两个 RX unit。薄 C++ helper 管理 UDP/等待，�
 
 admission 返回前编码快照，completion 在借用期复制响应。close 停止真实 I/O、推进到物理 quiescence 后释放 socket。重试/幂等/应用状态恢复由业务定义。
 
-板卡网络配置见 [Zephyr peer](../../../samples/zephyr/udp_peer/README.md)。软件互通和固件 build 不证明真实 Ethernet/Wi-Fi 性能或特定 PHY 已通过验证。
+板卡网络配置见 [Zephyr peer](../../samples/zephyr/udp_peer/README.md)。软件互通和固件 build 不证明真实 Ethernet/Wi-Fi 性能或特定 PHY 已通过验证。

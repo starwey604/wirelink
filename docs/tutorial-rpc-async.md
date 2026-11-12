@@ -39,4 +39,4 @@ void calculator_async_example(calculator_kernel_t *client, calculator_kernel_t *
 unsigned calculator_async_count(void) { return completed; }
 ```
 
-[Kernel API](static-endpoint-kernel-api.md) · [Migration](migration-0.13.md) · [Application jobs](tutorial-rpc-deferred.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Application jobs](tutorial-rpc-deferred.md)

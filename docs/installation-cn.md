@@ -35,4 +35,4 @@ ctest --test-dir build/tutorials --output-on-failure
 
 Asio UDP 使用 standalone Asio，当前本地验证版本 1.38.1，commit `bbecff21a23b97c34641f0f1f08b28c91b9c77cf`。设置 `WIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/asio/include` 并启用 `WIRELINK_BUILD_ASIO_UDP_ADAPTER=ON`；UDP 示例还需 `WIRELINK_BUILD_PLATFORM=ON`。Astrial 使用 `WIRELINK_ASTRIAL_SOURCE_DIR`，native USB 另需 backend 的 libusb 依赖，均不进入 C core。
 
-继续阅读[迁移](migration-0.13-cn.md)、[遥测教程](getting-started-cn.md)与[开发检查](development-current.md)。本地 Linux 通过不代表远程 Windows/macOS、manylinux 或硬件检查已执行。
+继续阅读[内核 API](static-endpoint-kernel-api.md)、[遥测教程](getting-started-cn.md)与[开发检查](development-current.md)。本地 Linux 通过不代表远程 Windows/macOS、manylinux 或硬件检查已执行。

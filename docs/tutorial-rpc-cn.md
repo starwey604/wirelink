@@ -60,4 +60,4 @@ int32_t calculator_add(void *user, const add_request_t *request, add_response_va
 }
 ```
 
-[内核 API](static-endpoint-kernel-api.md) · [迁移清单](migration-0.13-cn.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
+[内核 API](static-endpoint-kernel-api.md) · [应用长任务](tutorial-rpc-deferred-cn.md)

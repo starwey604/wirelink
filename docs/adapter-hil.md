@@ -11,4 +11,4 @@
 
 当前 raw/object 工具见 [benchmarks/host](../benchmarks/host/README.md)，真实 USB sample 见 samples/zephyr/usb_bulk。软件 object 测试验证应用 duplicate/commit，不代替物理 USB 资格。K4 封存对照是特定源/环境下的研究证据，K5 后需最终构建确认；不自动把迁移前数字当作最终产品数字。
 
-[Adapter 合同](adapters-cn.md) · [迁移](migration-0.13-cn.md) · [开发检查](development-current.md)。
+[Adapter 合同](adapters-cn.md) · [开发检查](development-current.md)。

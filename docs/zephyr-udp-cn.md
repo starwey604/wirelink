@@ -4,4 +4,4 @@
 
 按需启用 CONFIG_WIRELINK_ZEPHYR_UDP 和 CONFIG_WIRELINK_PLATFORM。samples/zephyr/udp_peer 与 host peer 共用 typed schema/profile。QEMU/native socket stack 的分配等待属于平台，不进入 core。软件测试/board build 与真实网络执行分别记录。
 
-[迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)
+[内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)

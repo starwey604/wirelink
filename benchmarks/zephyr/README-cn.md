@@ -11,8 +11,6 @@
 | mixed_traffic | `mixed_kernel_fw_*_v1`，42 traffic/21 cycle；compare_kernel_firmware.py |
 | rpc_validation | `rpc_validation_*_v3`，rpc_validation/compare.py，公开 codec 操作 |
 
-旧 RX backend selector 实验已删除，文件哈希与替代见 `../retired-execution-workloads.csv`。历史读取器不代表仍支持旧可执行负载，不能和 ARQ/replay 采集混比。
-
 从匹配的 Zephyr workspace 使用新构建目录：
 
 ```sh

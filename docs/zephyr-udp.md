@@ -4,4 +4,4 @@
 
 Enable CONFIG_WIRELINK_ZEPHYR_UDP and CONFIG_WIRELINK_PLATFORM as needed. samples/zephyr/udp_peer uses the same typed schema/profile as the host peer. QEMU/native socket-stack behavior and allocation waits remain platform properties outside core. Software tests and board builds are distinct from network hardware execution.
 
-[Migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)

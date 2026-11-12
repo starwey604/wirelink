@@ -108,11 +108,3 @@ fallback 大小。随后是表头，再按所选负载每个 payload 一行。
 - 数字与夹具、版本强相关，不是 wire 延迟或可移植性结论。
 
 ## 连续流现状
-
-连续流会暴露停止等待看不到的路径。旧的 direct-ring 实现在 finite-timeout
-buffer 被释放且没有后继 buffer 时会丢字节。UART adapter 现在改用两个由调用
-方提供的 staging buffer。2026-09-22 的 ESP32-S3 验收中，七个 payload profile
-均达到 `received == 2200`，且 `dropped`、`overflow`、`malformed`、
-`bad_integrity`、`adapter_errors` 全为 0；这些条件继续作为回归门槛。原始证据、
-设计与验收表见 [../../../docs/rx-performance.md](../../../docs/rx-performance.md)
-的 continuous/burst RX failure and fix 一节。

@@ -60,4 +60,4 @@ int32_t calculator_add(void *user, const add_request_t *request, add_response_va
 }
 ```
 
-[Kernel API](static-endpoint-kernel-api.md) · [Migration](migration-0.13.md) · [Application jobs](tutorial-rpc-deferred.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Application jobs](tutorial-rpc-deferred.md)

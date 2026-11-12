@@ -97,8 +97,7 @@ privately links the static native code; its users need only a matching CPython/p
 There are no runtime Python dependencies, no import-time downloads, and no schema
 compiler executed during installation from a wheel.
 Local Linux builds produce a `linux_x86_64` wheel for a compatible system runtime;
-release Linux wheels are built and repaired in manylinux_2_28. See the
-[v0.8.0 release guide](../../docs/release-v0.8.0-cn.md) for the platform matrix.
+release Linux wheels are built and repaired in manylinux_2_28.
 
 For iterative development, after installing the build dependencies:
 

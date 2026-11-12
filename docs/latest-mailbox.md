@@ -1,4 +1,4 @@
-> This is an independent data container, linked through `Wirelink::containers`; it provides no generated route, reliable delivery or framework policy. C owns atomic storage; application code chooses its integration. See [0.13 migration](migration-0.13.md).
+> This is an independent data container, linked through `Wirelink::containers`; it provides no generated route, reliable delivery or framework policy. C owns atomic storage; application code chooses its integration. See [kernel API](static-endpoint-kernel-api.md).
 
 # Allocation-free LATEST mailbox
 

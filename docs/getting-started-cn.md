@@ -57,4 +57,4 @@ void telemetry_receive(void *user, const telemetry_t *message) {
 }
 ```
 
-[内核 API](static-endpoint-kernel-api.md) · [迁移清单](migration-0.13-cn.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
+[内核 API](static-endpoint-kernel-api.md) · [应用长任务](tutorial-rpc-deferred-cn.md)

@@ -3,9 +3,8 @@
 [English](SPEC.md).
 
 本文件是 Wirelink benchmark 体系的规范性契约：结果 schema、退出码、输出
-目录结构、比较规则与 CI 分层。政策背景见
-[docs/development.md](../docs/development.md)（"Benchmark policy"）；各套件
-的用法见 `benchmarks/<suite>/README.md`。
+目录结构、比较规则与 CI 分层。各套件的用法见
+`benchmarks/<suite>/README.md`。
 
 Benchmark 保持 opt-in，永远不是正确性门。本文件增加的是：让*性能回归门*
 以可预测的方式失败——在同一 testbed 上、带着人类可审计的证据。

@@ -4,4 +4,4 @@ A communication instance is fresh, nonzero and acquired at initialization throug
 
 C++ `wirelink::Session` is an optional owning UDP wrapper around a C endpoint factory, the same Executor and kernel. Submit waits for bounded owner admission; success means request snapshot, failure creates no call. An Operation keeps itself alive to its terminal callback and owns copied typed results. External close excludes/waits for submitters and joins I/O/owner; results survive close. Owner close requests stop only and requires an external join. Destroying/replacing Session on its owner callback is prohibited. Manual-clock progress requires notify. Tests cover local cancellation, rejected admission, four concurrent calls, rejection status and close races.
 
-[Migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)

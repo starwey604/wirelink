@@ -8,8 +8,6 @@ unknown fields and the 4096-byte Chunk schema bound. The standalone codec
 contract explicitly accepts this frozen 0.12 fixture; this does not retain any
 old endpoint or execution ABI.
 
-The old bindings/runtime/advanced/endpoint facade files were removed, with
-per-file hashes and replacement evidence in `tests/retired-execution-tests.csv`.
 The two `control_manifest.json` files are unchanged **historical provenance**
 for the original complete artifact sets, not manifests for the current retained
 subset. Do not run current artifact-set validation on those historical files.

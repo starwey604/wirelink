@@ -1,9 +1,8 @@
 # Static endpoint kernel API
 
-This is the default Wirelink 0.13 C11 execution implementation. Public headers
-and the [migration guide](migration-0.13.md) ([中文](migration-0.13-cn.md)) define
-the product contract. Research registrations/results record separate builds;
-K4 measurements do not automatically describe the final migrated product.
+Wirelink's C11 kernel drives typed message dispatch and bounded RPC from one
+application-supplied owner. Public headers define its interfaces; this guide
+explains scheduling, storage, packet ownership and shutdown.
 
 ## Shared execution and generated code
 

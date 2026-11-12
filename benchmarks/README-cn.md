@@ -19,7 +19,9 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 `benchmarks/zephyr/` 下的[固件变体](zephyr/README-cn.md)在 ESP32-S3 DevKitC 上跑同一批负载，
 两侧必须使用同一份冻结生成产物。
 
-当前注册表有七个套件：smoke = owner_pass/mixed_traffic/footprint，quick = framing/codec_plan/rpc_validation，full 再加 api。需要代码生成时，使用匹配的本地 WLC 0.13；不能假定已经发布。ARQ、框架 Bulk、replay peer hook、旧 RX backend 与旧 executor 工作负载已删除，逐文件替代见 [删除表](retired-execution-workloads.csv)。历史报告读取器保留，但新旧工作负载不混比。物理 USB/串口工具见 [host](host/README.md)，它们不属于统一计时预设。
+七个套件分为三个预设：`smoke` 运行 owner_pass、mixed_traffic 与 footprint；
+`quick` 运行 framing、codec_plan 与 rpc_validation；`full` 运行包括 api 的全部七项。
+代码生成使用匹配的本地 WLC 0.13。物理 USB/串口工具见 [host](host/README.md)。
 
 ## 统一入口
 

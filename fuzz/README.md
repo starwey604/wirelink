@@ -27,10 +27,8 @@ It owns no call matching or deadline table outside the kernel.
 
 The stream fuzzer independently selects COBS/CRC16 or length16/NONE, feeds partial
 chunks, drains bounded packet units and aborts incomplete input only after its
-single synchronous producer has stopped. Framework ARQ/protocol and Bulk state
-fuzzers were removed with those capabilities; per-file hashes and replacement
-contracts are in `retired-execution-fuzzers.csv`. Application object semantics
-run in `tests/usb_sample` and the composed-service tutorial.
+single synchronous producer has stopped. Application object semantics run in
+`tests/usb_sample` and the composed-service tutorial.
 
 CTest performs 5000 bounded runs per target, not an exhaustive fuzz campaign.
 For a longer campaign supply a writable corpus and retain seed, command,

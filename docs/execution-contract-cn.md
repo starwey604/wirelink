@@ -4,4 +4,4 @@
 
 已接纳调用只有一个终态，之后 handle 失效；接纳失败不再回调。结果仅 callback 期间借用，需保存则返回前复制。callback 可 admission/cancel，不能递归 step/close。逻辑终态不释放 USB/DMA 的物理借用。关闭 kernel、停止并 join 真实 producer、处理最终 completion，quiescent 后才释放存储；重启必须新 instance。
 
-[迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)
+[内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)

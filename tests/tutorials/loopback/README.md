@@ -1,7 +1,5 @@
-# Historical tutorial schemas
+# Schema fixture inputs
 
-The schemas and old v1 profiles here are retained as historical fixture inputs.
-The old endpoint/latest/deferred C harnesses were retired with hashes and
-replacements in `tests/retired-execution-tests.csv`. They are not current
-regeneration inputs. Current build-backed tutorials live in `examples/00_telemetry`
-through `examples/05_zephyr_udp`; matching v2 profiles use the one current kernel.
+The schemas and profile-v1 files in this directory are test inputs. Build-backed
+endpoint tutorials are in `examples/00_telemetry` through
+`examples/05_zephyr_udp`; their profile-v2 deployments use the shared kernel.

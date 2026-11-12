@@ -4,4 +4,4 @@ The public C surface is `kernel.h`, `kernel_wire.h`, `packet_port.h` and the sel
 
 C owns atomic packet/FIFO storage. C++ consumers use opaque pointers and may own non-atomic generated kernel storage. Optional `Wirelink::host` supplies bounded external commands and waits; `Wirelink::cpp_host` supplies owning UDP Sessions. A C-only package does not require C++. Review installed headers and the build-backed examples before adding a wrapper.
 
-[Migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)

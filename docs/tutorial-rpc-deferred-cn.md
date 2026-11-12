@@ -8,4 +8,4 @@
 
 用 `WIRELINK_BUILD_WLC_EXAMPLES=ON` 和本地 WLC 0.13 构建；运行 `wirelink_device_service_demo`，`ctest -R wirelink_device_service` 还验证四个业务文件新增 RPC 而基础设施不变。
 
-[迁移清单](migration-0.13-cn.md) · [四路调用](tutorial-rpc-async-cn.md)
+[四路调用](tutorial-rpc-async-cn.md)

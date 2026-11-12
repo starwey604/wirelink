@@ -59,7 +59,7 @@ foreach(_removed WIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK WIRELINK_BUILD_BULK_BENC
     WIRELINK_BUILD_GETTING_STARTED WIRELINK_BUILD_COMPOSED_SERVICES WIRELINK_BUILD_DOCS
     WIRELINK_HOST_PROFILING WIRELINK_HOST_LOCK_PROFILING)
   if(${_removed})
-    message(FATAL_ERROR "${_removed} was removed; see docs/migration-0.13.md, docs/development-current.md and benchmarks/retired-execution-workloads.csv")
+    message(FATAL_ERROR "${_removed} was removed; see docs/development-current.md and benchmarks/README.md")
   endif()
 endforeach()
 option(WIRELINK_BUILD_API_BENCHMARK "Build the fixed-contract kernel API microbenchmark" OFF)

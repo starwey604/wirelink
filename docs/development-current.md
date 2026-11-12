@@ -9,7 +9,9 @@ Use strict C11, two-space C indentation, SPDX headers and warning-clean
 GCC/Clang builds. Public symbols use `wl_`; enum/macro names use `WL_`.
 Keep generated C deterministic, and preserve public codec domains and frozen
 conformance vectors. Do not update unrelated dirty files or external vendor
-copies while migrating a consumer.
+copies when updating a consumer.
+
+## Development checks
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
@@ -20,10 +22,9 @@ cargo clippy --manifest-path /path/to/matching-wlc/Cargo.toml --all-targets --al
 cargo fmt --manifest-path /path/to/matching-wlc/Cargo.toml --check
 ```
 
-Old GETTING_STARTED/COMPOSED_SERVICES build switches now reject explicitly;
-use WIRELINK_BUILD_WLC_EXAMPLES. Build the documentation site through its npm
-scripts. Old host profiling switches are removed; explicit outer profiling
-and its tests remain separate from core execution.
+Enable `WIRELINK_BUILD_WLC_EXAMPLES` for the generated C tutorials.
+Build the documentation site through its npm scripts. Application profiling
+and its tests are separate from core execution.
 
 Use a matching local WLC 0.13 executable and fresh build/output directories.
 Relevant optional configurations:
@@ -68,9 +69,7 @@ adapters. SDK tests include installed C++ consumers and Python wheels against
 independent C peers. Record which Python ABI, OS and wheel actually ran; a
 single local wheel is not a manylinux or all-platform release qualification.
 
-Benchmark tooling tests run without timing dependencies. See
+Benchmark tooling tests run without timing dependencies. See the
 [benchmark entry points](../benchmarks/README.md) and the
-[migration contract](migration-0.13.md). Old research reports are historical
-evidence, not current API documentation or proof of a final build's speed.
-Each scoped change should record validation and compatibility impact in its
-commit. No automated publication is implied by a green local check.
+[kernel contract](static-endpoint-kernel-api.md). Record the source, build
+configuration and validation commands with each change.

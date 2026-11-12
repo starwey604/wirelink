@@ -5,19 +5,13 @@ four concurrent RPC calls in each direction, ordinary messages and explicit
 packet ownership. Applications supply storage, a single owner, monotonic time
 snapshots and a transport. The core owns no OS, thread, heap, clock or driver.
 
-This development tree is **0.13.0 / WLC codegen 0.13 / SDK binding API 3**.
-It removes ARQ/ACK execution, automatic retries, replay/TTL caches, deferred
-reply tokens, mapped RPC and generic policy/service scheduling. A separately
-admitted duplicate request may execute again; applications define retries,
-idempotency and long-running jobs. This is a breaking API/ABI/generated-code
-change. [Migration](docs/migration-0.13.md) ([中文](docs/migration-0.13-cn.md))
-explains the full contract, including borrowed results and shutdown.
+Wirelink 0.13 uses WLC codegen 0.13 and SDK binding API 3. Generated routes,
+host runtimes and SDKs share the [kernel and ownership contract](docs/static-endpoint-kernel-api.md).
+Applications define retry, idempotency and long-running jobs.
 
-Native USB ordinary Compact-v1 DATA bytes and managed v4 RPC metadata remain
-compatible. Public tagged SchemaV1 and ordinary PositionalV1 codecs retain
-complete schema domains. Removed reliability semantics are not wire guarantees.
-Wirelink provides no addressing, routing, discovery, authentication, encryption
-or access control; the application selects its transport/security boundary.
+Ordinary messages use Compact-v1 DATA packets. RPC uses managed v4 metadata.
+WLC supplies tagged SchemaV1 codecs and explicit ordinary PositionalV1 codecs.
+The application selects the transport and security boundary.
 
 ## Start here
 
@@ -57,8 +51,7 @@ target_link_libraries(my_application PRIVATE app_protocol)
 
 A profile-v2 target contains public codec, one static kernel router and its
 selected connector. `wirelink_wlc_generate_codec` without a profile emits only
-standalone codec. Old profile syntax and stale output directories fail with
-migration errors; separate runtime generation is removed.
+standalone codec. Generate into a dedicated output directory with matching local WLC.
 
 ## Optional integrations
 
@@ -80,18 +73,14 @@ kernel quiescence precede destruction. USB boundary faults require real
 reset/reconfiguration. Current Zephyr CDC lacks the required TX-complete API and
 is explicitly rejected. See [adapter contracts](docs/adapters.md).
 
-## Validation and research
+## Development and measurement
 
 Primary C suites are in `tests/zephyr/unit` and `tests/zephyr/integration`, host
 ownership/adapter tests in `tests/core`, package consumers in `tests/package`,
 and compiler tests in the independent WLC repository. See
-[current development commands](docs/development-current.md).
+[development commands](docs/development-current.md).
 
-[Benchmarks](benchmarks/README.md) distinguish models, host microbenchmarks and
-physical captures. Historical reports and frozen vectors are retained with their
-original scope. K4 research results do not automatically describe the final
-migrated product; final performance requires a separately identified build and
-capture. This repository does not automatically publish, deploy or edit vendor
-copies in other projects.
+[Benchmarks](benchmarks/README.md) cover deterministic models, host
+microbenchmarks and physical transport measurements.
 
 Licensed under [Apache-2.0](LICENSE).

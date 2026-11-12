@@ -4,4 +4,4 @@
 
 core 不分配。可选 fixed-block allocator 可分配整个 C-owned owner block，以新身份初始化，真实 I/O 停止和 kernel quiescence 后才释放。C++/Python bridge 验证失败回滚及 close 后 poison/free。heap、fixed-pool 或 static 是外层存储选择，不进入 kernel 分配服务。
 
-[迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)
+[内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)

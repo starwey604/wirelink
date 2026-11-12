@@ -3,9 +3,8 @@
 [中文](SPEC-cn.md).
 
 This is the normative contract for the Wirelink benchmark system: result
-schema, exit codes, output layout, comparison rules, and CI layering. Policy
-background lives in [docs/development.md](../docs/development.md) ("Benchmark
-policy"); per-suite guides live in each `benchmarks/<suite>/README.md`.
+schema, exit codes, output layout, comparison rules, and CI layering.
+Per-suite guides live in each `benchmarks/<suite>/README.md`.
 
 Benchmarks remain opt-in and are never correctness gates. What this document
 adds is a uniform way for a *performance regression gate* to fail

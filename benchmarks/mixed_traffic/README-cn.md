@@ -21,10 +21,6 @@ CONSUMED 前真实保留源数据，之后持有自己的传输副本，到 peer
 最后应用值与静默尾部；RPC 耗时包括应用重试。`--check` 额外检查场景明确给出的
 串行化与背压界限。比较前必须核对工作负载源码、编译器、flags 和二进制 hash。
 
-旧 `compare.py`／`compare_firmware.py` 及其测试只保留为历史 ARQ 报告工具，不能解析
-当前采集；旧 cached／reconstructed retry 执行器已删除，逐文件原因在
-`../retired-execution-workloads.csv`。冻结历史报告不变。
-
 Zephyr 集成测试复用同一模型。固件 wrapper 的 `mixed_kernel_fw_*_v1` 周期包含模型
 复制、丢包检查与应用 bookkeeping，只是 IRQ 屏蔽的固有成本诊断，不是端到端 CPU，
 不能与旧 retry 引擎数字比较。当前 RPC／Sample 实板证据由独立静态内核 USB workload

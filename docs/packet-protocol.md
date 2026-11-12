@@ -1,6 +1,6 @@
 # Current packet and RPC wire
 
-[Migration](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md).
+[Kernel API](static-endpoint-kernel-api.md).
 
 The endpoint accepts ordinary Compact-v1 DATA only. A canonical native/NONE
 packet has this prefix, followed by 0..2048 payload bytes:

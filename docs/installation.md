@@ -52,6 +52,6 @@ Asio UDP requires standalone Asio headers; the locally qualified source is
 UDP example. Astrial adapters use `WIRELINK_ASTRIAL_SOURCE_DIR`; native USB also
 requires the backend's libusb dependency. These remain outside the C core.
 
-See [migration](migration-0.13.md), [telemetry](getting-started.md) and
+See [kernel API](static-endpoint-kernel-api.md), [telemetry](getting-started.md) and
 [development checks](development-current.md). Local Linux verification does
 not imply that remote Windows/macOS, manylinux or hardware checks have run.

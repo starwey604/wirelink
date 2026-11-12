@@ -1,4 +1,4 @@
-> 当前为独立数据容器，通过 `Wirelink::containers` 使用；不提供生成 route、可靠交付或 framework policy。C 原子存储由 C 持有；与内核的集成由应用完成。见 [0.13 迁移](migration-0.13-cn.md)。
+> 当前为独立数据容器，通过 `Wirelink::containers` 使用；不提供生成 route、可靠交付或 framework policy。C 原子存储由 C 持有；与内核的集成由应用完成。见 [内核 API](static-endpoint-kernel-api.md)。
 
 # 无动态分配的 SPSC FIFO
 

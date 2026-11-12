@@ -40,8 +40,8 @@ functions with mocked peripheral I/O and the real ESP32-S3 register type. It
 checks format changes, rejection without format/FIFO writes, the 102/103 and
 85/86 boundaries, and settings 2 and 22. It does not measure physical UART timing.
 
-See [the measured timeout experiment](../../../docs/uart-rx-timeout-optimization-cn.md)
-for the selected opt-in configuration and its CPU/IRQ/streaming tradeoffs.
+Select the timeout for the application workload, then measure latency, CPU
+usage and sustained receive health with the same UART format and FIFO thresholds.
 
 ## Optional ESP32-S3 RPC linker insertion point
 

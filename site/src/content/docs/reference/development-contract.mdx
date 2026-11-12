@@ -1,163 +1,27 @@
 ---
-title: "Migrating to the static endpoint kernel (0.13)"
-description: "Migrating to the static endpoint kernel (0.13) — Wirelink 0.13"
+title: Kernel execution
+description: Owner execution, static storage and packet ownership in Wirelink.
 sidebar:
   order: 3
 ---
 
-[中文](https://github.com/starwey604/wirelink/blob/main/docs/migration-0.13-cn.md).
+Wirelink runs typed messages and RPC through one allocation-free C11 kernel.
+The application provides storage, monotonic time and one owner for admission,
+steps, handlers and terminal callbacks.
 
-Wirelink 0.13 is a breaking C/C++ API, ABI, adapter, profile and generated-code
-change. Rebuild applications, core and generated C together with matching local
-WLC 0.13 / codegen 0.13 (SDK binding API 3). No published compiler/release is
-assumed. The [kernel API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md) and installed headers
-are the current execution contract.
+The kernel holds four outbound calls, four reply snapshots and one ordinary
+message snapshot. Accepted input is encoded before admission returns. Each
+accepted call produces one terminal callback; response views are borrowed
+until that callback returns.
 
-| Previous interface/capability | Current application integration |
-| --- | --- |
-| `wl_ctx_t`, `wl_init`, `wl_poll`, `wl_event_t`, pump hooks | C-owned `wl_kernel_t` and `wl_packet_port_t`; owner supplies time to `wl_kernel_step` |
-| Reliable send/ACK handle, automatic retries | Ordinary best-effort messages or bounded RPC; application chooses whether to retry |
-| Replay cache, TTL, peer observation, duplicate suppression | Independent duplicate admission may execute again; define business idempotency |
-| Pending/deferred reply token | Immediate synchronous handler; application job ID/status messages for long work |
-| Terminal inspect/release slot | One terminal callback; copy its borrowed typed result before return |
-| Generic service/policy scheduling, generated LATEST/FIFO routes | Application event loop and optional independent containers |
-| Mapped RPC, v1 binding DSL, separate runtime generation | Explicit profile v2 and one `wirelink_wlc_generate` endpoint target |
-| Selector-based link defaults, old stream/storage configuration | One explicit native/NONE, COBS/CRC16 or length16/NONE connector |
-| C++ owning C11 atomic storage | C owns packet port/FIFO atomics; C++ uses opaque handles |
+I/O producers publish packets and completion through a C-owned packet port.
+There are two RX units and one physical TX lease. CONSUMED permits source reuse;
+DRAINED ends physical transfer ownership. Shutdown closes admission, stops and
+joins I/O, then processes remaining completion before storage is released.
 
-The old protocol/RPC/endpoint/pump execution files and WLC runtime templates are
-removed. There is one shared implementation in `src/kernel.c`, packet ownership
-in `src/packet_port.c`, and static typed routing/resource sizing in generated C.
-Host Executor, C++ Session and SDK wrappers use that same kernel. There is no
-alternate reliability engine or second RPC association table in those wrappers.
-
-The kernel accepts ordinary Compact-v1 DATA and preserves native USB DATA
-bytes and the existing managed v4 RPC metadata/session/operation/status rules.
-Public tagged SchemaV1 and explicitly selected ordinary PositionalV1 codecs
-retain their complete schema domains. RPC uses managed tagged encoding;
-positional/mapped RPC requires an explicit migration and is rejected. Old
-reliable DATA/ACK are unsupported by the endpoint. Frozen standalone frame/CRC
-utilities and conformance vectors remain available without restoring execution.
-Peers must agree on schema, IDs and connector out of band; there is no automatic
-negotiation. Byte compatibility does not preserve removed delivery guarantees.
-
-## Owner, storage and time
-
-One owner performs admission, step, cancellation, handler execution and terminal
-callbacks. A serialized I/O producer only publishes packet/byte/completion
-state. C core code allocates no heap and owns no OS, clock, thread or driver.
-Four outbound calls and four reply snapshots are fixed; one ordinary snapshot
-and a nine-index admission FIFO preserve TX ordering. Generated code sizes
-storage from the actual messages; changing a payload bound is a business
-protocol change, not a way to shrink a benchmark silently.
-
-Admission snapshots borrowed input before returning success. Backpressure returns
-`WL_ERR_WOULD_BLOCK`; failed admission produces no later terminal callback.
-Before decoding a request or executing side effects, the core reserves reply
-capacity. A BUSY sink retains the encoded result and waits for real activity;
-it never reruns that handler. A separately admitted duplicate request may run it
-again. A full reply pool retains RX and applies transport pressure.
-
-Supply the same monotonic `uint32_t` tick snapshot to related owner work; use the
-bounded modular timeout contract in the headers. The core does not sample a
-clock. Readiness/deadlines and latched adapter wakes drive outer waits, rebased
-for time spent doing owner work. Manual-clock users must explicitly notify the
-outer waiter when advancing time. Deadline processing precedes RX completion.
-
-A handle is invalid after its one terminal outcome. A callback may submit or
-cancel another call; recursive step/close is rejected. Keep the callback context
-alive until terminal delivery. Cancel and timeout are local: neither undoes a
-remote effect. Operation/generation counters never wrap into a valid old
-operation; exhaustion requires an explicit fresh instance after quiescence.
-
-## Retries, duplicates and long jobs
-
-A lost response is ambiguous: the handler may already have executed. A retry is
-a fresh RPC operation and can execute again. Put a business operation ID in the
-request if repeating an effect would be incorrect, and define its lifetime,
-storage, collision and conflict behavior. The communication instance is not an
-authentication credential and is not a business idempotency record.
-
-Return quickly from synchronous handlers. For long work, acknowledge an
-application job ID, advance work in application state and expose completion or
-status queries with defined retry/loss behavior. The
-[device-service example](/wirelink/learn/device-service/) demonstrates
-this without a framework job scheduler. Local close/cancel cannot roll back a
-remote job or committed object. The
-[USB object example](https://github.com/starwey604/wirelink/blob/main/benchmarks/host/README.md) defines duplicate chunks/END
-in its application and has bounded command retries; those guarantees do not
-apply to unrelated RPCs.
-
-Typed callback views borrow RX/response storage only until callback return.
-Use generated public value conversion in the callback to retain strings,
-bytes or nested data. A bounded string has an explicit byte length and may
-contain NUL. Check conversion failure. Owning SDK operations copy results before
-returning them to C++/Python callers; saved results can outlive Session close.
-
-## Physical I/O and shutdown
-
-There are exactly two caller-owned RX units and one physical TX lease. A sink
-returns SENT, STARTED, BUSY or FAILED. STARTED may complete inline. CONSUMED ends
-source borrowing; DRAINED ends the physical transfer. A logical RPC terminal
-must not release bytes still read by USB/DMA. BUSY/FAILED accept no source and
-must not later publish completion; BUSY must wake the owner when resources free.
-
-1. Initialize C-owned storage and a fresh nonzero communication instance from a
-   platform random source or durable allocator. Never fall back to a clock or
-   fixed production ID. Loopback fixtures use deterministic IDs only in tests.
-2. Bind/start the selected adapter after its port/storage is ready. Callback
-   code must not execute codecs or user handlers. Keep wake contexts alive.
-3. Close the core, stop actual producers, and wait for driver cancellation,
-   buffer return and worker/callback exit. Continue owner completion processing.
-4. Require kernel/port quiescence and the adapter's actual stop/join proof before
-   freeing/reinitializing storage. Restart with a fresh communication instance.
-
-USB is native/NONE. Read capacity must be strictly larger than a legal frame;
-full/truncated completions latch a boundary fault. Recovery requires a real
-transport boundary reset/reconfiguration and a fresh instance; reopening alone
-cannot recover a lost boundary. Preserve MPS/ZLP and token checks.
-UART uses explicit COBS/CRC16 plus C-owned staging FIFO; DMA waits for actual
-buffer returns, IRQ needs a real TX-complete API, and polling/host serial need a
-physical drain query. Queue-empty/source-consumed is insufficient. The current
-Zephyr CDC API lacks TX-complete and is explicitly rejected, not emulated.
-
-The host Executor bounds its command queue to 32 and processes at most eight
-commands before core work. Work and queued rejection callbacks run on its
-owner. `request_stop` is safe from that owner, but join/destruction there is
-forbidden. External Session close excludes new submitters, waits for submitters
-and joins the owner/I/O; callback-owned results remain valid. See installed
-headers and the [Session guide](https://github.com/starwey604/wirelink/blob/main/docs/session.md).
-
-## Build and generate
-
-```sh
-cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
-cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure
-```
-
-The default example uses checked-in generated C and requires no WLC. Enable
-`WIRELINK_BUILD_WLC_EXAMPLES=ON` and set `WIRELINK_WLC_EXECUTABLE` to build the
-current tutorials. No automatic old-release compiler download is used.
-
-```cmake
-find_package(Wirelink 0.13 EXACT CONFIG REQUIRED)
-set(WIRELINK_WLC_EXECUTABLE "/absolute/path/to/matching-wlc")
-wirelink_wlc_generate(TARGET app_protocol SCHEMA "schema.wl" PROFILE "app.bind.wl")
-target_link_libraries(my_application PRIVATE app_protocol)
-```
-
-Without a profile, `wirelink_wlc_generate_codec` emits only public codec C.
-With a v2 profile, the one target contains public codec, static kernel router,
-owned snapshot sizing and the selected connector. Delete old generated output
-before regenerating in a new directory; stale runtime/advanced/bindings files
-are explicitly rejected. Version1/removed DSL is rejected rather than silently
-translated. [Installed consumer tests](https://github.com/starwey604/wirelink/tree/main/tests/package/wlc_current) cover the
-same helper and local-compiler errors.
-
-The base `Wirelink::wirelink` links the kernel/types. Optional components supply
-platform environment, host owner, C++ Session, adapters, streams, containers,
-fixed-pool allocation and independent frame tools. Zephyr `CONFIG_WIRELINK=y`
-selects this same core; opt in to the required connector/adapter separately.
-See [installation](/wirelink/learn/environment-setup/), [tutorials](/wirelink/learn/getting-started/) and
-[adapter contracts](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md).
+Read the [kernel API](https://github.com/starwey604/wirelink/blob/main/docs/static-endpoint-kernel-api.md)
+for scheduling and ownership details, the
+[adapter lifecycle](https://github.com/starwey604/wirelink/blob/main/docs/adapters.md)
+for transport integration, and the
+[development guide](https://github.com/starwey604/wirelink/blob/main/docs/development-current.md)
+for build and test commands.

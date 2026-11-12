@@ -25,17 +25,3 @@ and direct outer wakes are separate counters.
 binary latch, not OS wakeups or actual device owner passes. There are no timing
 fields; notification counts do not predict CPU savings or justify removing a
 lifecycle wake.
-
-## CPU investigation closed
-
-Temporary probes, candidate builders/controllers and one-off analysis tools have
-been removed. The [convergence record](../../docs/static-endpoint-cpu-convergence-20261111-cn.md)
-identifies the retained regression tests, rejected candidates and historical
-evidence. Those experiments did not establish a new accepted performance
-baseline or the final cache/bus/scheduling cause.
-
-For later authorized hardware work, do not automatically restore an original
-image on completion: record the last healthy firmware and leave it installed.
-Permanently delete unused compiled payloads/caches without archiving them.
-The historical controllers in frozen evidence are not supported execution
-entry points and must not be reused as-is.

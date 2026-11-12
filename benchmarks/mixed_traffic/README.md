@@ -44,11 +44,6 @@ only. RPC duration includes application retries. `--check` also applies the
 explicit scenario serialization/backpressure bound. Record identical workload
 sources, toolchains, flags and binary hashes before comparing model results.
 
-`compare.py`, `compare_firmware.py` and their tests remain **historical report
-tools** for the old ARQ experiment. They do not parse current captures. Removed
-cached/reconstructed retry execution is listed in
-`../retired-execution-workloads.csv`. Frozen reports are unchanged.
-
 The Zephyr integration suite runs this same model on simulators. Its firmware
 wrapper emits `mixed_kernel_fw_*_v1` records and one cycle group per case, with
 a 2400-tick IRQ-masked intrinsic diagnostic. Those cycles include the model's

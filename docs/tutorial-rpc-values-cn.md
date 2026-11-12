@@ -61,4 +61,4 @@ int32_t device_info_query(void *user, const info_request_t *request, info_respon
 }
 ```
 
-[内核 API](static-endpoint-kernel-api.md) · [迁移清单](migration-0.13-cn.md) · [应用长任务](tutorial-rpc-deferred-cn.md)
+[内核 API](static-endpoint-kernel-api.md) · [应用长任务](tutorial-rpc-deferred-cn.md)

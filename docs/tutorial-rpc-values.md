@@ -61,4 +61,4 @@ int32_t device_info_query(void *user, const info_request_t *request, info_respon
 }
 ```
 
-[Kernel API](static-endpoint-kernel-api.md) · [Migration](migration-0.13.md) · [Application jobs](tutorial-rpc-deferred.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Application jobs](tutorial-rpc-deferred.md)

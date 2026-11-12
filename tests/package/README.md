@@ -10,9 +10,7 @@ with a C-owned kernel and a real executor owner/join.
 `wlc_current` builds installed native, COBS, C++ opaque-owner and keyword-codec
 consumers, then verifies rejection of v1 profiles, the removed separate runtime,
 missing compilers and obsolete compiler versions. It requires a matching local
-WLC 0.13 binary. Old mapped/runtime/layout/bootstrap consumers were retired with
-per-file hashes and replacements in `retired-consumers.csv`; no release download
-or source bootstrap is assumed. `cpp_session` tests the installed owning wrapper.
+WLC 0.13 binary. `cpp_session` tests the installed owning wrapper.
 
 `udp_consumer` exercises the installed packet UDP target with C-owned storage,
 latched waiting and stop. `packet_adapters` runs the full installed packet UDP,

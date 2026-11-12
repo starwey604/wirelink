@@ -4,4 +4,4 @@
 
 可选 `wirelink::Session` 通过 C endpoint factory、同一 Executor/kernel 拥有 UDP 连接。submit 仅等有界 owner admission，成功表示请求已快照，失败不创建 call。Operation 自持到终态并拥有复制后的 typed 结果。外部 close 排除/等待提交者并 join I/O/owner，结果可跨 close 保存；owner 内 close 只请求停止，需外部 join，禁止在 owner callback 销毁/替换 Session。手动 clock 前进需 notify。测试覆盖取消、接纳失败、四并发、业务 status 和关闭竞态。
 
-[迁移清单](migration-0.13-cn.md) · [内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)
+[内核 API](static-endpoint-kernel-api.md) · [开发验证](development-current.md)

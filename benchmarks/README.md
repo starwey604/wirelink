@@ -25,7 +25,10 @@ The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the
 same workloads on the ESP32-S3 DevKitC and must use the same frozen generated
 artifacts on both sides.
 
-The seven current registered suites are smoke = owner_pass/mixed_traffic/footprint, quick = framing/codec_plan/rpc_validation, and full = all of those plus api. Code generation requires matching local WLC 0.13; no published compiler is assumed. ARQ, framework Bulk, replay peer hooks, the old RX backend and old executor workloads were retired; see the [per-file replacement table](retired-execution-workloads.csv). Historical readers remain, with distinct current workload identities. Physical USB/serial tools live under [host](host/README.md) and are outside the unified timing presets.
+The seven registered suites use three presets: `smoke` runs owner_pass,
+mixed_traffic and footprint; `quick` runs framing, codec_plan and rpc_validation;
+`full` runs all seven, including api. Code generation uses matching local
+WLC 0.13. Physical USB/serial tools are described under [host](host/README.md).
 
 ## Unified entry
 

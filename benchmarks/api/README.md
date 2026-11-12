@@ -38,12 +38,3 @@ repetitions and workload/machine/source-hash mismatches. CPU thresholds are
 optional; resource and wall-time rows remain diagnostic. Preserve binaries,
 compiler/link flags, source revisions and hashes before performance comparison.
 No improvement is inferred from a single shared-host smoke run.
-
-Old reliable/unreliable and one/eight-slot variants, the generic executor service
-benchmark and old runtime UDP harness were removed with those contracts. The
-per-file replacement list is `../retired-execution-workloads.csv`. Existing
-`compare.py`, `run.py`, executor analysis/runners and their tests are historical
-tools requiring archived old binaries/reports. They do not parse current data.
-Real current UDP process behavior runs in `examples/05_zephyr_udp`; current
-owner/Session contracts run in the host/CPP tests; the dedicated static-kernel
-USB benchmark supplies qualified RPC/Sample hardware results.

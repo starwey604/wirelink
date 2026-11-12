@@ -14,9 +14,3 @@ owner step、真实 RAM 复制／完成和 callback 校验；Sample 校验每个
 解析器校验调用／Sample 数、端点／fixture 字节数、完整 repetition 和源码／机器
 身份；CPU 门槛可选，资源与 wall time 仅作诊断。单次共享 host smoke 不推出收益。
 报告中的 fixture 大小含本诊断自身的存储，不能当成产品 RAM。
-
-旧 reliability、one/eight-slot、通用 executor service 与旧 runtime UDP 工作负载已
-移除，逐文件原因见 `../retired-execution-workloads.csv`。旧 compare／run／executor
-脚本及其测试仅处理归档旧二进制／报告，不解析当前格式。当前 UDP 进程用例见教程05，
-owner／Session 合同见 host／CPP 测试；实板 RPC／Sample 结论来自独立静态内核 USB
-benchmark，不能拿这里的新 workload 与旧 API 图表直接做等工作量性能比较。

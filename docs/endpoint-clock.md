@@ -4,4 +4,4 @@ The C kernel receives `now` from its owner and reads no clock. Call timeout is 1
 
 `wl_platform_environment` is an optional outer provider. It supplies clock and fresh-instance descriptors without a mutable global provider. Identity acquisition happens at initialization, never on the hot path. Custom clocks used by host submitters/owner must be thread-safe; manual-clock advancement explicitly notifies the Session/waiter. tests/clock_bridge exercises C-owned endpoints from C++/Python with one outer clock read and zero core reads.
 
-[Migration checklist](migration-0.13.md) · [Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)
+[Kernel API](static-endpoint-kernel-api.md) · [Development checks](development-current.md)

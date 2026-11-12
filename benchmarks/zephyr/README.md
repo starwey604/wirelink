@@ -13,11 +13,6 @@ intrinsic diagnostics, not USB latency or whole-system active CPU.
 | `mixed_traffic` | `mixed_kernel_fw_*_v1`, 42 traffic/21 cycle groups; `mixed_traffic/compare_kernel_firmware.py` |
 | `rpc_validation` | `rpc_validation_*_v3`; `rpc_validation/compare.py`; public codec operations |
 
-The old RX backend selector experiment is retired, with its file hashes and
-replacements in `../retired-execution-workloads.csv`. Historical readers do
-not make removed executables current workloads. Never pool old ARQ/replay
-captures with these formats.
-
 From an initialized matching Zephyr workspace, build into a fresh directory:
 
 ```sh

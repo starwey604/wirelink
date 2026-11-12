@@ -60,5 +60,4 @@ Tag-free encoding changes evolution guarantees: adding an optional field can enl
 
 The owned/view and C++ conversion fixtures include signaling NaNs under an
 additional GCC x87 run (`WLC_TEST_X87=1`); byte copies avoid quieting them during
-conversion. P4 hardware results and the separate replay/guarantee/Sample
-comparisons are recorded in [the P4 report](codec-rpc-refactor-round-2-p4-result-cn.md).
+conversion.
