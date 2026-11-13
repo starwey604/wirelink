@@ -83,6 +83,12 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: "13.0"
     steps:
       - uses: actions/checkout@v5
+      # Benchmark tooling requires tomllib (3.11+); SDK runtime coverage still
+      # uses each matrix interpreter, including 3.10.
+      - uses: actions/setup-python@v6
+        id: benchmark-python
+        with:
+          python-version: '3.12'
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
@@ -103,6 +109,7 @@ jobs:
           -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
           -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON
           -DWIRELINK_BUILD_EXAMPLES=OFF
+          -DPython3_EXECUTABLE="${{ steps.benchmark-python.outputs.python-path }}"
           -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
       - name: Build and install native support
         run: |

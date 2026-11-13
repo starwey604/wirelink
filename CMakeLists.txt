@@ -81,8 +81,10 @@ add_library(wirelink_packet_port src/packet_port.c)
 function(wl_kernel_headers target)
   if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
     # Required by MSVC's C11 atomics, including C-owned installed consumers.
-    # C++ sees opaque packet/FIFO storage and needs no atomic ABI assumption.
-    target_compile_options(${target} PUBLIC /utf-8 "$<$<COMPILE_LANGUAGE:C>:/experimental:c11atomics>")
+    # Visual Studio evaluates target-wide COMPILE_LANGUAGE as CXX for mixed
+    # targets, dropping a C-only expression even from their C sources. MSVC
+    # accepts this switch in both modes; export it for mixed installed consumers.
+    target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics)
   endif()
   target_include_directories(${target} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

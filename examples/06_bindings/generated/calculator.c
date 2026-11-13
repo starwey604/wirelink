@@ -75,10 +75,10 @@ static inline uint8_t wlc_wire(const wlc_field_t *f) {
   return f->wire;
 }
 static inline uint64_t wlc_z32(int32_t v) {
-  return ((uint32_t)v << 1U) ^ (uint32_t)-(uint32_t)(v < 0);
+  return ((uint32_t)v << 1U) ^ (UINT32_C(0) - (uint32_t)(v < 0));
 }
 static inline int32_t wlc_uz32(uint32_t v) {
-  return (int32_t)((v >> 1U) ^ (uint32_t)-(v & 1U));
+  return (int32_t)((v >> 1U) ^ (UINT32_C(0) - (v & 1U)));
 }
 static inline wl_codec_status_t wlc_measure(const wlc_desc_t *, const void *, size_t *);
 static wl_codec_status_t wlc_measure_impl(const wlc_desc_t *, const void *, size_t *, bool);
@@ -112,17 +112,10 @@ static wl_codec_status_t wlc_measure_impl(const wlc_desc_t *d, const void *value
         if (f->required != 0U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
         continue;
       }
-    } else {
-      count = *(const size_t *)(base + f->count);
-      if ((count != 0U && *(void *const *)(base + f->value) == NULL) ||
-          count > *(const size_t *)(base + f->capacity))
-        return WL_CODEC_ERR_INVALID_VALUE;
     }
     for (size_t j = 0U; j < count; ++j) {
       size_t body;
-      const void *p = f->card == WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
+      const void *p = base + f->value;
       wl_codec_status_t s = wlc_body(f, p, &body, validated);
       if (s != WL_CODEC_OK) return s;
       if ((s = wlc_add(&n, f->key_size)) != WL_CODEC_OK ||
@@ -141,10 +134,6 @@ static void wlc_clear(const wlc_desc_t *d, void *value) {
     const wlc_field_t *f = &d->fields[i];
     void *p = base + f->value;
     (void)p;
-    if (f->card == WLC_REPEATED) {
-      *(size_t *)(base + f->count) = 0U;
-      continue;
-    }
     *(bool *)(base + f->has) = false;
     switch (f->kind) {
     case WLC_I32:
@@ -180,13 +169,9 @@ static inline wl_codec_status_t wlc_emit_fields(const wlc_desc_t *d, const void 
   for (size_t i = 0U; i < d->count; ++i) {
     const wlc_field_t *f = &d->fields[i];
     const uint8_t *base = value;
-    size_t count = f->card == WLC_OPTIONAL
-                       ? (*(const bool *)(base + f->has) ? 1U : 0U)
-                       : *(const size_t *)(base + f->count);
+    size_t count = f->card == WLC_OPTIONAL && *(const bool *)(base + f->has) ? 1U : 0U;
     for (size_t j = 0U; j < count; ++j) {
-      const void *p = f->card == WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
+      const void *p = base + f->value;
       wl_codec_status_t s;
       wlc_put_key(out, f);
       if ((s = wlc_emit_value(f, p, out)) != WL_CODEC_OK) return s;
@@ -309,9 +294,6 @@ static inline wl_codec_status_t wlc_decode(const wlc_desc_t *d, const uint8_t *i
   }
   return WL_CODEC_OK;
 }
-static const wlc_desc_t add_request_desc;
-static const wlc_desc_t add_response_desc;
-
 static const wlc_field_t add_request_fields[] = {
   { 1U, WLC_OPTIONAL, WLC_I32, 1, 0U, 1U, offsetof(add_request_t, left), offsetof(add_request_t, has_left), 0, 0, sizeof(int32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
   { 2U, WLC_OPTIONAL, WLC_I32, 1, 0U, 1U, offsetof(add_request_t, right), offsetof(add_request_t, has_right), 0, 0, sizeof(int32_t), 0U, 0U, { 16U, 0U, 0U }, 0, 0ULL, NULL, NULL },
@@ -394,8 +376,6 @@ static inline wl_codec_status_t wlc_value_decode(const wlc_desc_t *d, const uint
   }
   return WL_CODEC_OK;
 }
-static const wlc_value_desc_t add_request_value_desc;
-static const wlc_value_desc_t add_response_value_desc;
 static void add_request_value_defaults(add_request_value_t *out) {
   (void)out;
   out->left = 0;

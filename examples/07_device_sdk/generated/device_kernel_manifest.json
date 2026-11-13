@@ -30,11 +30,11 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 80819, "digest": "0x268b09a954355819"},
+    {"path": "device.c", "size": 79565, "digest": "0x0c691bde93635d1e"},
     {"path": "device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
     {"path": "device_kernel.c", "size": 6616, "digest": "0x6f78f0f37b1c4774"},
     {"path": "device_kernel.h", "size": 1887, "digest": "0xca13f08e9c599768"},
-    {"path": "device_kernel_codecs.h", "size": 77339, "digest": "0x19b231e6242e26a6"},
+    {"path": "device_kernel_codecs.h", "size": 75920, "digest": "0x4a6fd5c3f97843d2"},
     {"path": "device_kernel_deployment.json", "size": 726, "digest": "0x67364d7f13d1e261"},
     {"path": "device_values.h", "size": 7419, "digest": "0xd22f23ccc12b3b21"}
   ]

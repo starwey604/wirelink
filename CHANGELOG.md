@@ -2,6 +2,12 @@
 
 ## 0.13 development
 
+- Repair MSVC C11 atomics propagation for mixed C/C++ and installed consumers;
+  regenerate codecs with portable descriptor definitions and ZigZag masks.
+- Wait for observable UDP receipt in adapter tests, normalize footprint paths
+  on Windows, and separate benchmark Python 3.11+ tooling from SDK Python 3.10
+  runtime coverage.
+
 - Allocation-free C11 endpoint kernel with static typed routing.
 - Four concurrent outbound RPC calls, four reply snapshots and one ordinary
   message snapshot, scheduled through a nine-entry admission queue.

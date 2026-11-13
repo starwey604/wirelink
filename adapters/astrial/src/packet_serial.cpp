@@ -52,16 +52,16 @@ public:
     ++errors;
     activity.notify();
   }
-  void written(wl_packet_token_t token, size_t expected, const std::error_code &error,
+  void written(wl_packet_token_t completed_token, size_t expected, const std::error_code &error,
                size_t length) {
-    uint32_t state = (token.sequence << 2U) | 1U;
+    uint32_t state = (completed_token.sequence << 2U) | 1U;
     const bool success = !error && length == expected;
-    const uint32_t next = success ? (token.sequence << 2U) | 2U : 0U;
+    const uint32_t next = success ? (completed_token.sequence << 2U) | 2U : 0U;
     if (!tx.compare_exchange_strong(state, next, std::memory_order_acq_rel))
       return;
     if (!success && !stopping.load(std::memory_order_acquire))
       fail();
-    (void)wl_packet_tx_publish(&port, token, success ? WL_PACKET_CONSUMED : WL_PACKET_TX_ERROR);
+    (void)wl_packet_tx_publish(&port, completed_token, success ? WL_PACKET_CONSUMED : WL_PACKET_TX_ERROR);
   }
   wl_packet_port_t &port;
   wl_byte_fifo_t &fifo;

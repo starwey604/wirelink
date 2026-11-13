@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Check every generated SDK artifact against a matching local WLC compiler."""
+"""Check checked-in bare-metal and SDK artifacts against a matching local WLC compiler."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -14,6 +14,17 @@ def main():
     root = Path(__file__).resolve().parents[2]
     checked = 0
     with tempfile.TemporaryDirectory(prefix="wirelink-generated-sdk-") as temporary:
+        project = root / "examples" / "kernel"
+        output = Path(temporary) / "demo"
+        subprocess.run([
+            str(compiler), "compile-kernel", str(project / "demo.wl"),
+            "--profile", str(project / "demo.bind.wl"), "--out-dir", str(output),
+        ], check=True)
+        for artifact in sorted(output.iterdir()):
+            expected = project / "generated" / artifact.name
+            if not expected.is_file() or artifact.read_bytes() != expected.read_bytes():
+                raise SystemExit(f"Bare-metal artifact differs from WLC output: {expected}")
+            checked += 1
         for example, name in (("06_bindings", "calculator"), ("07_device_sdk", "device")):
             project = root / "examples" / example
             output = Path(temporary) / name
@@ -30,7 +41,7 @@ def main():
                     if not expected.is_file() or artifact.read_bytes() != expected.read_bytes():
                         raise SystemExit(f"SDK differs from WLC output: {expected}")
                     checked += 1
-    print(f"Verified {checked} generated SDK artifacts")
+    print(f"Verified {checked} generated artifacts")
 
 
 if __name__ == "__main__":

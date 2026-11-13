@@ -99,10 +99,10 @@ static inline uint8_t demo_rpc_wlc_wire(const demo_rpc_wlc_field_t *f) {
   return f->wire;
 }
 static inline uint64_t demo_rpc_wlc_z32(int32_t v) {
-  return ((uint32_t)v << 1U) ^ (uint32_t)-(uint32_t)(v < 0);
+  return ((uint32_t)v << 1U) ^ (UINT32_C(0) - (uint32_t)(v < 0));
 }
 static inline int32_t demo_rpc_wlc_uz32(uint32_t v) {
-  return (int32_t)((v >> 1U) ^ (uint32_t)-(v & 1U));
+  return (int32_t)((v >> 1U) ^ (UINT32_C(0) - (v & 1U)));
 }
 static inline wl_codec_status_t demo_rpc_wlc_measure(const demo_rpc_wlc_desc_t *, const void *, size_t *);
 static wl_codec_status_t demo_rpc_wlc_measure_impl(const demo_rpc_wlc_desc_t *, const void *, size_t *, bool);
@@ -136,17 +136,10 @@ static wl_codec_status_t demo_rpc_wlc_measure_impl(const demo_rpc_wlc_desc_t *d,
         if (f->required != 0U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
         continue;
       }
-    } else {
-      count = *(const size_t *)(base + f->count);
-      if ((count != 0U && *(void *const *)(base + f->value) == NULL) ||
-          count > *(const size_t *)(base + f->capacity))
-        return WL_CODEC_ERR_INVALID_VALUE;
     }
     for (size_t j = 0U; j < count; ++j) {
       size_t body;
-      const void *p = f->card == DEMO_RPC_WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
+      const void *p = base + f->value;
       wl_codec_status_t s = demo_rpc_wlc_body(f, p, &body, validated);
       if (s != WL_CODEC_OK) return s;
       if ((s = demo_rpc_wlc_add(&n, f->key_size)) != WL_CODEC_OK ||
@@ -165,10 +158,6 @@ static void demo_rpc_wlc_clear(const demo_rpc_wlc_desc_t *d, void *value) {
     const demo_rpc_wlc_field_t *f = &d->fields[i];
     void *p = base + f->value;
     (void)p;
-    if (f->card == DEMO_RPC_WLC_REPEATED) {
-      *(size_t *)(base + f->count) = 0U;
-      continue;
-    }
     *(bool *)(base + f->has) = false;
     switch (f->kind) {
     case DEMO_RPC_WLC_I32:
@@ -198,13 +187,9 @@ static inline wl_codec_status_t demo_rpc_wlc_emit_fields(const demo_rpc_wlc_desc
   for (size_t i = 0U; i < d->count; ++i) {
     const demo_rpc_wlc_field_t *f = &d->fields[i];
     const uint8_t *base = value;
-    size_t count = f->card == DEMO_RPC_WLC_OPTIONAL
-                       ? (*(const bool *)(base + f->has) ? 1U : 0U)
-                       : *(const size_t *)(base + f->count);
+    size_t count = f->card == DEMO_RPC_WLC_OPTIONAL && *(const bool *)(base + f->has) ? 1U : 0U;
     for (size_t j = 0U; j < count; ++j) {
-      const void *p = f->card == DEMO_RPC_WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
+      const void *p = base + f->value;
       wl_codec_status_t s;
       demo_rpc_wlc_put_key(out, f);
       if ((s = demo_rpc_wlc_emit_value(f, p, out)) != WL_CODEC_OK) return s;
@@ -327,9 +312,6 @@ static inline wl_codec_status_t demo_rpc_wlc_decode(const demo_rpc_wlc_desc_t *d
   }
   return WL_CODEC_OK;
 }
-static const demo_rpc_wlc_desc_t demo_rpc_request_desc;
-static const demo_rpc_wlc_desc_t demo_rpc_response_desc;
-
 static const demo_rpc_wlc_field_t demo_rpc_request_fields[] = {
   { 1U, DEMO_RPC_WLC_OPTIONAL, DEMO_RPC_WLC_I32, 1, 0U, 1U, offsetof(request_t, input), offsetof(request_t, has_input), 0, 0, sizeof(int32_t), 0U, 0U, { 8U, 0U, 0U }, 0, 0ULL, NULL, NULL },
 };
@@ -411,8 +393,6 @@ static inline wl_codec_status_t demo_rpc_wlc_value_decode(const demo_rpc_wlc_des
   }
   return WL_CODEC_OK;
 }
-static const demo_rpc_wlc_value_desc_t demo_rpc_request_value_desc;
-static const demo_rpc_wlc_value_desc_t demo_rpc_response_value_desc;
 static void demo_rpc_request_value_defaults(request_value_t *out) {
   (void)out;
   out->input = 0;

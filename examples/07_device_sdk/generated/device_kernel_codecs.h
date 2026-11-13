@@ -153,16 +153,16 @@ static inline uint8_t device_rpc_wlc_wire(const device_rpc_wlc_field_t *f) {
   return f->wire;
 }
 static inline uint64_t device_rpc_wlc_z32(int32_t v) {
-  return ((uint32_t)v << 1U) ^ (uint32_t)-(uint32_t)(v < 0);
+  return ((uint32_t)v << 1U) ^ (UINT32_C(0) - (uint32_t)(v < 0));
 }
 static inline uint64_t device_rpc_wlc_z64(int64_t v) {
-  return ((uint64_t)v << 1U) ^ (uint64_t)-(uint64_t)(v < 0);
+  return ((uint64_t)v << 1U) ^ (UINT64_C(0) - (uint64_t)(v < 0));
 }
 static inline int32_t device_rpc_wlc_uz32(uint32_t v) {
-  return (int32_t)((v >> 1U) ^ (uint32_t)-(v & 1U));
+  return (int32_t)((v >> 1U) ^ (UINT32_C(0) - (v & 1U)));
 }
 static inline int64_t device_rpc_wlc_uz64(uint64_t v) {
-  return (int64_t)((v >> 1U) ^ (uint64_t)-(v & 1U));
+  return (int64_t)((v >> 1U) ^ (UINT64_C(0) - (v & 1U)));
 }
 static inline wl_codec_status_t device_rpc_wlc_measure(const device_rpc_wlc_desc_t *, const void *, size_t *);
 static wl_codec_status_t device_rpc_wlc_measure_impl(const device_rpc_wlc_desc_t *, const void *, size_t *, bool);
@@ -255,17 +255,10 @@ static wl_codec_status_t device_rpc_wlc_measure_impl(const device_rpc_wlc_desc_t
         if (f->required != 0U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
         continue;
       }
-    } else {
-      count = *(const size_t *)(base + f->count);
-      if ((count != 0U && *(void *const *)(base + f->value) == NULL) ||
-          count > *(const size_t *)(base + f->capacity))
-        return WL_CODEC_ERR_INVALID_VALUE;
     }
     for (size_t j = 0U; j < count; ++j) {
       size_t body;
-      const void *p = f->card == DEVICE_RPC_WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
+      const void *p = base + f->value;
       wl_codec_status_t s = device_rpc_wlc_body(f, p, &body, validated);
       if (s != WL_CODEC_OK) return s;
       if ((s = device_rpc_wlc_add(&n, f->key_size)) != WL_CODEC_OK ||
@@ -284,10 +277,6 @@ static void device_rpc_wlc_clear(const device_rpc_wlc_desc_t *d, void *value) {
     const device_rpc_wlc_field_t *f = &d->fields[i];
     void *p = base + f->value;
     (void)p;
-    if (f->card == DEVICE_RPC_WLC_REPEATED) {
-      *(size_t *)(base + f->count) = 0U;
-      continue;
-    }
     *(bool *)(base + f->has) = false;
     if (f->card == DEVICE_RPC_WLC_PACKED) {
       memset(p, 0, f->element * f->packed_count);
@@ -419,13 +408,9 @@ static inline wl_codec_status_t device_rpc_wlc_emit_fields(const device_rpc_wlc_
       if ((s = device_rpc_wlc_emit_packed(f, base + f->value, out)) != WL_CODEC_OK) return s;
       continue;
     }
-    size_t count = f->card == DEVICE_RPC_WLC_OPTIONAL
-                       ? (*(const bool *)(base + f->has) ? 1U : 0U)
-                       : *(const size_t *)(base + f->count);
+    size_t count = f->card == DEVICE_RPC_WLC_OPTIONAL && *(const bool *)(base + f->has) ? 1U : 0U;
     for (size_t j = 0U; j < count; ++j) {
-      const void *p = f->card == DEVICE_RPC_WLC_REPEATED
-                          ? *(const uint8_t *const *)(base + f->value) + j * f->element
-                          : base + f->value;
+      const void *p = base + f->value;
       wl_codec_status_t s;
       device_rpc_wlc_put_key(out, f);
       if ((s = device_rpc_wlc_emit_value(f, p, out)) != WL_CODEC_OK) return s;
@@ -641,12 +626,6 @@ static inline wl_codec_status_t device_rpc_wlc_decode(const device_rpc_wlc_desc_
   }
   return WL_CODEC_OK;
 }
-static const device_rpc_wlc_desc_t device_rpc_info_request_desc;
-static const device_rpc_wlc_desc_t device_rpc_settings_desc;
-static const device_rpc_wlc_desc_t device_rpc_info_response_desc;
-static const device_rpc_wlc_desc_t device_rpc_configure_request_desc;
-static const device_rpc_wlc_desc_t device_rpc_configure_response_desc;
-
 static const device_rpc_wlc_desc_t device_rpc_info_request_desc = { NULL, 0U, DEVICE_RPC_WLC_LOOKUP_LINEAR };
 
 static const device_rpc_wlc_field_t device_rpc_settings_fields[] = {
@@ -803,11 +782,6 @@ static inline wl_codec_status_t device_rpc_wlc_value_decode(const device_rpc_wlc
   }
   return WL_CODEC_OK;
 }
-static const device_rpc_wlc_value_desc_t device_rpc_info_request_value_desc;
-static const device_rpc_wlc_value_desc_t device_rpc_settings_value_desc;
-static const device_rpc_wlc_value_desc_t device_rpc_info_response_value_desc;
-static const device_rpc_wlc_value_desc_t device_rpc_configure_request_value_desc;
-static const device_rpc_wlc_value_desc_t device_rpc_configure_response_value_desc;
 static void device_rpc_info_request_value_defaults(info_request_value_t *out) {
   (void)out;
 }
@@ -854,7 +828,7 @@ static wl_codec_status_t device_rpc_info_request_value_borrow(const info_request
 }
 
 static inline wl_codec_status_t device_rpc_info_request_value_to_view(const info_request_value_t *value, info_request_t *out) {
-  info_request_t view;
+  info_request_t view = {0};
   size_t size;
   wl_codec_status_t status;
   if (value == NULL || out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
@@ -866,13 +840,13 @@ static inline wl_codec_status_t device_rpc_info_request_value_to_view(const info
 }
 
 static inline size_t device_rpc_info_request_value_encoded_size(const info_request_value_t *value) {
-  info_request_t view;
+  info_request_t view = {0};
   if (value == NULL || device_rpc_info_request_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
   return device_rpc_info_request_encoded_size(&view);
 }
 
 static inline wl_codec_status_t device_rpc_info_request_value_encode(const info_request_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
-  info_request_t view;
+  info_request_t view = {0};
   wl_codec_status_t status;
   if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   status = device_rpc_info_request_value_borrow(value, &view);

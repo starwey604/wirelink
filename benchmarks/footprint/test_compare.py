@@ -5,7 +5,7 @@ import io
 import json
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PureWindowsPath, PurePosixPath
 
 import compare
 import footprint
@@ -139,6 +139,16 @@ class CompareTest(unittest.TestCase):
             ["-O2", "-I", "/elsewhere/include"],
             footprint.recorded_flags(
                 ["-O2", "-I", "/elsewhere/include"], Path("/tree")))
+
+    def test_recorded_flags_respect_path_components_and_windows_spelling(self):
+        for root in (PurePosixPath("/tree"), PureWindowsPath("/tree")):
+            self.assertEqual(["-I/treehouse/include", "include", "-Isrc"],
+                             footprint.recorded_flags(
+                                 ["-I/treehouse/include", "/tree/include", r"-I\tree\src"], root))
+        self.assertEqual(["-Iinclude", "src", r"-ID:\other\include"],
+                         footprint.recorded_flags(
+                             [r"-IC:\tree\include", "C:/tree/src", r"-ID:\other\include"],
+                             PureWindowsPath("C:/tree")))
 
 
 if __name__ == "__main__":

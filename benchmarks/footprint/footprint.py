@@ -177,14 +177,14 @@ def recorded_flags(flags, root):
     include paths would read as a toolchain mismatch and make the pair
     incomparable.
     """
-    prefix = str(root)
+    # Accept both slash spellings, including POSIX-style flags on Windows.
+    prefix = str(root).replace("\\", "/").rstrip("/") + "/"
     recorded = []
     for flag in flags:
-        for cut in ("-I" + prefix, prefix):
-            if flag.startswith(cut) and flag != cut:
-                recorded.append(flag[:len(cut) - len(prefix)]
-                                + flag[len(cut):].lstrip("/"))
-                break
+        option = "-I" if flag.startswith("-I") else ""
+        path = flag[len(option):].replace("\\", "/")
+        if path.startswith(prefix):
+            recorded.append(option + path[len(prefix):])
         else:
             recorded.append(flag)
     return recorded

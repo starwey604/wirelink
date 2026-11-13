@@ -14,7 +14,7 @@ with the build commands below.
 
 Run the following POSIX-shell commands from the Wirelink repository root. Use
 CMake 3.21 or later, a C11 compiler with lock-free atomics, a C++17 compiler for
-the threaded test fixtures, and Python 3 for the tooling tests. Core GCC/Clang
+the threaded test fixtures, and Python 3.11+ for the tooling tests. Core GCC/Clang
 targets build with warnings as errors. C++ integrations require C++20.
 
 ```sh
@@ -34,7 +34,9 @@ available; CMake reports when they are omitted. A library-only C build can use
 For multi-configuration generators, add `--config Release` to build/install
 and `-C Release` to CTest. Windows paths use the executable's `.exe` suffix.
 MSVC C consumers require C11 atomics; the CMake targets propagate
-`/experimental:c11atomics` only to C, not to C++.
+`/experimental:c11atomics` to both C and C++ compilation so Visual Studio
+mixed-language targets retain the option for their C sources. C++ consumers
+continue to use opaque packet/FIFO storage.
 
 ## Put a change in the layer that owns it
 
