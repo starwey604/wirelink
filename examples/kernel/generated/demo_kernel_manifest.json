@@ -21,11 +21,11 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "demo.c", "size": 28912, "digest": "0xddc16016f2aa292f"},
+    {"path": "demo.c", "size": 33315, "digest": "0xb8076fda2ba0d8f1"},
     {"path": "demo.h", "size": 2328, "digest": "0x4015370b3f25699e"},
     {"path": "demo_kernel.c", "size": 5097, "digest": "0xf3816e3f4d1de2e2"},
     {"path": "demo_kernel.h", "size": 1647, "digest": "0x9a2f33823025cd97"},
-    {"path": "demo_kernel_codecs.h", "size": 26356, "digest": "0x350523c16319b572"},
+    {"path": "demo_kernel_codecs.h", "size": 30903, "digest": "0x8cfe723540e0a356"},
     {"path": "demo_kernel_deployment.json", "size": 607, "digest": "0xd8cd5a4c64ef59a3"},
     {"path": "demo_values.h", "size": 2649, "digest": "0xbd2b0ca373913cb7"}
   ]

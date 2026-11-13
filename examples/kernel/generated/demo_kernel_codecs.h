@@ -244,10 +244,9 @@ static wl_codec_status_t demo_rpc_wlc_read_value(const demo_rpc_wlc_field_t *f, 
     case DEMO_RPC_WLC_I32:
 
       if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(int32_t *)out = demo_rpc_wlc_uz32((uint32_t)v); break;
-    default: return WL_CODEC_ERR_INVALID_VALUE;
+      *(int32_t *)out = demo_rpc_wlc_uz32((uint32_t)v); return WL_CODEC_OK;
+    default: break;
   }
-  return WL_CODEC_OK;
   return WL_CODEC_ERR_INVALID_VALUE;
 }
 static const demo_rpc_wlc_field_t *demo_rpc_wlc_find_field(const demo_rpc_wlc_desc_t *d, uint16_t number) {
@@ -322,18 +321,105 @@ static const demo_rpc_wlc_field_t demo_rpc_response_fields[] = {
 };
 static const demo_rpc_wlc_desc_t demo_rpc_response_desc = { demo_rpc_response_fields, sizeof(demo_rpc_response_fields) / sizeof(demo_rpc_response_fields[0]), DEMO_RPC_WLC_LOOKUP_LINEAR };
 
-static inline wl_codec_status_t demo_rpc_request_wlc_detail_measure(const request_t *value, size_t *size) { return demo_rpc_wlc_measure(&demo_rpc_request_desc, value, size); }
-static inline void demo_rpc_request_clear(request_t *value) { if (value != NULL) demo_rpc_wlc_clear(&demo_rpc_request_desc, value); }
-static inline size_t demo_rpc_request_encoded_size(const request_t *value) { size_t size; return demo_rpc_wlc_measure(&demo_rpc_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-static inline wl_codec_status_t demo_rpc_request_encode(const request_t *value, uint8_t *out, size_t cap, size_t *length) { return demo_rpc_wlc_encode(&demo_rpc_request_desc, value, out, cap, length); }
-static inline wl_codec_status_t demo_rpc_request_decode(const uint8_t *input, size_t length, request_t *out) { return demo_rpc_wlc_decode(&demo_rpc_request_desc, input, length, out); }
+/* Schema-specialized scalars; ordinary Schema-v1 TLV bytes. */
+static inline wl_codec_status_t demo_rpc_wlc_scalar_shape_0_wlc_detail_measure(const void *value, size_t *size) {
+  if (value == NULL || size == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  if (!(*(const bool *)((const uint8_t *)value + offsetof(request_t, has_input)))) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  *size = (1U + demo_rpc_wlc_vsize(demo_rpc_wlc_z32((*(const int32_t *)((const uint8_t *)value + offsetof(request_t, input))))));
+  return WL_CODEC_OK;
+}
 
-static inline wl_codec_status_t demo_rpc_response_wlc_detail_measure(const response_t *value, size_t *size) { return demo_rpc_wlc_measure(&demo_rpc_response_desc, value, size); }
-static inline void demo_rpc_response_clear(response_t *value) { if (value != NULL) demo_rpc_wlc_clear(&demo_rpc_response_desc, value); }
-static inline size_t demo_rpc_response_encoded_size(const response_t *value) { size_t size; return demo_rpc_wlc_measure(&demo_rpc_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-static inline wl_codec_status_t demo_rpc_response_encode(const response_t *value, uint8_t *out, size_t cap, size_t *length) { return demo_rpc_wlc_encode(&demo_rpc_response_desc, value, out, cap, length); }
-static inline wl_codec_status_t demo_rpc_response_decode(const uint8_t *input, size_t length, response_t *out) { return demo_rpc_wlc_decode(&demo_rpc_response_desc, input, length, out); }
+static void demo_rpc_wlc_scalar_shape_0_clear(void *value) {
+  if (value == NULL) return;
+  (*(bool *)((uint8_t *)value + offsetof(request_t, has_input))) = false;
+  (*(int32_t *)((uint8_t *)value + offsetof(request_t, input))) = 0;
+}
 
+static size_t demo_rpc_wlc_scalar_shape_0_encoded_size(const void *value) {
+  size_t size;
+  return demo_rpc_wlc_scalar_shape_0_wlc_detail_measure(value, &size) == WL_CODEC_OK ? size : SIZE_MAX;
+}
+
+static wl_codec_status_t demo_rpc_wlc_scalar_shape_0_encode(const void *value, uint8_t *out, size_t capacity, size_t *length) {
+  size_t size;
+  wl_codec_status_t status = demo_rpc_wlc_scalar_shape_0_wlc_detail_measure(value, &size);
+  if (status != WL_CODEC_OK) return status;
+  if (length == NULL || (size != 0U && out == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  if (capacity < size) return WL_CODEC_ERR_CAPACITY;
+  uint8_t *cursor = out;
+  if ((*(const bool *)((const uint8_t *)value + offsetof(request_t, has_input)))) {
+    *cursor++ = 8U;
+    demo_rpc_wlc_putv(&cursor, demo_rpc_wlc_z32((*(const int32_t *)((const uint8_t *)value + offsetof(request_t, input)))));
+  }
+  *length = size;
+  return WL_CODEC_OK;
+}
+
+static wl_codec_status_t demo_rpc_wlc_scalar_shape_0_decode(const uint8_t *input, size_t length, void *out) {
+  if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  demo_rpc_wlc_scalar_shape_0_clear(out);
+  for (size_t at = 0U; at < length;) {
+    uint32_t key;
+    wl_codec_status_t status;
+    if (input[at] < 128U) key = input[at++];
+    else {
+      uint64_t wide;
+      status = demo_rpc_wlc_getv(input, length, &at, &wide);
+      if (status != WL_CODEC_OK) return status;
+      if (wide > UINT32_C(0x7ffff)) return WL_CODEC_ERR_MALFORMED;
+      key = (uint32_t)wide;
+    }
+    uint32_t number = key >> 3U;
+    uint8_t wire = (uint8_t)(key & 7U);
+    if (number == 0U || number > 65535U ||
+        (wire != 0U && wire != 1U && wire != 2U && wire != 5U))
+      return WL_CODEC_ERR_MALFORMED;
+    switch ((uint16_t)number) {
+      case 1U: {
+        if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
+        if ((*(bool *)((uint8_t *)out + offsetof(request_t, has_input)))) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        uint64_t bits;
+        status = demo_rpc_wlc_getv(input, length, &at, &bits);
+        if (status != WL_CODEC_OK) return status;
+        if (bits > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+        (*(int32_t *)((uint8_t *)out + offsetof(request_t, input))) = (int32_t)(demo_rpc_wlc_uz32((uint32_t)bits));
+        (*(bool *)((uint8_t *)out + offsetof(request_t, has_input))) = true;
+        break;
+      }
+      default:
+        status = demo_rpc_wlc_skip(wire, input, length, &at);
+        if (status != WL_CODEC_OK) return status;
+        break;
+    }
+  }
+  if (!(*(bool *)((uint8_t *)out + offsetof(request_t, has_input)))) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  return WL_CODEC_OK;
+}
+
+static inline wl_codec_status_t demo_rpc_request_wlc_detail_measure(const request_t *value, size_t *size) {
+  (void)demo_rpc_request_desc;
+  return demo_rpc_wlc_scalar_shape_0_wlc_detail_measure(value, size);
+}
+static inline void demo_rpc_request_clear(request_t *value) { demo_rpc_wlc_scalar_shape_0_clear(value); }
+static inline size_t demo_rpc_request_encoded_size(const request_t *value) { return demo_rpc_wlc_scalar_shape_0_encoded_size(value); }
+static inline wl_codec_status_t demo_rpc_request_encode(const request_t *value, uint8_t *out, size_t capacity, size_t *length) { return demo_rpc_wlc_scalar_shape_0_encode(value, out, capacity, length); }
+static inline wl_codec_status_t demo_rpc_request_decode(const uint8_t *input, size_t length, request_t *out) { return demo_rpc_wlc_scalar_shape_0_decode(input, length, out); }
+
+static inline wl_codec_status_t demo_rpc_request_wlc_detail_decode_fields(const uint8_t *input, size_t length, void *out) { return demo_rpc_wlc_scalar_shape_0_decode(input, length, out); }
+static inline size_t demo_rpc_request_wlc_detail_encoded_size_fields(const void *value) { return demo_rpc_wlc_scalar_shape_0_encoded_size(value); }
+static inline wl_codec_status_t demo_rpc_request_wlc_detail_encode_fields(const void *value, uint8_t *out, size_t capacity, size_t *length) { return demo_rpc_wlc_scalar_shape_0_encode(value, out, capacity, length); }
+static inline wl_codec_status_t demo_rpc_response_wlc_detail_measure(const response_t *value, size_t *size) {
+  (void)demo_rpc_response_desc;
+  return demo_rpc_wlc_scalar_shape_0_wlc_detail_measure(value, size);
+}
+static inline void demo_rpc_response_clear(response_t *value) { demo_rpc_wlc_scalar_shape_0_clear(value); }
+static inline size_t demo_rpc_response_encoded_size(const response_t *value) { return demo_rpc_wlc_scalar_shape_0_encoded_size(value); }
+static inline wl_codec_status_t demo_rpc_response_encode(const response_t *value, uint8_t *out, size_t capacity, size_t *length) { return demo_rpc_wlc_scalar_shape_0_encode(value, out, capacity, length); }
+static inline wl_codec_status_t demo_rpc_response_decode(const uint8_t *input, size_t length, response_t *out) { return demo_rpc_wlc_scalar_shape_0_decode(input, length, out); }
+
+static inline wl_codec_status_t demo_rpc_response_wlc_detail_decode_fields(const uint8_t *input, size_t length, void *out) { return demo_rpc_wlc_scalar_shape_0_decode(input, length, out); }
+static inline size_t demo_rpc_response_wlc_detail_encoded_size_fields(const void *value) { return demo_rpc_wlc_scalar_shape_0_encoded_size(value); }
+static inline wl_codec_status_t demo_rpc_response_wlc_detail_encode_fields(const void *value, uint8_t *out, size_t capacity, size_t *length) { return demo_rpc_wlc_scalar_shape_0_encode(value, out, capacity, length); }
 /* A descriptor embeds the ordinary wire plan as its first member. Owned
  * lengths/data use actual member offsets; no view struct aliases an owned one. */
 typedef struct {
@@ -406,7 +492,13 @@ static const demo_rpc_wlc_field_t demo_rpc_request_value_fields[] = {
 static const demo_rpc_wlc_value_desc_t demo_rpc_request_value_desc = { { demo_rpc_request_value_fields, sizeof(demo_rpc_request_value_fields) / sizeof(demo_rpc_request_value_fields[0]), DEMO_RPC_WLC_LOOKUP_LINEAR }, sizeof(request_value_t), demo_rpc_request_value_decode_defaults };
 
 static wl_codec_status_t demo_rpc_request_value_borrow(const request_value_t *, request_t *);
-static inline wl_codec_status_t demo_rpc_request_wlc_detail_value_decode(const uint8_t *input, size_t length, request_value_t *out) { return demo_rpc_wlc_value_decode(&demo_rpc_request_value_desc.wire, input, length, out); }
+_Static_assert(offsetof(request_t, input) == offsetof(request_value_t, input), "Scalar owned layout");
+_Static_assert(offsetof(request_t, has_input) == offsetof(request_value_t, has_input), "Scalar owned layout");
+/* The shared scalar backend initializes each field through its primitive type. */
+static inline wl_codec_status_t demo_rpc_request_wlc_detail_value_decode(const uint8_t *input, size_t length, request_value_t *out) {
+  (void)demo_rpc_request_value_desc;
+  return demo_rpc_request_wlc_detail_decode_fields(input, length, out);
+}
 
 static void demo_rpc_request_value_copy_fields(const request_t *view, request_value_t *out) {
   out->has_input = view->has_input;
@@ -457,24 +549,15 @@ static inline wl_codec_status_t demo_rpc_request_value_to_view(const request_val
   return WL_CODEC_OK;
 }
 
-static inline size_t demo_rpc_request_value_encoded_size(const request_value_t *value) {
-  request_t view;
-  if (value == NULL || demo_rpc_request_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
-  return demo_rpc_request_encoded_size(&view);
-}
+static inline size_t demo_rpc_request_value_encoded_size(const request_value_t *value) { return demo_rpc_request_wlc_detail_encoded_size_fields(value); }
 
-static inline wl_codec_status_t demo_rpc_request_value_encode(const request_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
-  request_t view;
-  wl_codec_status_t status;
-  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = demo_rpc_request_value_borrow(value, &view);
-  return status == WL_CODEC_OK ? demo_rpc_request_encode(&view, out, capacity, length) : status;
-}
+static inline wl_codec_status_t demo_rpc_request_value_encode(const request_value_t *value, uint8_t *out, size_t capacity, size_t *length) { return demo_rpc_request_wlc_detail_encode_fields(value, out, capacity, length); }
 
 static inline wl_codec_status_t demo_rpc_request_value_decode(const uint8_t *input, size_t length, request_value_t *out) {
   request_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  memset(&value, 0, sizeof(value));
   status = demo_rpc_request_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
   *out = value;
@@ -494,7 +577,13 @@ static const demo_rpc_wlc_field_t demo_rpc_response_value_fields[] = {
 static const demo_rpc_wlc_value_desc_t demo_rpc_response_value_desc = { { demo_rpc_response_value_fields, sizeof(demo_rpc_response_value_fields) / sizeof(demo_rpc_response_value_fields[0]), DEMO_RPC_WLC_LOOKUP_LINEAR }, sizeof(response_value_t), demo_rpc_response_value_decode_defaults };
 
 static wl_codec_status_t demo_rpc_response_value_borrow(const response_value_t *, response_t *);
-static inline wl_codec_status_t demo_rpc_response_wlc_detail_value_decode(const uint8_t *input, size_t length, response_value_t *out) { return demo_rpc_wlc_value_decode(&demo_rpc_response_value_desc.wire, input, length, out); }
+_Static_assert(offsetof(response_t, output) == offsetof(response_value_t, output), "Scalar owned layout");
+_Static_assert(offsetof(response_t, has_output) == offsetof(response_value_t, has_output), "Scalar owned layout");
+/* The shared scalar backend initializes each field through its primitive type. */
+static inline wl_codec_status_t demo_rpc_response_wlc_detail_value_decode(const uint8_t *input, size_t length, response_value_t *out) {
+  (void)demo_rpc_response_value_desc;
+  return demo_rpc_response_wlc_detail_decode_fields(input, length, out);
+}
 
 static void demo_rpc_response_value_copy_fields(const response_t *view, response_value_t *out) {
   out->has_output = view->has_output;
@@ -545,24 +634,15 @@ static inline wl_codec_status_t demo_rpc_response_value_to_view(const response_v
   return WL_CODEC_OK;
 }
 
-static inline size_t demo_rpc_response_value_encoded_size(const response_value_t *value) {
-  response_t view;
-  if (value == NULL || demo_rpc_response_value_borrow(value, &view) != WL_CODEC_OK) return SIZE_MAX;
-  return demo_rpc_response_encoded_size(&view);
-}
+static inline size_t demo_rpc_response_value_encoded_size(const response_value_t *value) { return demo_rpc_response_wlc_detail_encoded_size_fields(value); }
 
-static inline wl_codec_status_t demo_rpc_response_value_encode(const response_value_t *value, uint8_t *out, size_t capacity, size_t *length) {
-  response_t view;
-  wl_codec_status_t status;
-  if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  status = demo_rpc_response_value_borrow(value, &view);
-  return status == WL_CODEC_OK ? demo_rpc_response_encode(&view, out, capacity, length) : status;
-}
+static inline wl_codec_status_t demo_rpc_response_value_encode(const response_value_t *value, uint8_t *out, size_t capacity, size_t *length) { return demo_rpc_response_wlc_detail_encode_fields(value, out, capacity, length); }
 
 static inline wl_codec_status_t demo_rpc_response_value_decode(const uint8_t *input, size_t length, response_value_t *out) {
   response_value_t value;
   wl_codec_status_t status;
   if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  memset(&value, 0, sizeof(value));
   status = demo_rpc_response_wlc_detail_value_decode(input, length, &value);
   if (status != WL_CODEC_OK) return status;
   *out = value;

@@ -500,32 +500,31 @@ static wl_codec_status_t wlc_read_value(const wlc_field_t *f, const uint8_t *in,
   switch (f->kind) {
     case WLC_BOOL:
       if (v > 1U) return WL_CODEC_ERR_INVALID_VALUE;
-      *(bool *)out = v != 0U; break;
+      *(bool *)out = v != 0U; return WL_CODEC_OK;
     case WLC_U8:
       if (v > UINT8_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(uint8_t *)out = (uint8_t)v; break;
+      *(uint8_t *)out = (uint8_t)v; return WL_CODEC_OK;
     case WLC_U16:
       if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(uint16_t *)out = (uint16_t)v; break;
+      *(uint16_t *)out = (uint16_t)v; return WL_CODEC_OK;
     case WLC_U32:
       if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(uint32_t *)out = (uint32_t)v; break;
-    case WLC_U64: *(uint64_t *)out = v; break;
+      *(uint32_t *)out = (uint32_t)v; return WL_CODEC_OK;
+    case WLC_U64: *(uint64_t *)out = v; return WL_CODEC_OK;
     case WLC_I8:
       if (v > UINT8_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(int8_t *)out = (int8_t)wlc_uz32((uint32_t)v); break;
+      *(int8_t *)out = (int8_t)wlc_uz32((uint32_t)v); return WL_CODEC_OK;
     case WLC_I16:
       if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(int16_t *)out = (int16_t)wlc_uz32((uint32_t)v); break;
+      *(int16_t *)out = (int16_t)wlc_uz32((uint32_t)v); return WL_CODEC_OK;
     case WLC_I32:
     case WLC_ENUM:
 
       if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(int32_t *)out = wlc_uz32((uint32_t)v); break;
-    case WLC_I64: *(int64_t *)out = wlc_uz64(v); break;
-    default: return WL_CODEC_ERR_INVALID_VALUE;
+      *(int32_t *)out = wlc_uz32((uint32_t)v); return WL_CODEC_OK;
+    case WLC_I64: *(int64_t *)out = wlc_uz64(v); return WL_CODEC_OK;
+    default: break;
   }
-  return WL_CODEC_OK;
   return WL_CODEC_ERR_INVALID_VALUE;
 }
 static wl_codec_status_t wlc_read_packed(const wlc_field_t *f,

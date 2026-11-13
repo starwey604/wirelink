@@ -73,6 +73,11 @@ jobs:
     name: SDK (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    defaults:
+      run:
+        # Bash stops at a failing native build/test instead of letting a later
+        # install mask its exit status on Windows PowerShell.
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -104,13 +109,13 @@ jobs:
       - name: Configure native support
         run: >-
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          "-DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install"
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF
           -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
           -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON
           -DWIRELINK_BUILD_EXAMPLES=OFF
           -DPython3_EXECUTABLE="${{ steps.benchmark-python.outputs.python-path }}"
-          -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
+          "-DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include"
       - name: Build and install native support
         run: |
           cmake --build build/native --config Release --parallel 4
@@ -119,8 +124,8 @@ jobs:
       - name: Configure installed SDK consumer and tests
         run: >-
           cmake -S examples/06_bindings -B build/sdk -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
-          -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/install"
+          "-DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install"
       - name: Build and test SDK
         run: |
           cmake --build build/sdk --config Release --parallel 4
@@ -128,16 +133,16 @@ jobs:
           cmake --install build/sdk --config Release
       - name: Test standalone C++ package
         run: |
-          cmake -S tests/package/calculator_consumer -B build/consumer -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake -S tests/package/calculator_consumer -B build/consumer "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/install"
           cmake --build build/consumer --config Release --parallel 4
           ctest --test-dir build/consumer -C Release --output-on-failure
       - name: Build and test the generated device SDK
         run: |
-          cmake -S examples/07_device_sdk -B build/device-sdk -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake -S examples/07_device_sdk -B build/device-sdk -DCMAKE_BUILD_TYPE=Release "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/install" "-DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install"
           cmake --build build/device-sdk --config Release --parallel 4
           ctest --test-dir build/device-sdk -C Release --output-on-failure
           cmake --install build/device-sdk --config Release
-          cmake -S tests/package/device_consumer -B build/device-consumer -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake -S tests/package/device_consumer -B build/device-consumer "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/install"
           cmake --build build/device-consumer --config Release --parallel 4
           ctest --test-dir build/device-consumer -C Release --output-on-failure
       - name: Build sdist and wheel from extracted sdist
@@ -159,7 +164,7 @@ jobs:
             export WIRELINK_CALCULATOR_SERVER="$GITHUB_WORKSPACE/build/sdk/tests/calculator_c_server"
             export WIRELINK_DEVICE_SERVER="$GITHUB_WORKSPACE/build/device-sdk/tests/device_c_server"
           fi
-          python -m pytest examples/06_bindings/tests examples/07_device_sdk/tests -q
+          python -m pytest examples/06_bindings/tests examples/07_device_sdk/tests -vv
           for wheel in dist/wirelink_calculator_sdk-*.whl; do
             python examples/06_bindings/tests/check_wheel.py --wheel "$wheel" --server "$WIRELINK_CALCULATOR_SERVER"
           done

@@ -508,22 +508,21 @@ static wl_codec_status_t device_rpc_wlc_read_value(const device_rpc_wlc_field_t 
   switch (f->kind) {
     case DEVICE_RPC_WLC_BOOL:
       if (v > 1U) return WL_CODEC_ERR_INVALID_VALUE;
-      *(bool *)out = v != 0U; break;
+      *(bool *)out = v != 0U; return WL_CODEC_OK;
     case DEVICE_RPC_WLC_U16:
       if (v > UINT16_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(uint16_t *)out = (uint16_t)v; break;
+      *(uint16_t *)out = (uint16_t)v; return WL_CODEC_OK;
     case DEVICE_RPC_WLC_U32:
       if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(uint32_t *)out = (uint32_t)v; break;
-    case DEVICE_RPC_WLC_U64: *(uint64_t *)out = v; break;
+      *(uint32_t *)out = (uint32_t)v; return WL_CODEC_OK;
+    case DEVICE_RPC_WLC_U64: *(uint64_t *)out = v; return WL_CODEC_OK;
     case DEVICE_RPC_WLC_ENUM:
 
       if (v > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
-      *(int32_t *)out = device_rpc_wlc_uz32((uint32_t)v); break;
-    case DEVICE_RPC_WLC_I64: *(int64_t *)out = device_rpc_wlc_uz64(v); break;
-    default: return WL_CODEC_ERR_INVALID_VALUE;
+      *(int32_t *)out = device_rpc_wlc_uz32((uint32_t)v); return WL_CODEC_OK;
+    case DEVICE_RPC_WLC_I64: *(int64_t *)out = device_rpc_wlc_uz64(v); return WL_CODEC_OK;
+    default: break;
   }
-  return WL_CODEC_OK;
   return WL_CODEC_ERR_INVALID_VALUE;
 }
 static wl_codec_status_t device_rpc_wlc_read_packed(const device_rpc_wlc_field_t *f,
