@@ -164,7 +164,7 @@ jobs:
             export WIRELINK_CALCULATOR_SERVER="$GITHUB_WORKSPACE/build/sdk/tests/calculator_c_server"
             export WIRELINK_DEVICE_SERVER="$GITHUB_WORKSPACE/build/device-sdk/tests/device_c_server"
           fi
-          python -m pytest examples/06_bindings/tests examples/07_device_sdk/tests -vv
+          python -m pytest examples/06_bindings/tests examples/07_device_sdk/tests -x -vv
           for wheel in dist/wirelink_calculator_sdk-*.whl; do
             python examples/06_bindings/tests/check_wheel.py --wheel "$wheel" --server "$WIRELINK_CALCULATOR_SERVER"
           done
