@@ -19,7 +19,7 @@ ctest --test-dir /tmp/wirelink-dev-core --output-on-failure
 
 这会构建生产 kernel、packet port、wire/stream、独立工具和已检入生成代码的 loopback。预期得到八次双向 RPC completion、两条遥测消息，以及两个 quiescent 端点，不需要 WLC 或硬件。只有 WLC 可执行文件可用时才加入动态生成 fixture；缺少时 CMake 会报告省略。仅构建 C 库可以使用 `-DBUILD_TESTING=OFF -DWIRELINK_BUILD_EXAMPLES=OFF`。
 
-多配置生成器在 build/install 命令上添加 `--config Release`，CTest 添加 `-C Release`；Windows 可执行路径使用 `.exe` 后缀。MSVC 的 C 消费者需要 C11 原子，CMake target 向 C 和 C++ 编译均传递 `/experimental:c11atomics`，以确保 Visual Studio 混合语言 target 的 C 源文件保留该选项。C++ 消费者仍使用不透明的 packet/FIFO 存储。
+多配置生成器在 build/install 命令上添加 `--config Release`，CTest 添加 `-C Release`；Windows 可执行路径使用 `.exe` 后缀。CMake target 导出 C11 语言要求，并为 MSVC 的 C11 原子向 C 和 C++ 编译均传递 `/experimental:c11atomics`，以确保 Visual Studio 混合语言 target 的 C 源文件保留该选项。C++ 消费者仍使用不透明的 packet/FIFO 存储。
 
 ## 将修改放在负责该合同的层
 

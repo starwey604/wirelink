@@ -33,7 +33,7 @@ available; CMake reports when they are omitted. A library-only C build can use
 
 For multi-configuration generators, add `--config Release` to build/install
 and `-C Release` to CTest. Windows paths use the executable's `.exe` suffix.
-MSVC C consumers require C11 atomics; the CMake targets propagate
+CMake targets export the C11 language requirement. For MSVC C11 atomics they propagate
 `/experimental:c11atomics` to both C and C++ compilation so Visual Studio
 mixed-language targets retain the option for their C sources. C++ consumers
 continue to use opaque packet/FIFO storage.

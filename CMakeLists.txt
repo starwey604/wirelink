@@ -79,6 +79,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 add_library(wirelink_packet_port src/packet_port.c)
 function(wl_kernel_headers target)
+  # Public C headers require C11 even when a consumer has no local C standard.
+  target_compile_features(${target} PUBLIC c_std_11)
   if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
     # Required by MSVC's C11 atomics, including C-owned installed consumers.
     # Visual Studio evaluates target-wide COMPILE_LANGUAGE as CXX for mixed

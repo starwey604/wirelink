@@ -13,7 +13,9 @@ if(WIRELINK_CONSUMER_HOST)
 endif()
 add_executable(wirelink_package_consumer main.c)
 target_link_libraries(wirelink_package_consumer PRIVATE Wirelink::wirelink Wirelink::frame_tools Wirelink::diagnostics Wirelink::containers)
-set_target_properties(wirelink_package_consumer PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+# A consumer's older baseline must be upgraded by the package's public C11
+# usage requirement, not by a caller-local workaround for atomic headers.
+set_target_properties(wirelink_package_consumer PROPERTIES C_STANDARD 90 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 add_executable(wirelink_package_consumer_cpp20 cpp20_public_headers.cpp)
 target_compile_features(wirelink_package_consumer_cpp20 PRIVATE cxx_std_20)
 target_link_libraries(wirelink_package_consumer_cpp20 PRIVATE Wirelink::wirelink Wirelink::diagnostics)
