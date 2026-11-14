@@ -1,0 +1,11 @@
+{
+  "format": "wirelink-release-pair-v1",
+  "wirelink_version": "0.13.0",
+  "wlc": {
+    "source_sha": "08f68c95c543185b4b64ad38458307cf96fa8e30",
+    "version": "0.13.0",
+    "codegen_contract": "0.13",
+    "binding_api": 3,
+    "rust_toolchain": "1.96.1"
+  }
+}

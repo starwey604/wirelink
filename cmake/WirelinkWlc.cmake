@@ -102,7 +102,7 @@ function(_wirelink_wlc_schema_dependencies executable schema out_dependencies)
 endfunction()
 
 
-# No published 0.13 compiler is assumed. Supply a matching locally built tool.
+# Use an explicitly selected or PATH-installed matching compiler; no fallback download.
 function(_wirelink_wlc_resolve explicit result)
   if(explicit)
     set(compiler "${explicit}")

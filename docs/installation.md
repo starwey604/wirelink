@@ -18,9 +18,15 @@ ctest --test-dir build/core --output-on-failure
 cmake --install build/core
 ```
 
-Generation requires **WLC 0.13.0 / codegen 0.13**, built from the matching
-independent compiler source tree. Rust/Cargo is a build-time tool for that
-compiler, not a core dependency. Preserve LF in compiler templates.
+Generation requires **WLC 0.13.0 / codegen 0.13**. Download the archive for your
+platform from [WLC v0.13.0](https://github.com/starwey604/wlc/releases/tag/v0.13.0),
+verify it against the release's `SHA256SUMS`, and extract `wlc` (`wlc.exe` on
+Windows). The five archives cover Linux musl x86-64/ARM64, Windows x86-64 and
+macOS Intel/ARM. The archive's `wlc-build.json` records its exact source pair.
+
+Alternatively, build the matching independent compiler source. Rust/Cargo is
+needed only for this source build, not for using an archived compiler or the C
+core. Preserve LF in compiler templates.
 
 ```sh
 cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml

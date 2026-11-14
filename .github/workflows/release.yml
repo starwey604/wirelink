@@ -1,67 +1,131 @@
 name: Release
-
 on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
-
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag (required for publication; optional for rehearsal)
+        type: string
+      dry_run:
+        description: Verify and assemble artifacts without creating a tag or release
+        type: boolean
+        default: true
+      promote_run:
+        description: Successful rehearsal run whose exact bundle should be promoted
+        type: string
 permissions:
-  contents: write
-
+  contents: read
+  actions: read
+concurrency:
+  group: wirelink-release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 jobs:
+  prepare:
+    name: Resolve frozen release pair
+    runs-on: ubuntu-24.04
+    outputs:
+      wlc_sha: ${{ steps.pair.outputs.wlc_sha }}
+      version: ${{ steps.pair.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate versions, pairing and release notes
+        id: pair
+        env:
+          RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          REQUIRE_TAG: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        run: |
+          if [ "$REQUIRE_TAG" = true ]; then test -n "$RELEASE_TAG"; fi
+          python tests/package/release.py prepare --tag "$RELEASE_TAG"
   host:
+    needs: prepare
+    if: ${{ !inputs.promote_run }}
     uses: ./.github/workflows/host.yml
   bindings:
+    needs: prepare
+    if: ${{ !inputs.promote_run }}
     uses: ./.github/workflows/bindings.yml
   zephyr:
+    needs: prepare
+    if: ${{ !inputs.promote_run }}
     uses: ./.github/workflows/zephyr.yml
-  publish:
-    name: Verify artifacts and publish
-    needs: [host, bindings, zephyr]
+  assemble:
+    name: Verify release bundle
+    needs: [prepare, host, bindings, zephyr]
+    if: >-
+      ${{ always() && needs.prepare.result == 'success' &&
+      ((needs.host.result == 'success' && needs.bindings.result == 'success' && needs.zephyr.result == 'success') ||
+      (inputs.promote_run && needs.host.result == 'skipped' && needs.bindings.result == 'skipped' && needs.zephyr.result == 'skipped')) }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: starwey604/wlc
+          ref: ${{ needs.prepare.outputs.wlc_sha }}
+          path: .tools/wlc
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
       - uses: actions/download-artifact@v4
+        if: ${{ !inputs.promote_run }}
         with:
           pattern: generated-sdks-*
           path: artifacts
-      - name: Check versions and collect tested packages
-        shell: bash
-        run: |
-          python - <<'PY'
-          import os
-          from pathlib import Path
-          import re
-          import shutil
-          import tomllib
-          version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
-          header = Path('include/wirelink/version.h').read_text()
-          assert f'#define WIRELINK_VERSION_STRING "{version}"' in header
-          assert f'project(wirelink VERSION {version} LANGUAGES C)' in Path('CMakeLists.txt').read_text()
-          for example in ('06_bindings', '07_device_sdk'):
-              project = tomllib.loads((Path('examples') / example / 'pyproject.toml').read_text())
-              assert project['project']['version'] == version
-          dist = Path('dist')
-          dist.mkdir()
-          wheels = list(Path('artifacts').rglob('*.whl'))
-          assert len(wheels) == 40, f'Expected 40 tested wheels, got {len(wheels)}'
-          assert len({p.name for p in wheels}) == 40, 'Duplicate wheel platform tags'
-          for wheel in wheels:
-              assert f'-{version}-' in wheel.name
-              assert re.search(r'-(cp31[0-4])-\1-', wheel.name), wheel
-              assert not wheel.name.endswith('-linux_x86_64.whl'), wheel
-              shutil.copy2(wheel, dist / wheel.name)
-          sources = list(Path('artifacts/generated-sdks-manylinux_2_28-x86_64').glob('*.tar.gz'))
-          assert len(sources) == 2
-          for source in sources:
-              assert source.name.endswith(f'-{version}.tar.gz')
-              shutil.copy2(source, dist / source.name)
-          PY
-          (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS)
-      - name: Publish stable release
+      - name: Collect the forty tested wheels and two source distributions
+        if: ${{ !inputs.promote_run }}
+        run: python tests/package/release.py collect --run-id "$GITHUB_RUN_ID"
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.promote_run }}
+        with:
+          name: wirelink-release-bundle
+          run-id: ${{ inputs.promote_run }}
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify integrity and promotion provenance
         env:
           GH_TOKEN: ${{ github.token }}
+          PROMOTE_RUN: ${{ inputs.promote_run }}
+        run: python tests/package/release.py verify --run-id "$GITHUB_RUN_ID" --promote-run "$PROMOTE_RUN"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.promote_run }}
+        with:
+          name: wirelink-release-bundle
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    name: Publish verified pair
+    needs: [prepare, assemble]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.assemble.result == 'success' && (github.event_name == 'push' || !inputs.dry_run) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: starwey604/wlc
+          ref: ${{ needs.prepare.outputs.wlc_sha }}
+          path: .tools/wlc
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: wirelink-release-bundle
+          run-id: ${{ inputs.promote_run || github.run_id }}
+          github-token: ${{ github.token }}
+          path: dist
+      - name: Verify the published compiler pair and promote exact assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          PROMOTE_RUN: ${{ inputs.promote_run }}
         run: >-
-          gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --latest
-          --title "Wirelink ${GITHUB_REF_NAME}"
-          --notes-file "docs/release-${GITHUB_REF_NAME}-cn.md"
+          python tests/package/release.py verify --run-id "$GITHUB_RUN_ID"
+          --promote-run "$PROMOTE_RUN" --tag "$RELEASE_TAG" --publish

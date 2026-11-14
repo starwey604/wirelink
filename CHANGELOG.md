@@ -1,6 +1,10 @@
 # Release notes
 
-## 0.13 development
+## 0.13.0
+
+- Freeze the compiler source pair in `.github/release-pair.json`; add release
+  rehearsals, complete SDK inventory/provenance checks and promotion of the
+  original tested bundles after the matching compiler is published.
 
 - Export C11 and repair MSVC atomics propagation for mixed C/C++ and installed consumers;
   regenerate codecs with portable descriptor definitions and ZigZag masks.

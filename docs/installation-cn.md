@@ -14,7 +14,9 @@ ctest --test-dir build/core --output-on-failure
 cmake --install build/core
 ```
 
-生成需要从匹配的独立源码构建 **WLC 0.13.0 / codegen 0.13**。Rust/Cargo 只用于构建编译器，不进入 C core。编译器模板保留 LF。
+生成需要 **WLC 0.13.0 / codegen 0.13**。从 [WLC v0.13.0](https://github.com/starwey604/wlc/releases/tag/v0.13.0) 下载对应平台归档，按该 Release 的 `SHA256SUMS` 校验，再解压 `wlc`（Windows 为 `wlc.exe`）。五种归档覆盖 Linux musl x86-64/ARM64、Windows x86-64、macOS Intel/ARM；归档内的 `wlc-build.json` 记录精确源码配对。
+
+也可以从匹配的独立源码构建编译器。只有源码构建需要 Rust/Cargo，使用归档编译器和 C core 均不需要。编译器模板保留 LF。
 
 ```sh
 cargo build --release --locked --manifest-path /path/to/matching-wlc/Cargo.toml

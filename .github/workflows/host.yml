@@ -39,7 +39,9 @@ jobs:
           cmake --build build --config Release --parallel
           ctest --test-dir build --build-config Release --output-on-failure
       - name: Verify checked-in SDK output
-        run: python tests/package/check_generated_sdks.py --wlc "${{ env.WIRELINK_WLC_EXECUTABLE }}"
+        run: |
+          python tests/package/check_generated_sdks.py --wlc "${{ env.WIRELINK_WLC_EXECUTABLE }}"
+          python tests/package/test_release.py
       - name: Install
         run: cmake --install build --config Release --prefix ${{ github.workspace }}/install
       - name: Configure public C/C++ and owner consumer

@@ -1,39 +1,48 @@
-# CI source and execution contract (0.13)
+# CI source and release contract (0.13)
 
-The local setup-wlc composite action builds independent WLC
-`7eabbf4dd767f968123917ba02431fa0a0ef184e` with Rust 1.96.1, verifies version
-0.13.0/codegen 0.13 and exports its absolute executable. This commit must be
-available in the independent remote before remote CI can fetch it. Updating
-these workflows does not push that repository or imply a published compiler.
-No fallback release download is used.
+`.github/release-pair.json` is the authoritative WLC source pin, compiler version,
+codegen contract, SDK binding API and Rust toolchain for this Wirelink candidate.
+The setup-wlc action reads that file, builds the exact independent commit and
+checks the executable before exporting it. Normal CI uses source builds; it does
+not silently substitute an older public release.
 
-The host matrix explicitly enables current generated tests, C tutorials,
-platform/storage, bounded owner and C++ Session. Installed consumers use
-`wlc_current`, public C/C++ headers, fixed-width outcome tests and the current
-UDP component. C11 atomic storage stays in C. ASan/UBSan and libFuzzer exercise
-current execution; optional profiling is an application tool, not core hooks.
-Benchmark parser tests run via CTest; argument-dependent model tests remain
-registered with the real model build. Manual timing requires an explicit
-compatible base revision, not an automatically selected pre-cut release.
+The full matrix exercises core/owner/tutorials, installed C/C++ and UDP consumers,
+Astrial adapters, forty SDK wheel combinations and two source distributions,
+ASan/UBSan, libFuzzer and Zephyr native/QEMU. CPython 3.10–3.14 is the SDK runtime
+matrix; benchmark tooling uses its separate Python 3.11+ interpreter.
 
-Zephyr is pinned to `ca10f7fc7a5b5b1129823cfc57506e81bb109743`; CI applies the
-three reviewed platform patches only after applicability checks. A local
-isolated application of those patches reproduces all four modified platform
-files byte-for-byte. UART/USB capability constraints remain explicit; a board
-build does not qualify physical I/O.
+Zephyr remains pinned to `ca10f7fc7a5b5b1129823cfc57506e81bb109743`; CI applies the
+three reviewed platform patches after applicability checks. ESP32-S3 USB bulk is
+a build qualification. Physical UART/USB I/O follows the adapter HIL records.
+Astrial remains pinned to `7ffc5c34327d231e4bbca4fadb2157b8bba5a42d`.
 
-Astrial CI pins `7ffc5c34327d231e4bbca4fadb2157b8bba5a42d`. Physical research
-also records the pre-existing dirty Astrial tree separately. Controlled
-adapter-boundary tests and a source pin alone do not qualify that dirty driver
-implementation or physical hardware. No external Astrial/vendor edits are made.
+## Freeze source once, record the pair in artifacts
 
-The manylinux job builds a static musl WLC executable before entering the
-older-glibc container and explicitly supplies that container path. Local
-verification built the static executable and compared all checked-in SDK
-artifacts. This is not a completed manylinux run or a wheel publication.
+WLC's shared verification workflow has one qualified Wirelink API baseline. Its
+release workflow also accepts an explicit immutable Wirelink candidate. Wirelink
+pins the resulting WLC commit; its own commit is supplied by the workflow at
+runtime. Neither repository embeds a circular reference to the other's final
+commit.
 
-Remote Windows/macOS runners, the manylinux image and release/deployment jobs
-are not executed merely by editing the workflow. Local evidence records the
-Linux-equivalent product/install tests, source pins, patch comparison and YAML/
-script syntax checks separately. Publishing/tags/deployment remain outside this
-refactor execution.
+A WLC rehearsal extracts each of the five platform archives, checks version,
+codegen 0.13 and binding API 3, compares all checked-in generated artifacts, then
+builds and runs profile-v2 RPC and installed-generator consumers against the
+exact paired core. Its archives and `wlc-release.json` record both full SHAs.
+Wirelink's rehearsal runs the full matrix and collects exactly forty supported
+wheels, two manylinux-tested sdists and `wirelink-release.json` for the same pair.
+Each complete bundle has `SHA256SUMS` and is retained as a CI artifact.
+
+## Promote successful bundles, WLC first
+
+Both Release workflows support explicit `dry_run` and `promote_run` inputs. A
+rehearsal creates no tag or GitHub release. Promotion checks the original release
+run's successful conclusion, source SHA, workflow identity, complete inventory,
+source pair and checksums. It publishes the original bundle, without rebuilding.
+Wirelink publication additionally requires the public WLC release metadata to
+name this exact pair. Existing releases are accepted only when their assets are
+identical; different assets are never overwritten.
+
+Tag-push and existing-tag manual WLC releases remain supported. New tags can also
+be created by verified promotion. The repository token creates those tags, so
+GitHub does not recursively launch another tag-push workflow. Use the paired
+[release procedure](../docs/releasing-cn.md) for rehearsal and promotion commands.
