@@ -23,8 +23,8 @@ RPC 的返回 view 只在回调期间有效，需要保留的数据应复制，�
 manifest 一起提交。发布包中的 `wirelink-release.json` 与 WLC 的 `wlc-release.json`
 记录精确提交配对；只匹配版本号不足以标识这组发布产物。
 
-参阅 [执行模型](kernel-cn.md)、[API](kernel-api-cn.md)、[安装](installation-cn.md)
-与 [开发检查](development-cn.md)。Schema-v1 codec 与 frozen-v1 conformance vectors
+参阅 [执行模型](https://github.com/starwey604/wirelink/blob/v0.13.0/docs/kernel-cn.md)、[API](https://github.com/starwey604/wirelink/blob/v0.13.0/docs/kernel-api-cn.md)、[安装](https://github.com/starwey604/wirelink/blob/v0.13.0/docs/installation-cn.md)
+与 [开发检查](https://github.com/starwey604/wirelink/blob/v0.13.0/docs/development-cn.md)。Schema-v1 codec 与 frozen-v1 conformance vectors
 继续约束 wire 行为；新的执行接口不改变这些编码规则。
 
 ## 发布验证与产物
