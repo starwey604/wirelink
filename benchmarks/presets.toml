@@ -60,28 +60,6 @@ run = [
 compare = ["{python}", "benchmarks/footprint/compare.py"]
 gate_absolute_flag = "--max-growth-bytes"
 
-[suites.framing]
-kind = "gb"
-build = "top"
-description = "Independent framing encode/alias/decode tools (host timing)"
-cmake_options = ["WIRELINK_BUILD_FRAMING_BENCHMARK=ON"]
-binary = "benchmarks/framing/wirelink_framing_benchmark"
-requires = ["google-benchmark"]
-run = [
-  "{bin}/benchmarks/framing/wirelink_framing_benchmark",
-  "--benchmark_filter=^(spare|exact|overlap|raw_decode|cobs_decode)/e[012]/i[012]/p[012]/b(32|120|512|2048)$",
-  "--benchmark_min_time=0.01s", "--benchmark_repetitions=5",
-  "--benchmark_enable_random_interleaving=true",
-  "--benchmark_out={out}/framing.json", "--benchmark_out_format=json",
-]
-stamp = [
-  "benchmarks/framing/workload.c",
-  "benchmarks/framing/workload.h",
-  "benchmarks/framing/micro.cpp",
-]
-compare = ["{python}", "benchmarks/framing/compare.py"]
-gate_absolute_flag = "--max-regression-ns"
-
 [suites.codec_plan]
 kind = "gb"
 build = "standalone"
@@ -156,13 +134,13 @@ gate = { mode = "auto", percent = 0.0 }
 
 [presets.quick]
 description = "Sentinel host timing on one idle machine; warn-only until calibrated"
-suites = ["framing", "codec_plan", "rpc_validation"]
+suites = ["codec_plan", "rpc_validation"]
 gate = { mode = "warn", percent = 10.0, ns = 5.0 }
 
 [presets.full]
 description = "Every current registered host suite; diagnostic"
 suites = [
   "owner_pass", "mixed_traffic", "footprint",
-  "framing", "codec_plan", "rpc_validation", "api",
+  "codec_plan", "rpc_validation", "api",
 ]
 gate = { mode = "off" }

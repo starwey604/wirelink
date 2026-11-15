@@ -11,7 +11,6 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 
-#include "wirelink/frame.h"
 #include "wirelink/zephyr/kernel_uart_dma.h"
 
 #define TEST_MAX_PAYLOAD 64U

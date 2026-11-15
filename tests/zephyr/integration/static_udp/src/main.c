@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/zephyr/kernel_udp.h"
 #include "wirelink/packet_stream.h"
-#include "wirelink/frame.h"
+#include "wirelink/kernel_wire.h"
+#include "wirelink/cobs.h"
+#include "wirelink/crc.h"
 #include "kernel_udp_socket_contract.h"
 #include <zephyr/net/socket.h>
 #include <zephyr/ztest.h>
@@ -137,14 +139,17 @@ ZTEST(static_udp, test_guard_peer_slots_and_latched_wait) {
 ZTEST(static_udp, test_selected_cobs_decode_and_recovery) {
   setup(true);
   uint8_t payload[] = {0, 1, 2, 3};
+  uint8_t raw[WL_KERNEL_NATIVE_HEADER + sizeof(payload) + 2U];
   uint8_t wire[64];
   size_t n = 0;
-  wl_wire_packet_t packet = {.type = WL_PACKET_DATA,
-                             .message_id = 22,
-                             .integrity = WL_INTEGRITY_CRC16,
-                             .payload = payload,
-                             .payload_len = sizeof(payload)};
-  zassert_ok(wl_frame_encode(&packet, WL_ENVELOPE_COBS_STREAM, wire, sizeof(wire), &n));
+  zassert_ok(wl_kernel_native_none_seal(raw, WL_KERNEL_NATIVE_HEADER + sizeof(payload), 22U,
+                                        sizeof(payload)));
+  memcpy(raw + WL_KERNEL_NATIVE_HEADER, payload, sizeof(payload));
+  const uint16_t crc = wl_crc16_ccitt_false(raw, WL_KERNEL_NATIVE_HEADER + sizeof(payload));
+  raw[WL_KERNEL_NATIVE_HEADER + sizeof(payload)] = (uint8_t)(crc >> 8U);
+  raw[WL_KERNEL_NATIVE_HEADER + sizeof(payload) + 1U] = (uint8_t)crc;
+  zassert_ok(wl_cobs_encode(raw, sizeof(raw), wire, sizeof(wire) - 1U, &n));
+  wire[n++] = 0U;
   wire[2] ^= 1;
   send_bytes(sender, wire, n);
   wire[2] ^= 1;

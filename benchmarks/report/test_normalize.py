@@ -10,15 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from report import normalize, schema  # noqa: E402
 
 
-def framing_report():
-    return {"context": {"workload": "wirelink-framing-v1", "host_name": "test"},
-            "benchmarks": [{"name": "busy3/e0/i0/p2/b120", "run_type": "iteration",
-                            "repetition_index": i, "cpu_time": 100 + i,
-                            "real_time": 120 + i, "time_unit": "ns",
-                            "sink_calls_per_op": 4, "context_bytes": 896}
-                           for i in range(3)]}
-
-
 def api_report():
     return {"format": "wirelink-performance-v1", "context": {
         "system": "test", "machine": "test", "host": "test", "samples": 100,
@@ -104,15 +95,6 @@ class Normalize(unittest.TestCase):
                    if row["case"] == case and row["metric"] == metric]
         self.assertEqual(1, len(matches))
         return matches[0]
-
-    def test_framing_gb_keeps_all_repetitions(self):
-        rows = self.emit("framing", {"framing.json": framing_report()})
-        cpu = self.find(rows, "busy3/e0/i0/p2/b120", "cpu_ns")
-        self.assertEqual([100, 101, 102], cpu["samples"])
-        self.assertEqual(101, cpu["median"])
-        self.assertEqual(("ns", "lower"), (cpu["unit"], cpu["direction"]))
-        self.assertEqual(121, self.find(rows, "busy3/e0/i0/p2/b120",
-                                        "wall_ns")["median"])
 
     def test_codec_plan_full_matrix(self):
         module = normalize._suite_module("codec_plan")

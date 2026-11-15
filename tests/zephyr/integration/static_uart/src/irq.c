@@ -3,7 +3,6 @@
 #include <string.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/ztest.h>
-#include "wirelink/frame.h"
 #include "wirelink/kernel_wire.h"
 #include "wirelink/kernel.h"
 #include "wirelink/zephyr/kernel_uart_irq.h"

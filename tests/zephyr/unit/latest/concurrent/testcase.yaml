@@ -1,9 +1,0 @@
-tests:
-  wirelink.latest.concurrent:
-    tags:
-      - wirelink
-      - latest
-      - spsc
-    platform_allow:
-      - native_sim
-    timeout: 60

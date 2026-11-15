@@ -30,7 +30,7 @@ jobs:
         run: >-
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
           -DWIRELINK_BUILD_WLC_EXAMPLES=ON -DWIRELINK_BUILD_PLATFORM=ON
-          -DWIRELINK_BUILD_STORAGE=ON -DWIRELINK_BUILD_CPP_BINDINGS=ON
+          -DWIRELINK_BUILD_CPP_BINDINGS=ON
           -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON
           -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include
           -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}

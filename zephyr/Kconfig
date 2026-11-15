@@ -32,16 +32,6 @@ config WIRELINK_BYTE_FIFO_COBS
 	bool
 	select WIRELINK_BYTE_FIFO
 	select WIRELINK_STREAM_COBS_CRC16
-config WIRELINK_CONTAINERS
-	bool "Independent FIFO, LATEST and outbox data tools"
-config WIRELINK_FRAME_TOOLS
-	bool "Standalone frozen-wire frame tools"
-	select WIRELINK_FRAMING_PRIMITIVES
-	help
-	  Independent framing utilities include historical reliable/ACK wire formats.
-	  This does not enable reliable execution in the endpoint kernel.
-config WIRELINK_STORAGE
-	bool "Independent caller-owned fixed-block allocator"
 config WIRELINK_ZEPHYR_WAIT
 	bool "Latched owner wait and stop notification"
 	depends on MULTITHREADING

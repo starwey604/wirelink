@@ -19,7 +19,7 @@ int main() {
   CHECK(example_packet_tool_prepare(8080, 0, object_peer_exchange, nullptr, nullptr) == WL_OK);
   ObjectSender sender;
   auto bytes = make_object(2016);
-  const auto crc = wl_crc32c(bytes.data(), bytes.size());
+  const auto crc = local_crc32c(bytes.data(), bytes.size());
   const auto deadline = Clock::now() + std::chrono::seconds(5);
   bulk_begin_t begin{};
   begin.has_transfer_id = begin.has_total_length = begin.has_requested_chunk_size = begin.has_object_crc32c = true;

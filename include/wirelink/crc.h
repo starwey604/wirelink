@@ -9,8 +9,6 @@ extern "C" {
 #endif
 
 uint16_t wl_crc16_ccitt_false(const uint8_t *data, size_t length);
-uint32_t wl_crc32c(const uint8_t *data, size_t length);
-size_t wl_crc_size_bytes(uint8_t integrity_selector);
 
 #ifdef __cplusplus
 }

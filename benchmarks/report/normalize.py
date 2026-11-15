@@ -14,7 +14,7 @@ from pathlib import Path
 from . import schema
 
 BENCH = Path(__file__).resolve().parents[1]
-GB_SUITES = ("framing", "codec_plan", "rpc_validation")
+GB_SUITES = ("codec_plan", "rpc_validation")
 # owner_pass rows carry racy activity counters by design; only the
 # deterministic contract fields are normalized (see owner_pass/README.md).
 OWNER_PASS_METRICS = ("budget", "delivered", "received")

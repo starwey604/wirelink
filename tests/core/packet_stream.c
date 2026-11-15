@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/packet_stream.h"
 #include "wirelink/kernel_wire.h"
-#include "wirelink/frame.h"
+#include "wirelink/cobs.h"
+#include "wirelink/crc.h"
 #include <stdlib.h>
 #include <string.h>
 #ifdef WL_PACKET_ZTEST
@@ -10,6 +11,31 @@
 #else
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 #endif
+static void encode_reference_stream_frame(int cobs, uint16_t message_id, const uint8_t *payload,
+                                          size_t payload_len, uint8_t *out, size_t out_cap,
+                                          size_t *out_len) {
+  uint8_t raw[2054];
+  const size_t canonical_len = payload_len + 4U;
+  CHECK(canonical_len + 2U <= sizeof(raw));
+  CHECK(wl_kernel_native_none_seal(raw, sizeof(raw), message_id, payload_len) == WL_OK);
+  if (payload_len != 0U)
+    memcpy(raw + 4U, payload, payload_len);
+  if (cobs) {
+    const uint16_t crc = wl_crc16_ccitt_false(raw, canonical_len);
+    raw[canonical_len] = (uint8_t)(crc >> 8U);
+    raw[canonical_len + 1U] = (uint8_t)crc;
+    size_t cobs_len = 0U;
+    CHECK(wl_cobs_encode(raw, canonical_len + 2U, out, out_cap - 1U, &cobs_len) == WL_OK);
+    out[cobs_len] = 0U;
+    *out_len = cobs_len + 1U;
+  } else {
+    CHECK(out_cap >= canonical_len + 2U);
+    out[0] = (uint8_t)(canonical_len >> 8U);
+    out[1] = (uint8_t)canonical_len;
+    memcpy(out + 2U, raw, canonical_len);
+    *out_len = canonical_len + 2U;
+  }
+}
 typedef struct {
   wl_packet_port_t port;
   wl_packet_stream_t stream;
@@ -42,12 +68,8 @@ void wl_test_packet_stream(int cobs) {
     wl_packet_token_t token;
     CHECK(wl_packet_tx_submit(&f.port, canonical, size + 4, &token) == WL_OK);
     CHECK(wl_packet_tx_take(&f.port, &token) == (WL_PACKET_CONSUMED | WL_PACKET_DRAINED));
-    wl_wire_packet_t packet = {.type = WL_PACKET_DATA, .message_id = 123,
-        .integrity = cobs ? WL_INTEGRITY_CRC16 : WL_INTEGRITY_NONE,
-        .payload = canonical + 4, .payload_len = size};
     size_t n = 0;
-    CHECK(wl_frame_encode(&packet, cobs ? WL_ENVELOPE_COBS_STREAM : WL_ENVELOPE_BUS_LENGTH16,
-        expected, sizeof(expected), &n) == WL_OK);
+    encode_reference_stream_frame(cobs, 123U, canonical + 4, size, expected, sizeof(expected), &n);
     CHECK(n == f.sent_length && !memcmp(expected, f.sent, n));
     for (size_t at = 0; at < n;) {
       size_t chunk = (size + at) % 17 + 1, consumed = 0;
@@ -91,12 +113,9 @@ void wl_test_packet_stream(int cobs) {
 void wl_test_stream_rx_limit(int cobs) {
   fixture_t f = {0};init(&f, cobs, 8U);
   uint8_t payload[128], encoded[256];memset(payload, 77, sizeof(payload));
-  wl_wire_packet_t packet = {.type = WL_PACKET_DATA, .message_id = 123,
-      .integrity = cobs ? WL_INTEGRITY_CRC16 : WL_INTEGRITY_NONE,
-      .payload = payload, .payload_len = sizeof(payload)};
   size_t length = 0U, consumed = 0U;
-  CHECK(wl_frame_encode(&packet, cobs ? WL_ENVELOPE_COBS_STREAM : WL_ENVELOPE_BUS_LENGTH16,
-      encoded, sizeof(encoded), &length) == WL_OK);
+  encode_reference_stream_frame(cobs, 123U, payload, sizeof(payload), encoded, sizeof(encoded),
+      &length);
   CHECK((cobs ? wl_packet_stream_cobs_crc16_feed : wl_packet_stream_length16_none_feed)(
       &f.stream, encoded, length, &consumed) == WL_OK && consumed == length);
   wl_packet_borrow_t borrow;CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);

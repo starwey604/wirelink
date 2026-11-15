@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "application.h"
-#include "crc_internal.h"
 #include <string.h>
 
 static wl_err_t status(usb_sample_application_t *app, uint32_t id, int phase, int code) {
@@ -58,7 +57,7 @@ static wl_err_t chunk(usb_sample_application_t *app, const wl_kernel_frame_t *fr
       }
     if (code == CONTROL_BULK_STATUS_OK) {
       if (value.offset == app->next) {
-        app->crc = wl_crc32c_update(app->crc, value.data.data, value.data.length);
+        app->crc = usb_sample_crc32c_update(app->crc, value.data.data, value.data.length);
         app->next += value.data.length; ++app->writes;
       } else ++app->duplicates; /* This pattern sink can validate old bytes. */
       app->touched_at = app->now;

@@ -3,7 +3,15 @@
  * No flash write, reboot, driver thread or generic service/bulk framework. */
 #include "product_kernel.h"
 #include "loopback_owner.h"
-#include "wirelink/crc.h"
+static uint32_t local_crc32c(const uint8_t *data, size_t length) {
+  uint32_t state = UINT32_MAX;
+  for (size_t i = 0; i < length; ++i) {
+    state ^= data[i];
+    for (unsigned bit = 0; bit < 8U; ++bit)
+      state = (state & 1U) ? ((state >> 1U) ^ UINT32_C(0x82F63B78)) : (state >> 1U);
+  }
+  return state ^ UINT32_MAX;
+}
 /* Preserve the existing example message phase/status numbers. */
 enum { PHASE_BEGIN = 1, PHASE_CHUNK = 2, PHASE_END = 3, PHASE_ABORT = 4 };
 enum { STATUS_OK, STATUS_BUSY, STATUS_OUT_OF_ORDER, STATUS_CONFLICT,
@@ -102,7 +110,7 @@ static void advance(void) {
   /* Business work is explicit here, outside any borrowed callback. */
   if (upload.finish) {
     upload.finish = false;
-    const bool valid = wl_crc32c(destination, sizeof(destination)) == upload.crc;
+    const bool valid = local_crc32c(destination, sizeof(destination)) == upload.crc;
     if (valid && !upload.committed) { upload.committed = true; ++commits; }
     make_status(PHASE_END, valid ? STATUS_OK : STATUS_INTEGRITY_FAILED);
   }
@@ -133,7 +141,7 @@ static bulk_status_value_t exchange(uint32_t phase, uint32_t id, size_t offset, 
   for (unsigned attempt = 0; attempt < 4; ++attempt) {
     bulk_command_value_t value = {.has_phase = true, .phase = phase,
       .has_transfer_id = true, .transfer_id = id, .has_total_length = true, .total_length = sizeof(source),
-      .has_chunk_size = true, .chunk_size = 256, .has_crc32c = true, .crc32c = wl_crc32c(source, sizeof(source)),
+      .has_chunk_size = true, .chunk_size = 256, .has_crc32c = true, .crc32c = local_crc32c(source, sizeof(source)),
       .has_offset = true, .offset = offset, .has_data = true, .data = {.length = length}};
     EXAMPLE_REQUIRE(length <= sizeof(value.data.data) && offset + length <= sizeof(source));
     memcpy(value.data.data, source + offset, length);

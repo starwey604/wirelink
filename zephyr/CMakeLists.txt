@@ -2,7 +2,6 @@
 zephyr_library_named(wirelink)
 set(_wl ${ZEPHYR_CURRENT_MODULE_DIR})
 zephyr_include_directories(${_wl}/include ${_wl}/runtime/zephyr/include
-  ${_wl}/runtime/storage/include
   ${_wl}/adapters/zephyr/uart_dma/include ${_wl}/adapters/zephyr/uart_irq/include
   ${_wl}/adapters/zephyr/uart_poll/include ${_wl}/adapters/zephyr/usb_bulk/include
   ${_wl}/adapters/zephyr/udp/include)
@@ -22,9 +21,6 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK_STREAM_LENGTH16_NONE ${_wl}/src/len
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_FRAMING_PRIMITIVES ${_wl}/src/cobs.c ${_wl}/src/crc.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_BYTE_FIFO ${_wl}/src/byte_fifo.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_BYTE_FIFO_COBS ${_wl}/src/byte_fifo_cobs.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_FRAME_TOOLS ${_wl}/src/frame.c ${_wl}/src/frame_cobs_crc16.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_CONTAINERS ${_wl}/src/fifo.c ${_wl}/src/latest.c ${_wl}/src/outbox.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_STORAGE ${_wl}/runtime/storage/src/fixed_pool.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_PLATFORM ${_wl}/runtime/zephyr/src/environment.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_WAIT ${_wl}/runtime/zephyr/src/wait.c ${_wl}/runtime/zephyr/src/timeout.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_DMA ${_wl}/adapters/zephyr/uart_dma/src/kernel_uart_dma.c)

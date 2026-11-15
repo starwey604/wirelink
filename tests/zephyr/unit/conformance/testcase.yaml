@@ -1,7 +1,0 @@
-tests:
-  wirelink.conformance.v1:
-    type: unit
-    tags:
-      - wirelink
-      - conformance
-      - protocol

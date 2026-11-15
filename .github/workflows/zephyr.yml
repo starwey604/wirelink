@@ -67,7 +67,6 @@ jobs:
           -T ${{ github.workspace }}/wirelink/samples/zephyr/endpoint_clock
           -T ${{ github.workspace }}/wirelink/samples/zephyr/composed_services
           -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_usability
-          -T ${{ github.workspace }}/wirelink/samples/zephyr/rpc_platform
           -T ${{ github.workspace }}/wirelink/samples/zephyr/session
           -T ${{ github.workspace }}/wirelink/samples/zephyr/udp_validation
           -T ${{ github.workspace }}/wirelink/samples/zephyr/udp_peer

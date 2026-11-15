@@ -1,4 +1,0 @@
-tests:
-  wirelink.fixed_pool.unit:
-    type: unit
-    tags: [wirelink, memory]

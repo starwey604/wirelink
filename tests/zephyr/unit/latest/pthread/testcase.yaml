@@ -1,9 +1,0 @@
-tests:
-  wirelink.latest.pthread:
-    type: unit
-    tags:
-      - wirelink
-      - latest
-      - spsc
-      - pthread
-    timeout: 30

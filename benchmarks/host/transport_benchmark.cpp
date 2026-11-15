@@ -2,7 +2,6 @@
 #include <astrial/Usb.hpp>
 #include "packet_tool_io.hpp"
 #include "control.h"
-#include "wirelink/crc.h"
 #include <array>
 #include <algorithm>
 #include <condition_variable>
@@ -21,6 +20,15 @@ constexpr std::size_t DefaultObjectBytes = 1024 * 1024;
 constexpr std::size_t MaxObjectBytes = 64 * 1024 * 1024;
 constexpr std::size_t DefaultObjectChunk = 2016;
 constexpr uint16_t MessageId = 0x424d;
+uint32_t local_crc32c(const uint8_t *data, std::size_t length) {
+    uint32_t state = UINT32_MAX;
+    for (std::size_t i = 0; i < length; ++i) {
+        state ^= data[i];
+        for (unsigned bit = 0; bit < 8U; ++bit)
+            state = (state & 1U) ? ((state >> 1U) ^ UINT32_C(0x82F63B78)) : (state >> 1U);
+    }
+    return state ^ UINT32_MAX;
+}
 struct Options
 {
     std::string mode;
@@ -395,7 +403,7 @@ public:
 void run_wirelink_object(const Options &options) {
   ObjectSender sender; sender.wait = options.idle_mode != "poll"; open(sender.io, options);
   auto object = make_object(options.object_bytes);
-  const auto crc = wl_crc32c(object.data(), object.size());
+  const auto crc = local_crc32c(object.data(), object.size());
   std::vector<double> samples;
   for (std::size_t i = 0; i < options.warmup + options.iterations; ++i) {
     const auto start = Clock::now(), deadline = start + options.timeout;

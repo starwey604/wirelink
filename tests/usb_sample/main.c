@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "application.h"
-#include "wirelink/crc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -112,7 +111,7 @@ int main(void) {
   for (unsigned i = 0; i < outputs; ++i) CHECK(output_ids[i] == 70 + i);
   uint8_t pattern[512];
   for (size_t i = 0; i < sizeof(pattern); ++i) pattern[i] = (uint8_t)i ^ 0xa5;
-  const uint32_t crc = wl_crc32c(pattern, sizeof(pattern));
+  const uint32_t crc = usb_sample_crc32c(pattern, sizeof(pattern));
   tick = UINT32_MAX - 500;
   begin(1, sizeof(pattern), crc, 256); status(CONTROL_BULK_STATUS_OK, 0);
   CHECK(app.chunk_size == 256);

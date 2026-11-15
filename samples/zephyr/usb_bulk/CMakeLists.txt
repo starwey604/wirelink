@@ -14,4 +14,3 @@ wirelink_wlc_generate_codec(TARGET usb_control_codec
   SCHEMA "${WIRELINK_ROOT}/tests/fixtures/wlc/current/control.wl")
 target_link_libraries(app PRIVATE usb_control_codec)
 target_sources(app PRIVATE src/main.c src/application.c)
-target_include_directories(app PRIVATE ${WIRELINK_ROOT}/src)

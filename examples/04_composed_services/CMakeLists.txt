@@ -3,7 +3,7 @@ wirelink_wlc_generate(TARGET composed_protocol SCHEMA "${CMAKE_CURRENT_SOURCE_DI
   PROFILES "${CMAKE_CURRENT_SOURCE_DIR}/arm.bind.wl" "${CMAKE_CURRENT_SOURCE_DIR}/upgrade.bind.wl")
 add_executable(wirelink_composed_services main.c)
 target_include_directories(wirelink_composed_services PRIVATE ../common)
-target_link_libraries(wirelink_composed_services PRIVATE composed_protocol Wirelink::packet_loopback Wirelink::framing_primitives)
+target_link_libraries(wirelink_composed_services PRIVATE composed_protocol Wirelink::packet_loopback)
 wl_warnings(wirelink_composed_services PRIVATE -Wall -Wextra -Wpedantic -Werror)
 if(BUILD_TESTING)
   add_test(NAME wirelink_composed_services COMMAND wirelink_composed_services)

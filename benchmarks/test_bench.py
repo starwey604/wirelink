@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bench  # noqa: E402
 
 ALL_SUITES = ("owner_pass", "mixed_traffic", "footprint",
-              "framing", "codec_plan", "rpc_validation", "api")
+              "codec_plan", "rpc_validation", "api")
 
 
 class Presets(unittest.TestCase):
@@ -210,10 +210,10 @@ class Pair(unittest.TestCase):
             self.skipTest("tomllib needs Python 3.11+")
         data = bench.load_presets()
         quick = data["presets"]["quick"]["gate"]
-        framing = data["suites"]["framing"]
+        codec_plan = data["suites"]["codec_plan"]
         self.assertEqual(["--gate", "warn", "--max-regression-percent", "10.0",
                           "--max-regression-ns", "5.0"],
-                         bench._gate_argv(framing, quick))
+                         bench._gate_argv(codec_plan, quick))
         smoke = data["presets"]["smoke"]["gate"]
         self.assertEqual(["--gate", "auto", "--max-regression-percent", "0.0"],
                          bench._gate_argv(data["suites"]["footprint"], smoke))

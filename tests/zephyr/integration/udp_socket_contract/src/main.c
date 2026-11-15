@@ -8,7 +8,6 @@
 #include <zephyr/zvfs/eventfd.h>
 
 #include "kernel_udp_socket_contract.h"
-#include "wirelink/frame.h"
 #include "wirelink/wirelink.h"
 
 #define FRAME_BOUND 128U

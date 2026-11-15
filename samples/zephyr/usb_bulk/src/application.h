@@ -25,4 +25,16 @@ wl_err_t usb_sample_pass(usb_sample_application_t *, wl_kernel_t *, uint32_t now
 int usb_sample_ready(const usb_sample_application_t *, const wl_kernel_t *, uint32_t now);
 uint32_t usb_sample_deadline(const usb_sample_application_t *, uint32_t now);
 void usb_sample_close(usb_sample_application_t *);
+static inline uint32_t usb_sample_crc32c_update(uint32_t state, const uint8_t *data,
+                                                size_t length) {
+  for (size_t i = 0; i < length; ++i) {
+    state ^= data[i];
+    for (unsigned bit = 0; bit < 8U; ++bit)
+      state = (state & 1U) ? ((state >> 1U) ^ UINT32_C(0x82F63B78)) : (state >> 1U);
+  }
+  return state;
+}
+static inline uint32_t usb_sample_crc32c(const uint8_t *data, size_t length) {
+  return usb_sample_crc32c_update(UINT32_MAX, data, length) ^ UINT32_MAX;
+}
 #endif
