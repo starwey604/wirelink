@@ -1,29 +1,60 @@
 ---
 title: Wirelink
-description: "用类型化消息和 RPC 连接设备；存储、时间、执行与传输由应用掌控。"
+description: 面向嵌入式 MCU（裸机 / RTOS / Zephyr）与上位机的纯 C11 零动态分配通信中间件。
 template: splash
 hero:
-  tagline: "用类型化消息和 RPC 连接设备；存储、时间、执行与传输由应用掌控。"
+  tagline: 写一份 `.wl` 消息定义，自动生成纯 C11 端点与 Python/C++ SDK，数行固定内存 API 打通 UART / USB / UDP / SPI。
   actions:
-    - text: 运行一个端点
-      link: /wirelink/zh-cn/learn/getting-started/
+    - text: 5 分钟上手
+      link: /wirelink/zh-cn/overview/quick-start/
+      icon: right-arrow
       variant: primary
-    - text: 理解 kernel
-      link: /wirelink/zh-cn/concepts/kernel/
+    - text: 交互式课程
+      link: /wirelink/zh-cn/learn/01-loopback-endpoint/
+      icon: open-book
       variant: secondary
-    - text: 参与开发
-      link: /wirelink/zh-cn/development/contributing/
+    - text: Schema 手册
+      link: /wirelink/zh-cn/concepts/schema-language/
+      icon: document
       variant: secondary
 ---
 
-Wirelink 是无动态分配的 C11 端点 kernel。生成代码提供类型化 route 和静态容量，普通消息与四路并发 RPC 共用同一内核。MCU 主循环、RTOS task 和桌面 owner 可以各自选择合适的执行方式。
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## 从你的任务开始
+<div class="signal-strip" aria-hidden="true">
+  <span></span><i></i><span></span><i></i><span></span>
+</div>
 
-- **先跑通通信：** [配置工具](/wirelink/zh-cn/learn/environment-setup/)，运行[遥测](/wirelink/zh-cn/learn/getting-started/)和 [RPC](/wirelink/zh-cn/learn/request-a-result/)，再保存结果、处理背压和取消。
-- **接入自己的设备：** 阅读 [kernel 数据流](/wirelink/zh-cn/concepts/kernel/)，再按 [UART、USB、UDP 合同](/wirelink/zh-cn/reference/transports/)接入驱动。
-- **修改库或生成器：** 从[开发指南](/wirelink/zh-cn/development/contributing/)找到负责该行为的源码和决定性测试。
+<div class="hero-metrics">
+  <span>ISO C11 零堆分配（.data = 0 / .bss = 0）</span>
+  <span>`wl_kernel_t` 静态 440 B</span>
+  <span>Wire v2 4B 小端帧头</span>
+  <span>4 槽并发 RPC · 8 槽 TX 队列</span>
+</div>
 
-## 按需集成
+Wirelink 把类型安全的二进制协议与有界微内核合二为一。核心库完全剥离了 `malloc`、线程、系统时钟与硬件驱动，适用于裸机主循环、Zephyr RTOS 与桌面上位机。
 
-[C++/Python SDK](/wirelink/zh-cn/how-to/desktop-sdk/)提供拥有结果的 UDP client；[Zephyr peer](/wirelink/zh-cn/learn/zephyr-udp-subscriber/)展示板卡网络接入。[API 参考](/wirelink/zh-cn/reference/kernel-api/)集中定义错误与所有权。
+## 端到端工作流架构
+
+```mermaid
+flowchart LR
+  Schema["schema.wl + bind.wl"] --> WLC["wlc 编译器"]
+  WLC --> MCU["MCU 纯 C11 端点 (单结构体 API + 共享 TLV)"]
+  WLC --> SDK["上位机 Python / C++20 UDP SDK"]
+  MCU -- "UART(COBS+CRC16) / USB Bulk / UDP / SPI" --> SDK
+```
+
+<CardGrid>
+  <Card title="5 分钟快速上手" icon="rocket">
+    从消息定义、代码生成到 C11 与 Python 联调，三步跑通第一个点对点端点。[立即开始](/wirelink/zh-cn/overview/quick-start/)。
+  </Card>
+  <Card title="渐进式互动课程（01 ~ 06）" icon="open-book">
+    每课聚焦一个工程场景，配备时序图、`MultipleChoice` 思考题与 `Checklist` 检查表。[进入第 01 课](/wirelink/zh-cn/learn/01-loopback-endpoint/)。
+  </Card>
+  <Card title="Schema 与编译器指南" icon="setting">
+    系统查阅 `.wl` 类型系统、`.bind.wl` 路由绑定以及 `wlc` 与 CMake 集成方式。[查看语法手册](/wirelink/zh-cn/concepts/schema-language/)。
+  </Card>
+  <Card title="API、Wire v2 与体积账本" icon="list-format">
+    查询 `wl_kernel` 核心签名、4B 帧头与 8/12B RPC 子头字节格式及 `-Os` 实测数据。[查阅参考手册](/wirelink/zh-cn/reference/kernel-api/)。
+  </Card>
+</CardGrid>

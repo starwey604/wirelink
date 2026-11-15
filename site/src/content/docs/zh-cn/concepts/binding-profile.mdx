@@ -1,0 +1,60 @@
+---
+title: 绑定配置 (Profile v2)
+description: 用 profile version 2 (.bind.wl) 声明传输封装、RPC 角色与单向/双向路由裁剪。
+sidebar:
+  order: 2
+---
+
+`.wl` 文件只描述「数据结构」，而绑定配置文件（通常命名为 `*.bind.wl`）决定当前固件或上位机端点**使用哪条物理链路、承担什么角色、支持哪些路由**。这种分离让同一份 `.wl` 可以零改动复用在串口、UDP 与多模块产品上。
+
+## Profile v2 基本语法
+
+当前绑定配置统一以 `profile version 2;` 开头，围绕 `endpoint` 与路由声明展开：
+
+```text
+profile version 2;
+
+endpoint {
+  envelope = native_packet;
+  rpc_role = both;
+}
+
+direct Telemetry {
+  delivery = unreliable;
+}
+
+send Telemetry {
+  delivery = unreliable;
+}
+
+rpc Add {
+  request = AddRequest;
+  response = AddResponse;
+}
+```
+
+## `endpoint` 端点全局配置
+
+`endpoint { ... }` 决定生成的代码如何把 Wire v2 报文打包进传输载体以及开启哪一侧的 RPC 状态机：
+
+| 属性名 | 可选值 | 默认 / 含义 |
+| :--- | :--- | :--- |
+| `envelope` | `native_packet` | 传输层原生保留报文边界（UDP、USB Bulk、环回队列），零封装开销。 |
+| `envelope` | `cobs_stream` | 无边界字节流（UART、CDC ACM），自动绑定 COBS + CRC-16/CCITT 编解码。 |
+| `envelope` | `bus_length16` | 受控块总线（SPI / I2C 等），自动绑定 2 字节大端长度头切帧。 |
+| `rpc_role` | `both` / `client` / `server` | 裁剪端点仅保留客户端出站、服务端入站或同时保留双向 RPC 代码。 |
+
+## 路由声明与方向裁剪
+
+绑定配置里的每一条声明都显式标注端点在某一消息或服务上的能力，编译器会据此裁剪未启用的处理器与表项，把 Flash 与 RAM 降到最低：
+
+- **`send <Message> { delivery = unreliable; }`**: 允许当前端点主动发出 `<Message>` 单向报文，编译器生成 `<mod>_kernel_send_<msg>()`。
+- **`direct <Message> { delivery = unreliable; }`**: 允许当前端点直接接收 `<Message>` 单向报文并通过回调立刻投递给应用。
+- **`latest <Message>` / `fifo <Message>`**: 控制接收队列模式声明，由传输规划与端点策略决定最新值覆盖或队列派发语义。
+- **`rpc <Name> { request = <Req>; response = <Resp>; }`**: 把请求与响应两条消息配对成一次双向 RPC 事务，支持可选 `codec` 或角色属性覆盖。
+
+## 多文件组合（Composition）
+
+大型固件常把设备升级（Upgrade）和运动控制（Arm）拆分在独立子模块中。你可以在 CMake 的 `wirelink_wlc_generate(PROFILES a.bind.wl b.bind.wl)` 或命令行重复 `--profile a.bind.wl --profile b.bind.wl` 将多个配置文件组合到同一个统一端点中。
+
+编译器会在组合阶段检查冲突（例如重复定义不同属性的 `endpoint` 或冲突的路由映射），并在通过后输出唯一合成的 `<module>_kernel.h/.c`。参见 [examples/04_composed_services](https://github.com/starwey604/wirelink/tree/main/examples/04_composed_services)。

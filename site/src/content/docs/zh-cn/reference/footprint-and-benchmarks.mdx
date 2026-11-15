@@ -1,0 +1,51 @@
+---
+title: 静态体积与基准实测数据
+description: 纯 ISO C11 核心编译单元在 -Os 下的精确 Flash / RAM 占用及 footprint.py 复现方式。
+sidebar:
+  order: 4
+---
+
+Wirelink 对静态资源消耗保持零容忍透明度：核心 12 个模块在编译优化（`-std=c11 -Os -ffunction-sections -fdata-sections`）下的静态 `.data` 与 `.bss` 均为 **0 字节**，全部运行时状态均显式挂载于调用方静态分配的结构体内。
+
+## `src/` 核心各模块 Flash 与只读常量体积
+
+以下数值通过仓库内建的 `python3 benchmarks/footprint/footprint.py` 工具按单元编译汇总实测所得：
+
+| 编译单元 | `.text` (B) | `.rodata` (B) | `.data` (B) | `.bss` (B) | 职责摘要 |
+| :--- | ---: | ---: | ---: | ---: | :--- |
+| `src/kernel.c` | 4,384 | 0 | 0 | 0 | `wl_kernel_t` 调度器、并发 RPC 槽位与超时引擎 |
+| `src/packet_port.c` | 1,315 | 0 | 0 | 0 | 双槽无锁 RX 与物理发送租约追踪 (`wl_packet_port_t`) |
+| `src/codec.c` | 6,202 | 232 | 0 | 0 | TLV & Positional 统一驱动、UTF-8 与跳过器 |
+| `src/types.c` | 244 | 1,260 | 0 | 0 | `wl_err_str()` 错误文本映射表（可在极致裁剪下省略） |
+| `src/cobs_crc16_stream.c` | 1,493 | 0 | 0 | 0 | UART / 字节流 COBS + CRC-16 状态机分帧 |
+| `src/cobs.c` | 586 | 0 | 0 | 0 | COBS 编码/解码基础原语 |
+| `src/crc.c` | 105 | 32 | 0 | 0 | Nibble CRC-16/CCITT-FALSE（32 B 单缓存行查找表） |
+| `src/length16_none_stream.c` | 1,078 | 0 | 0 | 0 | 16 位小端定长流连接器 |
+| `src/packet_stream.c` | 80 | 0 | 0 | 0 | 流式连接器共享辅助 |
+| `src/byte_fifo.c` | 489 | 0 | 0 | 0 | ISR 友好 SPSC 连续字节环形缓冲 |
+| `src/byte_fifo_cobs.c` | 278 | 0 | 0 | 0 | FIFO 直接抽取 COBS 帧助手 |
+| `src/packet_loopback.c` | 727 | 0 | 0 | 0 | 双端跨上下文内存环回适配器 |
+| **核心 12 模块合计** | **16,981** | **1,524** | **0** | **0** | 若未引用流连接器与 `wl_err_str`，链接器 GC 后体积更小 |
+
+- 对仅使用 `native_packet` 且不打印 `wl_err_str` 的深度嵌入式镜像，通过 `--gc-sections` 裁剪后实际进入二进制的代码体积通常只需 **kernel + packet_port + codec ≈ 11.9 KiB**。
+
+## 关键实例数据结构字节尺寸
+
+以下结构体尺寸均为对应平台上的静态内存（`sizeof`）实测参考值，可直接放在静态全局变量或 RTOS 任务私有栈/池中：
+
+| 结构体 | 典型静态尺寸 (B) | 说明 |
+| :--- | ---: | :--- |
+| `wl_kernel_t` | 440 | 内置 4 个调用槽位与 8 项 TX 调度队列的控制状态 |
+| `wl_packet_port_t` | 128 | 原子读/写游标与双 RX 槽位元信息（不含外部提供的存储数组） |
+| `wl_packet_stream_t` | 120 | COBS/Length16 流式解包状态机 |
+| `wl_byte_fifo_t` | 72 | 无锁单生产者/单消费者环形指针 |
+| `wl_kernel_call_handle_t` | 16 | 按值传递的轻量化 RPC 取消凭证 |
+| `demo_kernel_t` | 616 | 示例完整端点（含 `wl_kernel_t` 与精确裁剪后的编解码 TX 池） |
+
+## 在本地复现统计
+
+修改 `src/` 或调整编译器标志后，可直接运行脚本测量本机工具链的 `.text` 与 `.rodata` 变化：
+
+```sh
+python3 benchmarks/footprint/footprint.py
+```

@@ -1,0 +1,57 @@
+---
+title: 编写自定义硬件与传输驱动
+description: 基于 wl_packet_port_t 与 wl_packet_stream_t 对接原生分组链路与裸字节流硬件。
+sidebar:
+  order: 2
+---
+
+Wirelink 内核本身不依赖硬件寄存器、Socket 或 RTOS 原语。移植到新硬件或总线时，只需根据物理链路是否保留报文边界，选择对应的底层端口接口。更多细节亦可参考仓库文档 [docs/porting-adapters.md](https://github.com/starwey604/wirelink/blob/main/docs/porting-adapters.md)。
+
+## 端口模式选型决策
+
+| 硬件/链路特征 | 推荐接口 | 典型驱动实例 |
+| :--- | :--- | :--- |
+| 原生保留每包边界 | `wl_packet_port_t` | UDP Socket、USB Bulk、共享内存队列、`wl_packet_loopback` |
+| 连续无边界字节流 | `wl_packet_stream_t` + `wl_byte_fifo_t` | MCU UART (IRQ / DMA)、USB CDC ACM、Segger RTT |
+| 受控块总线切帧 | `wl_packet_stream_t` (`length16_none`) | SPI / I2C 定长块交互通道 |
+
+## 路径 A：原生分组端口（`wl_packet_port_t`）
+
+`wl_packet_port_t` 内置固定 `WL_PACKET_RX_SLOTS`（2 个）零拷贝槽位，以及单在途物理发送租约追踪。
+
+### 收包侧（I/O 或 ISR 线程）
+
+1. 调用 `wl_packet_rx_claim(port, len, &claim)` 获取内部 RX 缓冲切片，将硬件收到的一整帧字节写入 `claim.span.data`。
+2. 写入完成后调用 `wl_packet_rx_commit(port, &claim, actual_len)`（若中途丢包或硬件校验出错则调 `wl_packet_rx_abort`）。内部会自动触发 `notify` 唤醒 Owner。
+
+### 发包侧（Owner 提交 + 物理完成）
+
+`wl_packet_init` 配置中的 `submit` 回调由 Owner 线程调用，需要遵循四种状态返回值：
+
+- **`WL_PACKET_SENT`**: 物理外设已同步发出且不再借用源缓冲（立即释放缓冲并驱动下游）。
+- **`WL_PACKET_STARTED`**: 异步 DMA 或 Socket 发送已经受理；外设完成后，由发送上下文调用 `wl_packet_tx_publish(port, token, WL_PACKET_DRAINED)` 或 `WL_PACKET_CONSUMED` 归还租约（若出错则发布 `WL_PACKET_TX_ERROR`）。
+- **`WL_PACKET_BUSY`**: 外设发送忙，未接受任何数据，待外设空闲后须调用 `wl_packet_activity(port)` 唤醒 Owner 重试。
+- **`WL_PACKET_FAILED`**: 发送永久失败，内核推进错误通知。
+
+下方宿主步进模板来自 [examples/common/tutorial_host.cpp](https://github.com/starwey604/wirelink/blob/main/examples/common/tutorial_host.cpp)，展示了适配器如何把底层收发服务与 `wl_kernel_step` 组合在一起：
+
+{/* [docs:udp_host_step] */}
+```c
+wl_err_t example_udp_step(example_udp_t *udp, wl_kernel_t *core, uint32_t now) {
+  try {
+    const auto error = udp->adapter->service();
+    const auto advanced = wl_kernel_step(core, now, 16);
+    return error == WL_OK ? advanced : error;
+  } catch (...) { return WL_ERR_IO; }
+}
+```
+
+## 路径 B：裸字节流硬件（COBS + CRC-16 与 `wl_byte_fifo_t`）
+
+面对 UART 中断或 DMA 环形接收流，你可以直接复用 `wl_byte_fifo_t` 与 `wl_packet_stream_t`：
+
+1. **中断（ISR）极简入队**: 中断里仅通过 `wl_byte_fifo_t` 无锁写入收到的字节流并通知工作线程，不在中断内做 COBS 解码或 CRC 计算。
+2. **协议辅助喂流**: 在工作线程中从 FIFO 消费字节并喂入 `wl_packet_stream_cobs_crc16_feed`（或生成好的 `_kernel_transport.c` 辅助胶水）；碰到合法 `0x00` 帧结束且 CRC-16/CCITT 校验通过后，流解码器会自动提交至关联的 `wl_packet_port_t`。
+3. **发包编码**: 生成代码在需要发送流式帧时，会先用 `wl_packet_stream_cobs_crc16_submit` 对报文执行 COBS 编码与尾部 CRC 追加，再将字节递交到物理驱动的 `physical_submit`。
+
+仓库中自带了完整的中断/DMA UART、USB Bulk 与 POSIX UDP 适配器实现，位于 `adapters/` 与 `runtime/host/` 目录。

@@ -1,16 +1,32 @@
 ---
-title: "Wirelink 适合什么场景"
-description: "为设备与上位机选择端点 kernel。"
+title: 什么是 Wirelink
+description: 面向嵌入式 MCU 与上位机通信的纯 C11 零动态分配通信中间件定位与选型对比。
 sidebar:
   order: 1
 ---
 
-设备与对端交换类型化消息/RPC，需要显式选择内存、时间和传输时，可以使用 Wirelink。可移植 core 使用 ISO C11；堆、时钟、线程和驱动由外层提供。
+在嵌入式开发中，MCU 与上位机之间经常需要同时传递周期遥测、配置指令与双向 RPC 调用。手写串口帧头容易在长包截断、字节序与超时状态机上反复踩坑，而通用序列化库往往依赖动态内存或缺少端到端请求生命周期管理。
 
-在 `.wl` 中定义消息，用 profile version 2 选择 route/connector。WLC 围绕共享 C kernel 生成 codec、类型化 route 和有界存储。固件与 C++/Python client 使用同一通信合同。
+Wirelink 提供**一份 `.wl` 消息定义 + 一套无堆分配的 ISO C11 微内核 + `wlc` 代码生成器**，让你在确定性的静态 RAM 预算内获得跨语言通信能力。
 
-- **消息：** 发送遥测或事件，复制需要跨回调保留的数据。
-- **RPC：** 每端最多四个出站调用；短 handler 返回响应或有符号业务 status。
-- **应用工作：** 用自己的状态定义重试、幂等、最新值和长任务。
+## 解决四大嵌入式痛点
 
-从[遥测](/wirelink/zh-cn/learn/getting-started/)或 [RPC](/wirelink/zh-cn/learn/request-a-result/)开始；物理 I/O 接入见[传输集成](/wirelink/zh-cn/reference/transports/)。先理解所有权则阅读 [kernel](/wirelink/zh-cn/concepts/kernel/)。
+1. **零动态内存分配与静态可预测性**：C11 核心（`src/`）不调用 `malloc`、不创建线程、不读取系统时钟。全部运行期状态集中在 `wl_kernel_t`（440 B）与 `wl_packet_port_t`（128 B）中，可放入静态 BSS。
+2. **单结构体直观 C API**：每条消息在 C 端只生成单一结构体 `<name>_t`，发送时在入口处直接快照编码，消除「借用视图 + 自持值」两套胶水代码与间接回调函数指针跳转。
+3. **小端 Wire v2 线协议**：4 字节规范帧头（`0x57` + `kind` + 16 位小端 `route_id`）搭配 8/12 字节定长小端 RPC 子头，直接对齐 32 位小端 MCU 寄存器读写。
+4. **消息边界与物理传输解耦**：同一套 `.wl` Schema 可通过 `.bind.wl` 零代码改动切换 `native_packet`（USB Bulk / UDP）、`cobs_stream`（UART + CRC16）或 `bus_length16`。
+
+## 同类方案选型对比
+
+| 维度 | Wirelink | Protobuf / C++ | nanopb | FlatBuffers | 手写串口协议 |
+| --- | --- | --- | --- | --- | --- |
+| 堆内存分配 | 零分配（纯静态 C11） | 强依赖堆与 RTTI | 可选静态，流式回调较繁琐 | 构造通常需动态增长 | 视手写实现而定 |
+| 线协议与分帧 | Wire v2 + COBS/CRC16 + Length16 | 仅序列化，无分帧 | 仅序列化，无分帧 | 仅序列化，无分帧 | 需从零编写并排错 |
+| 并发 RPC 与超时 | 内置 4 槽异步 RPC + 超时/取消 | 无（需另配 gRPC） | 无 | 无 | 需手动维护请求表 |
+| 上位机 SDK | `wlc sdk` 一键生成 Python / C++20 | `protoc` 生成类 | 仅 MCU C 代码 | `flatc` 生成访问器 | 需双端手动同步结构体 |
+| 典型全核心 `.text`（`-Os`） | 全核心 12 模块合计 16,981 B | 数百 KB 起 | 数 KB（无传输内核） | 视 schema 而定 | 难以保证健壮性 |
+
+## 下一步建议
+
+- 想直接跑通代码示例，前往 [5 分钟快速上手](/wirelink/zh-cn/overview/quick-start/)。
+- 想系统掌握所有权、异步 RPC 与传输切换，进入 [01 跑通第一个本地回环端点](/wirelink/zh-cn/learn/01-loopback-endpoint/)。

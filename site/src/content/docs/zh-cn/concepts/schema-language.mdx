@@ -1,0 +1,63 @@
+---
+title: Schema 语言 (.wl)
+description: 全面介绍 Wirelink .wl schema 语法、数据类型、定长容器与前向演进规则。
+sidebar:
+  order: 1
+---
+
+Wirelink schema 文件（`.wl`）是跨语言与跨架构通信的唯一事实来源。`wlc` 编译器在编译期校验每个类型定义、编码空间上界与保留字段号，消除运行期反射开销。
+
+## 基础声明与文件版本
+
+每个 `.wl` 文件必须从顶部的 `version` 声明开始。你可以用 `import "other.wl";` 组合多个领域的协议模块，并用全局 `reserved` 语句锁死已废弃的消息或枚举 ID。
+
+```text
+version 1;
+import "common.wl";
+reserved 99, 100;
+
+enum Mode @id(1) {
+  reserved -1;
+  IDLE = 0;
+  ACTIVE = 1;
+}
+
+message Telemetry @id(10) {
+  reserved 3;
+  required Mode mode @id(1);
+  optional int32 temperature_centi_c @id(2) [default = 2500];
+  required string<31> tag @id(4);
+}
+```
+
+消息与枚举都支持 `@id(N)` 声明（也兼容等价的 `= N` 写法），其中 `N` 为无符号 16 位整数；枚举内部成员值则使用 `NAME = VALUE;`（支持负整数）。
+
+## 标量类型、容器与基数修饰
+
+Wirelink 提供明确位宽的标量类型，以及编译期可见上界的变长容器：
+
+| `.wl` 类型 | 线缆编码方式 | 生成 C11 字段类型 | 备注 |
+| :--- | :--- | :--- | :--- |
+| `bool` | varint (wire_type=0) | `bool` | 默认值支持 `true` / `false` |
+| `int8` / `int16` / `int32` / `int64` | signed varint (wire_type=0) | `int8_t` .. `int64_t` | 负数按标准 varint 编码 |
+| `uint8` / `uint16` / `uint32` / `uint64` | varint (wire_type=0) | `uint8_t` .. `uint64_t` | 支持无符号默认整数 |
+| `fixed32` / `fixed64` | 32-bit / 64-bit 小端定长 | `uint32_t` / `uint64_t` | wire_type 分别为 `5` / `1` |
+| `float32` / `float64` | IEEE-754 32/64-bit 小端 | `float` / `double` | 不支持 `[default = ...]` |
+| `string<N>` / `bytes<N>` | 长度前缀 + 原始字节 (wire_type=2) | `wl_string_view_t` / `wl_bytes_view_t` | `N` 为最大字节上限 |
+| `enum` | signed varint (wire_type=0) | `<module>_<enum>_t`（`int32_t`） | C++ 生成 `enum class : int32_t` |
+| `message` | 长度前缀嵌套 TLV (wire_type=2) | 生成对应 `_t` 结构体 | 支持逐字段嵌套与独立存在位 |
+
+字段前必须声明基数修饰，明确该字段的存在性与数组形式：
+
+- **`required`**: 必备字段；解码时若缺失该字段会拒绝整条消息。
+- **`optional`**: 可选字段；在 C 结构体中生成对应的 `has_<field>` 标志位，允许附带 `[default = ...]`（`bytes`、`float32`、`float64` 除外）。
+- **`repeated`**: 变长数组（须结合静态容量或按解码回调语义处理，部分静态生成路径要求固定/有界特性）。
+- **`packed[N]` / `required packed[N]`**: 固定元素个数的紧凑数值数组，一次长度前缀携带 `N` 个定长元素。
+
+## 模式演化与兼容性校验
+
+演进既有协议时，通过 `wlc validate --previous <old.wl> <new.wl>` 可以静态验证兼容性，避免破坏线上的旧版本固件：
+
+1. **禁止复用 ID**: 被删除的顶层消息/枚举应加入顶层 `reserved`，被删除的字段序号或枚举数值应保留在各自大括号内的 `reserved` 列表中。
+2. **安全扩展**: 新增 `optional` 字段是前后兼容的；现有 `required` 字段不可随意移除，也不可变更已有字段编号对应的基础线缆类型。
+3. **跨模块唯一性**: `import` 引入的所有消息和枚举共享同一全局 `@id(...)` 空间，编译器会拒绝重复或与 `reserved` 冲突的声明。

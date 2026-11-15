@@ -1,29 +1,44 @@
 ---
 title: Wirelink
-description: "Connect devices with typed messages and RPC. Keep storage, time, execution and transport in your application."
+description: Zero-allocation ISO C11 messaging and RPC kernel for embedded systems and hosts.
 template: splash
 hero:
-  tagline: "Connect devices with typed messages and RPC. Keep storage, time, execution and transport in your application."
+  tagline: Deterministic, allocation-free ISO C11 Wire v2 runtime with compiled schemas and Python/C++20 SDKs.
   actions:
-    - text: Run an endpoint
-      link: /wirelink/learn/getting-started/
+    - text: 阅读简体中文完整文档
+      link: /wirelink/zh-cn/
+      icon: right-arrow
       variant: primary
-    - text: Understand the kernel
-      link: /wirelink/concepts/kernel/
-      variant: secondary
-    - text: Develop and verify
-      link: /wirelink/development/contributing/
-      variant: secondary
+    - text: GitHub Repository
+      link: https://github.com/starwey604/wirelink
+      icon: external
+      variant: minimal
 ---
 
-Wirelink is an allocation-free C11 endpoint kernel. Generated code supplies typed routes and static capacities; ordinary messages and four concurrent RPC calls share the same core. Run it from an MCU loop, an RTOS task or a desktop owner.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-## Start with your task
+<div class="signal-strip">
+  <span>Strict ISO C11 · Zero Heap Allocation</span>
+  <span>Wire v2 · Schema-v1 TLV &amp; Positional</span>
+  <span>Native Packet · COBS+CRC16 · Length16</span>
+  <span>C11 Core · C++20 &amp; Python SDKs</span>
+</div>
 
-- **Run communication first:** [prepare the tools](/wirelink/learn/environment-setup/), run [telemetry](/wirelink/learn/getting-started/) and [RPC](/wirelink/learn/request-a-result/), then retain results and handle pressure/cancellation.
-- **Connect your device:** follow the [kernel data flow](/wirelink/concepts/kernel/), then bind a driver using the [UART, USB and UDP contracts](/wirelink/reference/transports/).
-- **Change the library or generator:** use the [development guide](/wirelink/development/contributing/) to find the owning source layer and decisive checks.
+> Full interactive tutorials and API guides are actively maintained in **Simplified Chinese**. Use the action above or switch the language selector in the top bar to **简体中文**.
 
-## Integrate as needed
+## Quick Core Build
 
-The [C++/Python SDK](/wirelink/how-to/desktop-sdk/) provides owning UDP clients. [Zephyr peers](/wirelink/learn/zephyr-udp-subscriber/) cover board network setup. The [API reference](/wirelink/reference/kernel-api/) defines errors and ownership.
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+ctest --test-dir build/core --output-on-failure
+```
+
+<CardGrid>
+  <Card title="Chinese Documentation" icon="open-book">
+    Explore all interactive lessons, architecture guides, and C11 references in [简体中文文档](/wirelink/zh-cn/).
+  </Card>
+  <Card title="Repository README (EN)" icon="document">
+    See the concise English repository overview in [README-en.md](https://github.com/starwey604/wirelink/blob/main/README-en.md) and [docs/README-en.md](https://github.com/starwey604/wirelink/blob/main/docs/README-en.md).
+  </Card>
+</CardGrid>

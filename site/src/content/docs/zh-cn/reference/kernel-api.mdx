@@ -1,24 +1,43 @@
 ---
-title: "Kernel 与 packet-port API"
-description: "找到操作及其所有权/错误合同。"
+title: C11 内核 API 速查
+description: wl_kernel_* 核心接口及 wlc 生成端点符号快速映射表。
 sidebar:
   order: 1
 ---
 
-先选择需要接入的操作。[完整 API 参考](https://github.com/starwey604/wirelink/blob/main/docs/kernel-api-cn.md)集中说明签名、参数、生命周期以及接纳/错误条件。
+Wirelink 在运行期将「通用固定容量调度器（`wl_kernel_t`）」与「静态编译生成路由/编解码胶水（`<mod>_kernel.h`）」配合使用。完整头文件定义见 [include/wirelink/kernel.h](https://github.com/starwey604/wirelink/blob/main/include/wirelink/kernel.h)。
 
-| 任务 | 入口 |
-| --- | --- |
-| 组装 core | `wl_kernel_init`、生成的 `*_kernel_init` |
-| 发起/取消 RPC | `wl_kernel_call_start`、`wl_kernel_cancel`、类型化 `*_start` |
-| 发送消息 | `wl_kernel_send`、类型化 `*_send_*` |
-| 推进或等待 | `wl_kernel_step`、`wl_kernel_ready` |
-| 关闭与释放 | `wl_kernel_close`、`wl_kernel_quiescent` |
-| 发布/借用 RX | packet RX claim/commit/abort、peek/release |
-| 传输 TX | submit、带 token 的 completion 发布/取得 |
+## 通用 `wl_kernel_*` 核心接口
 
-同一 owner 执行 kernel 操作与回调。串行 producer 通过 port 发布 I/O，C 持有原子存储。
+| 函数 / 类型 | 作用域 | 说明与关键前置条件 |
+| :--- | :--- | :--- |
+| `wl_kernel_init(kernel, config)` | 初始化 | 按配置绑定位底层 `wl_packet_port_t`、静态 TX 池与生成的路由分发函数；调用前端口与缓冲必须静止。 |
+| `wl_kernel_step(kernel, now, budget)` | 主循环驱动 | 推进挂起超时检查、TX 队列发送与 RX 报文解码分发；`budget` 取值 `1 .. WL_KERNEL_BUDGET`（16）。 |
+| `wl_kernel_ready(kernel, now, &has_dl, &dl)` | 唤醒判定 | 若立即有待处理工作返回非零；否则通过 `has_dl` 和 `dl` 告知最早 RPC 超时截止时刻，供外部安全休眠。 |
+| `wl_kernel_cancel(kernel, handle)` | 取消 RPC | 标记指定调用为已取消，不立即重入调用方回调，而是在下次 `step` 派发 `WL_KERNEL_CANCELLED`。 |
+| `wl_kernel_close(kernel)` | 停机起始 | 停止接受新消息与 RPC 提交，并对在途调用调度 `WL_KERNEL_CLOSED` 终态。 |
+| `wl_kernel_quiescent(kernel)` | 停机完成判定 | 所有发送租约归还且在途终态回调派发完毕时返回非零；返回非零前禁止复用端口与缓冲。 |
+| `wl_kernel_call_handle_t` | 调用句柄 | 由端点的 `start` 函数输出，仅作为 `wl_kernel_cancel` 的身份凭证，可按值复制（16 字节）。 |
 
-接纳成功前快照输入，失败不创建调用或后续 completion。终态使 call handle 失效，不一定结束物理 lease。
+### 内置固定规模边界常量
 
-将[终态 outcome](/wirelink/zh-cn/reference/status-and-results/)与操作返回码分别判读。整体顺序见 [kernel 模型](/wirelink/zh-cn/concepts/kernel/)；物理 stop/drain 见[传输合同](/wirelink/zh-cn/reference/transports/)。
+- `WL_KERNEL_CALLS = 4U`：单个端点支持的最大并发出站 RPC 槽位数。
+- `WL_KERNEL_REPLIES = 3U`：单个端点支持的最大并发入站响应构建槽位数。
+- `WL_KERNEL_TX_COUNT = 8U`：发送环形调度队列容量上限。
+- `WL_KERNEL_BUDGET = 16U`：单次 `wl_kernel_step` 推荐预算上限。
+
+## `wlc` 生成的端点符号映射
+
+假设你的模块前缀为 `<mod>`，编译器会根据 `.bind.wl` 中的声明自动生成强类型入口，彻底免去手动操作 `wl_kernel_msg_claim` / `call_claim`：
+
+| `.bind.wl` 声明 | 生成 C 符号 / 结构体字段 | 含义 |
+| :--- | :--- | :--- |
+| 全局端点结构体 | `<mod>_kernel_t` | 嵌入了 `wl_kernel_t core` 与各分类精确大小的静态编码缓冲池 |
+| 全局回调配置表 | `<mod>_kernel_handlers_t` | 汇总该端点可能收到的单向 `on_<msg>` 与服务端 `on_<rpc>` 回调指针 |
+| 端点生命周期 | `<mod>_kernel_init` / `_step` | 分别封装了存储池计算、路由绑定以及 `WL_KERNEL_BUDGET` 步进 |
+| `send <Msg>` | `<mod>_kernel_send_<msg>(ep, value)` | 将编码写入静态发送队列；队列满返回 `WL_ERR_WOULD_BLOCK` |
+| `direct <Msg>` | `handlers.on_<msg>(user, msg)` | 在 `step` 解码通过后立刻同步回调；退出即回收内存视图 |
+| `rpc <Rpc>` (client) | `<mod>_kernel_<rpc>_start(ep, req, now, timeout, cb, user, &h)` | 异步发起 RPC；返回 `WL_OK` 即保证将来精确调用一次 `cb` |
+| `rpc <Rpc>` (server) | `int32_t handlers.on_<rpc>(user, req, resp)` | 返回 `0` 发回 `resp`（`WL_KERNEL_SUCCESS`）；返回非零 `int32_t` 发回 `WL_KERNEL_REJECTED` |
+
+每个消息结构体同时生成 `<msg>_t` 类型定义。对于 `optional` 字段，C 结构体中会自动配备 `bool has_<field>` 标志位；对于 `string<N>` 与 `bytes<N>`，字段类型分别为 `wl_string_view_t` 与 `wl_bytes_view_t`。

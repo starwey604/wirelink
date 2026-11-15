@@ -1,0 +1,59 @@
+---
+title: Wire v2 二进制线协议规范
+description: 详述 Wire v2 帧头、小端 RPC 子头、TLV / Positional-v1 与外层流分帧格式。
+sidebar:
+  order: 2
+---
+
+Wirelink 的线缆层将「内核规范帧（Canonical Frame）」与「外层字节流连接器」彻底正交。完整协议规范及 C 语言常量定义详见 [docs/wire-format.md](https://github.com/starwey604/wirelink/blob/main/docs/wire-format.md) 与 [include/wirelink/kernel_wire.h](https://github.com/starwey604/wirelink/blob/main/include/wirelink/kernel_wire.h)。
+
+## 规范帧结构（4 B + Payload）
+
+每个规范帧固定由 **4 字节帧头**（`WL_KERNEL_NATIVE_HEADER = 4`）与 `0 .. 2048` 字节 Payload（`WL_WIRE_MAX_PAYLOAD = 2048`）组成，单帧最大 **2052 字节**：
+
+```text
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| magic = 0x57  |     kind      |        route_id (uint16 LE)   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Payload (0 .. 2048 bytes)                      |
+|     - kind=0: 直接为消息体 (TLV 或 Positional-v1)              |
+|     - kind=1/2/3: 先接 RPC 子头 (8B 或 12B)，再接消息体       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+- **`magic`**: 固定魔数 `0x57`（ASCII 字母 `W`），不匹配返回 `WL_ERR_BAD_FRAME`。
+- **`kind`**: `0 = WL_WIRE_MSG`（单向消息）、`1 = WL_WIRE_RPC_REQ`（RPC 请求）、`2 = WL_WIRE_RPC_RESP`（成功响应）、`3 = WL_WIRE_RPC_ERR`（业务拒绝）；越界值返回 `WL_ERR_NOT_SUPPORTED`。
+- **`route_id`**: 小端 `uint16_t`，直接对应 `.wl` 消息声明的 `@id(...)`（禁止为 `0`）。
+
+## 小端定长 RPC 子头
+
+Wire v2 将 RPC 元数据全部收敛为 **32 位自然对齐的小端整数**：
+
+- **请求与成功响应（`kind = 1` 或 `2`）**: 先接 8 字节子头 `[session (uint32 LE) | operation (uint32 LE)]`，随后紧跟编码后的请求或响应消息体。其中 `session` 与 `operation` 均严禁为 `0`。
+- **业务拒绝响应（`kind = 3`）**: 固定 12 字节 Payload `[session (uint32 LE) | operation (uint32 LE) | status (int32 LE)]`，无消息体。其中 `status` 为服务端返回的非零业务状态码；若 `status == 0` 视为畸形包。
+
+## 消息体编码：Schema-v1 TLV 与 Positional-v1
+
+### Schema-v1 TLV（默认编码，支持演进）
+
+每个现存字段以 `varint( (field_number << 3) | wire_type )` 开头：
+
+| `wire_type` | 编码方式 | 适用 `.wl` 类型 | 说明 |
+| :---: | :--- | :--- | :--- |
+| `0` | Varint | `bool`, `uint8..64`, `int8..64`, `enum` | 有符号整型与 `enum` 先经 ZigZag 映射再编码 LEB128 |
+| `1` | 64-bit LE | `fixed64`, `float64` | 固定 8 字节小端读取 |
+| `2` | Length-delimited | `string<N>`, `bytes<N>`, 嵌套 `message`, `packed` | 前置 `varint(byte_len)`；`string` 强制检查 RFC-3629 UTF-8 |
+| `5` | 32-bit LE | `fixed32`, `float32` | 固定 4 字节小端读取 |
+
+不支持非规范冗长 Varint；解码器通过 `wl_codec_skip` 安全跳过未知 `field_number`，从而支持增删可选字段的平滑演进。
+
+### Positional-v1（定序紧凑编码）
+
+当非 RPC 单向路由选择 Positional-v1 编码时，线缆上消除全部字段 Tag，仅保留按声明序紧凑排列的数据体与前导 Optional 存在位图（`ceil(optional_count / 8)` 字节）；若字段全部为 `required`，存在位图开销为 **0 字节**。
+
+## 外层字节流分帧
+
+- **`cobs_stream`（串口 / 字节流）**: `COBS_Encode( Canonical Frame || CRC16_BE ) || 0x00`。采用 CRC-16/CCITT-FALSE（初值 `0xFFFF`，多项式 `0x1021`，2 字节大端）。最大 2052 B 规范帧经过 COBS+CRC16 后不超过 2064 字节。
+- **`bus_length16`（干净块总线）**: `len (uint16 LE) || Canonical Frame`。`len` 必须满足 `4 .. 2052`，无额外 CRC 开销，封装上界为 `size + 2`。

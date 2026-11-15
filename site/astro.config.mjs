@@ -15,8 +15,7 @@ export default defineConfig({
     }),
     starlight({
       title: 'Wirelink',
-      description:
-        'An allocation-free C11 endpoint kernel for typed messages and RPC.',
+      description: '面向嵌入式 MCU 与上位机的纯 C11 零动态分配通信中间件。',
       favicon: '/favicon.svg',
       disable404Route: true,
       customCss: ['./src/styles/custom.css'],
@@ -44,18 +43,36 @@ export default defineConfig({
         },
       ],
       sidebar: [
-        { label: 'Start here', translations: { 'zh-CN': '从这里开始' },
-          items: [{ autogenerate: { directory: 'overview' } }] },
-        { label: 'Run and learn', translations: { 'zh-CN': '运行与学习' },
-          items: [{ autogenerate: { directory: 'learn' } }] },
-        { label: 'Understand the kernel', translations: { 'zh-CN': '理解 kernel' },
-          items: [{ autogenerate: { directory: 'concepts' } }] },
-        { label: 'Integrate', translations: { 'zh-CN': '按需集成' },
-          items: [{ autogenerate: { directory: 'how-to' } }] },
-        { label: 'API and transport reference', translations: { 'zh-CN': 'API 与传输参考' },
-          items: [{ autogenerate: { directory: 'reference' } }] },
-        { label: 'Develop and verify', translations: { 'zh-CN': '开发与验证' },
-          items: [{ autogenerate: { directory: 'development' } }] },
+        {
+          label: 'Overview',
+          translations: { 'zh-CN': '概览' },
+          items: [{ autogenerate: { directory: 'overview' } }],
+        },
+        {
+          label: 'Interactive tutorials',
+          translations: { 'zh-CN': '渐进式互动教程' },
+          items: [{ autogenerate: { directory: 'learn' } }],
+        },
+        {
+          label: 'Schema & WLC guide',
+          translations: { 'zh-CN': 'Schema 与编译器指南' },
+          items: [{ autogenerate: { directory: 'concepts' } }],
+        },
+        {
+          label: 'Platform & SDK guides',
+          translations: { 'zh-CN': '平台接入与上位机 SDK' },
+          items: [{ autogenerate: { directory: 'how-to' } }],
+        },
+        {
+          label: 'API & wire reference',
+          translations: { 'zh-CN': 'API 与协议参考' },
+          items: [{ autogenerate: { directory: 'reference' } }],
+        },
+        {
+          label: 'Development & testing',
+          translations: { 'zh-CN': '开发与验证' },
+          items: [{ autogenerate: { directory: 'development' } }],
+        },
       ],
     }),
   ],
