@@ -18,7 +18,6 @@ in the test matrix exist for correctness, not for timing.
 | [mixed_traffic](mixed_traffic/README.md) | Telemetry age and explicit application retry under request/response loss and backpressure | Host, ESP32-S3 |
 | [framing](framing/README.md) | Independent framing encode/alias/decode tools | Host, ESP32-S3 |
 | [owner_pass](owner_pass/README.md) | 32 command slots, eight-command fairness and stop rejection, by counting | Host |
-| [fifo](../docs/fifo-performance.md) | The ordered SPSC FIFO runtime | Host |
 | [footprint](footprint/README.md) | Static code size per module and the caller storage contract | Host |
 
 The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the

@@ -7,6 +7,7 @@ static telemetry_kernel_t endpoints[2];
 static example_pair_t pair;
 int main(void) {
   example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  /* [docs:telemetry_publish] */
   const telemetry_kernel_handlers_t handlers = {.on_message_telemetry = telemetry_receive};
   for (unsigned side = 0; side < 2; ++side)
     EXAMPLE_REQUIRE(telemetry_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
@@ -17,6 +18,7 @@ int main(void) {
     memset(&message, 0, sizeof(message)); /* Admission copied the source. */
     example_pair_wait(&pair, &telemetry_received, sample + 1);
   }
+  /* [/docs:telemetry_publish] */
   example_pair_close(&pair);
   puts("12 ordinary telemetry messages received; both endpoints quiescent");
   return 0;

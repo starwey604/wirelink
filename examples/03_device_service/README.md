@@ -18,7 +18,7 @@ StartSelfTest (message 132) returns job_id (133) immediately. Application pollin
 waits 20 owner ticks and sends ordinary SelfTestProgress (134). One job is active;
 a second Start returns DEVICE_BUSY. Pending ordinary TX backpressure retains the
 result until admission. The existing SelfTest RPC returns its calculation directly.
-See the [job tutorial](../../docs/tutorial-jobs.md) for source and owner flow.
+See [docs/README.md](../../docs/README.md) for the Wirelink documentation index.
 
 The example tracks local job state and matches received progress by job ID; it
 has no remote status-query RPC or completion history. Production protocols need

@@ -35,6 +35,7 @@ int main(void) {
       &handlers, NULL, NULL) == WL_OK);
   wl_kernel_call_handle_t handles[4], rejected;
   add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  /* [docs:calculator_cancel_timeout] */
   for (unsigned i = 0; i < 4; ++i)
     EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[0], &request, 0, 2,
       done, &completions[i], &handles[i]) == WL_OK);
@@ -46,6 +47,7 @@ int main(void) {
   EXAMPLE_REQUIRE(calculator_kernel_step(&endpoints[0], 0) == WL_OK);
   EXAMPLE_REQUIRE(wl_kernel_cancel(&endpoints[0].core, handles[0]) == WL_OK);
   EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. */
+  /* [/docs:calculator_cancel_timeout] */
   EXAMPLE_REQUIRE(calculator_kernel_step(&endpoints[0], 1) == WL_OK);
   EXAMPLE_REQUIRE(completions[0].result.outcome == WL_KERNEL_CANCELLED);
   EXAMPLE_REQUIRE(wl_kernel_cancel(&endpoints[0].core, handles[0]) == WL_ERR_NOT_FOUND);

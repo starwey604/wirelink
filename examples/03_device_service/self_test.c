@@ -25,6 +25,7 @@ void self_test_bind(device_kernel_handlers_t *handlers) {
   handlers->on_rpc_start_self_test = start;
 }
 /* Application event-loop work, with ordinary TX backpressure. No reply token. */
+/* [docs:device_job_poll] */
 void self_test_poll(device_service_t *state, device_kernel_t *endpoint) {
   if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return;
   self_test_progress_t progress = {.has_job_id = true, .job_id = state->job_id,
@@ -34,3 +35,4 @@ void self_test_poll(device_service_t *state, device_kernel_t *endpoint) {
   EXAMPLE_REQUIRE(error == WL_OK);
   state->job_pending = false;
 }
+/* [/docs:device_job_poll] */

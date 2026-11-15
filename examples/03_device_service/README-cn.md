@@ -6,7 +6,7 @@
 
 `services.bind.wl` 保存共享 RPC 声明；CMake 将普通接收/发送 route 组合为 profile-v2 kernel。两种 RPC 角色均启用。业务状态位于 `device_service_t`，模块注册短类型化 handler，填写自持响应并返回有符号业务 status。100 通道普通 telemetry 消息参与 TX 字节容量推导。
 
-StartSelfTest（消息 132）立即返回 job_id（133）。应用轮询等待 20 个 owner tick，发送普通 SelfTestProgress（134）。一次只运行一个 job；第二个 Start 返回 DEVICE_BUSY。普通 TX 背压时保留结果直到接纳成功。现有 SelfTest RPC 直接返回计算结果。源码和 owner 流程见[任务教程](../../docs/tutorial-jobs-cn.md)。
+StartSelfTest（消息 132）立即返回 job_id（133）。应用轮询等待 20 个 owner tick，发送普通 SelfTestProgress（134）。一次只运行一个 job；第二个 Start 返回 DEVICE_BUSY。普通 TX 背压时保留结果直到接纳成功。现有 SelfTest RPC 直接返回计算结果。相关文档总览见 [docs/README.md](../../docs/README.md)。
 
 例程跟踪本地 job 状态，按 job ID 匹配收到的 progress；没有远程状态查询 RPC 或完成历史。生产协议需要定义查询/保留/重启行为以恢复丢失的普通 progress。本地 cancel/timeout 不能撤回任务，重复请求可能再次执行。
 

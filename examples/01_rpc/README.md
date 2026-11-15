@@ -10,8 +10,6 @@ local cancellation, three queued timeouts, a TX lease surviving its call and
 successful reuse. Its deterministic tick is one loop pass, not milliseconds.
 Both examples use RAM-copy loopback, without hardware.
 
-Follow the [RPC tutorial](../../docs/tutorial-rpc.md) and
-[cancellation/capacity tutorial](../../docs/tutorial-rpc-async.md) for commands
-and build-backed source. For longer work, use an
-[application job protocol](../../docs/tutorial-jobs.md). Local timeout/cancel
-cannot undo remote effects; applications own retries and idempotency.
+Follow [Wirelink documentation](../../docs/README.md) for architecture and workflow
+notes. Local timeout/cancel cannot undo remote effects; applications own
+retries and idempotency.

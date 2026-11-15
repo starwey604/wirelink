@@ -7,6 +7,7 @@ static void done(void *user, wl_kernel_result_t result, const add_response_t *re
   EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response && response->sum == 42);
   ++completed;
 }
+/* [docs:calculator_async_rpc] */
 void calculator_async_example(calculator_kernel_t *client, calculator_kernel_t *server) {
   /* Four accepted calls coexist; no terminal slot needs inspect/release. */
   (void)server;
@@ -17,4 +18,5 @@ void calculator_async_example(calculator_kernel_t *client, calculator_kernel_t *
     memset(&request, 0, sizeof(request));
   }
 }
+/* [/docs:calculator_async_rpc] */
 unsigned calculator_async_count(void) { return completed; }

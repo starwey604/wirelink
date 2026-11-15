@@ -12,6 +12,7 @@ int main(int argc, char **argv) {
   puts("UDP peer server ready"); fflush(stdout);
   uint32_t sequence = 0, due = example_now_ms();
   int status = 0;
+  /* [docs:udp_server_loop] */
   while (example_running()) {
     uint32_t now = example_now_ms();
     if (example_udp_step(udp, &server.core, now) != WL_OK) { status = 1; break; }
@@ -25,6 +26,7 @@ int main(int argc, char **argv) {
     uint32_t wait = (int32_t)(due - now) > 0 ? due - now : 0;
     if (example_udp_wait(udp, &server.core, wait) != WL_OK) { status = 1; break; }
   }
+  /* [/docs:udp_server_loop] */
   if (example_udp_close(udp, &server.core) != WL_OK) status = 1;
   return status;
 }

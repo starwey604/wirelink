@@ -47,6 +47,7 @@ example_udp_t *example_udp_open_at(wl_packet_port_t *port, wl_span_t rx, size_t 
     return udp.release();
   } catch (const std::exception& error) { std::fprintf(stderr, "UDP open: %s\n", error.what()); return nullptr; }
 }
+/* [docs:udp_host_step] */
 wl_err_t example_udp_step(example_udp_t *udp, wl_kernel_t *core, uint32_t now) {
   try {
     const auto error = udp->adapter->service();
@@ -54,6 +55,7 @@ wl_err_t example_udp_step(example_udp_t *udp, wl_kernel_t *core, uint32_t now) {
     return error == WL_OK ? advanced : error;
   } catch (...) { return WL_ERR_IO; }
 }
+/* [/docs:udp_host_step] */
 wl_err_t example_udp_wait(example_udp_t *udp, wl_kernel_t *core, uint32_t maximum_ms) {
   const uint32_t sampled = example_now_ms();
   int has_deadline = 0; uint32_t deadline = 0;

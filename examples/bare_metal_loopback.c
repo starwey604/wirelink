@@ -39,6 +39,7 @@ int main(void) {
   require(wl_packet_loopback_init(&transport, &ports[0], &ports[1], NULL, NULL) == WL_OK);
   for (unsigned side = 0; side < 2U; ++side) {
     /* A real integration supplies a fresh nonzero instance at each restart. */
+    /* [docs:loopback_setup] */
     wl_packet_config_t config = {.instance = 1001U + side,
         .rx_storage = &receive_storage[side][0][0], .rx_unit_size = 256U,
         .rx_storage_size = sizeof(receive_storage[side]),
@@ -47,6 +48,7 @@ int main(void) {
     require(wl_packet_init(&ports[side], &config) == WL_OK);
     demo_kernel_handlers_t handlers = {.on_rpc_execute = execute, .on_message_event = received};
     require(demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, NULL) == WL_OK);
+    /* [/docs:loopback_setup] */
     for (unsigned slot = 0; slot < WL_KERNEL_REPLIES; ++slot) {
       request_t request = {.has_input = true, .input = INT32_MIN};
       wl_kernel_call_handle_t call;

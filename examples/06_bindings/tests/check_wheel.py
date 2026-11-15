@@ -55,6 +55,7 @@ for tool in ('cc', 'c++', 'cl', 'cmake', 'cargo', 'wlc'):
 with subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, text=True) as server:
     try:
         port = int(server.stdout.readline())
+        # [docs:python_sdk_client]
         with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
             saved = client.add(left=20, right=22)
             assert saved.sum == 42
@@ -62,6 +63,7 @@ with subprocess.Popen([sys.argv[1]], stdout=subprocess.PIPE, text=True) as serve
                 client.add(left=2**31 - 1, right=1)
             except RejectedError as error:
                 assert error.status == 1
+        # [/docs:python_sdk_client]
             else:
                 raise AssertionError('expected business rejection')
         assert saved.sum == 42

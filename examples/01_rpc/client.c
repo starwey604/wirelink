@@ -14,12 +14,14 @@ int main(void) {
   for (unsigned pass = 0; pass < 500 && calculator_async_count() != 4; ++pass) example_pair_step(&pair);
   EXAMPLE_REQUIRE(calculator_async_count() == 4);
   /* A blocking application wrapper uses the same start/owner advancement. */
+  /* [docs:calculator_sync_rpc] */
   add_request_t request = {.has_left = true, .left = INT32_MAX, .has_right = true, .right = 1};
   wl_kernel_call_handle_t handle;
   EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[1], &request, pair.now, 500,
     add_completed, NULL, &handle) == WL_OK);
   example_pair_wait(&pair, &add_count, 1);
   EXAMPLE_REQUIRE(add_result.outcome == WL_KERNEL_REJECTED && add_result.status == 1);
+  /* [/docs:calculator_sync_rpc] */
   example_pair_close(&pair);
   puts("four concurrent copied requests and reverse-direction rejection passed");
   return 0;

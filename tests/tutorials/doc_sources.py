@@ -1,40 +1,139 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Keep the source listings in both tutorial languages build-backed."""
+"""Extract and verify [docs:<name>] source fragments against Markdown/MDX docs."""
+from __future__ import annotations
+
+import argparse
 from pathlib import Path
 import re
+import textwrap
 
-
-root = Path(__file__).resolve().parents[2]
-pairs = {
-    "getting-started": ["00_telemetry/publisher.c", "00_telemetry/subscriber.c"],
-    "tutorial-rpc": ["01_rpc/client.c", "01_rpc/server.c"],
-    "tutorial-rpc-async": ["01_rpc/lifecycle.c"],
-    "tutorial-rpc-values": ["02_device_info/client.c", "02_device_info/server.c"],
-    "tutorial-jobs": ["03_device_service/self_test.c"],
-    "tutorial-integration": ["05_zephyr_udp/server.c"],
+SOURCE_EXTENSIONS = {".c", ".h", ".cpp", ".hpp", ".wl", ".py"}
+MARKER_RE = re.compile(
+    r"^\s*(?:/\*\s*|//\s*|#\s*)\[(/?)docs:([a-zA-Z0-9_.-]+)\]\s*(?:\*/)?\s*$"
+)
+DOC_TAG_RE = re.compile(
+    r"^(?:<!--|\{/\*)\s*\[docs:([a-zA-Z0-9_.-]+)\]\s*(?:-->|\*/\})\s*$",
+    re.M,
+)
+DOC_BLOCK_RE = re.compile(
+    r"^(?:<!--|\{/\*)\s*\[docs:([a-zA-Z0-9_.-]+)\]\s*(?:-->|\*/\})\s*\n+"
+    r"```[^\n]*\n(.*?)\n```",
+    re.S | re.M,
+)
+REQUIRED_SNIPPETS = {
+    "telemetry_schema",
+    "telemetry_bind",
+    "telemetry_publish",
+    "telemetry_receive",
+    "calculator_schema",
+    "calculator_bind",
+    "calculator_server",
+    "calculator_sync_rpc",
+    "calculator_async_rpc",
+    "calculator_cancel_timeout",
+    "device_info_client",
+    "device_job_poll",
+    "udp_server_loop",
+    "udp_host_step",
+    "python_sdk_client",
+    "loopback_setup",
 }
 
-for chapter, sources in pairs.items():
-    for suffix in ("", "-cn"):
-        document = root / "docs" / f"{chapter}{suffix}.md"
-        blocks = re.findall(r"```c\n(.*?)\n```", document.read_text(encoding="utf-8"), re.S)
-        for source in sources:
-            expected = (root / "examples" / source).read_text(encoding="utf-8").strip()
-            if expected not in blocks:
-                raise RuntimeError(f"{document.name} is out of sync with {source}")
 
-# These excerpts share storage/lifecycle contracts with the compiled examples.
-fragments = {
-    "tutorial-rpc-values": ("c", "common/loopback_owner.h", "#define EXAMPLE_COMPLETION", "\n#endif"),
-    "tutorial-integration": ("cpp", "common/tutorial_host.cpp", "wl_err_t example_udp_step", None),
-}
-for chapter, (language, source, start, stop) in fragments.items():
-    text = (root / "examples" / source).read_text(encoding="utf-8")
-    begin = text.index(start)
-    end = text.index(stop, begin) if stop else len(text)
-    expected = text[begin:end].strip()
-    for suffix in ("", "-cn"):
-        document = root / "docs" / f"{chapter}{suffix}.md"
-        blocks = re.findall(r"```" + language + r"\n(.*?)\n```", document.read_text(encoding="utf-8"), re.S)
-        if expected not in blocks:
-            raise RuntimeError(f"{document.name} is out of sync with {source} fragment")
+def collect_snippets(examples_dir: Path) -> dict[str, tuple[Path, str]]:
+    """Extract all named [docs:<name>] fragments from compiled example sources."""
+    snippets: dict[str, tuple[Path, str]] = {}
+    for path in sorted(examples_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in SOURCE_EXTENSIONS:
+            continue
+        if any(part in {"build", "generated", "__pycache__"} for part in path.parts):
+            continue
+        active: dict[str, list[str]] = {}
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            match = MARKER_RE.match(line)
+            if match:
+                closing, name = match.group(1) == "/", match.group(2)
+                if not closing:
+                    if name in active or name in snippets:
+                        raise RuntimeError(f"Duplicate [docs:{name}] in {path}:{lineno}")
+                    active[name] = []
+                else:
+                    if name not in active:
+                        raise RuntimeError(f"Unmatched [/docs:{name}] in {path}:{lineno}")
+                    raw = "\n".join(active.pop(name))
+                    snippets[name] = (path, textwrap.dedent(raw).strip())
+                continue
+            for lines in active.values():
+                lines.append(line)
+        if active:
+            unclosed = ", ".join(sorted(active))
+            raise RuntimeError(f"Unclosed [docs:{unclosed}] in {path}")
+    missing = sorted(REQUIRED_SNIPPETS - snippets.keys())
+    if missing:
+        raise RuntimeError(f"Missing required source anchors in examples/: {', '.join(missing)}")
+    return snippets
+
+
+def verify_documents(
+    root: Path, documents: list[Path], snippets: dict[str, tuple[Path, str]]
+) -> int:
+    """Verify every [docs:<name>] code block in documents matches examples/."""
+    checked = 0
+    for document in documents:
+        text = document.read_text(encoding="utf-8")
+        for match in DOC_BLOCK_RE.finditer(text):
+            name, actual = match.group(1), match.group(2).strip()
+            if name not in snippets:
+                raise RuntimeError(f"{document.relative_to(root)} references unknown [docs:{name}]")
+            source_path, expected = snippets[name]
+            if actual != expected:
+                raise RuntimeError(
+                    f"{document.relative_to(root)} [docs:{name}] is out of sync with "
+                    f"{source_path.relative_to(root)}"
+                )
+            checked += 1
+        # Catch dangling doc annotations not followed by a code fence.
+        for tag in DOC_TAG_RE.finditer(text):
+            if not DOC_BLOCK_RE.match(text, tag.start()):
+                raise RuntimeError(
+                    f"{document.relative_to(root)} has [docs:{tag.group(1)}] without a fenced code block"
+                )
+    return checked
+
+
+def default_documents(root: Path) -> list[Path]:
+    """Return default WP-5 documentation entry points present in the repository."""
+    docs = [root / "README.md"]
+    docs_dir = root / "docs"
+    if docs_dir.is_dir():
+        docs.extend(sorted(docs_dir.glob("*.md")))
+    wlc_readme = root / "wlc" / "README.md"
+    if wlc_readme.is_file():
+        docs.append(wlc_readme)
+    return [path for path in docs if path.is_file()]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="*", help="Optional Markdown/MDX files or directories to verify")
+    args = parser.parse_args()
+    root = Path(__file__).resolve().parents[2]
+    snippets = collect_snippets(root / "examples")
+    documents: list[Path] = []
+    if args.paths:
+        for raw in args.paths:
+            path = (root / raw).resolve() if not Path(raw).is_absolute() else Path(raw)
+            if path.is_dir():
+                documents.extend(sorted(p for p in path.rglob("*") if p.suffix in {".md", ".mdx"}))
+            elif path.is_file():
+                documents.append(path)
+    else:
+        documents = default_documents(root)
+    checked = verify_documents(root, documents, snippets)
+    if checked == 0:
+        raise RuntimeError("No [docs:<name>] blocks found in checked documents")
+    print(f"Verified {checked} doc source block(s) across {len(documents)} file(s)")
+
+
+if __name__ == "__main__":
+    main()

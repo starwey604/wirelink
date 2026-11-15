@@ -11,6 +11,7 @@ int main(void) {
   const device_info_kernel_handlers_t handlers = {.on_rpc_get_info = device_info_query};
   for (unsigned side = 0; side < 2; ++side)
     EXAMPLE_REQUIRE(device_info_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, &queries) == WL_OK);
+  /* [docs:device_info_client] */
   for (unsigned call = 0; call < 8; ++call) {
     info_request_t request = {0}; wl_kernel_call_handle_t handle;
     EXAMPLE_REQUIRE(device_info_kernel_get_info_start(&endpoints[0], &request, pair.now, 500,
@@ -20,6 +21,7 @@ int main(void) {
   }
   example_pair_close(&pair);
   EXAMPLE_REQUIRE(info_value.name.length == 11 && memcmp(info_value.name.data, "workbench\0x", 11) == 0);
+  /* [/docs:device_info_client] */
   puts("bounded UTF-8/NUL response copied before callback exit and retained after close");
   return 0;
 }

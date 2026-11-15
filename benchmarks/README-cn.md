@@ -13,7 +13,6 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 | [mixed_traffic](mixed_traffic/README-cn.md) | 请求/响应丢失与背压下，遥测年龄和显式应用重试 | 主机、ESP32-S3 |
 | [framing](framing/README-cn.md) | 独立 framing 编码/alias/decode 工具 | 主机、ESP32-S3 |
 | [owner_pass](owner_pass/README-cn.md) | 32 命令槽、8 命令预算与 stop 拒绝（计数验证） | 主机 |
-| [fifo](../docs/fifo-performance.md) | 有序 SPSC FIFO runtime | 主机 |
 | [footprint](footprint/README-cn.md) | 各模块静态代码大小与调用方存储契约 | 主机 |
 
 `benchmarks/zephyr/` 下的[固件变体](zephyr/README-cn.md)在 ESP32-S3 DevKitC 上跑同一批负载，
