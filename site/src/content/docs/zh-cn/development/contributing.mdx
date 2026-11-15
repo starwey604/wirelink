@@ -34,14 +34,13 @@ cargo clippy --manifest-path wlc/Cargo.toml --all-targets --all-features -- -D w
 cargo test --manifest-path wlc/Cargo.toml
 ```
 
-### 3. 文档站点规范与链接检查
+### 3. 文档片段同步与站点构建
 
-新增或编辑在线文档后，在 `site/` 下运行完整性与静态构建校验：
+新增或编辑在线文档后，运行教程代码片段校验与 Astro 静态构建验证：
 
 ```sh
 python3 tests/tutorials/doc_sources.py site/src/content/docs/zh-cn
-npm --prefix site run check:docs
 npm --prefix site run build
 ```
 
-其中 `check:docs` 会检查所有 `[docs:<name>]` 代码块、MDX 段落格式、中文标点规范、内部路径及 `#anchor` 锚点有效性，并核对中英文站点路由是否严格一一对应。
+其中 `doc_sources.py` 会检查所有 `[docs:<name>]` 代码块与 `examples/` 中的真实源码是否严格同步，`npm --prefix site run build` 会执行 `astro check` 与静态站点生成。
