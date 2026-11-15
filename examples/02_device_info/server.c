@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "device_info_kernel.h"
 #include <string.h>
-int32_t device_info_query(void *user, const info_request_t *request, info_response_value_t *response) {
+int32_t device_info_query(void *user, const info_request_t *request, info_response_t *response) {
   (void)request;
   unsigned *queries = user;
   response->has_name = response->has_firmware = response->has_query_count = true;

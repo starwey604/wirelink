@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
   CHECK(udp);
   const udp_demo_kernel_handlers_t handlers = {.on_rpc_add = peer_add, .on_message_telemetry = peer_sample};
   CHECK(udp_demo_kernel_init(&client, &port, &handlers, NULL, &state) == WL_OK);
-  add_request_value_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
   wl_kernel_call_handle_t call;
   CHECK(udp_demo_kernel_add_start(&client, &request, example_now_ms(), 1500, peer_completed, &state, &call) == WL_OK);
   memset(&request, 0, sizeof(request));

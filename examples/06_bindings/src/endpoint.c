@@ -29,9 +29,12 @@ wl_err_t calculator_sdk_endpoint_initialize(void* storage, uint32_t instance,
 }
 static void calculator_sdk_add_done(void* context, wl_kernel_result_t result, const add_response_t* response) {
   calculator_sdk_call_t* state = context;
-  if (result.outcome == WL_KERNEL_SUCCESS &&
-      (response == NULL || add_response_value_from_view(response, state->response) != WL_CODEC_OK))
-    result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (response == NULL)
+      result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else
+      memcpy(state->response, response, sizeof(*response));
+  }
   state->notify(state->notify_context, result);
 }
 wl_err_t calculator_sdk_add_submit(calculator_sdk_call_t* state, uint32_t now, uint32_t timeout,

@@ -10,7 +10,7 @@ typedef struct {
   calculator_kernel_t client, server;
   example_pair_t pair;
   wl_kernel_result_t result;
-  add_response_value_t response;
+  add_response_t response;
   wl_clock_t native;
   uint32_t time, reads, handled;
   bool ready, active, done, stall_peer;
@@ -19,7 +19,7 @@ static uint32_t read_clock(bridge_t *bridge) {
   ++bridge->reads;
   return bridge->native.now_ms ? bridge->native.now_ms(bridge->native.user_data) : bridge->time;
 }
-static int32_t add(void *user, const add_request_t *request, add_response_value_t *response) {
+static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
   bridge_t *bridge = user; ++bridge->handled;
   int64_t sum = (int64_t)request->left + request->right;
   if (sum < INT32_MIN || sum > INT32_MAX) return 1;
@@ -27,8 +27,10 @@ static int32_t add(void *user, const add_request_t *request, add_response_value_
 }
 static void completed(void *user, wl_kernel_result_t result, const add_response_t *response) {
   bridge_t *bridge = user; bridge->result = result;
-  if (result.outcome == WL_KERNEL_SUCCESS)
-    EXAMPLE_REQUIRE(response && add_response_value_from_view(response, &bridge->response) == WL_CODEC_OK);
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    EXAMPLE_REQUIRE(response != NULL);
+    bridge->response = *response;
+  }
   bridge->done = true;
 }
 void *clock_bridge_create(uint32_t initial_ms, int native_clock) {
@@ -52,7 +54,7 @@ void clock_bridge_destroy(void *value) { clock_bridge_close(value); free(value);
 int clock_bridge_start(void *value, int32_t left, int32_t right, uint32_t timeout_ms) {
   bridge_t *bridge = value;
   if (!bridge || !bridge->ready || (bridge->active && !bridge->done)) return -1;
-  add_request_value_t request = {.has_left = true, .left = left, .has_right = true, .right = right};
+  add_request_t request = {.has_left = true, .left = left, .has_right = true, .right = right};
   bridge->pair.now = read_clock(bridge); wl_kernel_call_handle_t handle;
   if (calculator_kernel_add_start(&bridge->client, &request, bridge->pair.now, timeout_ms,
       completed, bridge, &handle) != WL_OK) return -1;

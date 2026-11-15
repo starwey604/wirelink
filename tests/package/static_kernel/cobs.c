@@ -15,7 +15,7 @@ static wl_packet_submit_t physical(void *user, const uint8_t *data, size_t lengt
     abort();
   return WL_PACKET_SENT;
 }
-static int32_t execute(void *user, const request_t *request, response_value_t *response) {
+static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user;
   ++effects;
   response->has_output = true;
@@ -36,7 +36,7 @@ int main(void) {
   probe_kernel_handlers_t handlers = {.on_rpc_execute = execute};
   if (probe_kernel_init(&endpoint, &port, &handlers, NULL, NULL))
     abort();
-  request_value_t value = {.has_input = true, .input = INT32_MIN};
+  request_t value = {.has_input = true, .input = INT32_MIN};
   wl_kernel_call_handle_t call;
   if (probe_kernel_execute_start(&endpoint, &value, 0, 100, done, NULL, &call))
     abort();

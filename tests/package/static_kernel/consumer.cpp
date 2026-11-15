@@ -22,7 +22,7 @@ int main() {
   handlers.on_message_event = event;
   if (probe_kernel_init(&endpoint, port, &handlers, nullptr, nullptr))
     return 2;
-  request_value_t request{};
+  request_t request{};
   request.has_input = true;
   request.input = INT32_MIN;
   wl_kernel_call_handle_t handle{};
@@ -30,7 +30,7 @@ int main() {
     return 3;
   if (wl_kernel_cancel(&endpoint.core, handle))
     return 4;
-  event_value_t value{};
+  event_t value{};
   value.has_data = true;
   value.data.length = 9;
   for (unsigned i = 0; i < 9; ++i)

@@ -18,16 +18,16 @@ extern "C" {
 typedef void (*device_kernel_configure_callback_t)(void *, wl_kernel_result_t, const configure_response_t *);
 typedef void (*device_kernel_get_info_callback_t)(void *, wl_kernel_result_t, const info_response_t *);
 typedef struct {
-  int32_t (*on_rpc_configure)(void *, const configure_request_t *, configure_response_value_t *);
-  int32_t (*on_rpc_get_info)(void *, const info_request_t *, info_response_value_t *);
+  int32_t (*on_rpc_configure)(void *, const configure_request_t *, configure_response_t *);
+  int32_t (*on_rpc_get_info)(void *, const info_request_t *, info_response_t *);
 } device_kernel_handlers_t;
 typedef struct {
   wl_kernel_t core;
   device_kernel_handlers_t handlers;
   void *user;
   union {
-    configure_response_value_t configure;
-    info_response_value_t get_info;
+    configure_response_t configure;
+    info_response_t get_info;
   } reply;
   uint8_t requests[WL_KERNEL_CALLS][222U];
   uint8_t replies[WL_KERNEL_REPLIES][228U];
@@ -36,8 +36,8 @@ typedef struct {
 wl_err_t device_kernel_init(device_kernel_t *, wl_packet_port_t *, const device_kernel_handlers_t *, wl_kernel_error_fn, void *);
 wl_err_t device_kernel_step(device_kernel_t *, uint32_t now);
 
-wl_err_t device_kernel_configure_start(device_kernel_t *, const configure_request_value_t *, uint32_t now, uint32_t timeout, device_kernel_configure_callback_t, void *, wl_kernel_call_handle_t *);
-wl_err_t device_kernel_get_info_start(device_kernel_t *, const info_request_value_t *, uint32_t now, uint32_t timeout, device_kernel_get_info_callback_t, void *, wl_kernel_call_handle_t *);
+wl_err_t device_kernel_configure_start(device_kernel_t *, const configure_request_t *, uint32_t now, uint32_t timeout, device_kernel_configure_callback_t, void *, wl_kernel_call_handle_t *);
+wl_err_t device_kernel_get_info_start(device_kernel_t *, const info_request_t *, uint32_t now, uint32_t timeout, device_kernel_get_info_callback_t, void *, wl_kernel_call_handle_t *);
 #ifdef __cplusplus
 }
 #endif

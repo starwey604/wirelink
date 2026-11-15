@@ -27,8 +27,8 @@ static void destroy(void *storage) noexcept {
   ::operator delete(storage, std::align_val_t(cpp_test_alignment()));
 }
 struct Call : wirelink::detail::OperationState<int32_t> {
-  request_value_t request{};
-  response_value_t response{};
+  request_t request{};
+  response_t response{};
   cpp_test_call_t bridge{};
   explicit Call(int32_t input) { request.has_input = true; request.input = input; }
   wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify,

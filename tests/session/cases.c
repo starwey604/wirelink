@@ -18,7 +18,7 @@ static uint32_t identity = UINT32_C(0x12345678);
 static unsigned source_reads, executed, notifications;
 static uint32_t now;
 static int source_mode;
-static response_value_t owned;
+static response_t owned;
 static wl_kernel_result_t result;
 static wl_err_t next_identity(void *context, uint32_t *out) {
   (void)context; ++source_reads;
@@ -44,7 +44,7 @@ static wl_packet_submit_t send(void *user, const uint8_t *data, size_t length,
   /* A synchronous RAM driver: SENT follows the actual peer copy. */
   return WL_PACKET_SENT;
 }
-static int32_t execute(void *user, const request_t *request, response_value_t *response) {
+static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user; ++executed;
   if (request->input < 0) return 7;
   response->has_output = true; response->output = request->input + 1; return 0;
@@ -53,8 +53,10 @@ static void completed(void *user, wl_kernel_result_t value, const response_t *vi
   (void)user; result = value; ++notifications;
   if (value.outcome == WL_KERNEL_SUCCESS) {
     /* No borrowed response survives this callback. */
-    if (!view || response_value_from_view(view, &owned) != WL_CODEC_OK)
+    if (!view)
       result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else
+      owned = *view;
   }
 }
 static wl_err_t init(owner_t *owner, wl_session_source_t source, bool service) {
@@ -89,7 +91,7 @@ static int drain(void) {
   return 0;
 }
 static wl_err_t call(int value, wl_kernel_call_handle_t *handle) {
-  request_value_t request = {.has_input = true, .input = value};
+  request_t request = {.has_input = true, .input = value};
   return session_kernel_execute_start(&client.endpoint, &request, now, 100,
     completed, NULL, handle);
 }

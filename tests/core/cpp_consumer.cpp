@@ -16,7 +16,7 @@ int main() {
   usb_kernel_t endpoint{};
   usb_kernel_handlers_t handlers{};
   if (usb_kernel_init(&endpoint, port, &handlers, nullptr, nullptr)) return 2;
-  setpoint_request_value_t value{};
+  setpoint_request_t value{};
   value.has_request_id = value.has_channel = value.has_value = true;
   value.request_id = UINT32_MAX;
   value.value = UINT32_MAX;

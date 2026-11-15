@@ -17,7 +17,7 @@ static void require(int condition) {
     exit(EXIT_FAILURE);
   }
 }
-static int32_t execute(void *user, const request_t *request, response_value_t *response) {
+static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user;
   ++executions;
   response->has_output = true;
@@ -48,14 +48,14 @@ int main(void) {
     demo_kernel_handlers_t handlers = {.on_rpc_execute = execute, .on_message_event = received};
     require(demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, NULL) == WL_OK);
     for (unsigned slot = 0; slot < WL_KERNEL_REPLIES; ++slot) {
-      request_value_t request = {.has_input = true, .input = INT32_MIN};
+      request_t request = {.has_input = true, .input = INT32_MIN};
       wl_kernel_call_handle_t call;
       require(demo_kernel_execute_start(&endpoints[side], &request, 0U, 500U,
           completed, NULL, &call) == WL_OK);
       /* Admission copied the request; this object is no longer borrowed. */
       memset(&request, 0, sizeof(request));
     }
-    event_value_t event = {.has_data = true, .data = {.length = 3U, .data = {'a', 'b', 'c'}}};
+    event_t event = {.has_data = true, .data = {.length = 3U, .data = {'a', 'b', 'c'}}};
     require(demo_kernel_send_event(&endpoints[side], &event) == WL_OK);
     memset(&event, 0, sizeof(event));
   }

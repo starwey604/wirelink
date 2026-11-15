@@ -128,8 +128,7 @@ if(BUILD_TESTING)
   if(WIRELINK_WLC_EXECUTABLE)
     set(_generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
     add_custom_command(OUTPUT ${_generated}/usb.c ${_generated}/usb.h
-        ${_generated}/usb_values.h ${_generated}/usb_kernel.c ${_generated}/usb_kernel.h
-        ${_generated}/usb_kernel_codecs.h
+        ${_generated}/usb_kernel.c ${_generated}/usb_kernel.h
         ${_generated}/usb_kernel_manifest.json ${_generated}/usb_kernel_deployment.json
       COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/usb.wl
@@ -153,8 +152,8 @@ if(BUILD_TESTING)
     add_test(NAME generated_loopback COMMAND generated_loopback_test)
     set(_instrument "${CMAKE_CURRENT_BINARY_DIR}/instrument")
     add_custom_command(OUTPUT ${_instrument}/instrument.c ${_instrument}/instrument.h
-        ${_instrument}/instrument_values.h ${_instrument}/instrument_kernel.c
-        ${_instrument}/instrument_kernel.h ${_instrument}/instrument_kernel_codecs.h
+        ${_instrument}/instrument_kernel.c
+        ${_instrument}/instrument_kernel.h
         ${_instrument}/instrument_kernel_manifest.json ${_instrument}/instrument_kernel_deployment.json
       COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/instrument.wl
@@ -293,7 +292,7 @@ if(WIRELINK_BUILD_ASTRIAL_ADAPTER)
 endif()
 
 # Default public core and independent tools use this one implementation.
-add_library(wirelink_types src/types.c)
+add_library(wirelink_types src/types.c src/codec.c)
 wl_kernel_headers(wirelink_types)
 wl_warnings(wirelink_types PRIVATE -Wall -Wextra -Wpedantic -Werror)
 wl_warnings(wirelink_framing_primitives PRIVATE -Wall -Wextra -Wpedantic -Werror)

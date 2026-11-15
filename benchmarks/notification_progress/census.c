@@ -102,10 +102,10 @@ static void service_io(side_t *side) {
   }
 }
 static int32_t handle(void *user, const setpoint_request_t *request,
-                        setpoint_response_value_t *response) {
+                        setpoint_response_t *response) {
   (void)user;
   ++effects;
-  *response = (setpoint_response_value_t){.has_request_id = true,
+  *response = (setpoint_response_t){.has_request_id = true,
     .request_id = request->request_id, .has_status = true, .status = 0,
     .has_applied_value = true, .applied_value = request->value + 1U};
   return 0;
@@ -168,7 +168,7 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
   }
   for (expected = 0U; expected < CALLS; ++expected) {
     phase = ADMISSION;
-    setpoint_request_value_t request = {.has_request_id = true, .request_id = expected,
+    setpoint_request_t request = {.has_request_id = true, .request_id = expected,
       .has_channel = true, .channel = 1U, .has_value = true, .value = expected + 100U};
     wl_kernel_call_handle_t call;
     CHECK(usb_kernel_setpoint_start(&sides[expected & 1U].endpoint, &request,
@@ -178,7 +178,7 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
       sample_t value = {.has_sequence = true, .sequence = expected,
         .has_sample_tick = true, .sample_tick = 7U, .has_value = true, .value = 42U + i,
         .has_flags = true, .flags = 0U};
-      CHECK(usb_kernel_send_sample_view(&sides[i].endpoint, &value) == WL_OK);
+      CHECK(usb_kernel_send_sample(&sides[i].endpoint, &value) == WL_OK);
       memset(&value, 0xa5, sizeof(value));
     }
     drive(expected + 1U);

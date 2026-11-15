@@ -17,7 +17,7 @@ int main(void) {
     error = peer_z_step(&udp.adapter, &server.core, now);
     if (error != WL_OK) break;
     if ((int32_t)(now - due) >= 0) {
-      telemetry_value_t sample = {.has_sample = true, .sample = ++sequence};
+      telemetry_t sample = {.has_sample = true, .sample = ++sequence};
       error = udp_demo_kernel_send_telemetry(&server, &sample);
       if (error != WL_OK && error != WL_ERR_WOULD_BLOCK) break;
       due = now + 20;

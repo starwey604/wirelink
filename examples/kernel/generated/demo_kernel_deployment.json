@@ -12,8 +12,8 @@
   "reply_frame_capacity": 18,
   "message_frame_capacity": 15,
   "messages": [
-    {"id": 40, "codec": "managed-rpc-v4-tagged-varuint32", "body_max": 6, "frame_max": 18},
-    {"id": 41, "codec": "managed-rpc-v4-tagged-varuint32", "body_max": 6, "frame_max": 18},
+    {"id": 40, "codec": "schema-v1", "body_max": 6, "frame_max": 18},
+    {"id": 41, "codec": "schema-v1", "body_max": 6, "frame_max": 18},
     {"id": 42, "codec": "schema-v1", "body_max": 11, "frame_max": 15}
   ]
 }

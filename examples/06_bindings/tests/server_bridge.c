@@ -22,12 +22,10 @@ wl_err_t calculator_test_server_prepare(void* storage, wl_host_endpoint_t* descr
 void calculator_test_server_hook(void* storage, void (*hook)(void*), void* user) {
   owner_t* owner=storage; owner->before=hook; owner->before_user=user;
 }
-static int32_t add(void* user,const add_request_t* request,add_response_value_t* response) {
+static int32_t add(void* user,const add_request_t* request,add_response_t* response) {
   owner_t* owner=user;
   if(owner->before)owner->before(owner->before_user);
-  add_request_value_t value;
-  if(add_request_value_from_view(request,&value)!=WL_CODEC_OK)return WL_ERR_CORRUPT_PAYLOAD;
-  return calculator_test_add(NULL,&value,response);
+  return calculator_test_add(NULL,request,response);
 }
 
 wl_err_t calculator_test_server_initialize(void* storage, uint32_t instance, wl_packet_sink_fn sink,

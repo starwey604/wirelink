@@ -7,7 +7,7 @@ extern "C" {
 #endif
 typedef struct {
   union { small_t small; large_t large; nested_t nested; } view;
-  union { small_value_t small; large_value_t large; nested_value_t nested; } value;
+  union { small_t small; large_t large; nested_t nested; } value;
   uint8_t input[NESTED_MAX_ENCODED_SIZE], canonical[NESTED_MAX_ENCODED_SIZE];
   size_t input_length, canonical_length, content_length;
   uint64_t fingerprint, expected_fingerprint;

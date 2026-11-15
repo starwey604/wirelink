@@ -7,11 +7,11 @@ static struct {
   kernel_api_kernel_t endpoints[2];
   example_pair_t pair;
   job_t jobs[2][4];
-  sample_value_t sample;
+  sample_t sample;
   unsigned completed, received;
   uint32_t sequence;
 } fixture;
-static int32_t query(void *user, const query_t *request, answer_value_t *response) {
+static int32_t query(void *user, const query_t *request, answer_t *response) {
   (void)user;
   if (request->sequence & UINT32_C(0x80000000)) return 7;
   response->has_sequence = true; response->sequence = request->sequence; return 0;
@@ -45,7 +45,7 @@ void api_fixture_rpc(int rejected) {
   for (unsigned side = 0; side < 2; ++side) for (unsigned slot = 0; slot < 4; ++slot) {
     job_t *job = &fixture.jobs[side][slot];
     *job = (job_t){.expected = 1 + 4 * side + slot, .rejected = rejected != 0};
-    query_value_t request = {.has_sequence = true,
+    query_t request = {.has_sequence = true,
       .sequence = job->expected | (rejected ? UINT32_C(0x80000000) : 0)};
     wl_kernel_call_handle_t handle;
     EXAMPLE_REQUIRE(kernel_api_kernel_query_start(&fixture.endpoints[side], &request,

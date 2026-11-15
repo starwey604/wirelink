@@ -13,10 +13,10 @@ static wl_packet_loopback_t pair;
 static uint8_t rx[2][2][2048];
 static unsigned callbacks, effects;
 static int32_t handle(void *user, const setpoint_request_t *request,
-                      setpoint_response_value_t *response) {
+                      setpoint_response_t *response) {
   (void)user;
   ++effects;
-  *response = (setpoint_response_value_t){.has_request_id = true,
+  *response = (setpoint_response_t){.has_request_id = true,
                                           .request_id = request->request_id,
                                           .has_status = true,
                                           .has_applied_value = true,
@@ -42,7 +42,7 @@ int main(void) {
     usb_kernel_handlers_t h = {.on_rpc_setpoint = handle};
     CHECK(usb_kernel_init(&endpoints[i], &ports[i], &h, NULL, NULL) == WL_OK);
     for (unsigned n = 0; n < 4; ++n) {
-      setpoint_request_value_t value = {.has_request_id = true,
+      setpoint_request_t value = {.has_request_id = true,
                                         .request_id = n,
                                         .has_channel = true,
                                         .has_value = true,

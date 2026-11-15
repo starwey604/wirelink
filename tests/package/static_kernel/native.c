@@ -12,7 +12,7 @@ static wl_packet_port_t ports[2];
 static uint8_t rx[2][2][256];
 static wl_packet_loopback_t pair;
 static unsigned completed;
-static int32_t execute(void *user, const request_t *request, response_value_t *response) {
+static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user;
   response->has_output = true;
   response->output = request->input;
@@ -37,7 +37,7 @@ int main(void) {
     probe_kernel_handlers_t h = {.on_rpc_execute = execute};
     CHECK(probe_kernel_init(&endpoints[i], &ports[i], &h, NULL, NULL) == WL_OK);
     for (unsigned n = 0; n < 4; ++n) {
-      request_value_t value = {.has_input = true, .input = INT32_MIN};
+      request_t value = {.has_input = true, .input = INT32_MIN};
       wl_kernel_call_handle_t call;
       CHECK(probe_kernel_execute_start(&endpoints[i], &value, 0, 100, done, NULL, &call) == WL_OK);
     }

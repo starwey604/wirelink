@@ -17,14 +17,12 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length,
   memcpy(p->frame, data, length); p->length = length;
   return WL_PACKET_SENT;
 }
-static void reading(void *user, const reading_t *view) {
+static void reading(void *user, const reading_t *owned) {
   peer_t *p = user;
-  reading_value_t owned;
-  CHECK(reading_value_from_view(view, &owned) == WL_CODEC_OK);
-  CHECK(owned.axis.coordinate == INT32_MIN && owned.axis.label.length == 7);
-  CHECK(!memcmp(owned.axis.label.data, "a\0bcdef", 7));
-  CHECK(owned.samples[0] == 0 && owned.samples[1] == UINT32_MAX && owned.samples[2] == 42);
-  CHECK(owned.note.length == 17 && owned.note.data[16] == 16);
+  CHECK(owned->axis.coordinate == INT32_MIN && owned->axis.label.length == 7);
+  CHECK(!memcmp(owned->axis.label.data, "a\0bcdef", 7));
+  CHECK(owned->samples[0] == 0 && owned->samples[1] == UINT32_MAX && owned->samples[2] == 42);
+  CHECK(owned->note.length == 17 && owned->note.data[16] == 16);
   ++p->received;
 }
 static void error(void *user, uint16_t id, wl_err_t e) {
@@ -45,12 +43,12 @@ static void inject(peer_t *to, const uint8_t *bytes, size_t length) {
 }
 int main(void) {
   peer_t a = {0}, b = {0}; init(&a, 101); init(&b, 102);
-  reading_value_t value = {.has_axis = true, .axis = {.has_coordinate = true,
+  reading_t value = {.has_axis = true, .axis = {.has_coordinate = true,
       .coordinate = INT32_MIN, .has_label = true, .label = {.length = 7, .data = {'a',0,'b','c','d','e','f'}}},
       .has_samples = true, .samples = {0,UINT32_MAX,42}, .has_note = true, .note = {.length = 17}};
   for (unsigned i = 0; i < 17; ++i) value.note.data[i] = (uint8_t)i;
   uint8_t golden[128]; size_t n = 0;
-  CHECK(reading_value_encode(&value, golden + 4, sizeof(golden) - 4, &n) == WL_CODEC_OK);
+  CHECK(reading_encode(&value, golden + 4, sizeof(golden) - 4, &n) == WL_CODEC_OK);
   CHECK(wl_kernel_native_none_seal(golden, sizeof(golden), 201, n) == WL_OK);
   CHECK(instrument_kernel_send_reading(&a.endpoint, &value) == WL_OK);
   memset(&value, 0, sizeof(value));

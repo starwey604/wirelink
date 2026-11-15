@@ -55,11 +55,13 @@ static inline void example_pair_close(example_pair_t *pair) {
 #define EXAMPLE_COMPLETION(name, type) \
   static unsigned name##_count; \
   static wl_kernel_result_t name##_result; \
-  static type##_value_t name##_value; \
+  static type##_t name##_value; \
   static void name##_completed(void *user, wl_kernel_result_t result, const type##_t *view) { \
     (void)user; name##_result = result; \
-    if (result.outcome == WL_KERNEL_SUCCESS) \
-      EXAMPLE_REQUIRE(view && type##_value_from_view(view, &name##_value) == WL_CODEC_OK); \
+    if (result.outcome == WL_KERNEL_SUCCESS) { \
+      EXAMPLE_REQUIRE(view != NULL); \
+      name##_value = *view; \
+    } \
     ++name##_count; \
   }
 #endif

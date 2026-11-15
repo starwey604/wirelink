@@ -14,8 +14,7 @@ get_filename_component(_root "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 set(_fixture ${_root}/tests/package/static_kernel)
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_custom_command(OUTPUT ${_generated}/probe.c ${_generated}/probe_kernel.c
-    ${_generated}/probe.h ${_generated}/probe_values.h ${_generated}/probe_kernel.h
-    ${_generated}/probe_kernel_codecs.h
+    ${_generated}/probe.h ${_generated}/probe_kernel.h
   COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel ${_fixture}/probe.wl
     --profile ${_fixture}/probe.bind.wl --out-dir ${_generated}
   DEPENDS ${WIRELINK_WLC_EXECUTABLE} ${_fixture}/probe.wl ${_fixture}/probe.bind.wl VERBATIM)

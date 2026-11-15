@@ -2,11 +2,11 @@
 #include "service.h"
 #include <string.h>
 
-int32_t device_test_get_info(void* context, const info_request_value_t* request,
-                            info_response_value_t* response) {
+int32_t device_test_get_info(void* context, const info_request_t* request,
+                            info_response_t* response) {
   (void)context;
   (void)request;
-  info_response_value_clear(response);
+  info_response_clear(response);
   response->has_name = true;
   response->name.length = 8;
   memcpy(response->name.data, "device\0x", 8);
@@ -25,12 +25,12 @@ int32_t device_test_get_info(void* context, const info_request_value_t* request,
   return 0;
 }
 
-int32_t device_test_configure(void* context, const configure_request_value_t* request,
-                             configure_response_value_t* response) {
+int32_t device_test_configure(void* context, const configure_request_t* request,
+                             configure_response_t* response) {
   device_test_state_t* state = (device_test_state_t*)context;
   if (request->settings.token.length != 0 && request->settings.token.data[0] == 255)
     return 7;
-  configure_response_value_clear(response);
+  configure_response_clear(response);
   response->has_settings = true;
   response->settings = request->settings;
   response->has_opaque = request->has_opaque;

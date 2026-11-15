@@ -5,8 +5,7 @@ endif()
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(_fixture ${PROJECT_SOURCE_DIR}/tests/package/static_kernel)
 add_custom_command(OUTPUT ${_generated}/probe.c ${_generated}/probe_kernel.c
-    ${_generated}/probe.h ${_generated}/probe_values.h ${_generated}/probe_kernel.h
-    ${_generated}/probe_kernel_codecs.h
+    ${_generated}/probe.h ${_generated}/probe_kernel.h
   COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel ${_fixture}/probe.wl
     --profile ${_fixture}/probe.bind.wl --out-dir ${_generated}
   DEPENDS ${WIRELINK_WLC_EXECUTABLE} ${_fixture}/probe.wl ${_fixture}/probe.bind.wl VERBATIM)

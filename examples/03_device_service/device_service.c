@@ -11,7 +11,7 @@ void device_service_init(device_service_t *device) {
 }
 
 static int32_t ping(void *context, const ping_request_t *request,
-                    ping_response_value_t *response) {
+                    ping_response_t *response) {
   (void)context;
   response->has_nonce = true;
   response->nonce = request->nonce;
@@ -19,7 +19,7 @@ static int32_t ping(void *context, const ping_request_t *request,
 }
 
 static int32_t get_info(void *context, const get_info_request_t *request,
-                        get_info_response_value_t *response) {
+                        get_info_response_t *response) {
   const device_service_t *device = context;
   (void)request;
   response->has_name = true;
@@ -29,7 +29,7 @@ static int32_t get_info(void *context, const get_info_request_t *request,
 }
 
 static int32_t set_name(void *context, const set_name_request_t *request,
-                        set_name_response_value_t *response) {
+                        set_name_response_t *response) {
   device_service_t *device = context;
   (void)response;
   if (request->name.length == 0) return DEVICE_INVALID_ARGUMENT;
@@ -40,7 +40,7 @@ static int32_t set_name(void *context, const set_name_request_t *request,
 }
 
 static int32_t read_register(void *context, const read_register_request_t *request,
-                             read_register_response_value_t *response) {
+                             read_register_response_t *response) {
   const device_service_t *device = context;
   if (request->index >= 4) return DEVICE_INVALID_ARGUMENT;
   response->has_value = true;
@@ -49,7 +49,7 @@ static int32_t read_register(void *context, const read_register_request_t *reque
 }
 
 static int32_t write_register(void *context, const write_register_request_t *request,
-                              write_register_response_value_t *response) {
+                              write_register_response_t *response) {
   device_service_t *device = context;
   (void)response;
   if (request->index >= 4) return DEVICE_INVALID_ARGUMENT;
@@ -61,7 +61,7 @@ static int32_t write_register(void *context, const write_register_request_t *req
 }
 
 static int32_t get_counters(void *context, const get_counters_request_t *request,
-                            get_counters_response_value_t *response) {
+                            get_counters_response_t *response) {
   const device_service_t *device = context;
   (void)request;
   response->has_writes = true;
@@ -70,7 +70,7 @@ static int32_t get_counters(void *context, const get_counters_request_t *request
 }
 
 static int32_t reset_counters(void *context, const reset_counters_request_t *request,
-                              reset_counters_response_value_t *response) {
+                              reset_counters_response_t *response) {
   device_service_t *device = context;
   (void)request;
   (void)response;

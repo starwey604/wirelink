@@ -3,7 +3,7 @@
 #include <limits.h>
 
 static int32_t add(void *context, const add_request_t *request,
-                   add_response_value_t *response) {
+                   add_response_t *response) {
   const int64_t sum = (int64_t)request->left + request->right;
   (void)context;
   if (sum < INT32_MIN || sum > INT32_MAX) return DEVICE_OUT_OF_RANGE;
@@ -13,7 +13,7 @@ static int32_t add(void *context, const add_request_t *request,
 }
 
 static int32_t scale(void *context, const scale_request_t *request,
-                     scale_response_value_t *response) {
+                     scale_response_t *response) {
   const int64_t value = (int64_t)request->value * request->factor;
   (void)context;
   if (value < INT32_MIN || value > INT32_MAX) return DEVICE_OUT_OF_RANGE;
@@ -23,7 +23,7 @@ static int32_t scale(void *context, const scale_request_t *request,
 }
 
 static int32_t get_limits(void *context, const get_limits_request_t *request,
-                          get_limits_response_value_t *response) {
+                          get_limits_response_t *response) {
   const device_service_t *device = context;
   (void)request;
   response->has_lower = response->has_upper = true;
@@ -33,7 +33,7 @@ static int32_t get_limits(void *context, const get_limits_request_t *request,
 }
 
 static int32_t set_limits(void *context, const set_limits_request_t *request,
-                          set_limits_response_value_t *response) {
+                          set_limits_response_t *response) {
   device_service_t *device = context;
   (void)response;
   if (request->lower > request->upper) return DEVICE_INVALID_ARGUMENT;

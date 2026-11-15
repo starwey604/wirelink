@@ -21,12 +21,10 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "demo.c", "size": 33315, "digest": "0xb8076fda2ba0d8f1"},
-    {"path": "demo.h", "size": 2328, "digest": "0x4015370b3f25699e"},
-    {"path": "demo_kernel.c", "size": 5944, "digest": "0xa60200cc1e8e7d32"},
-    {"path": "demo_kernel.h", "size": 1647, "digest": "0xf6da550ff2a47b3f"},
-    {"path": "demo_kernel_codecs.h", "size": 30903, "digest": "0x8cfe723540e0a356"},
-    {"path": "demo_kernel_deployment.json", "size": 607, "digest": "0x8bfae5d18267877a"},
-    {"path": "demo_values.h", "size": 2649, "digest": "0xbd2b0ca373913cb7"}
+    {"path": "demo.c", "size": 6678, "digest": "0x0b50354c5f3e5595"},
+    {"path": "demo.h", "size": 2062, "digest": "0x8140348408e6064e"},
+    {"path": "demo_kernel.c", "size": 5163, "digest": "0x992838d8b43ffe1c"},
+    {"path": "demo_kernel.h", "size": 1466, "digest": "0x252a079d1ad01371"},
+    {"path": "demo_kernel_deployment.json", "size": 563, "digest": "0xf04ced39c2946862"}
   ]
 }

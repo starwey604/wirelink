@@ -19,12 +19,10 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "calculator.c", "size": 32311, "digest": "0x598b3c3ef3834fa2"},
-    {"path": "calculator.h", "size": 1837, "digest": "0x9367696aa888af6d"},
-    {"path": "calculator_kernel.c", "size": 4386, "digest": "0x24e8d60469ccc56c"},
-    {"path": "calculator_kernel.h", "size": 1488, "digest": "0x4f7f68f412955bcc"},
-    {"path": "calculator_kernel_codecs.h", "size": 39245, "digest": "0x6a573a64ba865ac4"},
-    {"path": "calculator_kernel_deployment.json", "size": 536, "digest": "0xe848e1b2d51ffa9c"},
-    {"path": "calculator_values.h", "size": 2152, "digest": "0xc82994b8141e9f8d"}
+    {"path": "calculator.c", "size": 8811, "digest": "0x6a29137ffe2e44e9"},
+    {"path": "calculator.h", "size": 1651, "digest": "0xc83a0f3fe8ae2268"},
+    {"path": "calculator_kernel.c", "size": 4249, "digest": "0x88901bf15d74f944"},
+    {"path": "calculator_kernel.h", "size": 1470, "digest": "0xa7121fcfc02ba542"},
+    {"path": "calculator_kernel_deployment.json", "size": 492, "digest": "0xb83a95d8603c0e86"}
   ]
 }

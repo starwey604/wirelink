@@ -10,7 +10,7 @@ static struct completion {
   wl_kernel_result_t result;
 } completions[5];
 
-static int32_t add(void *user, const add_request_t *request, add_response_value_t *response) {
+static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
   ++effects;
   return calculator_add(user, request, response);
 }
@@ -34,7 +34,7 @@ int main(void) {
     EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side],
       &handlers, NULL, NULL) == WL_OK);
   wl_kernel_call_handle_t handles[4], rejected;
-  add_request_value_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
   for (unsigned i = 0; i < 4; ++i)
     EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[0], &request, 0, 2,
       done, &completions[i], &handles[i]) == WL_OK);

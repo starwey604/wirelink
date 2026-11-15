@@ -16,7 +16,7 @@ wl_err_t cpp_test_prepare(void *storage, wl_host_endpoint_t *driver, int echo) {
   *driver = (wl_host_endpoint_t){owner, &owner->endpoint.core, &owner->port, 2052};
   return WL_OK;
 }
-static int32_t execute(void *user, const request_t *request, response_value_t *response) {
+static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user;
   if (request->input == INT32_MIN) return WL_ERR_TIMEOUT; /* Remote business code. */
   response->has_output = true; response->output = request->input; return 0;
@@ -35,9 +35,11 @@ wl_err_t cpp_test_initialize(void *storage, uint32_t instance, wl_packet_sink_fn
 static void done(void *user, wl_kernel_result_t result, const response_t *response) {
   cpp_test_call_t *call = user;
   ++call->callbacks;
-  if (result.outcome == WL_KERNEL_SUCCESS &&
-      (response == NULL || response_value_from_view(response, call->response) != WL_CODEC_OK))
+  if (result.outcome == WL_KERNEL_SUCCESS && response == NULL) {
     result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  } else if (result.outcome == WL_KERNEL_SUCCESS) {
+    *call->response = *response;
+  }
   call->notify(call->user, result);
 }
 wl_err_t cpp_test_submit(cpp_test_call_t *call, uint32_t now, uint32_t timeout,

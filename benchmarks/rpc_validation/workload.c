@@ -22,13 +22,13 @@ static uint64_t hash_encoded(const uint8_t *data, size_t length) {
   return hash;
 }
 #define CANONICAL(name) name##_encode(&f->view.name, f->canonical, sizeof(f->canonical), &f->canonical_length)
-#define COPY(name) name##_value_from_view(&f->view.name, &f->value.name)
+#define COPY(name) ((f->value.name = f->view.name), WL_CODEC_OK)
 #define HASH_ENCODED() (f->fingerprint = hash_encoded(f->canonical, f->canonical_length))
 
 
 #define RUN(name) \
   if (f->stage == RPC_VALIDATION_OWNED_DECODE) \
-    return name##_value_decode(f->input, f->input_length, &f->value.name); \
+    return name##_decode(f->input, f->input_length, &f->value.name); \
   if (f->stage == RPC_VALIDATION_DECODE || f->stage == RPC_VALIDATION_PIPELINE) { \
     error = name##_decode(f->input, f->input_length, &f->view.name); \
     if (error != WL_CODEC_OK || f->stage == RPC_VALIDATION_DECODE) return error; \
@@ -39,7 +39,7 @@ static uint64_t hash_encoded(const uint8_t *data, size_t length) {
     HASH_ENCODED(); \
   } \
   if (f->stage == RPC_VALIDATION_CONVERT) \
-    return name##_value_from_view(&f->view.name, &f->value.name); \
+    return COPY(name); \
   if (f->stage == RPC_VALIDATION_PIPELINE) { \
     error = COPY(name); \
     if (error != WL_CODEC_OK) return error; \
@@ -66,8 +66,10 @@ int rpc_validation_init(rpc_validation_fixture_t *f, unsigned kind, unsigned sta
   if (kind == 0U) {
     small_clear(&f->view.small);
     f->view.small.has_text = f->view.small.has_body = true;
-    f->view.small.text = (wl_codec_string_t){(const char *)f->canonical, length};
-    f->view.small.body = (wl_codec_bytes_t){f->canonical, length};
+    f->view.small.text.length = length;
+    memcpy(f->view.small.text.data, f->canonical, length);
+    f->view.small.body.length = length;
+    memcpy(f->view.small.body.data, f->canonical, length);
     error = small_encode(&f->view.small, f->input, sizeof(f->input), &f->input_length);
   } else {
     large_t *v;
@@ -78,8 +80,10 @@ int rpc_validation_init(rpc_validation_fixture_t *f, unsigned kind, unsigned sta
       for (size_t i = 0; i < 128; ++i) f->view.nested.samples[i] = (float)i;
     }
     v->has_text = v->has_body = true;
-    v->text = (wl_codec_string_t){(const char *)f->canonical, length};
-    v->body = (wl_codec_bytes_t){f->canonical, length};
+    v->text.length = length;
+    memcpy(v->text.data, f->canonical, length);
+    v->body.length = length;
+    memcpy(v->body.data, f->canonical, length);
     error = kind == 1U ? large_encode(v, f->input, sizeof(f->input), &f->input_length)
         : nested_encode(&f->view.nested, f->input, sizeof(f->input), &f->input_length);
   }

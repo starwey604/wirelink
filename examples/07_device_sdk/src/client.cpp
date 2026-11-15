@@ -35,8 +35,8 @@ wirelink::Result<wirelink::Operation<ConfigureResponse>> Client::configure_async
   if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
     return wirelink::Error::local(WL_ERR_INVALID_ARG);
   struct wlc_call_state final : wirelink::detail::OperationState<ConfigureResponse> {
-    configure_request_value_t request{};
-    configure_response_value_t response{};
+    configure_request_t request{};
+    configure_response_t response{};
     device_sdk_call_t bridge{};
     wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify, void* context,
         wl_kernel_call_handle_t* call) noexcept override {
@@ -68,8 +68,8 @@ wirelink::Result<wirelink::Operation<InfoResponse>> Client::get_info_async(const
   if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
     return wirelink::Error::local(WL_ERR_INVALID_ARG);
   struct wlc_call_state final : wirelink::detail::OperationState<InfoResponse> {
-    info_request_value_t request{};
-    info_response_value_t response{};
+    info_request_t request{};
+    info_response_t response{};
     device_sdk_call_t bridge{};
     wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify, void* context,
         wl_kernel_call_handle_t* call) noexcept override {

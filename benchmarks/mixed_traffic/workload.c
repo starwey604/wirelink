@@ -35,7 +35,7 @@ typedef struct {
   unsigned accepted, received, last_sequence, sampled_at, received_at;
   unsigned max_age, max_arrival_age, max_gap, busy, dropped_requests, dropped_responses;
   uint64_t age_sum;
-  telemetry_value_t latest;
+  telemetry_t latest;
   bool latest_pending;
   job_t jobs[CALLS];
 } port_t;
@@ -114,7 +114,7 @@ static void service(port_t *p) {
   CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_DRAINED) == WL_OK);
   p->borrowed = NULL; p->active = false;
 }
-static int32_t echo(void *user, const echo_request_t *request, echo_response_value_t *response) {
+static int32_t echo(void *user, const echo_request_t *request, echo_response_t *response) {
   port_t *p = user; ++p->simulation->handled;
   response->has_sequence = true; response->sequence = request->sequence; return 0;
 }
@@ -140,7 +140,7 @@ static void completed(void *user, wl_kernel_result_t result, const echo_response
 }
 static void start(job_t *job) {
   simulation_t *s = job->simulation;
-  echo_request_value_t value = {.has_sequence = true, .sequence = job->sequence};
+  echo_request_t value = {.has_sequence = true, .sequence = job->sequence};
   wl_kernel_call_handle_t handle;
   CHECK(mixed_kernel_echo_start(&s->endpoints[job->side], &value, now(s), 80,
     completed, job, &handle) == WL_OK);
@@ -149,7 +149,7 @@ static void start(job_t *job) {
 static void send_sample(port_t *p) {
   simulation_t *s = p->simulation;
   if (s->tick % s->scenario.sample_ms == 0) {
-    p->latest = (telemetry_value_t){.has_sequence = true,
+    p->latest = (telemetry_t){.has_sequence = true,
       .sequence = s->tick / s->scenario.sample_ms + 1,
       .has_sampled_at = true, .sampled_at = s->tick};
     p->latest_pending = true;

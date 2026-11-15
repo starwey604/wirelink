@@ -47,11 +47,11 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length,
 }
 
 static int32_t setpoint(void *user, const setpoint_request_t *request,
-                         setpoint_response_value_t *response) {
+                         setpoint_response_t *response) {
   fixture_t *f = user;
   ++f->effects;
   if (request->channel == UINT32_MAX) return -77;
-  *response = (setpoint_response_value_t){
+  *response = (setpoint_response_t){
       .has_request_id = true, .request_id = request->request_id,
       .has_status = true, .status = 0U,
       .has_applied_value = true, .applied_value = request->value
@@ -60,7 +60,7 @@ static int32_t setpoint(void *user, const setpoint_request_t *request,
 }
 
 static int32_t control(void *user, const control_request_t *request,
-                        control_response_value_t *response) {
+                        control_response_t *response) {
   fixture_t *f = user;
   ++f->effects;
   response->has_request_id = response->has_status = response->has_data = true;
@@ -170,8 +170,8 @@ static void control_failed(void *user, wl_kernel_result_t result,
   ++f->callbacks;
 }
 
-static setpoint_request_value_t request(uint32_t value) {
-  return (setpoint_request_value_t){.has_request_id = true, .request_id = UINT32_MAX,
+static setpoint_request_t request(uint32_t value) {
+  return (setpoint_request_t){.has_request_id = true, .request_id = UINT32_MAX,
       .has_channel = true, .channel = 1U, .has_value = true, .value = value};
 }
 
@@ -182,13 +182,13 @@ static void test_four_calls_both_directions(void) {
   wl_kernel_call_handle_t calls[5];
   for (unsigned i = 0U; i < 4U; ++i) {
     context[i] = (context_t){&a, i};
-    setpoint_request_value_t value = request(UINT32_MAX - i);
+    setpoint_request_t value = request(UINT32_MAX - i);
     CHECK(usb_kernel_setpoint_start(&a.endpoint, &value, 0U, 100U, setpoint_done,
         &context[i], &calls[i]) == WL_OK);
     memset(&value, 0, sizeof(value)); /* Submission owns its encoded snapshot. */
   }
   CHECK(a.callbacks == 0U && a.frames_count == 0U);
-  setpoint_request_value_t value = request(123U);
+  setpoint_request_t value = request(123U);
   CHECK(usb_kernel_setpoint_start(&a.endpoint, &value, 0U, 100U, setpoint_done,
       &context[0], &calls[4]) == WL_ERR_WOULD_BLOCK);
   run(&a, 0U);
@@ -216,7 +216,7 @@ static void test_backpressure_and_lease(void) {
   wl_kernel_call_handle_t handles[4];
   for (unsigned i = 0U; i < 4U; ++i) {
     contexts[i] = (context_t){&a, i};
-    setpoint_request_value_t value = request(i);
+    setpoint_request_t value = request(i);
     CHECK(usb_kernel_setpoint_start(&a.endpoint, &value, 0U, 10U, setpoint_done,
         &contexts[i], &handles[i]) == WL_OK);
   }
@@ -233,7 +233,7 @@ static void test_backpressure_and_lease(void) {
   fixture_t c = {.sink_result = WL_PACKET_STARTED}, d = {0};
   init(&c, 5000U); init(&d, 6000U);
   context_t callback = {&c, 0U};
-  setpoint_request_value_t value = request(37U);
+  setpoint_request_t value = request(37U);
   wl_kernel_call_handle_t call;
   CHECK(usb_kernel_setpoint_start(&c.endpoint, &value, 0U, 100U, setpoint_done,
       &callback, &call) == WL_OK);
@@ -254,7 +254,7 @@ static void test_control_and_all_messages(void) {
   fixture_t a = {0}, b = {0};
   init(&a, 7000U); init(&b, 8000U);
   for (unsigned opcode = 1U; opcode <= 3U; ++opcode) {
-    control_request_value_t value = {.has_request_id = true, .request_id = UINT32_MAX,
+    control_request_t value = {.has_request_id = true, .request_id = UINT32_MAX,
         .has_opcode = true, .opcode = opcode, .has_arg0 = true, .arg0 = UINT32_MAX,
         .has_arg1 = true, .arg1 = UINT32_MAX, .has_arg2 = true, .arg2 = UINT32_MAX,
         .has_arg3 = true, .arg3 = UINT32_MAX};
@@ -265,33 +265,31 @@ static void test_control_and_all_messages(void) {
     deliver(&a, &b, opcode - 1U); run(&a, 0U);
   }
   CHECK(a.callbacks == 3U);
-  sample_value_t telemetry = {.has_sequence = true, .sequence = UINT32_MAX,
+  sample_t telemetry = {.has_sequence = true, .sequence = UINT32_MAX,
       .has_sample_tick = true, .sample_tick = 17U, .has_value = true, .value = 19U,
       .has_flags = true, .flags = 23U};
   CHECK(usb_kernel_send_sample(&a.endpoint, &telemetry) == WL_OK);
   run(&a, 0U); CHECK(a.lengths[3] == 24U);
   const uint8_t golden[] = {0x57, 0, 102, 0, 0x0d, 0xff, 0xff, 0xff, 0xff,
-      0x15, 0, 0, 0, 17, 0x1d, 0, 0, 0, 19, 0x25, 0, 0, 0, 23};
+      0x15, 17, 0, 0, 0, 0x1d, 19, 0, 0, 0, 0x25, 23, 0, 0, 0};
   CHECK(memcmp(a.frames[3], golden, sizeof(golden)) == 0);
   deliver(&b, &a, 3U); run(&b, 0U); CHECK(b.samples == 1U);
-  stream_chunk_value_t stream = {.has_sequence = true, .sequence = UINT32_MAX,
+  stream_chunk_t stream = {.has_sequence = true, .sequence = UINT32_MAX,
       .has_data = true, .data = {.length = 1024U}};
   for (unsigned i = 0U; i < 1024U; ++i) stream.data.data[i] = (uint8_t)i;
   CHECK(usb_kernel_send_stream_chunk(&b.endpoint, &stream) == WL_OK);
   run(&b, 0U); CHECK(b.lengths[3] == 1036U);
   deliver(&a, &b, 3U); run(&a, 0U); CHECK(a.chunks == 1U);
-  stream_chunk_t borrowed = {.has_sequence = true, .sequence = UINT32_MAX,
-      .has_data = true, .data = {.data = stream.data.data, .length = 1024U}};
-  CHECK(usb_kernel_send_stream_chunk_view(&b.endpoint, &borrowed) == WL_OK);
+  CHECK(usb_kernel_send_stream_chunk(&b.endpoint, &stream) == WL_OK);
   stream.data.data[0] = 0xffU; /* Input may change after acceptance. */
   run(&b, 0U);
   CHECK(b.lengths[4] == b.lengths[3] && !memcmp(b.frames[4], b.frames[3], b.lengths[3]));
   deliver(&a, &b, 4U); run(&a, 0U); CHECK(a.chunks == 2U);
-  progress_value_t observation = {.has_sequence = true, .sequence = UINT32_MAX,
+  progress_t observation = {.has_sequence = true, .sequence = UINT32_MAX,
       .has_bytes = true, .bytes = UINT64_MAX, .has_flags = true, .flags = UINT32_MAX};
   CHECK(usb_kernel_send_progress(&a.endpoint, &observation) == WL_OK);
   run(&a, 0U); deliver(&b, &a, 4U); run(&b, 0U); CHECK(b.progresses == 1U);
-  CHECK(USB_KERNEL_REQUEST_FRAME_MAX == 48U && USB_KERNEL_REPLY_FRAME_MAX == 539U &&
+  CHECK(USB_KERNEL_REQUEST_FRAME_MAX == 42U && USB_KERNEL_REPLY_FRAME_MAX == 537U &&
         USB_KERNEL_MESSAGE_FRAME_MAX == 1036U);
 }
 
@@ -299,7 +297,7 @@ static void test_generated_failures(void) {
   fixture_t a = {0}, b = {0};
   init(&a, 9000U); init(&b, 10000U);
   context_t context = {&a, 0U};
-  setpoint_request_value_t value = request(11U);
+  setpoint_request_t value = request(11U);
   value.channel = UINT32_MAX;
   wl_kernel_call_handle_t call;
   CHECK(usb_kernel_setpoint_start(&a.endpoint, &value, 0U, 10U, setpoint_done, &context, &call) == WL_OK);
@@ -310,8 +308,8 @@ static void test_generated_failures(void) {
   CHECK(wl_wire_frame_read(a.frames[0], a.lengths[0], &frame) == WL_OK);
   CHECK(frame.kind == WL_WIRE_RPC_REQ);
   CHECK(wl_wire_rpc_read(frame.kind, frame.payload, frame.length, &metadata) == WL_OK);
-  const uint8_t business[] = {0x08,0xff,0xff,0xff,0xff,0x0f,
-      0x10,0xff,0xff,0xff,0xff,0x0f,0x18,0x0b};
+  const uint8_t business[] = {0x0d,0xff,0xff,0xff,0xff,
+      0x15,0xff,0xff,0xff,0xff,0x1d,0x0b,0x00,0x00,0x00};
   CHECK(metadata.length == sizeof(business) && !memcmp(metadata.body, business, sizeof(business)));
   deliver(&b, &a, 0U); run(&b, 0U); deliver(&a, &b, 0U); run(&a, 0U);
   CHECK(a.results[0].outcome == WL_KERNEL_REJECTED && a.results[0].status == -77);
@@ -321,21 +319,21 @@ static void test_generated_failures(void) {
   run(&a, 1U);
   CHECK(a.callbacks == 2U && a.results[0].outcome == WL_KERNEL_TIMED_OUT);
   deliver(&a, &b, 1U); run(&a, 2U); CHECK(a.callbacks == 2U);
-  control_request_value_t invalid = {.has_request_id = true};
+  control_request_t invalid = {.has_request_id = true};
   CHECK(usb_kernel_control_start(&a.endpoint, &invalid, 0U, 1U, control_done, &a, &call) == WL_ERR_CORRUPT_PAYLOAD);
   /* Decoder failure before handler, followed by a valid next packet. */
-  a.frames[0][a.lengths[0] - 1U] = 0x80U;
+  a.frames[0][a.lengths[0] - 5U] = 0x1fU;
   deliver(&b, &a, 0U);
   CHECK(usb_kernel_step(&b.endpoint, 0U) == WL_ERR_CORRUPT_PAYLOAD && b.effects == 2U);
-  a.frames[0][a.lengths[0] - 1U] = 0x0bU;
+  a.frames[0][a.lengths[0] - 5U] = 0x1dU;
   deliver(&b, &a, 0U); run(&b, 0U); CHECK(b.effects == 3U);
   value.channel = 1U;
   CHECK(usb_kernel_setpoint_start(&a.endpoint, &value, 2U, 10U, setpoint_done, &context, &call) == WL_OK);
   run(&a, 2U); deliver(&b, &a, 2U); run(&b, 2U);
-  b.frames[3][b.lengths[3] - 1U] = 0x80U; /* Malformed typed response. */
+  b.frames[3][b.lengths[3] - 5U] = 0x1fU; /* Malformed typed response. */
   deliver(&a, &b, 3U); run(&a, 2U);
   CHECK(a.callbacks == 3U && a.results[0].outcome == WL_KERNEL_LOCAL_ERROR);
-  control_request_value_t bad_reply = {.has_request_id = true, .request_id = 1U,
+  control_request_t bad_reply = {.has_request_id = true, .request_id = 1U,
       .has_opcode = true, .opcode = 4U, .has_arg0 = true, .has_arg1 = true,
       .has_arg2 = true, .has_arg3 = true};
   CHECK(usb_kernel_control_start(&a.endpoint, &bad_reply, 2U, 5U, control_failed, &a, &call) == WL_OK);

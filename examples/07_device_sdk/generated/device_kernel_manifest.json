@@ -30,12 +30,10 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 79632, "digest": "0xc272d84fdb3386e1"},
-    {"path": "device.h", "size": 6203, "digest": "0x1e1bf33383b52a6f"},
-    {"path": "device_kernel.c", "size": 7287, "digest": "0x6dde9cfae15811e2"},
-    {"path": "device_kernel.h", "size": 1887, "digest": "0xec1f8dbc8188d8ac"},
-    {"path": "device_kernel_codecs.h", "size": 75948, "digest": "0xf28221ec76d90f93"},
-    {"path": "device_kernel_deployment.json", "size": 726, "digest": "0xd888895cf73e67d1"},
-    {"path": "device_values.h", "size": 7419, "digest": "0xd22f23ccc12b3b21"}
+    {"path": "device.c", "size": 27529, "digest": "0xdada4629879e2831"},
+    {"path": "device.h", "size": 6480, "digest": "0x05b114661b301f91"},
+    {"path": "device_kernel.c", "size": 7095, "digest": "0xe6c7296c937b96cd"},
+    {"path": "device_kernel.h", "size": 1851, "digest": "0xdd37710d145bbf30"},
+    {"path": "device_kernel_deployment.json", "size": 638, "digest": "0xe80cb53c1d90567f"}
   ]
 }

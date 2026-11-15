@@ -22,19 +22,15 @@ wl_err_t device_test_server_prepare(void* storage, wl_host_endpoint_t* descripto
 void device_test_server_hook(void* storage, void (*hook)(void*), void* user) {
   owner_t* owner=storage; owner->before=hook; owner->before_user=user;
 }
-static int32_t get_info(void* user,const info_request_t* request,info_response_value_t* response) {
+static int32_t get_info(void* user,const info_request_t* request,info_response_t* response) {
   owner_t* owner=user;
   if(owner->before)owner->before(owner->before_user);
-  info_request_value_t value;
-  if(info_request_value_from_view(request,&value)!=WL_CODEC_OK)return WL_ERR_CORRUPT_PAYLOAD;
-  return device_test_get_info(&owner->state,&value,response);
+  return device_test_get_info(&owner->state,request,response);
 }
-static int32_t configure(void* user,const configure_request_t* request,configure_response_value_t* response) {
+static int32_t configure(void* user,const configure_request_t* request,configure_response_t* response) {
   owner_t* owner=user;
   if(owner->before)owner->before(owner->before_user);
-  configure_request_value_t value;
-  if(configure_request_value_from_view(request,&value)!=WL_CODEC_OK)return WL_ERR_CORRUPT_PAYLOAD;
-  return device_test_configure(&owner->state,&value,response);
+  return device_test_configure(&owner->state,request,response);
 }
 
 wl_err_t device_test_server_initialize(void* storage, uint32_t instance, wl_packet_sink_fn sink,

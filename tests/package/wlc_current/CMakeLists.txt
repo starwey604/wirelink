@@ -26,7 +26,7 @@ endforeach()
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/switch.wl" "version 1; message Empty @id(1) {}\n")
 wirelink_wlc_generate_codec(TARGET keyword_codec SCHEMA "${CMAKE_CURRENT_BINARY_DIR}/switch.wl")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/keyword.c"
-  "#include \"switch_.h\"\nint main(void) { empty_value_t value; empty_value_clear(&value); return 0; }\n")
+  "#include \"switch_.h\"\nint main(void) { empty_t value; empty_clear(&value); return 0; }\n")
 add_executable(installed_keyword "${CMAKE_CURRENT_BINARY_DIR}/keyword.c")
 target_link_libraries(installed_keyword PRIVATE keyword_codec)
 add_test(NAME installed_keyword COMMAND installed_keyword)

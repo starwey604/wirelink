@@ -23,8 +23,7 @@ foreach(mode native cobs)
     set(transport)
   endif()
   add_custom_command(OUTPUT ${generated}/probe.c ${generated}/probe_kernel.c
-      ${generated}/probe.h ${generated}/probe_values.h ${generated}/probe_kernel.h
-      ${generated}/probe_kernel_codecs.h ${transport}
+      ${generated}/probe.h ${generated}/probe_kernel.h ${transport}
     COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel ${CMAKE_CURRENT_SOURCE_DIR}/probe.wl
       --profile ${binding} --out-dir ${generated}
     DEPENDS ${WIRELINK_WLC_EXECUTABLE} probe.wl ${binding} VERBATIM)

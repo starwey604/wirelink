@@ -12,7 +12,7 @@ int main(void) {
   const udp_demo_kernel_handlers_t handlers = {.on_rpc_add = peer_add, .on_message_telemetry = peer_sample};
   error = udp_demo_kernel_init(&client, &udp.port, &handlers, NULL, &state);
   if (error != WL_OK) { (void)wl_kernel_udp_close(&udp.adapter); return 1; }
-  add_request_value_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
   wl_kernel_call_handle_t call;
   error = udp_demo_kernel_add_start(&client, &request, k_uptime_get_32(), 1500, peer_completed, &state, &call);
   memset(&request, 0, sizeof(request));

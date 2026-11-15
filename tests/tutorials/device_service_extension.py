@@ -39,7 +39,7 @@ def main():
         path = example / 'device_service.c'
         text = path.read_text()
         text = text.replace('/* extension: handlers */', '''static int32_t get_build_label(void *user, const get_build_label_request_t *request,
-    get_build_label_response_value_t *response) {
+    get_build_label_response_t *response) {
   (void)user; (void)request;
   response->has_label = true; response->label.length = 11;
   memcpy(response->label.data, "development", 11); return 0;
@@ -49,7 +49,7 @@ def main():
         path.write_text(text)
         path = example / 'client.c'
         text = path.read_text().replace('/* extension: completions */', 'EXAMPLE_COMPLETION(get_build_label, get_build_label_response)')
-        text = text.replace('  /* extension: client */', '''  get_build_label_request_value_t label = {0};
+        text = text.replace('  /* extension: client */', '''  get_build_label_request_t label = {0};
   CALL(get_build_label, label); SUCCESS(get_build_label);
   EXAMPLE_REQUIRE(get_build_label_value.label.length == 11 && memcmp(get_build_label_value.label.data, "development", 11) == 0);
   puts("new GetBuildLabel RPC: OK");''')

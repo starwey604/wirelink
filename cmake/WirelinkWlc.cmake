@@ -156,11 +156,11 @@ function(wirelink_wlc_generate)
     _wirelink_wlc_schema_dependencies("${compiler}" "${previous}" previous_depends)
     list(APPEND depends ${previous_depends})
   endif()
-  set(generated "${output}/${module}.c" "${output}/${module}.h" "${output}/${module}_values.h")
+  set(generated "${output}/${module}.c" "${output}/${module}.h")
   set(sources "${output}/${module}.c")
   if(profiles)
     list(APPEND generated "${output}/${module}_kernel.c" "${output}/${module}_kernel.h"
-      "${output}/${module}_kernel_codecs.h" "${output}/${module}_kernel_deployment.json")
+      "${output}/${module}_kernel_deployment.json")
     list(APPEND sources "${output}/${module}_kernel.c")
     set(manifest "${output}/${module}_kernel_manifest.json")
     # The compiler's explicit deployment chooses exactly one connector. Compile

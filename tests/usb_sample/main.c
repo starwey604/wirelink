@@ -60,7 +60,10 @@ static void begin(uint32_t id, uint64_t total, uint32_t crc, uint32_t chunk) {
 }
 static void chunk(uint32_t id, uint64_t offset, const uint8_t *data, size_t size) {
   bulk_chunk_t value = {.has_transfer_id = true, .transfer_id = id, .has_offset = true,
-    .offset = offset, .has_data = true, .data = {data, size}};
+    .offset = offset, .has_data = true, .data = {.length = size}};
+  if (size > 0U && size <= sizeof(value.data.data)) {
+    memcpy(value.data.data, data, size);
+  }
   CHECK(bulk_chunk_encode(&value, body, sizeof(body), &length) == WL_CODEC_OK);
   CHECK(input(BULK_CHUNK_MESSAGE_ID, body, length) == WL_OK); settle();
 }

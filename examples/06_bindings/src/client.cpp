@@ -35,8 +35,8 @@ wirelink::Result<wirelink::Operation<AddResponse>> Client::add_async(const AddRe
   if (timeout.count() <= 0 || timeout.count() > INT32_MAX)
     return wirelink::Error::local(WL_ERR_INVALID_ARG);
   struct wlc_call_state final : wirelink::detail::OperationState<AddResponse> {
-    add_request_value_t request{};
-    add_response_value_t response{};
+    add_request_t request{};
+    add_response_t response{};
     calculator_sdk_call_t bridge{};
     wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify, void* context,
         wl_kernel_call_handle_t* call) noexcept override {

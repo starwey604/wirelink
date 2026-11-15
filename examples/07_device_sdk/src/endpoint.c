@@ -29,9 +29,12 @@ wl_err_t device_sdk_endpoint_initialize(void* storage, uint32_t instance,
 }
 static void device_sdk_configure_done(void* context, wl_kernel_result_t result, const configure_response_t* response) {
   device_sdk_call_t* state = context;
-  if (result.outcome == WL_KERNEL_SUCCESS &&
-      (response == NULL || configure_response_value_from_view(response, state->response) != WL_CODEC_OK))
-    result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (response == NULL)
+      result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else
+      memcpy(state->response, response, sizeof(*response));
+  }
   state->notify(state->notify_context, result);
 }
 wl_err_t device_sdk_configure_submit(device_sdk_call_t* state, uint32_t now, uint32_t timeout,
@@ -45,9 +48,12 @@ wl_err_t device_sdk_configure_submit(device_sdk_call_t* state, uint32_t now, uin
 
 static void device_sdk_get_info_done(void* context, wl_kernel_result_t result, const info_response_t* response) {
   device_sdk_call_t* state = context;
-  if (result.outcome == WL_KERNEL_SUCCESS &&
-      (response == NULL || info_response_value_from_view(response, state->response) != WL_CODEC_OK))
-    result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (response == NULL)
+      result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else
+      memcpy(state->response, response, sizeof(*response));
+  }
   state->notify(state->notify_context, result);
 }
 wl_err_t device_sdk_get_info_submit(device_sdk_call_t* state, uint32_t now, uint32_t timeout,

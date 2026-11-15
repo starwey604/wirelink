@@ -7,9 +7,9 @@
 #include <cstring>
 
 namespace calculator::wlc_detail {
-inline bool to_c(const AddRequest& input, wlc_native::add_request_value_t& output) {
+inline bool to_c(const AddRequest& input, wlc_native::add_request_t& output) {
   (void)input;
-  wlc_native::add_request_value_clear(&output);
+  wlc_native::add_request_clear(&output);
   output.has_left = true;
   if (output.has_left) {
     output.left = input.left;
@@ -21,7 +21,7 @@ inline bool to_c(const AddRequest& input, wlc_native::add_request_value_t& outpu
   return true;
 }
 
-inline AddRequest from_c(const wlc_native::add_request_value_t& input) {
+inline AddRequest from_c(const wlc_native::add_request_t& input) {
   (void)input;
   AddRequest output{};
   if (input.has_left) {
@@ -33,9 +33,9 @@ inline AddRequest from_c(const wlc_native::add_request_value_t& input) {
   return output;
 }
 
-inline bool to_c(const AddResponse& input, wlc_native::add_response_value_t& output) {
+inline bool to_c(const AddResponse& input, wlc_native::add_response_t& output) {
   (void)input;
-  wlc_native::add_response_value_clear(&output);
+  wlc_native::add_response_clear(&output);
   output.has_sum = true;
   if (output.has_sum) {
     output.sum = input.sum;
@@ -43,7 +43,7 @@ inline bool to_c(const AddResponse& input, wlc_native::add_response_value_t& out
   return true;
 }
 
-inline AddResponse from_c(const wlc_native::add_response_value_t& input) {
+inline AddResponse from_c(const wlc_native::add_response_t& input) {
   (void)input;
   AddResponse output{};
   if (input.has_sum) {

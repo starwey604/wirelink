@@ -7,21 +7,21 @@
 #include <cstring>
 
 namespace device::wlc_detail {
-inline bool to_c(const InfoRequest& input, wlc_native::info_request_value_t& output) {
+inline bool to_c(const InfoRequest& input, wlc_native::info_request_t& output) {
   (void)input;
-  wlc_native::info_request_value_clear(&output);
+  wlc_native::info_request_clear(&output);
   return true;
 }
 
-inline InfoRequest from_c(const wlc_native::info_request_value_t& input) {
+inline InfoRequest from_c(const wlc_native::info_request_t& input) {
   (void)input;
   InfoRequest output{};
   return output;
 }
 
-inline bool to_c(const Settings& input, wlc_native::settings_value_t& output) {
+inline bool to_c(const Settings& input, wlc_native::settings_t& output) {
   (void)input;
-  wlc_native::settings_value_clear(&output);
+  wlc_native::settings_clear(&output);
   output.has_label = input.label.has_value();
   if (output.has_label) {
     if ((*input.label).size() > 12U) return false;
@@ -71,7 +71,7 @@ inline bool to_c(const Settings& input, wlc_native::settings_value_t& output) {
   return true;
 }
 
-inline Settings from_c(const wlc_native::settings_value_t& input) {
+inline Settings from_c(const wlc_native::settings_t& input) {
   (void)input;
   Settings output{};
   if (input.has_label) {
@@ -114,9 +114,9 @@ inline Settings from_c(const wlc_native::settings_value_t& input) {
   return output;
 }
 
-inline bool to_c(const InfoResponse& input, wlc_native::info_response_value_t& output) {
+inline bool to_c(const InfoResponse& input, wlc_native::info_response_t& output) {
   (void)input;
-  wlc_native::info_response_value_clear(&output);
+  wlc_native::info_response_clear(&output);
   output.has_name = true;
   if (output.has_name) {
     if (input.name.size() > 32U) return false;
@@ -130,7 +130,7 @@ inline bool to_c(const InfoResponse& input, wlc_native::info_response_value_t& o
   return true;
 }
 
-inline InfoResponse from_c(const wlc_native::info_response_value_t& input) {
+inline InfoResponse from_c(const wlc_native::info_response_t& input) {
   (void)input;
   InfoResponse output{};
   if (input.has_name) {
@@ -142,9 +142,9 @@ inline InfoResponse from_c(const wlc_native::info_response_value_t& input) {
   return output;
 }
 
-inline bool to_c(const ConfigureRequest& input, wlc_native::configure_request_value_t& output) {
+inline bool to_c(const ConfigureRequest& input, wlc_native::configure_request_t& output) {
   (void)input;
-  wlc_native::configure_request_value_clear(&output);
+  wlc_native::configure_request_clear(&output);
   output.has_settings = true;
   if (output.has_settings) {
     if (!to_c(input.settings, output.settings)) return false;
@@ -162,7 +162,7 @@ inline bool to_c(const ConfigureRequest& input, wlc_native::configure_request_va
   return true;
 }
 
-inline ConfigureRequest from_c(const wlc_native::configure_request_value_t& input) {
+inline ConfigureRequest from_c(const wlc_native::configure_request_t& input) {
   (void)input;
   ConfigureRequest output{};
   if (input.has_settings) {
@@ -179,9 +179,9 @@ inline ConfigureRequest from_c(const wlc_native::configure_request_value_t& inpu
   return output;
 }
 
-inline bool to_c(const ConfigureResponse& input, wlc_native::configure_response_value_t& output) {
+inline bool to_c(const ConfigureResponse& input, wlc_native::configure_response_t& output) {
   (void)input;
-  wlc_native::configure_response_value_clear(&output);
+  wlc_native::configure_response_clear(&output);
   output.has_settings = true;
   if (output.has_settings) {
     if (!to_c(input.settings, output.settings)) return false;
@@ -203,7 +203,7 @@ inline bool to_c(const ConfigureResponse& input, wlc_native::configure_response_
   return true;
 }
 
-inline ConfigureResponse from_c(const wlc_native::configure_response_value_t& input) {
+inline ConfigureResponse from_c(const wlc_native::configure_response_t& input) {
   (void)input;
   ConfigureResponse output{};
   if (input.has_settings) {
@@ -223,9 +223,9 @@ inline ConfigureResponse from_c(const wlc_native::configure_response_value_t& in
   return output;
 }
 
-inline bool to_c(const Numbers& input, wlc_native::numbers_value_t& output) {
+inline bool to_c(const Numbers& input, wlc_native::numbers_t& output) {
   (void)input;
-  wlc_native::numbers_value_clear(&output);
+  wlc_native::numbers_clear(&output);
   output.has_i8 = true;
   if (output.has_i8) {
     output.i8 = input.i8;
@@ -303,7 +303,7 @@ inline bool to_c(const Numbers& input, wlc_native::numbers_value_t& output) {
   return true;
 }
 
-inline Numbers from_c(const wlc_native::numbers_value_t& input) {
+inline Numbers from_c(const wlc_native::numbers_t& input) {
   (void)input;
   Numbers output{};
   if (input.has_i8) {

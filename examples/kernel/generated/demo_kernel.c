@@ -1,18 +1,17 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "demo_kernel.h"
-#include "demo_kernel_codecs.h"
 #include <string.h>
 static void demo_kernel_complete_execute(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   response_t response;
   const response_t *view = NULL;
   if (result.outcome == WL_KERNEL_SUCCESS) {
-    if (demo_rpc_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    if (response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
     else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((demo_kernel_execute_callback_t)call->callback)(call->user, result, view);
 }
-wl_err_t demo_kernel_execute_start(demo_kernel_t *endpoint, const request_value_t *request, uint32_t now, uint32_t timeout, demo_kernel_execute_callback_t callback, void *user, wl_kernel_call_handle_t *out) {
+wl_err_t demo_kernel_execute_start(demo_kernel_t *endpoint, const request_t *request, uint32_t now, uint32_t timeout, demo_kernel_execute_callback_t callback, void *user, wl_kernel_call_handle_t *out) {
   if (out != NULL) *out = (wl_kernel_call_handle_t){0};
   if (endpoint == NULL || request == NULL || callback == NULL || out == NULL || timeout == 0U || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
   uint8_t slot;
@@ -20,20 +19,10 @@ wl_err_t demo_kernel_execute_start(demo_kernel_t *endpoint, const request_value_
   wl_err_t error = wl_kernel_call_claim(&endpoint->core, &slot, &payload, NULL);
   if (error != WL_OK) return error;
   size_t length = 0U;
-  if (demo_rpc_request_value_encode(request, payload, sizeof(endpoint->requests[0]) - WL_KERNEL_NATIVE_HEADER - WL_KERNEL_RPC_HEADER_DATA, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  if (request_encode(request, payload, sizeof(endpoint->requests[0]) - WL_KERNEL_NATIVE_HEADER - WL_KERNEL_RPC_HEADER_DATA, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
   return wl_kernel_call_commit(&endpoint->core, slot, 40U, 41U, length, now, timeout, demo_kernel_complete_execute, (void (*)(void))callback, user, out);
 }
-wl_err_t demo_kernel_send_event(demo_kernel_t *endpoint, const event_value_t *value) {
-  if (endpoint == NULL || value == NULL) return WL_ERR_INVALID_ARG;
-  uint8_t *frame;
-  wl_err_t error = wl_kernel_msg_claim(&endpoint->core, &frame, NULL);
-  if (error != WL_OK) return error;
-  size_t length = 0U;
-  if (event_value_encode(value, frame + WL_KERNEL_NATIVE_HEADER, sizeof(endpoint->message) - WL_KERNEL_NATIVE_HEADER, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-  error = wl_wire_frame_seal(frame, sizeof(endpoint->message), WL_WIRE_MSG, 42U, length);
-  return error != WL_OK ? error : wl_kernel_msg_commit(&endpoint->core, WL_KERNEL_NATIVE_HEADER + length);
-}
-wl_err_t demo_kernel_send_event_view(demo_kernel_t *endpoint, const event_t *value) {
+wl_err_t demo_kernel_send_event(demo_kernel_t *endpoint, const event_t *value) {
   if (endpoint == NULL || value == NULL) return WL_ERR_INVALID_ARG;
   uint8_t *frame;
   wl_err_t error = wl_kernel_msg_claim(&endpoint->core, &frame, NULL);
@@ -59,15 +48,15 @@ static wl_err_t demo_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *fr
     error = wl_kernel_reply_claim(core, 41U, &metadata, &reply, &payload, NULL);
     if (error != WL_OK) return error;
     request_t request;
-    if (demo_rpc_request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
+    if (request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
       wl_kernel_reply_abort(core, reply);
       return WL_ERR_CORRUPT_PAYLOAD;
     }
-    demo_rpc_response_value_clear(&endpoint->reply.execute);
+    response_clear(&endpoint->reply.execute);
     int32_t status = endpoint->handlers.on_rpc_execute(endpoint->user, &request, &endpoint->reply.execute);
     if (status != 0) return wl_kernel_reply_error(core, reply, status);
     size_t length = 0U;
-    if (demo_rpc_response_value_encode(&endpoint->reply.execute, payload, sizeof(endpoint->replies[0]) - WL_KERNEL_NATIVE_HEADER - WL_KERNEL_RPC_HEADER_DATA, &length) != WL_CODEC_OK) {
+    if (response_encode(&endpoint->reply.execute, payload, sizeof(endpoint->replies[0]) - WL_KERNEL_NATIVE_HEADER - WL_KERNEL_RPC_HEADER_DATA, &length) != WL_CODEC_OK) {
       wl_kernel_reply_abort(core, reply);
       return WL_ERR_CORRUPT_PAYLOAD;
     }

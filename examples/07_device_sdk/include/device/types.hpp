@@ -71,7 +71,7 @@ struct Numbers {
   std::optional<bool> flag{};
   std::optional<std::string> text{};
   int64_t offset_or_default() const { return offset.value_or(INT64_C(-7)); }
-  int32_t minimum_or_default() const { return minimum.value_or(INT32_C(-2147483648)); }
+  int32_t minimum_or_default() const { return minimum.value_or(-2147483648); }
   bool flag_or_default() const { return flag.value_or(true); }
   std::string text_or_default() const { return text.value_or(std::string("\x61""\x22""\x40""\x4E""\x41""\x4D""\x45""\x40", 8)); }
 };

@@ -10,7 +10,7 @@ static unsigned reads, completed, handled;
 static wl_kernel_result_t result;
 static int mode;
 static uint32_t read_clock(void) { ++reads; return k_uptime_get_32(); }
-static int32_t add(void *user, const add_request_t *request, add_response_value_t *response) {
+static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
   (void)user; ++handled;
   if (mode == 1) return 7;
   response->has_sum = true; response->sum = request->left + request->right; return 0;
@@ -28,7 +28,7 @@ static void transaction(int selected, unsigned idle_ms) {
     EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
   k_sleep(K_MSEC(idle_ms)); /* No step before submit: owner supplies fresh now. */
   const uint32_t began = read_clock();
-  add_request_value_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
   wl_kernel_call_handle_t call; unsigned before = reads;
   EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[0], &request, began, 50, done, NULL, &call) == WL_OK);
   EXAMPLE_REQUIRE(reads == before);

@@ -19,7 +19,7 @@ static struct net_sockaddr_in address(uint16_t port) {
     .sin_addr = NET_INADDR_LOOPBACK_INIT};
   return value;
 }
-static int32_t add(void *user, const add_request_t *request, add_response_value_t *response) {
+static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
   ++executed; return peer_add(user, request, response);
 }
 static void setup(void) {
@@ -49,22 +49,22 @@ static void close_pair(void) {
     zassert_true(wl_kernel_quiescent(&endpoints[side].core));
   }
 }
-static add_request_value_t request(int32_t left, int32_t right) {
-  return (add_request_value_t){.has_left = true, .left = left, .has_right = true, .right = right};
+static add_request_t request(int32_t left, int32_t right) {
+  return (add_request_t){.has_left = true, .left = left, .has_right = true, .right = right};
 }
 ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
   setup();
   for (unsigned side = 0; side < 2; ++side) {
     for (unsigned slot = 0; slot < 4; ++slot) {
-      add_request_value_t value = request(slot, 42 - slot); wl_kernel_call_handle_t handle;
+      add_request_t value = request(slot, 42 - slot); wl_kernel_call_handle_t handle;
       zassert_ok(udp_demo_kernel_add_start(&endpoints[side], &value, tick, 500,
         peer_completed, &states[side], &handle));
       memset(&value, 0, sizeof(value));
     }
-    add_request_value_t extra = request(1, 2); wl_kernel_call_handle_t handle;
+    add_request_t extra = request(1, 2); wl_kernel_call_handle_t handle;
     zassert_equal(udp_demo_kernel_add_start(&endpoints[side], &extra, tick, 500,
       peer_completed, &states[side], &handle), WL_ERR_WOULD_BLOCK);
-    telemetry_value_t sample = {.has_sample = true, .sample = 1234};
+    telemetry_t sample = {.has_sample = true, .sample = 1234};
     zassert_ok(udp_demo_kernel_send_telemetry(&endpoints[side], &sample));
     memset(&sample, 0, sizeof(sample));
   }
@@ -80,7 +80,7 @@ ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
 }
 ZTEST(udp_validation, test_business_rejection_cancel_timeout_wrap_and_close) {
   setup();
-  add_request_value_t value = request(INT32_MAX, 1); wl_kernel_call_handle_t handle;
+  add_request_t value = request(INT32_MAX, 1); wl_kernel_call_handle_t handle;
   zassert_ok(udp_demo_kernel_add_start(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
   for (unsigned i = 0; i < 500 && !states[0].completions; ++i) pass();
   zassert_equal(states[0].result.outcome, WL_KERNEL_REJECTED); zassert_equal(states[0].result.status, 1);
