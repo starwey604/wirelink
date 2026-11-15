@@ -46,11 +46,12 @@ static wl_err_t device_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *
   device_kernel_t *endpoint = (device_kernel_t *)core;
   (void)endpoint;
   switch (frame->message_id) {
-  case 6U: return wl_kernel_response(core, frame->message_id, frame->payload, frame->length);
+  case 6U: return wl_kernel_response(core, frame);
   case 5U: {
+    if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
     if (endpoint->handlers.on_rpc_configure == NULL) return WL_ERR_NOT_SUPPORTED;
     wl_kernel_rpc_metadata_t metadata;
-    wl_err_t error = wl_kernel_rpc_read(frame->payload, frame->length, 1, &metadata);
+    wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
     if (error != WL_OK) return error;
     unsigned reply;
     error = wl_kernel_reply_reserve(core, &reply);
@@ -64,11 +65,12 @@ static wl_err_t device_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *
     int32_t status = endpoint->handlers.on_rpc_configure(endpoint->user, &request, &endpoint->reply.configure);
     return wl_kernel_reply_finish(core, reply, 6U, &metadata, status, &endpoint->reply.configure, device_kernel_encode_configure_response);
   }
-  case 4U: return wl_kernel_response(core, frame->message_id, frame->payload, frame->length);
+  case 4U: return wl_kernel_response(core, frame);
   case 2U: {
+    if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
     if (endpoint->handlers.on_rpc_get_info == NULL) return WL_ERR_NOT_SUPPORTED;
     wl_kernel_rpc_metadata_t metadata;
-    wl_err_t error = wl_kernel_rpc_read(frame->payload, frame->length, 1, &metadata);
+    wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
     if (error != WL_OK) return error;
     unsigned reply;
     error = wl_kernel_reply_reserve(core, &reply);

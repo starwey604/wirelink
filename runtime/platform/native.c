@@ -30,12 +30,12 @@ static wl_time_ms_t native_now(void *context) {
 #endif
 }
 
-static wl_err_t native_session(void *context, uint64_t *out) {
+static wl_err_t native_session(void *context, uint32_t *out) {
   (void)context;
   if (out == NULL) return WL_ERR_INVALID_ARG;
   /* Bound retries for the reserved zero value; do not loop on provider failure. */
   for (unsigned i = 0U; i < 4U; ++i) {
-    uint64_t value;
+    uint32_t value;
 #if defined(_WIN32)
     if (BCryptGenRandom(NULL, (PUCHAR)&value, sizeof(value),
                        BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) return WL_ERR_IO;

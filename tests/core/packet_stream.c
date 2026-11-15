@@ -30,8 +30,8 @@ static void encode_reference_stream_frame(int cobs, uint16_t message_id, const u
     *out_len = cobs_len + 1U;
   } else {
     CHECK(out_cap >= canonical_len + 2U);
-    out[0] = (uint8_t)(canonical_len >> 8U);
-    out[1] = (uint8_t)canonical_len;
+    out[0] = (uint8_t)canonical_len;
+    out[1] = (uint8_t)(canonical_len >> 8U);
     memcpy(out + 2U, raw, canonical_len);
     *out_len = canonical_len + 2U;
   }

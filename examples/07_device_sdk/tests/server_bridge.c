@@ -37,7 +37,7 @@ static int32_t configure(void* user,const configure_request_t* request,configure
   return device_test_configure(&owner->state,&value,response);
 }
 
-wl_err_t device_test_server_initialize(void* storage, uint64_t instance, wl_packet_sink_fn sink,
+wl_err_t device_test_server_initialize(void* storage, uint32_t instance, wl_packet_sink_fn sink,
     wl_packet_notify_fn notify, void* user) {
   owner_t* owner=storage;
   wl_packet_config_t config={.instance=instance,.rx_storage=&owner->rx[0][0],

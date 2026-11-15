@@ -9,7 +9,7 @@ static struct {
   uint8_t reply[EXAMPLE_PACKET_TOOL_PAYLOAD];
   size_t reply_length; uint16_t reply_id;
   wl_packet_sink_fn physical_submit; wl_packet_notify_fn notify; void *user;
-  uint64_t previous;
+  uint32_t previous;
   wl_err_t error;
   bool prepared, closed, has_command, accepted, have_reply, cancel_expected;
 } owner;
@@ -29,11 +29,11 @@ static wl_err_t route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
   owner.reply_length = frame->length; owner.reply_id = frame->message_id; owner.have_reply = true;
   return WL_OK;
 }
-wl_err_t example_packet_tool_prepare(uint64_t instance, int serial,
+wl_err_t example_packet_tool_prepare(uint32_t instance, int serial,
   wl_packet_sink_fn physical, wl_packet_notify_fn wake, void *user) {
   if (!instance || !physical || instance == owner.previous) return WL_ERR_INVALID_ARG;
   if (owner.prepared && !wl_kernel_quiescent(&owner.core)) return WL_ERR_INVALID_STATE;
-  const uint64_t previous = owner.previous;
+  const uint32_t previous = owner.previous;
   memset(&owner, 0, sizeof(owner)); owner.previous = previous;
   owner.physical_submit = physical; owner.notify = wake; owner.user = user;
   wl_packet_config_t config = {.instance = instance, .rx_storage = &owner.rx[0][0],

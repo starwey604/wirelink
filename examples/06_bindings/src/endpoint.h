@@ -8,7 +8,7 @@ extern "C" {
 size_t calculator_sdk_endpoint_size(void);
 size_t calculator_sdk_endpoint_alignment(void);
 wl_err_t calculator_sdk_endpoint_prepare(void*, wl_host_endpoint_t*);
-wl_err_t calculator_sdk_endpoint_initialize(void*, uint64_t, wl_packet_sink_fn, wl_packet_notify_fn, void*);
+wl_err_t calculator_sdk_endpoint_initialize(void*, uint32_t, wl_packet_sink_fn, wl_packet_notify_fn, void*);
 typedef struct {
   void* endpoint;
   const void* request;

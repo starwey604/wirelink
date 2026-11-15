@@ -11,7 +11,7 @@ static wl_err_t encode(const void *value, uint8_t *out, size_t capacity, size_t 
   out[0] = *(const uint8_t *)value; *length = 1; return WL_OK;
 }
 wl_kernel_t *executor_test_core(void) { return &core; }
-wl_err_t executor_test_init(uint64_t instance, wl_packet_sink_fn sink,
+wl_err_t executor_test_init(uint32_t instance, wl_packet_sink_fn sink,
                             wl_packet_notify_fn notify, void *user) {
   wl_packet_config_t config = {.instance = instance, .rx_storage = &rx[0][0],
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx),

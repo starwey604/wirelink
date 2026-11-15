@@ -48,7 +48,7 @@ struct simulation {
   unsigned completed, handled, timed_out, max_rpc;
 };
 static simulation_t simulation;
-static uint64_t next_instance = 1000;
+static uint32_t next_instance = 1000;
 static uint32_t now(const simulation_t *s) {
   return (s->scenario.wrap ? UINT32_MAX - 500U : 0U) + s->tick;
 }

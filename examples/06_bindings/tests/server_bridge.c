@@ -30,7 +30,7 @@ static int32_t add(void* user,const add_request_t* request,add_response_value_t*
   return calculator_test_add(NULL,&value,response);
 }
 
-wl_err_t calculator_test_server_initialize(void* storage, uint64_t instance, wl_packet_sink_fn sink,
+wl_err_t calculator_test_server_initialize(void* storage, uint32_t instance, wl_packet_sink_fn sink,
     wl_packet_notify_fn notify, void* user) {
   owner_t* owner=storage;
   wl_packet_config_t config={.instance=instance,.rx_storage=&owner->rx[0][0],

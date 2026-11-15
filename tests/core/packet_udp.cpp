@@ -39,7 +39,7 @@ int main() {
   assert(aa.set_peer("127.0.0.1", bb.local_port()) == WL_OK);
   assert(bb.set_peer("127.0.0.1", aa.local_port()) == WL_OK);
   assert(cc.set_peer("127.0.0.1", bb.local_port()) == WL_OK);
-  uint8_t message[] = {0xa4, 0, 0, 8, 1, 2, 3};
+  uint8_t message[] = {0x57, 0, 8, 0, 1, 2, 3};
   wl_packet_token_t token{};
   // A latched wake must not be mistaken for receipt (even on synchronous
   // loopback implementations). No sender has submitted a datagram yet.

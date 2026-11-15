@@ -16,7 +16,7 @@ wl_err_t calculator_sdk_endpoint_prepare(void* storage, wl_host_endpoint_t* desc
   *descriptor = (wl_host_endpoint_t){owner, &owner->endpoint.core, &owner->port, 2052};
   return WL_OK;
 }
-wl_err_t calculator_sdk_endpoint_initialize(void* storage, uint64_t instance,
+wl_err_t calculator_sdk_endpoint_initialize(void* storage, uint32_t instance,
     wl_packet_sink_fn sink, wl_packet_notify_fn notify, void* user) {
   calculator_sdk_owner_t* owner = storage;
   wl_packet_config_t config = {.instance = instance, .rx_storage = &owner->rx[0][0],

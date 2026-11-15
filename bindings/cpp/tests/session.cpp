@@ -48,7 +48,7 @@ public:
     auto error = wirelink::Error::local(WL_ERR_INVALID_STATE);
     storage = prepare(driver, error, echo); require(storage != nullptr);
     adapter = std::make_unique<wirelink::asio::PacketUdpAdapter>(*driver.port);
-    static uint64_t instance = 81971;
+    static uint32_t instance = 81971;
     require(cpp_test_initialize(storage, instance++, wirelink::asio::PacketUdpAdapter::submit,
         wirelink::asio::PacketUdpAdapter::notify, adapter.get()) == WL_OK);
     wirelink::asio::PacketUdpConfig config;
@@ -135,14 +135,14 @@ int main() {
     struct Clock {
       std::atomic<uint32_t> value{UINT32_MAX - 15U};
       std::atomic<unsigned> reads{};
-      uint64_t instance{984371};
+      uint32_t instance{984371};
     } clock;
     Server silent(false);
     wirelink::UdpOptions options; options.peer_port = silent.adapter->local_port();
     options.environment.clock = {[](void *p) -> uint32_t {
       auto *c = static_cast<Clock *>(p); ++c->reads; return c->value.load();
     }, &clock};
-    options.environment.session = {[](void *p, uint64_t *out) -> wl_err_t {
+    options.environment.session = {[](void *p, uint32_t *out) -> wl_err_t {
       *out = static_cast<Clock *>(p)->instance++; return WL_OK;
     }, &clock};
     auto connection = wirelink::Session::connect(options, {create, cpp_test_initialize, destroy});

@@ -21,8 +21,8 @@ wl_packet_submit_t wl_packet_stream_length16_none_submit(void *user, const uint8
   if (!valid_tx(s, data, length))
     return WL_PACKET_FAILED;
   uint8_t *out = s->config.tx_storage.data;
-  out[0] = (uint8_t)(length >> 8U);
-  out[1] = (uint8_t)length;
+  out[0] = (uint8_t)length;
+  out[1] = (uint8_t)(length >> 8U);
   memcpy(out + 2U, data, length);
   return s->config.physical_submit(s->config.user, out, length + 2U, token);
 }
@@ -41,7 +41,7 @@ wl_err_t wl_packet_stream_length16_none_feed(wl_packet_stream_t *s, const uint8_
       continue;
     }
     if (s->prefix_bytes < 2U) {
-      s->expected = (s->expected << 8U) | bytes[(*consumed)++];
+      s->expected |= (size_t)bytes[(*consumed)++] << (s->prefix_bytes * 8U);
       if (++s->prefix_bytes < 2U)
         continue;
       if (s->expected < 4U || s->expected > s->config.maximum_rx_frame_size) {

@@ -13,12 +13,12 @@ wl_err_t wl_packet_stream_cobs_crc16_init(wl_packet_stream_t *s,
     return WL_ERR_INVALID_ARG;
   wl_packet_stream_config_t selected = *c;
   if (selected.maximum_rx_frame_size == 0U) {
-    size_t limit = wl_packet_rx_unit_size(c->port);
+    size_t unit = wl_packet_rx_unit_size(c->port);
+    size_t m = unit > 2U ? unit - 2U : 0U;
+    size_t n = m - (m + 1U) / 255U;
+    size_t limit = n > 2U ? n - 2U : 0U;
     if (limit > 2052U)
       limit = 2052U;
-    while (limit >= 4U &&
-           wl_packet_stream_cobs_crc16_bound(limit) > wl_packet_rx_unit_size(c->port))
-      --limit;
     selected.maximum_rx_frame_size = limit;
   }
   return stream_init(s, &selected, wl_packet_stream_cobs_crc16_bound(c->maximum_frame_size),
@@ -105,7 +105,7 @@ wl_err_t wl_packet_stream_cobs_crc16_feed(wl_packet_stream_t *s, const uint8_t *
       return result == WL_OK ? e : result;
     ++*consumed;
     if (b != 0U) {
-      if (s->rx_length >= wl_packet_stream_cobs_crc16_bound(s->config.maximum_rx_frame_size) - 1U) {
+      if (s->rx_length >= (size_t)s->max_rx_wire_size - 1U) {
         (void)wl_packet_rx_abort(s->config.port, &s->claim);
         s->claimed = 0U;
         s->rx_length = 0U;

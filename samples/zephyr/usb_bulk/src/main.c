@@ -58,7 +58,7 @@ static void usb_message(struct usbd_context *context, const struct usbd_msg *mes
 }
 int main(void) {
   wl_environment_t environment = wl_platform_environment();
-  uint64_t instance;
+  uint32_t instance;
   int error = wl_session_next(environment.session, 0, &instance);
   if (error != WL_OK) { printk("Fresh USB instance unavailable: %d\n", error); return 1; }
   wl_packet_config_t packet = {.instance = instance, .rx_storage = &rx[0][0],

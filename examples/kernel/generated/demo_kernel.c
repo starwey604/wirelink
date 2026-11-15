@@ -40,11 +40,12 @@ static wl_err_t demo_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *fr
   demo_kernel_t *endpoint = (demo_kernel_t *)core;
   (void)endpoint;
   switch (frame->message_id) {
-  case 41U: return wl_kernel_response(core, frame->message_id, frame->payload, frame->length);
+  case 41U: return wl_kernel_response(core, frame);
   case 40U: {
+    if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
     if (endpoint->handlers.on_rpc_execute == NULL) return WL_ERR_NOT_SUPPORTED;
     wl_kernel_rpc_metadata_t metadata;
-    wl_err_t error = wl_kernel_rpc_read(frame->payload, frame->length, 1, &metadata);
+    wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
     if (error != WL_OK) return error;
     unsigned reply;
     error = wl_kernel_reply_reserve(core, &reply);
@@ -59,6 +60,7 @@ static wl_err_t demo_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *fr
     return wl_kernel_reply_finish(core, reply, 41U, &metadata, status, &endpoint->reply.execute, demo_kernel_encode_response);
   }
   case 42U: {
+    if (frame->kind != WL_WIRE_MSG) return WL_ERR_CORRUPT_PAYLOAD;
     event_t message;
     if (event_decode(frame->payload, frame->length, &message) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
     if (endpoint->handlers.on_message_event != NULL) endpoint->handlers.on_message_event(endpoint->user, &message);

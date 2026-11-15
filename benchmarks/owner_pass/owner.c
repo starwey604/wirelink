@@ -6,7 +6,7 @@
 static wl_kernel_t core;
 static wl_packet_port_t port;
 static uint8_t rx[2][64], tx[9][32];
-static uint64_t instance = 100;
+static uint32_t instance = 100;
 static unsigned received;
 static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
   (void)user; (void)data; (void)length; (void)token; return WL_PACKET_SENT;
@@ -25,7 +25,7 @@ wl_kernel_t *owner_pass_prepare(wl_packet_notify_fn notify, void *user) {
   CHECK(wl_kernel_init(&core, &config) == WL_OK); return &core;
 }
 void owner_pass_inject(void) {
-  const uint8_t packet[] = {0xa4, 0, 0, 23, 1, 2, 3, 4};
+  const uint8_t packet[] = {0x57, 0, 23, 0, 1, 2, 3, 4};
   wl_packet_claim_t claim;
   CHECK(wl_packet_rx_claim(&port, sizeof(packet), &claim) == WL_OK);
   memcpy(claim.span.data, packet, sizeof(packet));

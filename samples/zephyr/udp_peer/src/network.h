@@ -17,7 +17,7 @@ static inline int sample_network_init(void) {
   return net_config_init("Wirelink UDP", NET_CONFIG_NEED_IPV4, 30000);
 }
 static inline wl_err_t sample_udp_open(sample_udp_t *udp) {
-  wl_environment_t environment = wl_platform_environment(); uint64_t instance;
+  wl_environment_t environment = wl_platform_environment(); uint32_t instance;
   wl_err_t error = wl_session_next(environment.session, 0, &instance);
   if (error != WL_OK) return error;
   wl_packet_config_t port = {.instance = instance, .rx_storage = &udp->rx[0][0],

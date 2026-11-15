@@ -44,7 +44,7 @@ int main() {
   config.drain_user = &drained;
   std::error_code error;
   assert(adapter.start(config, error) == WL_OK);
-  uint8_t packet[] = {0xa4, 0, 0, 22, 1, 2, 3, 4, 5, 6, 7, 8};
+  uint8_t packet[] = {0x57, 0, 22, 0, 1, 2, 3, 4, 5, 6, 7, 8};
   wl_packet_token_t token{};
   assert(wl_packet_tx_submit(port, packet, sizeof(packet), &token) == WL_OK);
   auto deadline = std::chrono::steady_clock::now() + 2s;

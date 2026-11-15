@@ -75,21 +75,26 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 add_library(wirelink_packet_port src/packet_port.c)
 function(wl_kernel_headers target)
+  get_target_property(_type ${target} TYPE)
+  set(_scope PUBLIC)
+  if(_type STREQUAL "INTERFACE_LIBRARY")
+    set(_scope INTERFACE)
+  endif()
   # Public C headers require C11 even when a consumer has no local C standard.
-  target_compile_features(${target} PUBLIC c_std_11)
+  target_compile_features(${target} ${_scope} c_std_11)
   if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
     # Required by MSVC's C11 atomics, including C-owned installed consumers.
     # Visual Studio evaluates target-wide COMPILE_LANGUAGE as CXX for mixed
     # targets, dropping a C-only expression even from their C sources. MSVC
     # accepts this switch in both modes; export it for mixed installed consumers.
-    target_compile_options(${target} PUBLIC /utf-8 /experimental:c11atomics)
+    target_compile_options(${target} ${_scope} /utf-8 /experimental:c11atomics)
   endif()
-  target_include_directories(${target} PUBLIC
+  target_include_directories(${target} ${_scope}
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
 endfunction()
 wl_kernel_headers(wirelink_packet_port)
-add_library(wirelink_kernel_wire src/native_none.c src/rpc_wire.c)
+add_library(wirelink_kernel_wire INTERFACE)
 wl_kernel_headers(wirelink_kernel_wire)
 add_library(wirelink_packet_loopback src/packet_loopback.c)
 target_link_libraries(wirelink_packet_loopback PUBLIC wirelink_packet_port)
@@ -97,7 +102,6 @@ add_library(wirelink_kernel src/kernel.c)
 target_link_libraries(wirelink_kernel PUBLIC wirelink_packet_port wirelink_kernel_wire)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   wl_warnings(wirelink_packet_port PRIVATE -Wall -Wextra -Wpedantic -Werror)
-  wl_warnings(wirelink_kernel_wire PRIVATE -Wall -Wextra -Wpedantic -Werror)
   wl_warnings(wirelink_kernel PRIVATE -Wall -Wextra -Wpedantic -Werror)
   wl_warnings(wirelink_packet_loopback PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
@@ -293,6 +297,7 @@ add_library(wirelink_types src/types.c)
 wl_kernel_headers(wirelink_types)
 wl_warnings(wirelink_types PRIVATE -Wall -Wextra -Wpedantic -Werror)
 wl_warnings(wirelink_framing_primitives PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_link_libraries(wirelink_kernel_wire INTERFACE wirelink_types)
 target_link_libraries(wirelink_kernel PUBLIC wirelink_types)
 foreach(_target wirelink_types wirelink_packet_port wirelink_kernel_wire
     wirelink_packet_loopback wirelink_kernel wirelink_packet_stream wirelink_stream_cobs_crc16

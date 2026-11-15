@@ -26,7 +26,7 @@ static wl_err_t receive(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
 }
 int main(void) {
   const struct device *uart = DEVICE_DT_GET(DT_ALIAS(wirelink_uart));
-  uint64_t instance;
+  uint32_t instance;
   if (!device_is_ready(uart)) { printk("Wirelink UART unavailable\n"); return 1; }
   wl_environment_t environment = wl_platform_environment();
   int error = wl_session_next(environment.session, 0, &instance);

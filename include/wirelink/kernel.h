@@ -32,7 +32,7 @@ typedef struct {
 } wl_kernel_result_t;
 
 typedef struct {
-  uint64_t instance;
+  uint32_t instance;
   uint32_t generation;
   uint32_t operation;
   uint8_t slot;
@@ -134,7 +134,7 @@ void wl_kernel_reply_abort(wl_kernel_t *, unsigned);
 wl_err_t wl_kernel_reply_finish(wl_kernel_t *, unsigned, uint16_t,
                                 const wl_kernel_rpc_metadata_t *, int32_t,
                                 const void *, wl_kernel_encode_fn);
-wl_err_t wl_kernel_response(wl_kernel_t *, uint16_t, const uint8_t *, size_t);
+wl_err_t wl_kernel_response(wl_kernel_t *, const wl_kernel_frame_t *);
 
 #ifdef __cplusplus
 }

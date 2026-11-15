@@ -495,7 +495,7 @@ ZTEST(udp_socket_contract, test_receive_into_core_claim_commit_and_abort) {
   }
   zassert_equal(wl_packet_rx_claim(&port, FRAME_BOUND + 1, &claim), WL_ERR_WOULD_BLOCK);
   for (unsigned i = 0; i < 2; ++i) {
-    wl_kernel_frame_t frame;
+    wl_kernel_frame_t frame = {0};
     zassert_ok(wl_packet_rx_borrow(&port, &borrow));
     zassert_ok(wl_kernel_native_none_read(borrow.data, borrow.length, &frame));
     zassert_equal(frame.message_id, 42);

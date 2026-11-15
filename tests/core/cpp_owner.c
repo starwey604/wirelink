@@ -6,7 +6,7 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length,
   (void)user; (void)data; (void)length; (void)token;
   return WL_PACKET_SENT;
 }
-wl_packet_port_t *cpp_test_port(uint64_t instance) {
+wl_packet_port_t *cpp_test_port(uint32_t instance) {
   static wl_packet_port_t port;
   static uint8_t rx[2][2048];
   wl_packet_config_t config = {.instance = instance, .rx_storage = &rx[0][0],

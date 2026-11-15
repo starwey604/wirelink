@@ -11,7 +11,7 @@ static wl_kernel_udp_t adapters[2];
 static uint8_t rx[2][2][2053];
 static peer_client_t states[2];
 static uint32_t tick;
-static uint64_t incarnation;
+static uint32_t incarnation;
 static unsigned executed;
 static uint32_t clock_read(void *user) { (void)user; return tick; }
 static struct net_sockaddr_in address(uint16_t port) {

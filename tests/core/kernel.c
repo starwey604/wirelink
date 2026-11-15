@@ -109,8 +109,9 @@ static void error(void *user, uint16_t id, wl_err_t code) {
 static wl_err_t route(wl_kernel_t *kernel, const wl_kernel_frame_t *frame) {
   fixture_t *f = (fixture_t *)kernel;
   if (frame->message_id == 101U || frame->message_id == 106U)
-    return wl_kernel_response(kernel, frame->message_id, frame->payload, frame->length);
+    return wl_kernel_response(kernel, frame);
   if (frame->message_id == 102U) {
+    if (frame->kind != WL_WIRE_MSG) return WL_ERR_CORRUPT_PAYLOAD;
     ++f->messages;
     if (f->message_start) {
       unsigned action = f->message_start;
@@ -122,8 +123,9 @@ static wl_err_t route(wl_kernel_t *kernel, const wl_kernel_frame_t *frame) {
     return WL_OK;
   }
   if (frame->message_id != 100U) return WL_ERR_NOT_SUPPORTED;
+  if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
   wl_kernel_rpc_metadata_t metadata;
-  wl_err_t status = wl_kernel_rpc_read(frame->payload, frame->length, 1, &metadata);
+  wl_err_t status = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
   if (status != WL_OK) return status;
   unsigned reply;
   status = wl_kernel_reply_reserve(kernel, &reply);
@@ -140,7 +142,7 @@ static wl_err_t route(wl_kernel_t *kernel, const wl_kernel_frame_t *frame) {
       value == 10U ? -77 : 0, &value, encode);
 }
 
-static void init(fixture_t *f, uint64_t instance) {
+static void init(fixture_t *f, uint32_t instance) {
   wl_packet_config_t port = {
       .instance = instance, .rx_storage = &f->rx[0][0], .rx_unit_size = sizeof(f->rx[0]),
       .rx_storage_size = sizeof(f->rx), .submit = sink, .user = f
@@ -153,15 +155,23 @@ static void init(fixture_t *f, uint64_t instance) {
   for (unsigned i = 0U; i < 8U; ++i) f->completions[i].fixture = f;
 }
 
-static void inject(fixture_t *f, uint16_t id, uint64_t session, uint32_t operation,
+static void inject(fixture_t *f, uint16_t id, uint32_t session, uint32_t operation,
                      int32_t status, uint32_t value) {
   wl_packet_claim_t claim;
   CHECK(wl_packet_rx_claim(&f->port, 64U, &claim) == WL_OK);
-  size_t header;
-  CHECK(wl_kernel_rpc_write(claim.span.data + 4U, 60U, session, operation, status, &header) == WL_OK);
-  if (status == 0) { memcpy(claim.span.data + 4U + header, &value, 4U); header += 4U; }
-  CHECK(wl_kernel_native_none_seal(claim.span.data, 64U, id, header) == WL_OK);
-  CHECK(wl_packet_rx_commit(&f->port, &claim, 4U + header) == WL_OK);
+  size_t body_len = 0U;
+  uint8_t kind = id == 102U ? WL_WIRE_MSG
+                 : (id == 100U ? WL_WIRE_RPC_REQ
+                               : (status == 0 ? WL_WIRE_RPC_RESP : WL_WIRE_RPC_ERR));
+  if (kind == WL_WIRE_MSG) {
+    memcpy(claim.span.data + 4U, &value, 4U);
+    body_len = 4U;
+  } else {
+    CHECK(wl_wire_rpc_write(claim.span.data + 4U, 60U, session, operation, status, &body_len) == WL_OK);
+    if (status == 0) { memcpy(claim.span.data + 4U + body_len, &value, 4U); body_len += 4U; }
+  }
+  CHECK(wl_wire_frame_seal(claim.span.data, 64U, kind, id, body_len) == WL_OK);
+  CHECK(wl_packet_rx_commit(&f->port, &claim, 4U + body_len) == WL_OK);
 }
 
 static int ready(fixture_t *f, uint32_t now) {
@@ -190,8 +200,9 @@ static void test_calls(void) {
   for (unsigned i = 0U; i < 4U; ++i) {
     wl_kernel_frame_t frame;
     wl_kernel_rpc_metadata_t metadata;
-    CHECK(wl_kernel_native_none_read(f.frames[i], f.lengths[i], &frame) == WL_OK);
-    CHECK(wl_kernel_rpc_read(frame.payload, frame.length, 1, &metadata) == WL_OK);
+    CHECK(wl_wire_frame_read(f.frames[i], f.lengths[i], &frame) == WL_OK);
+    CHECK(frame.kind == WL_WIRE_RPC_REQ);
+    CHECK(wl_wire_rpc_read(frame.kind, frame.payload, frame.length, &metadata) == WL_OK);
     uint32_t value;
     memcpy(&value, metadata.body, sizeof(value));
     CHECK(value == i); /* Request was snapshotted before stack input expired. */
@@ -289,8 +300,9 @@ static void test_reply_backpressure(void) {
   run(&f, 0U);
   wl_kernel_frame_t frame;
   wl_kernel_rpc_metadata_t metadata;
-  CHECK(wl_kernel_native_none_read(f.frames[f.submitted - 1U], f.lengths[f.submitted - 1U], &frame) == WL_OK);
-  CHECK(wl_kernel_rpc_read(frame.payload, frame.length, 0, &metadata) == WL_OK);
+  CHECK(wl_wire_frame_read(f.frames[f.submitted - 1U], f.lengths[f.submitted - 1U], &frame) == WL_OK);
+  CHECK(frame.kind == WL_WIRE_RPC_ERR);
+  CHECK(wl_wire_rpc_read(frame.kind, frame.payload, frame.length, &metadata) == WL_OK);
   CHECK(metadata.status == -77 && metadata.length == 0U);
 }
 
@@ -364,9 +376,9 @@ static void test_tx_admission_order(void) {
   CHECK(frame.message_id == 102U);
   wl_kernel_rpc_metadata_t metadata;
   for (unsigned i = 1U; i < 3U; ++i) {
-    CHECK(wl_kernel_native_none_read(f.frames[i], f.lengths[i], &frame) == WL_OK);
-    CHECK(frame.message_id == 100U);
-    CHECK(wl_kernel_rpc_read(frame.payload, frame.length, 1, &metadata) == WL_OK);
+    CHECK(wl_wire_frame_read(f.frames[i], f.lengths[i], &frame) == WL_OK);
+    CHECK(frame.message_id == 100U && frame.kind == WL_WIRE_RPC_REQ);
+    CHECK(wl_wire_rpc_read(frame.kind, frame.payload, frame.length, &metadata) == WL_OK);
     CHECK(metadata.operation == i + 1U);
   }
 }

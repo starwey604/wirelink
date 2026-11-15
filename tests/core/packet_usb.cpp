@@ -7,7 +7,7 @@
 #include <utility>
 
 extern "C" wl_packet_port_t *packet_usb_test_storage();
-extern "C" int packet_usb_test_init(uint64_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
+extern "C" int packet_usb_test_init(uint32_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
 namespace {
 UsbBulkDevice::ReadBufferProvider provider;
 UsbBulkDevice::ReadCallback read_done;

@@ -9,7 +9,7 @@ extern "C" {
 #define EXAMPLE_PACKET_TOOL_PAYLOAD 2048U
 #define EXAMPLE_PACKET_TOOL_FRAME 2052U
 /* One active single-owner tool per process. C owns every atomic object. */
-wl_err_t example_packet_tool_prepare(uint64_t instance, int serial,
+wl_err_t example_packet_tool_prepare(uint32_t instance, int serial,
   wl_packet_sink_fn submit, wl_packet_notify_fn notify, void *user);
 wl_packet_port_t *example_packet_tool_port(void);
 wl_packet_stream_t *example_packet_tool_stream(void);

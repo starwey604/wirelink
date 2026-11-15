@@ -10,10 +10,10 @@
 extern "C" {
 #endif
 #define DEMO_KERNEL_PROFILE_VERSION 2U
-#define DEMO_KERNEL_PACKET_FRAME_MAX 23U
-#define DEMO_KERNEL_WIRE_FRAME_MAX 23U
-#define DEMO_KERNEL_REQUEST_FRAME_MAX 23U
-#define DEMO_KERNEL_REPLY_FRAME_MAX 23U
+#define DEMO_KERNEL_PACKET_FRAME_MAX 18U
+#define DEMO_KERNEL_WIRE_FRAME_MAX 18U
+#define DEMO_KERNEL_REQUEST_FRAME_MAX 18U
+#define DEMO_KERNEL_REPLY_FRAME_MAX 18U
 #define DEMO_KERNEL_MESSAGE_FRAME_MAX 15U
 typedef void (*demo_kernel_execute_callback_t)(void *, wl_kernel_result_t, const response_t *);
 typedef struct {
@@ -27,8 +27,8 @@ typedef struct {
   union {
     response_value_t execute;
   } reply;
-  uint8_t requests[WL_KERNEL_CALLS][23U];
-  uint8_t replies[WL_KERNEL_REPLIES][23U];
+  uint8_t requests[WL_KERNEL_CALLS][18U];
+  uint8_t replies[WL_KERNEL_REPLIES][18U];
   uint8_t message[15U];
 } demo_kernel_t;
 wl_err_t demo_kernel_init(demo_kernel_t *, wl_packet_port_t *, const demo_kernel_handlers_t *, wl_kernel_error_fn, void *);

@@ -21,7 +21,7 @@ static int32_t execute(void *user, const request_t *request, response_value_t *r
   if (request->input == INT32_MIN) return WL_ERR_TIMEOUT; /* Remote business code. */
   response->has_output = true; response->output = request->input; return 0;
 }
-wl_err_t cpp_test_initialize(void *storage, uint64_t instance, wl_packet_sink_fn sink,
+wl_err_t cpp_test_initialize(void *storage, uint32_t instance, wl_packet_sink_fn sink,
                             wl_packet_notify_fn notify, void *user) {
   owner_t *owner = storage;
   wl_packet_config_t port = {.instance = instance, .rx_storage = &owner->rx[0][0],

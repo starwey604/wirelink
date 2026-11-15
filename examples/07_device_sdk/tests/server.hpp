@@ -20,7 +20,7 @@ public:
   Server() {
     CHECK(device_test_server_prepare(storage_.get(),&descriptor_)==WL_OK);
     adapter_=std::make_unique<wirelink::asio::PacketUdpAdapter>(*descriptor_.port);
-    auto environment=wl_platform_environment(); uint64_t instance;
+    auto environment=wl_platform_environment(); uint32_t instance;
     CHECK(wl_session_next(environment.session,0,&instance)==WL_OK);
     CHECK(device_test_server_initialize(storage_.get(),instance,
       wirelink::asio::PacketUdpAdapter::submit,wirelink::asio::PacketUdpAdapter::notify,adapter_.get())==WL_OK);

@@ -30,7 +30,7 @@ static void reading(void *user, const reading_t *view) {
 static void error(void *user, uint16_t id, wl_err_t e) {
   peer_t *p = user; CHECK(id == 201 && e != WL_OK); ++p->errors;
 }
-static void init(peer_t *p, uint64_t instance) {
+static void init(peer_t *p, uint32_t instance) {
   wl_packet_config_t c = {.instance = instance, .rx_storage = &p->rx[0][0],
       .rx_unit_size = 256, .rx_storage_size = sizeof(p->rx), .submit = sink, .user = p};
   instrument_kernel_handlers_t h = {.on_message_reading = reading};

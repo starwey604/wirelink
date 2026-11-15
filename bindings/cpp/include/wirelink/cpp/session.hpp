@@ -19,7 +19,7 @@ struct UdpOptions {
 struct EndpointFactory {
   // Prepare stable C-owned port storage/descriptor, without starting I/O.
   void *(*create)(wl_host_endpoint_t &, Error &);
-  wl_err_t (*initialize)(void *, uint64_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
+  wl_err_t (*initialize)(void *, uint32_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
   // Called only after logical callbacks and real physical leases quiesce.
   void (*destroy)(void *) noexcept;
 };

@@ -7,12 +7,12 @@ static wl_time_ms_t native_now(void *context) {
   (void)context;
   return k_uptime_get_32();
 }
-static wl_err_t native_session(void *context, uint64_t *out) {
+static wl_err_t native_session(void *context, uint32_t *out) {
   (void)context;
   if (out == NULL) return WL_ERR_INVALID_ARG;
 #if defined(CONFIG_CSPRNG_ENABLED) && !defined(CONFIG_TEST_CSPRNG_GENERATOR)
   for (unsigned i = 0U; i < 4U; ++i) {
-    uint64_t value;
+    uint32_t value;
     if (sys_csrand_get(&value, sizeof(value)) != 0) return WL_ERR_IO;
     if (value != 0U) { *out = value; return WL_OK; }
   }

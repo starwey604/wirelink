@@ -96,7 +96,7 @@ public:
 private:
   void initialize(bool serial) {
     if (owned_) throw std::runtime_error("tool already initialized");
-    uint64_t instance = 0;
+    uint32_t instance = 0;
     check(wl_session_next(wl_platform_environment().session, 0, &instance));
     check(example_packet_tool_prepare(instance, serial, submit, notify, this));
     owned_ = true;

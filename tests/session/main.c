@@ -4,7 +4,7 @@
 int session_run(wl_session_source_t source);
 int main(void) {
   wl_environment_t native = wl_platform_environment();
-  uint64_t previous = 0, next = 0;
+  uint32_t previous = 0, next = 0;
   puts("SESSION start");
   for (unsigned i = 0; i < 128; ++i) {
     wl_err_t error = wl_session_next(native.session, previous, &next);

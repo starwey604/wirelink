@@ -10,7 +10,7 @@ enum { CALL_FREE, CALL_WAITING, CALL_TERMINAL };
 #define REPLY_FIRST WL_KERNEL_CALLS
 #define MESSAGE_TX (WL_KERNEL_TX_COUNT - 1U)
 
-static uint64_t instance(const wl_kernel_t *kernel) {
+static uint32_t instance(const wl_kernel_t *kernel) {
   return kernel->port->config.instance;
 }
 
@@ -54,7 +54,9 @@ wl_err_t wl_kernel_init(wl_kernel_t *kernel, const wl_kernel_config_t *config) {
     return WL_ERR_INVALID_ARG;
   for (unsigned i = 0U; i < WL_KERNEL_TX_COUNT; ++i)
     if (config->tx_storage[i].data == NULL || config->tx_storage[i].length <
-        (i < WL_KERNEL_CALLS ? 17U : (i < MESSAGE_TX ? 21U : WL_KERNEL_NATIVE_HEADER)))
+        (i < WL_KERNEL_CALLS ? (WL_KERNEL_NATIVE_HEADER + WL_KERNEL_RPC_HEADER_DATA)
+                             : (i < MESSAGE_TX ? (WL_KERNEL_NATIVE_HEADER + WL_KERNEL_RPC_HEADER_ERR)
+                                               : WL_KERNEL_NATIVE_HEADER)))
       return WL_ERR_INVALID_ARG;
   const wl_kernel_config_t value = *config;
   memset(kernel, 0, sizeof(*kernel));
@@ -68,16 +70,17 @@ wl_err_t wl_kernel_init(wl_kernel_t *kernel, const wl_kernel_config_t *config) {
   return WL_OK;
 }
 
-static wl_err_t encode_frame(wl_kernel_tx_t *tx, uint16_t id, size_t prefix,
-                              const void *value, wl_kernel_encode_fn encode) {
+static wl_err_t encode_frame(wl_kernel_tx_t *tx, uint8_t kind, uint16_t id,
+                              size_t prefix, const void *value,
+                              wl_kernel_encode_fn encode) {
   if (prefix > tx->storage.length) return WL_ERR_BUF_TOO_SMALL;
   size_t length = 0U;
   wl_err_t error = encode(value, tx->storage.data + prefix,
                            tx->storage.length - prefix, &length);
   if (error != WL_OK) return error;
   if (length > tx->storage.length - prefix) return WL_ERR_BUF_TOO_SMALL;
-  error = wl_kernel_native_none_seal(tx->storage.data, tx->storage.length, id,
-                                     prefix - WL_KERNEL_NATIVE_HEADER + length);
+  error = wl_wire_frame_seal(tx->storage.data, tx->storage.length, kind, id,
+                             prefix - WL_KERNEL_NATIVE_HEADER + length);
   if (error == WL_OK) {
     tx->message_id = id;
     tx->length = prefix + length;
@@ -114,10 +117,11 @@ wl_err_t wl_kernel_call_start(wl_kernel_t *kernel, uint16_t request_id,
   wl_kernel_tx_t *tx = &kernel->tx[tx_index];
   uint32_t operation = kernel->operation + 1U;
   size_t header = 0U;
-  wl_err_t error = wl_kernel_rpc_write(tx->storage.data + WL_KERNEL_NATIVE_HEADER,
+  wl_err_t error = wl_wire_rpc_write(tx->storage.data + WL_KERNEL_NATIVE_HEADER,
       tx->storage.length - WL_KERNEL_NATIVE_HEADER, instance(kernel), operation, 0, &header);
   if (error == WL_OK)
-    error = encode_frame(tx, request_id, WL_KERNEL_NATIVE_HEADER + header, value, encode);
+    error = encode_frame(tx, WL_WIRE_RPC_REQ, request_id,
+                         WL_KERNEL_NATIVE_HEADER + header, value, encode);
   if (error != WL_OK) return error;
   wl_kernel_call_t *call = &kernel->calls[slot];
   ++call->generation;
@@ -155,7 +159,7 @@ wl_err_t wl_kernel_send(wl_kernel_t *kernel, uint16_t id,
   if (kernel->closed) return WL_ERR_INVALID_STATE;
   wl_kernel_tx_t *tx = &kernel->tx[MESSAGE_TX];
   if (tx->state != FREE) return WL_ERR_WOULD_BLOCK;
-  wl_err_t error = encode_frame(tx, id, WL_KERNEL_NATIVE_HEADER, value, encode);
+  wl_err_t error = encode_frame(tx, WL_WIRE_MSG, id, WL_KERNEL_NATIVE_HEADER, value, encode);
   if (error == WL_OK) queue_push(kernel, MESSAGE_TX);
   return error;
 }
@@ -184,13 +188,15 @@ wl_err_t wl_kernel_reply_finish(wl_kernel_t *kernel, unsigned index, uint16_t id
     return WL_ERR_INVALID_ARG;
   wl_kernel_tx_t *tx = &kernel->tx[index];
   size_t header = 0U;
-  wl_err_t error = wl_kernel_rpc_write(tx->storage.data + WL_KERNEL_NATIVE_HEADER,
+  wl_err_t error = wl_wire_rpc_write(tx->storage.data + WL_KERNEL_NATIVE_HEADER,
       tx->storage.length - WL_KERNEL_NATIVE_HEADER, request->session,
       request->operation, status, &header);
   if (error == WL_OK && status == 0)
-    error = encode_frame(tx, id, WL_KERNEL_NATIVE_HEADER + header, value, encode);
+    error = encode_frame(tx, WL_WIRE_RPC_RESP, id,
+                         WL_KERNEL_NATIVE_HEADER + header, value, encode);
   else if (error == WL_OK) {
-    error = wl_kernel_native_none_seal(tx->storage.data, tx->storage.length, id, header);
+    error = wl_wire_frame_seal(tx->storage.data, tx->storage.length,
+                               WL_WIRE_RPC_ERR, id, header);
     if (error == WL_OK) {
       tx->message_id = id;
       tx->length = WL_KERNEL_NATIVE_HEADER + header;
@@ -217,17 +223,19 @@ static void finish_call(wl_kernel_t *kernel, unsigned slot, wl_kernel_result_t r
   saved.complete(kernel, &saved, result, body, length);
 }
 
-wl_err_t wl_kernel_response(wl_kernel_t *kernel, uint16_t id,
-                             const uint8_t *data, size_t length) {
+wl_err_t wl_kernel_response(wl_kernel_t *kernel, const wl_kernel_frame_t *frame) {
+  if (kernel == NULL || frame == NULL) return WL_ERR_INVALID_ARG;
   if (!kernel->in_step) return WL_ERR_INVALID_STATE;
+  if (frame->kind != WL_WIRE_RPC_RESP && frame->kind != WL_WIRE_RPC_ERR)
+    return WL_ERR_CORRUPT_PAYLOAD;
   wl_kernel_rpc_metadata_t metadata;
-  wl_err_t error = wl_kernel_rpc_read(data, length, 0, &metadata);
+  wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
   if (error != WL_OK) return error;
   if (metadata.session != instance(kernel)) return WL_OK;
   for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i) {
     wl_kernel_call_t *call = &kernel->calls[i];
     if (call->state != CALL_WAITING || !call->sent || call->operation != metadata.operation ||
-        call->response_id != id) continue;
+        call->response_id != frame->message_id) continue;
     wl_kernel_result_t result = {
         metadata.status == 0 ? WL_KERNEL_SUCCESS : WL_KERNEL_REJECTED, metadata.status};
     finish_call(kernel, i, result, metadata.body, metadata.length);
@@ -334,7 +342,7 @@ static int receive(wl_kernel_t *kernel, wl_err_t *out_error) {
   wl_kernel_frame_t frame = {0};
   wl_err_t error = WL_OK;
   if (!kernel->closed) {
-    error = wl_kernel_native_none_read(kernel->rx.data, kernel->rx.length, &frame);
+    error = wl_wire_frame_read(kernel->rx.data, kernel->rx.length, &frame);
     if (error == WL_OK) error = kernel->route(kernel, &frame);
   }
   if (error == WL_ERR_WOULD_BLOCK) {

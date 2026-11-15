@@ -43,7 +43,7 @@ static void drain(void) {
   CHECK(model.physical && !model.borrowed); model.physical = false;
   CHECK(wl_packet_tx_publish(example_packet_tool_port(), model.token, WL_PACKET_DRAINED) == WL_OK);
 }
-static void run(int serial, uint64_t instance) {
+static void run(int serial, uint32_t instance) {
   memset(&model, 0, sizeof(model));
   CHECK(example_packet_tool_prepare(instance, serial, submit, NULL, NULL) == WL_OK);
   CHECK(example_packet_tool_prepare(instance + 100, serial, submit, NULL, NULL) == WL_ERR_INVALID_STATE);

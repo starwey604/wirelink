@@ -26,6 +26,7 @@ typedef struct {
   size_t expected;
   size_t discard;
   unsigned prefix_bytes;
+  uint16_t max_rx_wire_size;
   uint8_t claimed;
   uint8_t dropping;
 } wl_packet_stream_t;

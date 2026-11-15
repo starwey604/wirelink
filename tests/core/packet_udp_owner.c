@@ -7,7 +7,7 @@ wl_packet_port_t *packet_udp_test_port(unsigned index) {
 int packet_udp_test_init(unsigned index, wl_packet_sink_fn sink, wl_packet_notify_fn notify,
                          void *user) {
   static uint8_t bytes[3][2][256];
-  static uint64_t instance = 880U;
+  static uint32_t instance = 880U;
   wl_packet_config_t c = {.instance = ++instance,
                           .rx_storage = &bytes[index][0][0],
                           .rx_unit_size = 256,

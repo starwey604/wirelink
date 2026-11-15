@@ -36,7 +36,7 @@ static uint32_t now(void *user) {
   (void)user;
   return k_uptime_get_32();
 }
-static uint64_t instance;
+static uint32_t instance;
 static void setup(bool cobs) {
   memset(&adapter, 0, sizeof(adapter));
   sender = socket_open();
@@ -89,7 +89,7 @@ static void notify_later(void *a, void *b, void *c) {
 }
 ZTEST(static_udp, test_guard_peer_slots_and_latched_wait) {
   setup(false);
-  const uint8_t packet[] = {0xa4, 0, 0, 22, 1, 2, 3};
+  const uint8_t packet[] = {0x57, 0, 22, 0, 1, 2, 3};
   send_bytes(foreign, packet, sizeof(packet));
   send_bytes(sender, NULL, 0);
   uint8_t large[80] = {0};

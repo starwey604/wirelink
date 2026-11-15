@@ -39,7 +39,7 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length,
   return f->result;
 }
 
-static void init(fixture_t *f, uint64_t instance) {
+static void init(fixture_t *f, uint32_t instance) {
   wl_packet_config_t config = {
       .instance = instance, .rx_storage = &f->storage[0][0],
       .rx_unit_size = sizeof(f->storage[0]), .rx_storage_size = sizeof(f->storage),

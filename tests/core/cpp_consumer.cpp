@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <type_traits>
 
-extern "C" wl_packet_port_t *cpp_test_port(uint64_t);
+extern "C" wl_packet_port_t *cpp_test_port(uint32_t);
 static_assert(std::is_standard_layout_v<usb_kernel_t>);
 static unsigned completed;
 static void done(void *, wl_kernel_result_t result, const setpoint_response_t *reply) {

@@ -14,6 +14,7 @@ static inline wl_err_t stream_init(wl_packet_stream_t *s, const wl_packet_stream
   const wl_packet_stream_config_t saved = *c;
   memset(s, 0, sizeof(*s));
   s->config = saved;
+  s->max_rx_wire_size = (uint16_t)rx_bound;
   return WL_OK;
 }
 static inline int valid_tx(wl_packet_stream_t *s, const uint8_t *data, size_t length) {

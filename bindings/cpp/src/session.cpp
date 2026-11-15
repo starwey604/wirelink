@@ -96,7 +96,7 @@ Result<Session> Session::connect(const UdpOptions &options, EndpointFactory fact
         p->driver.maximum_rx_frame < 4 || p->driver.maximum_rx_frame > 2052)
       return Error::local(WL_ERR_INVALID_ARG);
     p->adapter = std::make_unique<asio::PacketUdpAdapter>(*p->driver.port);
-    uint64_t instance = 0;
+    uint32_t instance = 0;
     auto status = wl_session_next(options.environment.session, 0, &instance);
     if (status != WL_OK) return Error::local(status);
     status = factory.initialize(p->endpoint, instance, asio::PacketUdpAdapter::submit,

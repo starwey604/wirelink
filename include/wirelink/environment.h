@@ -15,7 +15,7 @@ extern "C" {
  * Return WL_OK on success, otherwise a wl_err_t. No exceptions/reentrancy.
  * A copied descriptor borrows context for as long as that descriptor is used. */
 typedef struct {
-  wl_err_t (*next)(void *context, uint64_t *identity);
+  wl_err_t (*next)(void *context, uint32_t *identity);
   void *context;
 } wl_session_source_t;
 
@@ -28,8 +28,8 @@ typedef struct {
  * zero for first initialization; comparing one prior ID is not a uniqueness
  * proof or a replacement for a correctly provisioned source. */
 static inline wl_err_t wl_session_next(wl_session_source_t source,
-                                      uint64_t previous, uint64_t *out) {
-  uint64_t value = 0U;
+                                      uint32_t previous, uint32_t *out) {
+  uint32_t value = 0U;
   wl_err_t error;
   if (source.next == NULL || out == NULL) return WL_ERR_INVALID_ARG;
   error = source.next(source.context, &value);

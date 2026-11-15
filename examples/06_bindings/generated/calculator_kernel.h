@@ -10,10 +10,10 @@
 extern "C" {
 #endif
 #define CALCULATOR_KERNEL_PROFILE_VERSION 2U
-#define CALCULATOR_KERNEL_PACKET_FRAME_MAX 29U
-#define CALCULATOR_KERNEL_WIRE_FRAME_MAX 29U
-#define CALCULATOR_KERNEL_REQUEST_FRAME_MAX 29U
-#define CALCULATOR_KERNEL_REPLY_FRAME_MAX 23U
+#define CALCULATOR_KERNEL_PACKET_FRAME_MAX 24U
+#define CALCULATOR_KERNEL_WIRE_FRAME_MAX 24U
+#define CALCULATOR_KERNEL_REQUEST_FRAME_MAX 24U
+#define CALCULATOR_KERNEL_REPLY_FRAME_MAX 18U
 #define CALCULATOR_KERNEL_MESSAGE_FRAME_MAX 4U
 typedef void (*calculator_kernel_add_callback_t)(void *, wl_kernel_result_t, const add_response_t *);
 typedef struct {
@@ -26,8 +26,8 @@ typedef struct {
   union {
     add_response_value_t add;
   } reply;
-  uint8_t requests[WL_KERNEL_CALLS][29U];
-  uint8_t replies[WL_KERNEL_REPLIES][23U];
+  uint8_t requests[WL_KERNEL_CALLS][24U];
+  uint8_t replies[WL_KERNEL_REPLIES][18U];
   uint8_t message[4U];
 } calculator_kernel_t;
 wl_err_t calculator_kernel_init(calculator_kernel_t *, wl_packet_port_t *, const calculator_kernel_handlers_t *, wl_kernel_error_fn, void *);

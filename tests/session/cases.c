@@ -11,16 +11,16 @@ typedef struct {
   wl_packet_port_t *peer;
   uint8_t captured[96];
   size_t length;
-  uint64_t previous;
+  uint32_t previous;
 } owner_t;
 static owner_t client, server;
-static uint64_t identity = UINT64_C(0x123456789abcdef0);
+static uint32_t identity = UINT32_C(0x12345678);
 static unsigned source_reads, executed, notifications;
 static uint32_t now;
 static int source_mode;
 static response_value_t owned;
 static wl_kernel_result_t result;
-static wl_err_t next_identity(void *context, uint64_t *out) {
+static wl_err_t next_identity(void *context, uint32_t *out) {
   (void)context; ++source_reads;
   if (source_mode == 1) return WL_ERR_IO;
   *out = source_mode == 2 ? 0 : source_mode == 3 ? identity : ++identity;
@@ -58,7 +58,7 @@ static void completed(void *user, wl_kernel_result_t value, const response_t *vi
   }
 }
 static wl_err_t init(owner_t *owner, wl_session_source_t source, bool service) {
-  uint64_t fresh = 0;
+  uint32_t fresh = 0;
   wl_err_t error = wl_session_next(source, owner->previous, &fresh);
   if (error != WL_OK) return error;
   wl_packet_config_t config = {.instance = fresh, .rx_storage = &owner->rx[0][0],
@@ -96,7 +96,7 @@ static wl_err_t call(int value, wl_kernel_call_handle_t *handle) {
 int session_run(wl_session_source_t native) {
   wl_session_source_t source = {next_identity, NULL};
   wl_kernel_call_handle_t old, current;
-  uint64_t sentinel = 42;
+  uint32_t sentinel = 42;
   source_mode = 1;
   CHECK(wl_session_next(source, 0, &sentinel) == WL_ERR_IO && sentinel == 42);
   CHECK(init(&client, source, false) == WL_ERR_IO);
@@ -116,9 +116,9 @@ int session_run(wl_session_source_t native) {
   size_t request_size = client.length, success_size = server.length, metadata_size = 0;
   memcpy(stale_request, client.captured, request_size);
   memcpy(stale_success, server.captured, success_size);
-  CHECK(wl_kernel_rpc_write(stale_reject + 4, sizeof(stale_reject) - 4,
+  CHECK(wl_wire_rpc_write(stale_reject + 4, sizeof(stale_reject) - 4,
     old.instance, old.operation, 7, &metadata_size) == WL_OK);
-  CHECK(wl_kernel_native_none_seal(stale_reject, sizeof(stale_reject), RESPONSE_MESSAGE_ID, metadata_size) == WL_OK);
+  CHECK(wl_wire_frame_seal(stale_reject, sizeof(stale_reject), WL_WIRE_RPC_ERR, RESPONSE_MESSAGE_ID, metadata_size) == WL_OK);
   CHECK(source_reads == reads && close_owner(&client) == 0);
   source_mode = 3; identity = old.instance;
   CHECK(init(&client, source, false) == WL_ERR_INVALID_STATE);
@@ -160,7 +160,7 @@ int session_run(wl_session_source_t native) {
   wl_err_t error = wl_session_next(native, 0, &sentinel);
   if (error == WL_OK) {
     CHECK(init(&client, native, false) == WL_OK);
-    uint64_t previous = client.previous;
+    uint32_t previous = client.previous;
     CHECK(close_owner(&client) == 0 && init(&client, native, false) == WL_OK);
     CHECK(client.previous != previous && close_owner(&client) == 0);
     puts("SESSION platform endpoint reinit PASS");

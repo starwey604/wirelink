@@ -18,7 +18,7 @@ extern "C" {
 #define WL_PACKET_SEQUENCE_MAX UINT32_C(0x0fffffff)
 
 typedef struct {
-  uint64_t instance;
+  uint32_t instance;
   uint32_t sequence;
 } wl_packet_token_t;
 
@@ -53,7 +53,7 @@ typedef wl_packet_submit_t (*wl_packet_sink_fn)(
 typedef void (*wl_packet_notify_fn)(void *);
 
 typedef struct {
-  uint64_t instance; /* Nonzero, unique across reinitialization. */
+  uint32_t instance; /* Nonzero, unique across reinitialization. */
   uint8_t *rx_storage;
   size_t rx_unit_size;
   size_t rx_storage_size;

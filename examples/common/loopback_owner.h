@@ -17,12 +17,12 @@ typedef struct {
   uint32_t now;
 } example_pair_t;
 static inline void example_pair_init(example_pair_t *pair, wl_kernel_t *a, wl_kernel_t *b) {
-  static uint64_t next_instance = 1000; /* Single-owner fixture provider. */
+  static uint32_t next_instance = 1000; /* Single-owner fixture provider. */
   memset(pair, 0, sizeof(*pair)); pair->cores[0] = a; pair->cores[1] = b;
   EXAMPLE_REQUIRE(wl_packet_loopback_init(&pair->cable, &pair->ports[0], &pair->ports[1], NULL, NULL) == WL_OK);
   for (unsigned side = 0; side < 2; ++side) {
     /* Deterministic fixture identities. Production must supply fresh identities. */
-    EXAMPLE_REQUIRE(next_instance != UINT64_MAX);
+    EXAMPLE_REQUIRE(next_instance != UINT32_MAX);
     wl_packet_config_t config = {.instance = ++next_instance,
       .rx_storage = &pair->rx[side][0][0], .rx_storage_size = sizeof(pair->rx[side]),
       .rx_unit_size = sizeof(pair->rx[side][0]), .submit = wl_packet_loopback_submit,

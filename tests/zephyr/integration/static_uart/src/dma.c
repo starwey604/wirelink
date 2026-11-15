@@ -155,7 +155,7 @@ static uint8_t rx[2][96], tx[96], bytes[128], dma[2][128];
 static void emit(struct uart_event *event) {
   fake_data.callback(&fake_uart, event, fake_data.callback_data);
 }
-static uint64_t instance = 1000U;
+static uint32_t instance = 1000U;
 static void setup(void) {
   memset(&fake_data, 0, sizeof(fake_data));
   zassert_ok(wl_byte_fifo_init(&fifo, (wl_span_t){bytes, sizeof(bytes)}, wl_kernel_uart_dma_notify,
@@ -188,7 +188,7 @@ static void setup(void) {
 }
 ZTEST(static_uart_dma, test_callbacks_stage_and_stop_requires_real_returns) {
   setup();
-  uint8_t packet[12] = {0xa4, 0, 0, 22, 1, 2, 3, 4, 5, 6, 7, 8};
+  uint8_t packet[12] = {0x57, 0, 22, 0, 1, 2, 3, 4, 5, 6, 7, 8};
   wl_packet_token_t token;
   zassert_ok(wl_packet_tx_submit(&port, packet, sizeof(packet), &token));
   size_t length = fake_data.tx_len;

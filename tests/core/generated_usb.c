@@ -102,7 +102,7 @@ static void error(void *user, uint16_t id, wl_err_t code) {
   ++f->errors;
 }
 
-static void init(fixture_t *f, uint64_t instance) {
+static void init(fixture_t *f, uint32_t instance) {
   wl_packet_config_t port = {
       .instance = instance, .rx_storage = &f->rx[0][0], .rx_unit_size = 2048U,
       .rx_storage_size = sizeof(f->rx), .submit = sink, .user = f
@@ -270,7 +270,7 @@ static void test_control_and_all_messages(void) {
       .has_flags = true, .flags = 23U};
   CHECK(usb_kernel_send_sample(&a.endpoint, &telemetry) == WL_OK);
   run(&a, 0U); CHECK(a.lengths[3] == 24U);
-  const uint8_t golden[] = {0xa4, 0, 0, 102, 0x0d, 0xff, 0xff, 0xff, 0xff,
+  const uint8_t golden[] = {0x57, 0, 102, 0, 0x0d, 0xff, 0xff, 0xff, 0xff,
       0x15, 0, 0, 0, 17, 0x1d, 0, 0, 0, 19, 0x25, 0, 0, 0, 23};
   CHECK(memcmp(a.frames[3], golden, sizeof(golden)) == 0);
   deliver(&b, &a, 3U); run(&b, 0U); CHECK(b.samples == 1U);
@@ -291,7 +291,7 @@ static void test_control_and_all_messages(void) {
       .has_bytes = true, .bytes = UINT64_MAX, .has_flags = true, .flags = UINT32_MAX};
   CHECK(usb_kernel_send_progress(&a.endpoint, &observation) == WL_OK);
   run(&a, 0U); deliver(&b, &a, 4U); run(&b, 0U); CHECK(b.progresses == 1U);
-  CHECK(USB_KERNEL_REQUEST_FRAME_MAX == 53U && USB_KERNEL_REPLY_FRAME_MAX == 544U &&
+  CHECK(USB_KERNEL_REQUEST_FRAME_MAX == 48U && USB_KERNEL_REPLY_FRAME_MAX == 539U &&
         USB_KERNEL_MESSAGE_FRAME_MAX == 1036U);
 }
 
@@ -307,8 +307,9 @@ static void test_generated_failures(void) {
   /* Fixed32 managed business fields must retain all uint32 values. */
   wl_kernel_frame_t frame;
   wl_kernel_rpc_metadata_t metadata;
-  CHECK(wl_kernel_native_none_read(a.frames[0], a.lengths[0], &frame) == WL_OK);
-  CHECK(wl_kernel_rpc_read(frame.payload, frame.length, 1, &metadata) == WL_OK);
+  CHECK(wl_wire_frame_read(a.frames[0], a.lengths[0], &frame) == WL_OK);
+  CHECK(frame.kind == WL_WIRE_RPC_REQ);
+  CHECK(wl_wire_rpc_read(frame.kind, frame.payload, frame.length, &metadata) == WL_OK);
   const uint8_t business[] = {0x08,0xff,0xff,0xff,0xff,0x0f,
       0x10,0xff,0xff,0xff,0xff,0x0f,0x18,0x0b};
   CHECK(metadata.length == sizeof(business) && !memcmp(metadata.body, business, sizeof(business)));

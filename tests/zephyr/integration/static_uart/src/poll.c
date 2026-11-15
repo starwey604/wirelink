@@ -65,7 +65,7 @@ ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
                                          .tx_idle = line_idle};
   zassert_ok(wl_kernel_uart_poll_init(&adapter, &config));
   zassert_ok(wl_kernel_uart_poll_start(&adapter));
-  uint8_t packet[41] = {0xa4, 0, 0, 22};
+  uint8_t packet[41] = {0x57, 0, 22, 0};
   memset(packet + 4, 77, 37);
   wl_packet_token_t token;
   zassert_ok(wl_packet_tx_submit(&port, packet, sizeof(packet), &token));

@@ -3,7 +3,7 @@ set(WIRELINK_FUZZ_SANITIZERS -fsanitize=fuzzer,address,undefined -fno-omit-frame
 # Same production implementation, compiled with coverage/sanitizers for fuzzing.
 # No alternate execution semantics or installed library is introduced.
 add_library(wirelink_fuzz_core STATIC
-  ../src/kernel.c ../src/packet_port.c ../src/native_none.c ../src/rpc_wire.c
+  ../src/kernel.c ../src/packet_port.c
   ../src/packet_stream.c ../src/cobs_crc16_stream.c ../src/length16_none_stream.c
   ../src/cobs.c ../src/crc.c ../src/types.c)
 target_include_directories(wirelink_fuzz_core PUBLIC ../include)

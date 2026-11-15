@@ -17,7 +17,7 @@ typedef struct {
   uint32_t now;
 } fixture_t;
 static fixture_t fixture;
-static uint64_t identity = 1000;
+static uint32_t identity = 1000;
 static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
   fixture_t *f = user; CHECK(!f->physical && length <= sizeof(f->captured));
   if (f->mode == WL_PACKET_BUSY || f->mode == WL_PACKET_FAILED) return f->mode;
@@ -40,13 +40,14 @@ static void complete(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_
 }
 static void callback(void) {}
 static wl_err_t route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
-  if (frame->message_id == 22) return wl_kernel_response(core, 22, frame->payload, frame->length);
+  if (frame->message_id == 22) return wl_kernel_response(core, frame);
   if (frame->message_id != 21) return WL_OK;
+  if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
   unsigned slot;
   wl_err_t error = wl_kernel_reply_reserve(core, &slot);
   if (error != WL_OK) return error;
   wl_kernel_rpc_metadata_t metadata;
-  error = wl_kernel_rpc_read(frame->payload, frame->length, 1, &metadata);
+  error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
   if (error != WL_OK || metadata.length != 4) {
     wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
   }
@@ -74,7 +75,7 @@ static void close_fixture(fixture_t *f) {
   for (unsigned i = 0; i < f->admitted; ++i) CHECK(f->jobs[i].callbacks == 1);
 }
 static void init(fixture_t *f) {
-  CHECK(identity != UINT64_MAX);
+  CHECK(identity != UINT32_MAX);
   wl_packet_config_t packet = {.instance = ++identity, .rx_storage = &f->rx[0][0],
     .rx_unit_size = sizeof(f->rx[0]), .rx_storage_size = sizeof(f->rx), .submit = sink, .user = f};
   CHECK(wl_packet_init(&f->port, &packet) == WL_OK);

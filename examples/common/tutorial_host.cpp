@@ -29,7 +29,7 @@ example_udp_t *example_udp_open_at(wl_packet_port_t *port, wl_span_t rx, size_t 
   try {
     auto udp = std::make_unique<example_udp_t>();
     udp->adapter = std::make_unique<wirelink::asio::PacketUdpAdapter>(*port);
-    uint64_t instance;
+    uint32_t instance;
     if (wl_session_next(wl_platform_environment().session, 0, &instance) != WL_OK) return nullptr;
     wl_packet_config_t config{};
     config.instance = instance; config.rx_storage = rx.data;

@@ -15,7 +15,7 @@ static void wake(void *user) {
 }
 
 static void init(wl_packet_port_t *port, wl_kernel_usb_bulk_t *adapter,
-                  uint8_t *rx, uint64_t instance) {
+                  uint8_t *rx, uint32_t instance) {
   disable_calls = enable_calls = 0U;
   wl_packet_config_t config = {.instance = instance, .rx_storage = rx,
       .rx_unit_size = 2048U, .rx_storage_size = 4096U,
@@ -182,7 +182,7 @@ static struct usbd_context event_context;
 static unsigned cycle_calls;
 static bool final_deinit;
 
-static struct usbd_class_data *event_begin(uint64_t instance) {
+static struct usbd_class_data *event_begin(uint32_t instance) {
   struct usbd_class_data *c = bulk_class();
   c->uds_ctx = &event_context;
   event_context.status.speed = USBD_SPEED_FS;

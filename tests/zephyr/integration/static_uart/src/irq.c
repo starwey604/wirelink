@@ -137,7 +137,7 @@ static wl_packet_port_t port;
 static wl_packet_stream_t stream;
 static wl_byte_fifo_t fifo;
 static uint8_t rx[2][96], tx[96], bytes[16];
-static uint64_t instance;
+static uint32_t instance;
 static void setup_interval(uint32_t interval) {
   memset(&full_data, 0, sizeof(full_data));
   full_data.line_idle = 1;
