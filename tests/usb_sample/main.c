@@ -7,7 +7,7 @@
 static usb_sample_application_t app;
 static wl_kernel_t core;
 static wl_packet_port_t port;
-static uint8_t rx[2][USB_SAMPLE_FRAME_MAX + 1], snapshots[9][USB_SAMPLE_FRAME_MAX];
+static uint8_t rx[2][USB_SAMPLE_FRAME_MAX + 1], snapshots[WL_KERNEL_TX_COUNT][USB_SAMPLE_FRAME_MAX];
 static const uint8_t *leased;
 static size_t lease_length;
 static wl_packet_token_t token;
@@ -82,8 +82,9 @@ int main(void) {
   wl_packet_config_t packet = {.instance = 1234, .rx_storage = &rx[0][0],
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = send};
   CHECK(wl_packet_init(&port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &port, .route = usb_sample_route, .user = &app};
-  for (unsigned i = 0; i < 9; ++i) config.tx_storage[i] = (wl_span_t){snapshots[i], sizeof(snapshots[i])};
+  wl_kernel_config_t config = {.port = &port,
+    .storage = wl_kernel_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
+    .route = usb_sample_route, .user = &app};
   CHECK(wl_kernel_init(&core, &config) == WL_OK);
   /* Full-size opaque echo is independent of the unbounded/public schema. */
   memset(body, 0x7e, sizeof(body));

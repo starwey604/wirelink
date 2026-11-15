@@ -47,7 +47,7 @@ int main(void) {
     require(wl_packet_init(&ports[side], &config) == WL_OK);
     demo_kernel_handlers_t handlers = {.on_rpc_execute = execute, .on_message_event = received};
     require(demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, NULL) == WL_OK);
-    for (unsigned slot = 0; slot < 4U; ++slot) {
+    for (unsigned slot = 0; slot < WL_KERNEL_REPLIES; ++slot) {
       request_value_t request = {.has_input = true, .input = INT32_MIN};
       wl_kernel_call_handle_t call;
       require(demo_kernel_execute_start(&endpoints[side], &request, 0U, 500U,
@@ -59,13 +59,14 @@ int main(void) {
     require(demo_kernel_send_event(&endpoints[side], &event) == WL_OK);
     memset(&event, 0, sizeof(event));
   }
-  for (uint32_t now = 0; now < 500U && (completions != 8U || messages != 2U); ++now) {
+  const unsigned expected_rpcs = 2U * WL_KERNEL_REPLIES;
+  for (uint32_t now = 0; now < 500U && (completions != expected_rpcs || messages != 2U); ++now) {
     /* All endpoint operations/callbacks share this owner. No core clock/thread. */
     require(demo_kernel_step(&endpoints[0], now) == WL_OK);
     require(demo_kernel_step(&endpoints[1], now) == WL_OK);
     require(wl_packet_loopback_service(&transport, 2U) == WL_OK);
   }
-  require(completions == 8U && executions == 8U && messages == 2U);
+  require(completions == expected_rpcs && executions == expected_rpcs && messages == 2U);
   for (unsigned side = 0; side < 2U; ++side)
     require(wl_kernel_close(&endpoints[side].core) == WL_OK);
   wl_packet_loopback_stop(&transport);
@@ -73,6 +74,6 @@ int main(void) {
     require(demo_kernel_step(&endpoints[side], 500U) == WL_OK);
     require(wl_kernel_quiescent(&endpoints[side].core));
   }
-  puts("8 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent");
+  puts("6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent");
   return 0;
 }

@@ -5,7 +5,7 @@
 static struct {
   wl_kernel_t core; wl_packet_port_t port;
   wl_packet_stream_t stream; wl_byte_fifo_t fifo;
-  uint8_t rx[2][2112], tx[9][EXAMPLE_PACKET_TOOL_FRAME], wire[2112], bytes[1024];
+  uint8_t rx[2][2112], tx[WL_KERNEL_TX_COUNT][EXAMPLE_PACKET_TOOL_FRAME], wire[2112], bytes[1024];
   uint8_t reply[EXAMPLE_PACKET_TOOL_PAYLOAD];
   size_t reply_length; uint16_t reply_id;
   wl_packet_sink_fn physical_submit; wl_packet_notify_fn notify; void *user;
@@ -51,8 +51,9 @@ wl_err_t example_packet_tool_prepare(uint32_t instance, int serial,
     error = wl_byte_fifo_init(&owner.fifo, (wl_span_t){owner.bytes, sizeof(owner.bytes)}, notify, NULL);
     if (error != WL_OK) return error;
   }
-  wl_kernel_config_t kernel = {.port = &owner.port, .route = route};
-  for (unsigned i = 0; i < 9; ++i) kernel.tx_storage[i] = (wl_span_t){owner.tx[i], sizeof(owner.tx[i])};
+  wl_kernel_config_t kernel = {.port = &owner.port,
+    .storage = wl_kernel_storage_uniform(&owner.tx[0][0], sizeof(owner.tx[0])),
+    .route = route};
   error = wl_kernel_init(&owner.core, &kernel);
   if (error == WL_OK) { owner.previous = instance; owner.prepared = true; }
   return error;
@@ -60,21 +61,22 @@ wl_err_t example_packet_tool_prepare(uint32_t instance, int serial,
 wl_packet_port_t *example_packet_tool_port(void) { return &owner.port; }
 wl_packet_stream_t *example_packet_tool_stream(void) { return &owner.stream; }
 wl_byte_fifo_t *example_packet_tool_fifo(void) { return &owner.fifo; }
-typedef struct { const uint8_t *data; size_t size; } input_t;
-static wl_err_t encode(const void *user, uint8_t *out, size_t capacity, size_t *length) {
-  const input_t *input = user;
-  if (input->size > capacity) return WL_ERR_BUF_TOO_SMALL;
-  if (input->size) memcpy(out, input->data, input->size);
-  *length = input->size; return WL_OK;
-}
 wl_err_t example_packet_tool_send(uint16_t id, const uint8_t *data, size_t length) {
   if (!owner.prepared || owner.closed || (!data && length) || length > EXAMPLE_PACKET_TOOL_PAYLOAD)
     return WL_ERR_INVALID_ARG;
   if (owner.has_command && !example_packet_tool_sent()) return WL_ERR_WOULD_BLOCK;
   /* Ordinary commands are serialized by this application, not a framework
    * reliability service. Admission snapshots the borrowed bytes immediately. */
-  input_t input = {data, length};
-  wl_err_t error = wl_kernel_send(&owner.core, id, &input, encode);
+  uint8_t *frame;
+  size_t capacity = 0U;
+  wl_err_t error = wl_kernel_msg_claim(&owner.core, &frame, &capacity);
+  if (error == WL_OK) {
+    if (capacity < WL_KERNEL_NATIVE_HEADER + length) return WL_ERR_BUF_TOO_SMALL;
+    if (length) memcpy(frame + WL_KERNEL_NATIVE_HEADER, data, length);
+    error = wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, id, length);
+    if (error == WL_OK)
+      error = wl_kernel_msg_commit(&owner.core, WL_KERNEL_NATIVE_HEADER + length);
+  }
   if (error == WL_OK) { owner.has_command = true; owner.accepted = false; owner.error = WL_OK; }
   return error;
 }

@@ -7,5 +7,5 @@ int main(void) {
   wl_kernel_rpc_metadata_t metadata;
   if (wl_wire_rpc_read(WL_WIRE_RPC_ERR, bytes, length, &metadata) != WL_OK || metadata.session != session ||
       metadata.operation != UINT32_MAX || metadata.status != -31 || metadata.length != 0) return 2;
-  return WL_KERNEL_CALLS != 4 || WL_KERNEL_REPLIES != 4 || WL_KERNEL_TX_COUNT != 9;
+  return WL_KERNEL_CALLS != 4 || WL_KERNEL_REPLIES != 3 || WL_KERNEL_TX_COUNT != 8;
 }

@@ -91,29 +91,29 @@ struct wl_packet_port {
 
 size_t wl_packet_rx_unit_size(const wl_packet_port_t *);
 wl_err_t wl_packet_init(wl_packet_port_t *, const wl_packet_config_t *);
-wl_err_t wl_packet_rx_claim(wl_packet_port_t *, size_t, wl_packet_claim_t *);
-wl_err_t wl_packet_rx_commit(wl_packet_port_t *, const wl_packet_claim_t *, size_t);
+WL_HOT_ATTR wl_err_t wl_packet_rx_claim(wl_packet_port_t *, size_t, wl_packet_claim_t *);
+WL_HOT_ATTR wl_err_t wl_packet_rx_commit(wl_packet_port_t *, const wl_packet_claim_t *, size_t);
 wl_err_t wl_packet_rx_abort(wl_packet_port_t *, const wl_packet_claim_t *);
-wl_err_t wl_packet_rx_borrow(wl_packet_port_t *, wl_packet_borrow_t *);
-wl_err_t wl_packet_rx_release(wl_packet_port_t *, const wl_packet_borrow_t *);
-int wl_packet_rx_ready(const wl_packet_port_t *);
+WL_HOT_ATTR wl_err_t wl_packet_rx_borrow(wl_packet_port_t *, wl_packet_borrow_t *);
+WL_HOT_ATTR wl_err_t wl_packet_rx_release(wl_packet_port_t *, const wl_packet_borrow_t *);
+WL_HOT_ATTR int wl_packet_rx_ready(const wl_packet_port_t *);
 /* Producer/owner hint only: the next claim is still authoritative. */
-int wl_packet_rx_available(const wl_packet_port_t *);
+WL_HOT_ATTR int wl_packet_rx_available(const wl_packet_port_t *);
 
 /* Owner only. BUSY/FAILED do not retain the source. STARTED/SENT retain it
  * until owner receives CONSUMED. No second physical TX before DRAINED. */
-wl_err_t wl_packet_tx_submit(wl_packet_port_t *, const uint8_t *, size_t,
-                             wl_packet_token_t *);
+WL_HOT_ATTR wl_err_t wl_packet_tx_submit(wl_packet_port_t *, const uint8_t *, size_t,
+                                         wl_packet_token_t *);
 /* I/O only. DRAINED implies CONSUMED; TX_ERROR implies both. Duplicate,
  * stale-instance and stale-transfer publications return NOT_FOUND. */
-wl_err_t wl_packet_tx_publish(wl_packet_port_t *, wl_packet_token_t, unsigned);
+WL_HOT_ATTR wl_err_t wl_packet_tx_publish(wl_packet_port_t *, wl_packet_token_t, unsigned);
 /* Owner only. Returns each new completion bit once. */
-unsigned wl_packet_tx_take(wl_packet_port_t *, wl_packet_token_t *);
-int wl_packet_tx_active(const wl_packet_port_t *);
-int wl_packet_tx_ready(const wl_packet_port_t *);
+WL_HOT_ATTR unsigned wl_packet_tx_take(wl_packet_port_t *, wl_packet_token_t *);
+WL_HOT_ATTR int wl_packet_tx_active(const wl_packet_port_t *);
+WL_HOT_ATTR int wl_packet_tx_ready(const wl_packet_port_t *);
 
-void wl_packet_activity(wl_packet_port_t *);
-int wl_packet_take_activity(wl_packet_port_t *);
+WL_HOT_ATTR void wl_packet_activity(wl_packet_port_t *);
+WL_HOT_ATTR int wl_packet_take_activity(wl_packet_port_t *);
 int wl_packet_activity_pending(const wl_packet_port_t *);
 void wl_packet_stop(wl_packet_port_t *);
 /* Does not mean the adapter is stopped: it must separately acknowledge that

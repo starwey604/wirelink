@@ -65,9 +65,9 @@ int main(void) {
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = wl_kernel_usb_bulk_submit,
     .notify = wl_kernel_usb_bulk_notify, .user = &adapter};
   if (wl_packet_init(&port, &packet) != WL_OK) return 1;
-  wl_kernel_config_t kernel = {.port = &port, .route = usb_sample_route, .user = &application};
-  for (unsigned i = 0; i < WL_KERNEL_TX_COUNT; ++i)
-    kernel.tx_storage[i] = (wl_span_t){snapshots[i], sizeof(snapshots[i])};
+  wl_kernel_config_t kernel = {.port = &port,
+    .storage = wl_kernel_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
+    .route = usb_sample_route, .user = &application};
   if (wl_kernel_init(&endpoint, &kernel) != WL_OK) return 1;
   wl_kernel_usb_bulk_config_t physical = {.port = &port, .maximum_frame_size = USB_SAMPLE_FRAME_MAX,
     .wake_consumer = wake,

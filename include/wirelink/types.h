@@ -9,6 +9,10 @@
 extern "C" {
 #endif // __cplusplus
 
+#ifndef WL_HOT_ATTR
+#define WL_HOT_ATTR
+#endif
+
 typedef int32_t wl_err_t;
 enum {
   WL_OK = 0, /**< 成功 (Success) */

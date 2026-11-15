@@ -5,6 +5,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* Optional section placement attribute for hot kernel/codec paths (e.g. IRAM). */
+#ifndef WL_HOT_ATTR
+#define WL_HOT_ATTR
+#endif
+
 /* Optional native platform target: Wirelink::platform on desktop,
  * CONFIG_WIRELINK_PLATFORM on Zephyr. No threads, global mutable provider or
  * heap owned by Wirelink. Configuration is cheap; identity acquisition happens

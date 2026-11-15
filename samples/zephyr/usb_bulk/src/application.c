@@ -114,14 +114,21 @@ wl_err_t usb_sample_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
       app->pending_id = frame->message_id; app->output_pending = true; return WL_OK;
   }
 }
-static wl_err_t encode(const void *user, uint8_t *out, size_t capacity, size_t *length) {
-  const usb_sample_application_t *app = user;
-  if (capacity < app->pending_length) return WL_ERR_BUF_TOO_SMALL;
-  memcpy(out, app->pending, app->pending_length); *length = app->pending_length; return WL_OK;
-}
 static wl_err_t flush(usb_sample_application_t *app, wl_kernel_t *core) {
   if (!app->output_pending) return WL_OK;
-  wl_err_t error = wl_kernel_send(core, app->pending_id, app, encode);
+  uint8_t *frame;
+  size_t capacity = 0U;
+  wl_err_t error = wl_kernel_msg_claim(core, &frame, &capacity);
+  if (error == WL_OK) {
+    if (capacity < WL_KERNEL_NATIVE_HEADER + app->pending_length)
+      return WL_ERR_BUF_TOO_SMALL;
+    if (app->pending_length)
+      memcpy(frame + WL_KERNEL_NATIVE_HEADER, app->pending, app->pending_length);
+    error = wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, app->pending_id,
+                               app->pending_length);
+    if (error == WL_OK)
+      error = wl_kernel_msg_commit(core, WL_KERNEL_NATIVE_HEADER + app->pending_length);
+  }
   if (error == WL_OK) {
     app->output_pending = false;
     /* One queued application output is a finite owner wake, never a physical

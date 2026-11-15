@@ -7,7 +7,7 @@
 static wl_kernel_t core;
 static wl_packet_port_t port;
 static usb_sample_application_t app;
-static uint8_t rx[2][2053], tx[9][2052], output[2052], last[2052];
+static uint8_t rx[2][2053], tx[WL_KERNEL_TX_COUNT][2052], output[2052], last[2052];
 static size_t output_length, last_length;
 static int drop, stale;
 static wl_packet_submit_t peer_send(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
@@ -40,8 +40,9 @@ void object_peer_prepare(void) {
   wl_packet_config_t packet = {.instance = 9090, .rx_storage = &rx[0][0],
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = peer_send};
   CHECK(wl_packet_init(&port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &port, .route = usb_sample_route, .user = &app};
-  for (unsigned i = 0; i < 9; ++i) config.tx_storage[i] = (wl_span_t){tx[i], sizeof(tx[i])};
+  wl_kernel_config_t config = {.port = &port,
+    .storage = wl_kernel_storage_uniform(&tx[0][0], sizeof(tx[0])),
+    .route = usb_sample_route, .user = &app};
   CHECK(wl_kernel_init(&core, &config) == WL_OK);
 }
 void object_peer_faults(int count, int old) { drop = count; stale = old; }

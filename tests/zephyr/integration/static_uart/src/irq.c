@@ -317,10 +317,6 @@ ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_DRAINED);
   wl_kernel_uart_irq_stop(&adapter);
 }
-static wl_err_t encode_four(const void *v, uint8_t *out, size_t capacity, size_t *size) {
-  if (capacity < 4) return WL_ERR_BUF_TOO_SMALL;
-  memcpy(out, v, 4); *size = 4; return WL_OK;
-}
 static wl_err_t unused_route(wl_kernel_t *k, const wl_kernel_frame_t *f) {
   (void)k; (void)f; return WL_OK;
 }
@@ -333,17 +329,28 @@ ZTEST(static_uart_irq, test_kernel_queued_frame_waits_for_real_drain) {
   setup();
   wl_kernel_t core;
   uint8_t snapshots[WL_KERNEL_TX_COUNT][32], value[4] = {1, 2, 3, 4};
-  wl_kernel_config_t config = {.port = &port, .route = unused_route};
-  for (unsigned i = 0; i < WL_KERNEL_TX_COUNT; ++i)
-    config.tx_storage[i] = (wl_span_t){snapshots[i], sizeof(snapshots[i])};
+  wl_kernel_config_t config = {.port = &port,
+    .storage = wl_kernel_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
+    .route = unused_route};
   zassert_ok(wl_kernel_init(&core, &config));
-  zassert_ok(wl_kernel_send(&core, 22, value, encode_four));
+  uint8_t *frame;
+  size_t capacity = 0U;
+  zassert_ok(wl_kernel_msg_claim(&core, &frame, &capacity));
+  zassert_true(capacity >= WL_KERNEL_NATIVE_HEADER + 4U);
+  memcpy(frame + WL_KERNEL_NATIVE_HEADER, value, 4U);
+  zassert_ok(wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, 22U, 4U));
+  zassert_ok(wl_kernel_msg_commit(&core, WL_KERNEL_NATIVE_HEADER + 4U));
   zassert_ok(wl_kernel_step(&core, 0, 16));
   full_data.line_idle = 0; fire();
   zassert_ok(wl_kernel_uart_irq_service(&adapter, 0));
   zassert_ok(wl_kernel_step(&core, 0, 16)); /* Consumes CONSUMED, not DRAINED. */
+  uint8_t slot;
+  uint8_t *payload;
+  zassert_ok(wl_kernel_call_claim(&core, &slot, &payload, &capacity));
+  zassert_true(capacity >= 4U);
+  memcpy(payload, value, 4U);
   wl_kernel_call_handle_t h;
-  zassert_ok(wl_kernel_call_start(&core, 23, 24, value, encode_four, 0, 2000,
+  zassert_ok(wl_kernel_call_commit(&core, slot, 23U, 24U, 4U, 0U, 2000U,
     completed_call, unused_callback, NULL, &h));
   zassert_ok(wl_kernel_step(&core, 0, 16));
   zassert_equal(port.tx_sequence, 1);

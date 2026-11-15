@@ -15,9 +15,9 @@ int main(void) {
   wl_packet_config_t config = {.instance = 17, .rx_storage = &rx[0][0],
       .rx_storage_size = sizeof(rx), .rx_unit_size = sizeof(rx[0]), .submit = submit};
   if (wl_packet_init(&port, &config) != WL_OK) return 1;
-  wl_kernel_config_t kernel = {.port = &port, .route = route};
-  for (unsigned i = 0; i < WL_KERNEL_TX_COUNT; ++i)
-    kernel.tx_storage[i] = (wl_span_t){tx[i], sizeof(tx[i])};
+  wl_kernel_config_t kernel = {.port = &port,
+      .storage = wl_kernel_storage_uniform(&tx[0][0], sizeof(tx[0])),
+      .route = route};
   if (wl_kernel_init(&endpoint, &kernel) != WL_OK) return 2;
   if (wl_kernel_close(&endpoint) != WL_OK || wl_kernel_step(&endpoint, 0, 16) != WL_OK)
     return 3;

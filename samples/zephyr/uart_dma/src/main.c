@@ -43,9 +43,9 @@ int main(void) {
     .maximum_frame_size = FRAME_MAX, .physical_submit = wl_kernel_uart_dma_submit,
     .notify = wl_kernel_uart_dma_notify, .user = &adapter};
   if (wl_packet_stream_cobs_crc16_init(&stream, &connector) != WL_OK) return 1;
-  wl_kernel_config_t config = {.port = &port, .route = receive};
-  for (unsigned i = 0; i < WL_KERNEL_TX_COUNT; ++i)
-    config.tx_storage[i] = (wl_span_t){snapshots[i], sizeof(snapshots[i])};
+  wl_kernel_config_t config = {.port = &port,
+    .storage = wl_kernel_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
+    .route = receive};
   if (wl_kernel_init(&endpoint, &config) != WL_OK) return 1;
   wl_kernel_uart_dma_config_t physical = {.uart = uart, .port = &port, .fifo = &fifo,
     .stream = &stream, .rx_buffers = {{dma[0], sizeof(dma[0])}, {dma[1], sizeof(dma[1])}},

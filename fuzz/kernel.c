@@ -8,7 +8,7 @@
 typedef struct { wl_kernel_call_handle_t handle; unsigned callbacks; uint32_t copied; } job_t;
 typedef struct {
   wl_kernel_t core; wl_packet_port_t port;
-  uint8_t rx[2][256], tx[9][64], captured[256];
+  uint8_t rx[2][256], tx[WL_KERNEL_TX_COUNT][64], captured[256];
   const uint8_t *borrowed; size_t length;
   wl_packet_token_t token;
   wl_packet_submit_t mode;
@@ -27,10 +27,6 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length, w
   }
   return f->mode;
 }
-static wl_err_t encode(const void *user, uint8_t *data, size_t capacity, size_t *length) {
-  if (capacity < 4) return WL_ERR_BUF_TOO_SMALL;
-  memcpy(data, user, 4); *length = 4; return WL_OK;
-}
 static void complete(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result,
                       const uint8_t *body, size_t length) {
   (void)core; job_t *job = call->user; CHECK(++job->callbacks == 1);
@@ -43,16 +39,24 @@ static wl_err_t route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
   if (frame->message_id == 22) return wl_kernel_response(core, frame);
   if (frame->message_id != 21) return WL_OK;
   if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
-  unsigned slot;
-  wl_err_t error = wl_kernel_reply_reserve(core, &slot);
-  if (error != WL_OK) return error;
   wl_kernel_rpc_metadata_t metadata;
-  error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
-  if (error != WL_OK || metadata.length != 4) {
+  wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
+  if (error != WL_OK) return error;
+  uint8_t slot;
+  uint8_t *payload;
+  size_t capacity = 0U;
+  error = wl_kernel_reply_claim(core, 22, &metadata, &slot, &payload, &capacity);
+  if (error != WL_OK) return error;
+  if (metadata.length != 4) {
     wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
   }
   uint32_t value; memcpy(&value, metadata.body, 4);
-  return wl_kernel_reply_finish(core, slot, 22, &metadata, value == 7 ? 7 : 0, &value, encode);
+  if (value == 7) return wl_kernel_reply_error(core, slot, 7);
+  if (capacity < 4) {
+    wl_kernel_reply_abort(core, slot); return WL_ERR_BUF_TOO_SMALL;
+  }
+  memcpy(payload, &value, 4);
+  return wl_kernel_reply_commit(core, slot, 4);
 }
 static void publish(fixture_t *f, unsigned flags) {
   if (!f->physical) return;
@@ -79,8 +83,9 @@ static void init(fixture_t *f) {
   wl_packet_config_t packet = {.instance = ++identity, .rx_storage = &f->rx[0][0],
     .rx_unit_size = sizeof(f->rx[0]), .rx_storage_size = sizeof(f->rx), .submit = sink, .user = f};
   CHECK(wl_packet_init(&f->port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &f->port, .route = route};
-  for (unsigned i = 0; i < 9; ++i) config.tx_storage[i] = (wl_span_t){f->tx[i], sizeof(f->tx[i])};
+  wl_kernel_config_t config = {.port = &f->port,
+    .storage = wl_kernel_storage_uniform(&f->tx[0][0], sizeof(f->tx[0])),
+    .route = route};
   CHECK(wl_kernel_init(&f->core, &config) == WL_OK);
 }
 static void inject(fixture_t *f, const uint8_t *data, size_t length) {
@@ -101,8 +106,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       case 0: {
         CHECK(f->admitted < INPUT_MAX); job_t *job = &f->jobs[f->admitted];
         uint32_t value = action;
-        wl_err_t error = wl_kernel_call_start(&f->core, 21, 22, &value, encode,
-          f->now, 1 + action, complete, callback, job, &job->handle);
+        uint8_t slot;
+        uint8_t *payload;
+        size_t capacity = 0U;
+        wl_err_t error = wl_kernel_call_claim(&f->core, &slot, &payload, &capacity);
+        if (error == WL_OK) {
+          CHECK(capacity >= 4U);
+          memcpy(payload, &value, 4U);
+          error = wl_kernel_call_commit(&f->core, slot, 21U, 22U, 4U, f->now,
+              1U + action, complete, callback, job, &job->handle);
+        }
         value = 0; CHECK(job->callbacks == 0);
         if (error == WL_OK) ++f->admitted;
         break;
@@ -132,7 +145,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         break;
       default: {
         uint32_t value = action;
-        (void)wl_kernel_send(&f->core, 23, &value, encode); value = 0;
+        uint8_t *frame;
+        size_t capacity = 0U;
+        if (wl_kernel_msg_claim(&f->core, &frame, &capacity) == WL_OK &&
+            capacity >= WL_KERNEL_NATIVE_HEADER + 4U) {
+          memcpy(frame + WL_KERNEL_NATIVE_HEADER, &value, 4U);
+          if (wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, 23U, 4U) == WL_OK)
+            (void)wl_kernel_msg_commit(&f->core, WL_KERNEL_NATIVE_HEADER + 4U);
+        }
+        value = 0;
         break;
       }
     }

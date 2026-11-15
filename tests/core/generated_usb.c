@@ -221,14 +221,14 @@ static void test_backpressure_and_lease(void) {
         &contexts[i], &handles[i]) == WL_OK);
   }
   run(&a, 0U);
-  for (unsigned i = 0U; i < 4U; ++i) { deliver(&b, &a, i); run(&b, 0U); }
-  CHECK(b.effects == 4U && b.frames_count == 0U);
-  deliver(&b, &a, 0U); run(&b, 0U);
-  CHECK(b.effects == 4U && !ready(&b, 0U));
+  for (unsigned i = 0U; i < WL_KERNEL_REPLIES; ++i) { deliver(&b, &a, i); run(&b, 0U); }
+  CHECK(b.effects == WL_KERNEL_REPLIES && b.frames_count == 0U);
+  deliver(&b, &a, WL_KERNEL_REPLIES); run(&b, 0U);
+  CHECK(b.effects == WL_KERNEL_REPLIES && !ready(&b, 0U));
   b.sink_result = WL_PACKET_SENT;
   wl_packet_activity(&b.port);
   run(&b, 0U);
-  CHECK(b.effects == 5U && b.frames_count == 5U);
+  CHECK(b.effects == WL_KERNEL_REPLIES + 1U && b.frames_count == WL_KERNEL_REPLIES + 1U);
 
   fixture_t c = {.sink_result = WL_PACKET_STARTED}, d = {0};
   init(&c, 5000U); init(&d, 6000U);

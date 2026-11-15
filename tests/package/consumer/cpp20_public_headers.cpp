@@ -27,7 +27,7 @@ static_assert(std::is_standard_layout_v<wl_kernel_result_t>);
 static_assert(std::is_standard_layout_v<wl_kernel_call_handle_t>);
 static_assert(std::is_standard_layout_v<wl_packet_token_t>);
 static_assert(std::is_trivially_copyable_v<wl_environment_t>);
-static_assert(WL_KERNEL_CALLS == 4 && WL_KERNEL_REPLIES == 4);
+static_assert(WL_KERNEL_CALLS == 4 && WL_KERNEL_REPLIES == 3);
 int main() {
   const auto hint = wl_io_readiness_at(10);
   return hint.runnable || hint.next_deadline_ms != 10 ||

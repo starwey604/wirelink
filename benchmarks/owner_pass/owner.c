@@ -5,7 +5,7 @@
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 static wl_kernel_t core;
 static wl_packet_port_t port;
-static uint8_t rx[2][64], tx[9][32];
+static uint8_t rx[2][64], tx[WL_KERNEL_TX_COUNT][32];
 static uint32_t instance = 100;
 static unsigned received;
 static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
@@ -20,8 +20,8 @@ wl_kernel_t *owner_pass_prepare(wl_packet_notify_fn notify, void *user) {
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = sink,
     .notify = notify, .user = user};
   CHECK(wl_packet_init(&port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &port, .route = route};
-  for (unsigned i = 0; i < 9; ++i) config.tx_storage[i] = (wl_span_t){tx[i], sizeof(tx[i])};
+  wl_kernel_config_t config = {.port = &port,
+    .storage = wl_kernel_storage_uniform(&tx[0][0], sizeof(tx[0])), .route = route};
   CHECK(wl_kernel_init(&core, &config) == WL_OK); return &core;
 }
 void owner_pass_inject(void) {

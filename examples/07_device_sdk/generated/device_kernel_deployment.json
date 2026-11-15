@@ -6,7 +6,7 @@
   "integrity": "none",
   "rpc_role": "both",
   "call_slots": 4,
-  "reply_slots": 4,
+  "reply_slots": 3,
   "event_budget": 16,
   "request_frame_capacity": 222,
   "reply_frame_capacity": 228,

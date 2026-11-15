@@ -2,12 +2,6 @@
 #include "demo_kernel.h"
 #include "demo_kernel_codecs.h"
 #include <string.h>
-static wl_err_t demo_kernel_encode_request(const void *value, uint8_t *data, size_t capacity, size_t *length) {
-  return demo_rpc_request_value_encode(value, data, capacity, length) == WL_CODEC_OK ? WL_OK : WL_ERR_CORRUPT_PAYLOAD;
-}
-static wl_err_t demo_kernel_encode_response(const void *value, uint8_t *data, size_t capacity, size_t *length) {
-  return demo_rpc_response_value_encode(value, data, capacity, length) == WL_CODEC_OK ? WL_OK : WL_ERR_CORRUPT_PAYLOAD;
-}
 static void demo_kernel_complete_execute(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   response_t response;
@@ -19,22 +13,35 @@ static void demo_kernel_complete_execute(wl_kernel_t *core, const wl_kernel_call
   ((demo_kernel_execute_callback_t)call->callback)(call->user, result, view);
 }
 wl_err_t demo_kernel_execute_start(demo_kernel_t *endpoint, const request_value_t *request, uint32_t now, uint32_t timeout, demo_kernel_execute_callback_t callback, void *user, wl_kernel_call_handle_t *out) {
-  if (endpoint == NULL || request == NULL) return WL_ERR_INVALID_ARG;
-  return wl_kernel_call_start(&endpoint->core, 40U, 41U, request, demo_kernel_encode_request, now, timeout, demo_kernel_complete_execute, (void (*)(void))callback, user, out);
-}
-static wl_err_t demo_kernel_encode_event(const void *value, uint8_t *data, size_t capacity, size_t *length) {
-  return event_value_encode(value, data, capacity, length) == WL_CODEC_OK ? WL_OK : WL_ERR_CORRUPT_PAYLOAD;
+  if (out != NULL) *out = (wl_kernel_call_handle_t){0};
+  if (endpoint == NULL || request == NULL || callback == NULL || out == NULL || timeout == 0U || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
+  uint8_t slot;
+  uint8_t *payload;
+  wl_err_t error = wl_kernel_call_claim(&endpoint->core, &slot, &payload, NULL);
+  if (error != WL_OK) return error;
+  size_t length = 0U;
+  if (demo_rpc_request_value_encode(request, payload, sizeof(endpoint->requests[0]) - WL_KERNEL_NATIVE_HEADER - WL_KERNEL_RPC_HEADER_DATA, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  return wl_kernel_call_commit(&endpoint->core, slot, 40U, 41U, length, now, timeout, demo_kernel_complete_execute, (void (*)(void))callback, user, out);
 }
 wl_err_t demo_kernel_send_event(demo_kernel_t *endpoint, const event_value_t *value) {
   if (endpoint == NULL || value == NULL) return WL_ERR_INVALID_ARG;
-  return wl_kernel_send(&endpoint->core, 42U, value, demo_kernel_encode_event);
-}
-static wl_err_t demo_kernel_encode_event_view(const void *value, uint8_t *data, size_t capacity, size_t *length) {
-  return event_encode(value, data, capacity, length) == WL_CODEC_OK ? WL_OK : WL_ERR_CORRUPT_PAYLOAD;
+  uint8_t *frame;
+  wl_err_t error = wl_kernel_msg_claim(&endpoint->core, &frame, NULL);
+  if (error != WL_OK) return error;
+  size_t length = 0U;
+  if (event_value_encode(value, frame + WL_KERNEL_NATIVE_HEADER, sizeof(endpoint->message) - WL_KERNEL_NATIVE_HEADER, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  error = wl_wire_frame_seal(frame, sizeof(endpoint->message), WL_WIRE_MSG, 42U, length);
+  return error != WL_OK ? error : wl_kernel_msg_commit(&endpoint->core, WL_KERNEL_NATIVE_HEADER + length);
 }
 wl_err_t demo_kernel_send_event_view(demo_kernel_t *endpoint, const event_t *value) {
   if (endpoint == NULL || value == NULL) return WL_ERR_INVALID_ARG;
-  return wl_kernel_send(&endpoint->core, 42U, value, demo_kernel_encode_event_view);
+  uint8_t *frame;
+  wl_err_t error = wl_kernel_msg_claim(&endpoint->core, &frame, NULL);
+  if (error != WL_OK) return error;
+  size_t length = 0U;
+  if (event_encode(value, frame + WL_KERNEL_NATIVE_HEADER, sizeof(endpoint->message) - WL_KERNEL_NATIVE_HEADER, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  error = wl_wire_frame_seal(frame, sizeof(endpoint->message), WL_WIRE_MSG, 42U, length);
+  return error != WL_OK ? error : wl_kernel_msg_commit(&endpoint->core, WL_KERNEL_NATIVE_HEADER + length);
 }
 static wl_err_t demo_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
   demo_kernel_t *endpoint = (demo_kernel_t *)core;
@@ -47,8 +54,9 @@ static wl_err_t demo_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *fr
     wl_kernel_rpc_metadata_t metadata;
     wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
     if (error != WL_OK) return error;
-    unsigned reply;
-    error = wl_kernel_reply_reserve(core, &reply);
+    uint8_t reply;
+    uint8_t *payload;
+    error = wl_kernel_reply_claim(core, 41U, &metadata, &reply, &payload, NULL);
     if (error != WL_OK) return error;
     request_t request;
     if (demo_rpc_request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
@@ -57,7 +65,13 @@ static wl_err_t demo_kernel_route(wl_kernel_t *core, const wl_kernel_frame_t *fr
     }
     demo_rpc_response_value_clear(&endpoint->reply.execute);
     int32_t status = endpoint->handlers.on_rpc_execute(endpoint->user, &request, &endpoint->reply.execute);
-    return wl_kernel_reply_finish(core, reply, 41U, &metadata, status, &endpoint->reply.execute, demo_kernel_encode_response);
+    if (status != 0) return wl_kernel_reply_error(core, reply, status);
+    size_t length = 0U;
+    if (demo_rpc_response_value_encode(&endpoint->reply.execute, payload, sizeof(endpoint->replies[0]) - WL_KERNEL_NATIVE_HEADER - WL_KERNEL_RPC_HEADER_DATA, &length) != WL_CODEC_OK) {
+      wl_kernel_reply_abort(core, reply);
+      return WL_ERR_CORRUPT_PAYLOAD;
+    }
+    return wl_kernel_reply_commit(core, reply, length);
   }
   case 42U: {
     if (frame->kind != WL_WIRE_MSG) return WL_ERR_CORRUPT_PAYLOAD;
@@ -75,10 +89,20 @@ wl_err_t demo_kernel_init(demo_kernel_t *endpoint, wl_packet_port_t *port, const
   memset(endpoint, 0, sizeof(*endpoint));
   endpoint->handlers = saved;
   endpoint->user = user;
-  wl_kernel_config_t config = {.port = port, .route = demo_kernel_route, .on_error = error, .user = user};
-  for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i) config.tx_storage[i] = (wl_span_t){endpoint->requests[i], sizeof(endpoint->requests[i])};
-  for (unsigned i = 0U; i < WL_KERNEL_REPLIES; ++i) config.tx_storage[i + WL_KERNEL_CALLS] = (wl_span_t){endpoint->replies[i], sizeof(endpoint->replies[i])};
-  config.tx_storage[WL_KERNEL_TX_COUNT - 1U] = (wl_span_t){endpoint->message, sizeof(endpoint->message)};
+  wl_kernel_config_t config = {
+      .port = port,
+      .storage = {
+          .requests = &endpoint->requests[0][0],
+          .replies = &endpoint->replies[0][0],
+          .message = endpoint->message,
+          .request_stride = sizeof(endpoint->requests[0]),
+          .reply_stride = sizeof(endpoint->replies[0]),
+          .message_capacity = sizeof(endpoint->message),
+      },
+      .route = demo_kernel_route,
+      .on_error = error,
+      .user = user,
+  };
   return wl_kernel_init(&endpoint->core, &config);
 }
 wl_err_t demo_kernel_step(demo_kernel_t *endpoint, uint32_t now) {

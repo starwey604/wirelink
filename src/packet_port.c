@@ -34,12 +34,12 @@ wl_err_t wl_packet_init(wl_packet_port_t *port,
   return WL_OK;
 }
 
-void wl_packet_activity(wl_packet_port_t *port) {
+WL_HOT_ATTR void wl_packet_activity(wl_packet_port_t *port) {
   atomic_store_explicit(&port->activity, true, memory_order_release);
   if (port->config.notify != NULL) port->config.notify(port->config.user);
 }
 
-int wl_packet_take_activity(wl_packet_port_t *port) {
+WL_HOT_ATTR int wl_packet_take_activity(wl_packet_port_t *port) {
   return atomic_exchange_explicit(&port->activity, false, memory_order_acquire);
 }
 
@@ -47,8 +47,8 @@ int wl_packet_activity_pending(const wl_packet_port_t *port) {
   return atomic_load_explicit(&port->activity, memory_order_acquire);
 }
 
-wl_err_t wl_packet_rx_claim(wl_packet_port_t *port, size_t maximum,
-                            wl_packet_claim_t *out) {
+WL_HOT_ATTR wl_err_t wl_packet_rx_claim(wl_packet_port_t *port, size_t maximum,
+                                        wl_packet_claim_t *out) {
   if (port == NULL || out == NULL || maximum == 0U) return WL_ERR_INVALID_ARG;
   memset(out, 0, sizeof(*out));
   if (!atomic_load_explicit(&port->running, memory_order_acquire))
@@ -81,8 +81,9 @@ static int claim_matches(const wl_packet_port_t *port,
           (port->claim_cursor % WL_PACKET_RX_SLOTS) * port->config.rx_unit_size;
 }
 
-wl_err_t wl_packet_rx_commit(wl_packet_port_t *port,
-                             const wl_packet_claim_t *claim, size_t length) {
+WL_HOT_ATTR wl_err_t wl_packet_rx_commit(wl_packet_port_t *port,
+                                         const wl_packet_claim_t *claim,
+                                         size_t length) {
   if (port == NULL || claim == NULL) return WL_ERR_INVALID_ARG;
   if (!claim_matches(port, claim)) return WL_ERR_NOT_FOUND;
   if (length == 0U || length > port->claim_capacity) return WL_ERR_INVALID_ARG;
@@ -110,12 +111,12 @@ wl_err_t wl_packet_rx_abort(wl_packet_port_t *port,
   return WL_OK;
 }
 
-int wl_packet_rx_ready(const wl_packet_port_t *port) {
+WL_HOT_ATTR int wl_packet_rx_ready(const wl_packet_port_t *port) {
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_relaxed);
   return read != atomic_load_explicit(&port->write_cursor, memory_order_acquire);
 }
 
-int wl_packet_rx_available(const wl_packet_port_t *port) {
+WL_HOT_ATTR int wl_packet_rx_available(const wl_packet_port_t *port) {
   if (!atomic_load_explicit(&port->running, memory_order_acquire) ||
       atomic_load_explicit(&port->claim_active, memory_order_acquire)) return 0;
   uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_acquire);
@@ -123,7 +124,8 @@ int wl_packet_rx_available(const wl_packet_port_t *port) {
   return (uint32_t)(write - read) < WL_PACKET_RX_SLOTS;
 }
 
-wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port, wl_packet_borrow_t *out) {
+WL_HOT_ATTR wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port,
+                                         wl_packet_borrow_t *out) {
   if (port == NULL || out == NULL) return WL_ERR_INVALID_ARG;
   if (port->borrowed) return WL_ERR_BUSY;
   if (!wl_packet_rx_ready(port)) return WL_ERR_NO_DATA;
@@ -138,8 +140,8 @@ wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port, wl_packet_borrow_t *out) {
   return WL_OK;
 }
 
-wl_err_t wl_packet_rx_release(wl_packet_port_t *port,
-                              const wl_packet_borrow_t *borrow) {
+WL_HOT_ATTR wl_err_t wl_packet_rx_release(wl_packet_port_t *port,
+                                          const wl_packet_borrow_t *borrow) {
   if (port == NULL || borrow == NULL) return WL_ERR_INVALID_ARG;
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_relaxed);
   if (!port->borrowed || borrow->token.instance != port->config.instance ||
@@ -153,18 +155,19 @@ wl_err_t wl_packet_rx_release(wl_packet_port_t *port,
   return WL_OK;
 }
 
-int wl_packet_tx_active(const wl_packet_port_t *port) {
+WL_HOT_ATTR int wl_packet_tx_active(const wl_packet_port_t *port) {
   return (atomic_load_explicit(&port->tx_state, memory_order_acquire) & TX_ACTIVE) != 0U;
 }
 
-int wl_packet_tx_ready(const wl_packet_port_t *port) {
+WL_HOT_ATTR int wl_packet_tx_ready(const wl_packet_port_t *port) {
   uint_least32_t state = atomic_load_explicit(&port->tx_state, memory_order_acquire);
   return (state & TX_ACTIVE) != 0U &&
       ((state & TX_FLAGS) & ~port->tx_delivered) != 0U;
 }
 
-wl_err_t wl_packet_tx_submit(wl_packet_port_t *port, const uint8_t *data,
-                             size_t length, wl_packet_token_t *out) {
+WL_HOT_ATTR wl_err_t wl_packet_tx_submit(wl_packet_port_t *port,
+                                         const uint8_t *data, size_t length,
+                                         wl_packet_token_t *out) {
   if (port == NULL || data == NULL || length == 0U || out == NULL)
     return WL_ERR_INVALID_ARG;
   if (!atomic_load_explicit(&port->running, memory_order_acquire))
@@ -190,8 +193,9 @@ wl_err_t wl_packet_tx_submit(wl_packet_port_t *port, const uint8_t *data,
   return WL_OK;
 }
 
-wl_err_t wl_packet_tx_publish(wl_packet_port_t *port,
-                              wl_packet_token_t token, unsigned flags) {
+WL_HOT_ATTR wl_err_t wl_packet_tx_publish(wl_packet_port_t *port,
+                                          wl_packet_token_t token,
+                                          unsigned flags) {
   if (port == NULL || flags == 0U || (flags & ~TX_FLAGS) != 0U)
     return WL_ERR_INVALID_ARG;
   if (token.instance != port->config.instance) return WL_ERR_NOT_FOUND;
@@ -210,7 +214,8 @@ wl_err_t wl_packet_tx_publish(wl_packet_port_t *port,
   return WL_OK;
 }
 
-unsigned wl_packet_tx_take(wl_packet_port_t *port, wl_packet_token_t *out) {
+WL_HOT_ATTR unsigned wl_packet_tx_take(wl_packet_port_t *port,
+                                      wl_packet_token_t *out) {
   uint_least32_t state = atomic_load_explicit(&port->tx_state, memory_order_acquire);
   if ((state & TX_ACTIVE) == 0U) return 0U;
   unsigned flags = (unsigned)(state & TX_FLAGS) & ~port->tx_delivered;
