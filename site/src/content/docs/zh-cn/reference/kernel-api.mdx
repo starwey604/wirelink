@@ -1,43 +1,43 @@
 ---
-title: C11 内核 API 速查
-description: wl_kernel_* 核心接口及 wlc 生成端点符号快速映射表。
+title: C11 节点与内核 API 速查
+description: 默认节点入口、显式时间调用、静态 handler 与低层调度。
 sidebar:
   order: 1
 ---
 
-Wirelink 在运行期将「通用固定容量调度器（`wl_kernel_t`）」与「静态编译生成路由/编解码胶水（`<mod>_kernel.h`）」配合使用。完整头文件定义见 [include/wirelink/kernel.h](https://github.com/starwey604/wirelink/blob/main/include/wirelink/kernel.h)。
+一般应用包含 `<stem>.h`，使用 `<node>_node_t`。直接操作 `wl_kernel_t` 的调用属于底层集成；默认节点已经封装 port、编码与路由。
 
-## 通用 `wl_kernel_*` 核心接口
+## 默认 embedded / static 节点
 
-| 函数 / 类型 | 作用域 | 说明与关键前置条件 |
-| :--- | :--- | :--- |
-| `wl_kernel_init(kernel, config)` | 初始化 | 按配置绑定位底层 `wl_packet_port_t`、静态 TX 池与生成的路由分发函数；调用前端口与缓冲必须静止。 |
-| `wl_kernel_step(kernel, now, budget)` | 主循环驱动 | 推进挂起超时检查、TX 队列发送与 RX 报文解码分发；`budget` 取值 `1 .. WL_KERNEL_BUDGET`（16）。 |
-| `wl_kernel_ready(kernel, now, &has_dl, &dl)` | 唤醒判定 | 若立即有待处理工作返回非零；否则通过 `has_dl` 和 `dl` 告知最早 RPC 超时截止时刻，供外部安全休眠。 |
-| `wl_kernel_cancel(kernel, handle)` | 取消 RPC | 标记指定调用为已取消，不立即重入调用方回调，而是在下次 `step` 派发 `WL_KERNEL_CANCELLED`。 |
-| `wl_kernel_close(kernel)` | 停机起始 | 停止接受新消息与 RPC 提交，并对在途调用调度 `WL_KERNEL_CLOSED` 终态。 |
-| `wl_kernel_quiescent(kernel)` | 停机完成判定 | 所有发送租约归还且在途终态回调派发完毕时返回非零；返回非零前禁止复用端口与缓冲。 |
-| `wl_kernel_call_handle_t` | 调用句柄 | 由端点的 `start` 函数输出，仅作为 `wl_kernel_cancel` 的身份凭证，可按值复制（16 字节）。 |
+| 接口 | 契约 |
+| --- | --- |
+| `<n>_init(self)` | 初始化内嵌端口与存储，分配进程级非零实例号 |
+| `<n>_send_<msg>(self, value)` | 接纳时编码快照；普通消息槽满返回 WOULD_BLOCK |
+| `<n>_call_<rpc>(self, request, callback)` | 默认超时，从下一次 step(now) 开始计时 |
+| `<n>_call_<rpc>_ex(self, request, now, timeout, callback, user, out)` | 显式时钟，out 可为 NULL；callback 首参为 user |
+| `<n>_step(self, now)` | owner 推进收发、超时和回调 |
+| `<n>_cancel(self, handle)` | 标记取消，由后续 step 派发通知 |
+| `<n>_close(self)` / `<n>_quiescent(self)` | 发起关闭 / 判断是否可以复用存储 |
+| `<n>_rx_packet(self, data, length)` | native 完整包复制到 RX 槽 |
+| `<n>_rx_feed(self, data, length, consumed)` | 流模式喂字节，保留未消费尾部 |
+| `<n>_tx_ready(self)` | 物理背压解除，通知 owner 重试 |
 
-### 内置固定规模边界常量
+应用实现 `<n>_tx_write(self, data, length)`，整帧接受且不跨返回借用数据，或整帧返回 WOULD_BLOCK。静态消息回调为 `<n>_on_<msg>(self, const msg_t *)`；服务函数为 `int32_t <n>_on_<rpc>(self, const req_t *, resp_t *)`。
 
-- `WL_KERNEL_CALLS = 4U`：单个端点支持的最大并发出站 RPC 槽位数。
-- `WL_KERNEL_REPLIES = 3U`：单个端点支持的最大并发入站响应构建槽位数。
-- `WL_KERNEL_TX_COUNT = 8U`：发送环形调度队列容量上限。
-- `WL_KERNEL_BUDGET = 16U`：单次 `wl_kernel_step` 推荐预算上限。
+`call ... = default_done` 绑定默认完成函数后，简化 call 不再需要 callback 参数。最多四个纯标量必选字段的消息还生成 `_send_<msg>_val` 快捷入口。
 
-## `wlc` 生成的端点符号映射
+## 显式高级模式
 
-假设你的模块前缀为 `<mod>`，编译器会根据 `.bind.wl` 中的声明自动生成强类型入口，彻底免去手动操作 `wl_kernel_msg_claim` / `call_claim`：
+- `io = external`：init 追加 `wl_packet_port_t *port`，不生成 embedded 物理钩子；驱动拥有端口装配。
+- `handlers = dynamic`：init 追加 `const <n>_handlers_t *handlers, void *user`，表中为 `on_<msg>` / `on_<rpc>`，首参为 user。
+- 两者都启用：`<n>_init(self, port, handlers, user)`。
 
-| `.bind.wl` 声明 | 生成 C 符号 / 结构体字段 | 含义 |
-| :--- | :--- | :--- |
-| 全局端点结构体 | `<mod>_kernel_t` | 嵌入了 `wl_kernel_t core` 与各分类精确大小的静态编码缓冲池 |
-| 全局回调配置表 | `<mod>_kernel_handlers_t` | 汇总该端点可能收到的单向 `on_<msg>` 与服务端 `on_<rpc>` 回调指针 |
-| 端点生命周期 | `<mod>_kernel_init` / `_step` | 分别封装了存储池计算、路由绑定以及 `WL_KERNEL_BUDGET` 步进 |
-| `send <Msg>` | `<mod>_kernel_send_<msg>(ep, value)` | 将编码写入静态发送队列；队列满返回 `WL_ERR_WOULD_BLOCK` |
-| `direct <Msg>` | `handlers.on_<msg>(user, msg)` | 在 `step` 解码通过后立刻同步回调；退出即回收内存视图 |
-| `rpc <Rpc>` (client) | `<mod>_kernel_<rpc>_start(ep, req, now, timeout, cb, user, &h)` | 异步发起 RPC；返回 `WL_OK` 即保证将来精确调用一次 `cb` |
-| `rpc <Rpc>` (server) | `int32_t handlers.on_<rpc>(user, req, resp)` | 返回 `0` 发回 `resp`（`WL_KERNEL_SUCCESS`）；返回非零 `int32_t` 发回 `WL_KERNEL_REJECTED` |
+## 通用内核
 
-每个消息结构体同时生成 `<msg>_t` 类型定义。对于 `optional` 字段，C 结构体中会自动配备 `bool has_<field>` 标志位；对于 `string<N>` 与 `bytes<N>`，字段类型分别为 `wl_string_view_t` 与 `wl_bytes_view_t`。
+`wl_kernel_step(core, now, budget)` 的预算范围为 1–16；`wl_kernel_ready(core, now, &has_deadline, &deadline)` 支持外部事件等待。未挂表的简化调用视为 ready，促使下一次 step 挂表。
+
+底层 `wl_kernel_call_commit` 参数顺序为 `(..., body_length, now, timeout, has_now, complete, callback, user, out)`；既有显式时间路径传 `has_now = 1`。一般业务使用生成 call，不直接 claim/commit。
+
+容量常量为 **4 调用、3 回复、1 消息快照、8 项 TX 调度队列、16 事件预算**。未声明的角色不分配相应字节池。`<N>_{REQUEST,REPLY,MESSAGE,RX,TX}_FRAME_MAX` 表示规范帧上界，`RX_WIRE_MAX` / `TX_WIRE_MAX` 表示对应线编码上界。
+
+必选字段没有 `has_*`，optional 字段才有。`string<N>` / `bytes<N>` 是内联数组；详情见[字符串与生命周期](/wirelink/zh-cn/learn/04-strings-and-lifetime/)。

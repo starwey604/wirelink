@@ -1,63 +1,70 @@
 ---
-title: Schema 语言 (.wl)
-description: 全面介绍 Wirelink .wl schema 语法、数据类型、定长容器与前向演进规则。
+title: Schema 语言：默认必选与有界存储
+description: 单文件消息、枚举、RPC、节点与演进规则。
 sidebar:
   order: 1
 ---
 
-Wirelink schema 文件（`.wl`）是跨语言与跨架构通信的唯一事实来源。`wlc` 编译器在编译期校验每个类型定义、编码空间上界与保留字段号，消除运行期反射开销。
+`.wl` 是消息结构、RPC 配对和节点角色的共同来源。`version 1;` 可以省略；`import "common.wl";` 引入共享定义。
 
-## 基础声明与文件版本
-
-每个 `.wl` 文件必须从顶部的 `version` 声明开始。你可以用 `import "other.wl";` 组合多个领域的协议模块，并用全局 `reserved` 语句锁死已废弃的消息或枚举 ID。
-
-```text
-version 1;
-import "common.wl";
-reserved 99, 100;
-
-enum Mode @id(1) {
-  reserved -1;
-  IDLE = 0;
-  ACTIVE = 1;
-}
-
+```wl
 message Telemetry @id(10) {
+  uint32 sample @id(1);
+  optional int32 temperature @id(2) [default = 2500];
+  string<31> tag @id(4);
   reserved 3;
-  required Mode mode @id(1);
-  optional int32 temperature_centi_c @id(2) [default = 2500];
-  required string<31> tag @id(4);
 }
+node sensor { send Telemetry; }
 ```
 
-消息与枚举都支持 `@id(N)` 声明（也兼容等价的 `= N` 写法），其中 `N` 为无符号 16 位整数；枚举内部成员值则使用 `NAME = VALUE;`（支持负整数）。
+## 字段默认必选
 
-## 标量类型、容器与基数修饰
+| 写法 | 存在性与 C 表示 |
+| --- | --- |
+| `uint32 value @id(1);` | 必选，无 `has_value`；缺字段的输入解码失败 |
+| `required uint32 value @id(1);` | 与上一行完全相同 |
+| `optional uint32 value @id(1);` | 可选，生成 `bool has_value` |
+| `packed float32 values[8] @id(1);` | 必选定长数组，无 `has_values` |
+| `optional packed float32 values[8] @id(1);` | 可选定长数组，有 `has_values` |
+| `repeated uint32 values @id(1);` | 无界重复序列；独立 codec 由调用方提供 backing，节点路由不能使用无界帧 |
 
-Wirelink 提供明确位宽的标量类型，以及编译期可见上界的变长容器：
+一条消息最多 256 个字段。必选字段省掉 C 存在位不代表解码忽略缺失：解码器仍验证所有必选字段到齐。显式 `optional` 可用于兼容扩展；默认值不把缺失字段变成存在。
 
-| `.wl` 类型 | 线缆编码方式 | 生成 C11 字段类型 | 备注 |
-| :--- | :--- | :--- | :--- |
-| `bool` | varint (wire_type=0) | `bool` | 默认值支持 `true` / `false` |
-| `int8` / `int16` / `int32` / `int64` | signed varint (wire_type=0) | `int8_t` .. `int64_t` | 负数按标准 varint 编码 |
-| `uint8` / `uint16` / `uint32` / `uint64` | varint (wire_type=0) | `uint8_t` .. `uint64_t` | 支持无符号默认整数 |
-| `fixed32` / `fixed64` | 32-bit / 64-bit 小端定长 | `uint32_t` / `uint64_t` | wire_type 分别为 `5` / `1` |
-| `float32` / `float64` | IEEE-754 32/64-bit 小端 | `float` / `double` | 不支持 `[default = ...]` |
-| `string<N>` / `bytes<N>` | 长度前缀 + 原始字节 (wire_type=2) | `wl_string_view_t` / `wl_bytes_view_t` | `N` 为最大字节上限 |
-| `enum` | signed varint (wire_type=0) | `<module>_<enum>_t`（`int32_t`） | C++ 生成 `enum class : int32_t` |
-| `message` | 长度前缀嵌套 TLV (wire_type=2) | 生成对应 `_t` 结构体 | 支持逐字段嵌套与独立存在位 |
+## 类型、编码与内存
 
-字段前必须声明基数修饰，明确该字段的存在性与数组形式：
+| 类型 | Schema-v1 线编码 | C 存储 |
+| --- | --- | --- |
+| `bool`、`uint8..64` | varint | 对应布尔/无符号整数 |
+| `int8..64`、枚举 | ZigZag + varint | 对应有符号整数 / 枚举类型 |
+| `fixed32/64`、`float32/64` | 固定宽度小端 | 整数 / IEEE 浮点 |
+| `string<N>` | 长度 + UTF-8 字节 | `length` 与 `char data[N+1]`，末尾终止符不在线上传输 |
+| `bytes<N>` | 长度 + 原始字节 | `length` 与 `uint8_t data[N]` |
+| 无界 `string` / `bytes` | 长度 + 字节 | codec 借用视图；节点需有限上界 |
+| 嵌套 `message` | 长度 + 嵌套字段 | 内嵌对应消息结构体 |
 
-- **`required`**: 必备字段；解码时若缺失该字段会拒绝整条消息。
-- **`optional`**: 可选字段；在 C 结构体中生成对应的 `has_<field>` 标志位，允许附带 `[default = ...]`（`bytes`、`float32`、`float64` 除外）。
-- **`repeated`**: 变长数组（须结合静态容量或按解码回调语义处理，部分静态生成路径要求固定/有界特性）。
-- **`packed[N]` / `required packed[N]`**: 固定元素个数的紧凑数值数组，一次长度前缀携带 `N` 个定长元素。
+有界 string 的 setter 为 `<msg>_set_<field>(value, cstr)`，bytes 的版本追加长度参数；均检查容量并复制；`WL_STR("literal")` 为无界字符串构造借用视图。节点回调指针只在回调内有效；全有界消息可以直接按值保存。
 
-## 模式演化与兼容性校验
+## RPC 与 node
 
-演进既有协议时，通过 `wlc validate --previous <old.wl> <new.wl>` 可以静态验证兼容性，避免破坏线上的旧版本固件：
+{/* [docs:calculator_schema] */}
+```wl
+message AddRequest @id(20) {
+  int32 left @id(1);
+  int32 right @id(2);
+}
+message AddResponse @id(21) { int32 sum @id(1); }
+rpc Add(AddRequest) -> AddResponse;
+node client { call Add; }
+node server { serve Add; }
+```
+{/* [/docs:calculator_schema] */}
 
-1. **禁止复用 ID**: 被删除的顶层消息/枚举应加入顶层 `reserved`，被删除的字段序号或枚举数值应保留在各自大括号内的 `reserved` 列表中。
-2. **安全扩展**: 新增 `optional` 字段是前后兼容的；现有 `required` 字段不可随意移除，也不可变更已有字段编号对应的基础线缆类型。
-3. **跨模块唯一性**: `import` 引入的所有消息和枚举共享同一全局 `@id(...)` 空间，编译器会拒绝重复或与 `reserved` 冲突的声明。
+更多配置见[节点声明](/wirelink/zh-cn/concepts/nodes/)。`@id` 与等价 `= N` 使用非零 uint16 ID；消息和枚举的 ID 在导入图中唯一。
+
+## 演进检查
+
+```sh
+wlc validate new.wl --previous old.wl
+```
+
+保留既有 ID 与类型；删除后的 ID 放入 `reserved`。优先新增 optional 字段，不随意增加必选字段。`positional_v1` 没有字段 tag，应把布局视为两端共同固定契约，不能套用 TLV 的未知字段跳过规则。

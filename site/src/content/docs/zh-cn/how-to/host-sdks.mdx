@@ -9,16 +9,18 @@ sidebar:
 
 ## 一键生成 SDK 工程
 
-对同一份 `.wl` 与绑定配置（例如 `calculator.bind.wl`）执行以下命令即可产出独立可编译的 SDK 项目骨架（已内置 `CMakeLists.txt`、`pyproject.toml`、C++ 头文件与 Python 封装）：
+选择同一份 `.wl` 中具有 `call` 路由的客户端节点，即可产出独立可编译的 SDK 项目骨架（已内置 `CMakeLists.txt`、`pyproject.toml`、C++ 头文件与 Python 封装）：
 
 ```sh
-wlc sdk calculator.wl --profile calculator.bind.wl --out-dir ./calculator_sdk
+wlc sdk calculator.wl --node client --out-dir ./calculator_sdk
 ```
 
-- 默认将使用 schema 主干名作为 C++ namespace 与 Python 包前缀（`<name>_sdk`），可用 `--name <custom>` 与 `--package-version <ver>` 定制。
+- 默认以 schema 主干名作为 C++ namespace（`<name>`），Python 包名为 `<name>_sdk`，可用 `--name <custom>` 与 `--package-version <ver>` 定制。
 - 若希望更新已有输出目录中的生成文件，传入 `--overwrite`。
 
 ## Python 客户端：同步 `Client` 与异步 `AsyncClient`
+
+当前生成器仅提供 UDP 传输。多个客户端节点时必须传 `--node`；没有显式客户端节点时可从顶层 RPC 合成客户端。
 
 生成的 Python 分发包自带 `Client`、`AsyncClient` 与底层 `Udp` 传输对象。底层原生扩展运行在独立 I/O 会话线程，不会在等待响应时阻塞整个 Python 解释器的异步事件循环。
 

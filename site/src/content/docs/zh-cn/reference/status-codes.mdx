@@ -18,7 +18,7 @@ Wirelink 在 C11 核心中从不使用异常，所有 API 均通过确定性的 
 | `WL_KERNEL_LOCAL_ERROR` | 发送失败或响应包载荷损坏、解码失败 | 对应的本地 `wl_err_t` 错误码 |
 | `WL_KERNEL_TIMED_OUT` | 在预设 `timeout` 节拍到期前未收到应答 | `WL_ERR_TIMEOUT` |
 | `WL_KERNEL_CANCELLED` | 调用方提前成功发起了 `wl_kernel_cancel` | `WL_ERR_CANCELLED` |
-| `WL_KERNEL_CLOSED` | 本地执行 `wl_kernel_close` 停机排干期间收尾 | `WL_ERR_INVALID_STATE` 等关闭状态码 |
+| `WL_KERNEL_CLOSED` | 本地执行 `wl_kernel_close` 停机排干期间收尾 | `WL_ERR_INVALID_STATE` |
 
 ## 核心错误码（`wl_err_t`）
 

@@ -3,7 +3,7 @@ title: Wirelink
 description: 面向嵌入式 MCU（裸机 / RTOS / Zephyr）与上位机的纯 C11 零动态分配通信中间件。
 template: splash
 hero:
-  tagline: 写一份 `.wl` 消息定义，自动生成纯 C11 端点与 Python/C++ SDK，数行固定内存 API 打通 UART / USB / UDP / SPI。
+  tagline: 写一份 .wl 协议与节点定义，自动生成纯 C11 端点与 Python/C++ SDK，数行固定内存 API 打通 UART / USB / UDP / SPI。
   actions:
     - text: 5 分钟上手
       link: /wirelink/zh-cn/overview/quick-start/
@@ -26,8 +26,8 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 </div>
 
 <div class="hero-metrics">
-  <span>ISO C11 零堆分配（.data = 0 / .bss = 0）</span>
-  <span>`wl_kernel_t` 静态 440 B</span>
+  <span>ISO C11 · 核心零堆分配</span>
+  <span>默认自包含 node · 按角色裁剪</span>
   <span>Wire v2 4B 小端帧头</span>
   <span>4 槽并发 RPC · 8 槽 TX 队列</span>
 </div>
@@ -38,7 +38,7 @@ Wirelink 把类型安全的二进制协议与有界微内核合二为一。核�
 
 ```mermaid
 flowchart LR
-  Schema["schema.wl + bind.wl"] --> WLC["wlc 编译器"]
+  Schema["schema.wl：message + rpc + node"] --> WLC["wlc 编译器"]
   WLC --> MCU["MCU 纯 C11 端点 (单结构体 API + 共享 TLV)"]
   WLC --> SDK["上位机 Python / C++20 UDP SDK"]
   MCU -- "UART(COBS+CRC16) / USB Bulk / UDP / SPI" --> SDK
@@ -52,7 +52,7 @@ flowchart LR
     每课聚焦一个工程场景，配备时序图、`MultipleChoice` 思考题与 `Checklist` 检查表。[进入第 01 课](/wirelink/zh-cn/learn/01-loopback-endpoint/)。
   </Card>
   <Card title="Schema 与编译器指南" icon="setting">
-    系统查阅 `.wl` 类型系统、`.bind.wl` 路由绑定以及 `wlc` 与 CMake 集成方式。[查看语法手册](/wirelink/zh-cn/concepts/schema-language/)。
+    系统查阅 `.wl` 类型系统、`node` 角色与分帧以及 `wlc` 与 CMake 集成方式。[查看语法手册](/wirelink/zh-cn/concepts/schema-language/)。
   </Card>
   <Card title="API、Wire v2 与体积账本" icon="list-format">
     查询 `wl_kernel` 核心签名、4B 帧头与 8/12B RPC 子头字节格式及 `-Os` 实测数据。[查阅参考手册](/wirelink/zh-cn/reference/kernel-api/)。

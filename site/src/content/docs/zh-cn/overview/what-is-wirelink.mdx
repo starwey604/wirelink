@@ -1,32 +1,26 @@
 ---
 title: 什么是 Wirelink
-description: 面向嵌入式 MCU 与上位机通信的纯 C11 零动态分配通信中间件定位与选型对比。
+description: 静态 C11 消息与 RPC 节点，按角色生成，无堆分配。
 sidebar:
   order: 1
 ---
 
-在嵌入式开发中，MCU 与上位机之间经常需要同时传递周期遥测、配置指令与双向 RPC 调用。手写串口帧头容易在长包截断、字节序与超时状态机上反复踩坑，而通用序列化库往往依赖动态内存或缺少端到端请求生命周期管理。
+MCU 与上位机需要同时传递遥测、配置和 RPC。Wirelink 把有界编解码、调用生命周期和传输接入分开，让应用不必手写请求表、取消状态机或字节序转换。
 
-Wirelink 提供**一份 `.wl` 消息定义 + 一套无堆分配的 ISO C11 微内核 + `wlc` 代码生成器**，让你在确定性的静态 RAM 预算内获得跨语言通信能力。
+## 一份协议，按角色生成
 
-## 解决四大嵌入式痛点
+- **一份 `.wl`**：消息、RPC 与 node 在同一语言中定义；通过 import 复用业务模块。
+- **默认自包含节点**：内嵌 port、RX 与按角色裁剪的 TX 存储，直接实现发送钩子和静态 handler。
+- **纯 ISO C11 核心**：不分配堆、不创建线程、不读系统时钟。owner 用 `step(now)` 推进；平台层负责 I/O 和唤醒。
+- **固定容量 RPC**：最多 4 个并发出站调用，显式背压、超时、取消和关闭。普通消息不内置可靠重传，RPC 不自动去重。
+- **上位机 SDK**：同一 schema 生成拥有独立 I/O 会话的 UDP C++20/Python 客户端；宿主封装的线程与分配不属于 C11 核心。
 
-1. **零动态内存分配与静态可预测性**：C11 核心（`src/`）不调用 `malloc`、不创建线程、不读取系统时钟。全部运行期状态集中在 `wl_kernel_t`（440 B）与 `wl_packet_port_t`（128 B）中，可放入静态 BSS。
-2. **单结构体直观 C API**：每条消息在 C 端只生成单一结构体 `<name>_t`，发送时在入口处直接快照编码，消除「借用视图 + 自持值」两套胶水代码与间接回调函数指针跳转。
-3. **小端 Wire v2 线协议**：4 字节规范帧头（`0x57` + `kind` + 16 位小端 `route_id`）搭配 8/12 字节定长小端 RPC 子头，直接对齐 32 位小端 MCU 寄存器读写。
-4. **消息边界与物理传输解耦**：同一套 `.wl` Schema 可通过 `.bind.wl` 零代码改动切换 `native_packet`（USB Bulk / UDP）、`cobs_stream`（UART + CRC16）或 `bus_length16`。
+## 哪些责任仍属于应用
 
-## 同类方案选型对比
+选择 `native`、`cobs_crc16` 或 `length16` 后，应用仍要把协议帧接到实际物理链路；异步 DMA 用 external 模式管理租约。业务幂等性、远端执行后的重试策略和可靠最终结果由业务协议定义。
 
-| 维度 | Wirelink | Protobuf / C++ | nanopb | FlatBuffers | 手写串口协议 |
-| --- | --- | --- | --- | --- | --- |
-| 堆内存分配 | 零分配（纯静态 C11） | 强依赖堆与 RTTI | 可选静态，流式回调较繁琐 | 构造通常需动态增长 | 视手写实现而定 |
-| 线协议与分帧 | Wire v2 + COBS/CRC16 + Length16 | 仅序列化，无分帧 | 仅序列化，无分帧 | 仅序列化，无分帧 | 需从零编写并排错 |
-| 并发 RPC 与超时 | 内置 4 槽异步 RPC + 超时/取消 | 无（需另配 gRPC） | 无 | 无 | 需手动维护请求表 |
-| 上位机 SDK | `wlc sdk` 一键生成 Python / C++20 | `protoc` 生成类 | 仅 MCU C 代码 | `flatc` 生成访问器 | 需双端手动同步结构体 |
-| 典型全核心 `.text`（`-Os`） | 全核心 12 模块合计 16,981 B | 数百 KB 起 | 数 KB（无传输内核） | 视 schema 而定 | 难以保证健壮性 |
+资源尺寸依赖 schema、角色、I/O 模式、ABI 与编译选项。不要用单个核心结构体大小替代完整通信存储；查看[同条件 footprint 账本](/wirelink/zh-cn/reference/footprint-and-benchmarks/)。
 
-## 下一步建议
+## 从哪里开始
 
-- 想直接跑通代码示例，前往 [5 分钟快速上手](/wirelink/zh-cn/overview/quick-start/)。
-- 想系统掌握所有权、异步 RPC 与传输切换，进入 [01 跑通第一个本地回环端点](/wirelink/zh-cn/learn/01-loopback-endpoint/)。
+[运行本地回环](/wirelink/zh-cn/overview/quick-start/)不需要硬件；[六课教程](/wirelink/zh-cn/learn/01-loopback-endpoint/)依次覆盖遥测、RPC、字段寿命、背压和 SDK。

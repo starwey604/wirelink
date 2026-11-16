@@ -13,7 +13,8 @@
     "prebuild": "npm run clean",
     "build": "astro check && astro build",
     "preview": "astro preview",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "check:docs": "python3 scripts/check-docs.py"
   },
   "dependencies": {
     "@astrojs/starlight": "0.42.10",

@@ -1,70 +1,69 @@
 ---
 title: 5 分钟快速上手
-description: 三步工作流完成消息定义、代码生成与 C11 / Python 联调，并附 30 秒本地体验命令。
+description: 一份 schema、一次生成、一个业务 handler，跑通 C11 与 Python。
 sidebar:
   order: 2
 ---
 
-你可以在不连接硬件开发板的情况下，用两条命令验证核心回环，或通过标准三步工作流构建自己的设备通信协议。
+先跑现成回环验证工具链，再为自己的设备生成节点。
 
-## 三步核心工作流
+## 免硬件运行回环
 
-### 第 1 步：定义 `.wl` 消息结构与 `.bind.wl` 链路绑定
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+./build/core/examples/wirelink_bare_metal_loopback
+```
 
-`calculator.wl` 描述跨端数据结构；`calculator.bind.wl` 决定该链路暴露哪些 RPC 服务与传输包封格式。
+输出 `6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent`。仓库带已生成的 demo C，因此这一步不需要 WLC。
+
+## 1. 一份 `.wl` 定义消息与角色
+
+保存为 `calculator.wl`：
 
 {/* [docs:calculator_schema] */}
 ```wl
 message AddRequest @id(20) {
-  required int32 left @id(1);
-  required int32 right @id(2);
+  int32 left @id(1);
+  int32 right @id(2);
 }
-
-message AddResponse @id(21) {
-  required int32 sum @id(1);
-}
+message AddResponse @id(21) { int32 sum @id(1); }
+rpc Add(AddRequest) -> AddResponse;
+node client { call Add; }
+node server { serve Add; }
 ```
 {/* [/docs:calculator_schema] */}
 
-{/* [docs:calculator_bind] */}
-```wl
-profile version 2;
-endpoint { envelope=native_packet; }
+字段默认必选，结构体不需要 `has_left = true`；节点默认 embedded/static，不需手写 port/handlers 装配。
 
-rpc Add {
-  request = AddRequest;
-  response = AddResponse;
-}
-```
-{/* [/docs:calculator_bind] */}
+## 2. 按角色生成
 
-### 第 2 步：用 `wlc` 生成 MCU C11 端点与上位机 SDK
+使用匹配的本地 WLC 0.14.0：
 
 ```sh
-# 1. 生成 MCU 端纯 C11 编解码与类型化端点
-wlc compile calculator.wl --profile calculator.bind.wl --out-dir generated
-
-# 2. 一键生成上位机 C++20 / Python 3.10+ UDP SDK
-wlc sdk calculator.wl --profile calculator.bind.wl --name calculator --out-dir sdk
+wlc compile calculator.wl --node server --out-dir generated
+wlc sdk calculator.wl --node client --name calculator --out-dir sdk
 ```
 
-### 第 3 步：MCU 端处理函数与 Python 上位机调用
+固件得到 `calculator.h/.c` 和清单，上位机得到可构建的 UDP C++20/Python 工程。多角色本地回环使用 `--all-nodes`。
 
-MCU 端实现轻量处理函数，在回调中填写响应并返回业务状态码（`0` 表示成功，非零整数触发对端 `WL_KERNEL_REJECTED`）：
+## 3. 实现服务、物理发送与主循环
 
 {/* [docs:calculator_server] */}
 ```c
-int32_t calculator_add(void *user, const add_request_t *request, add_response_t *response) {
-  (void)user;
+int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
+  (void)self;
   const int64_t sum = (int64_t)request->left + request->right;
   if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-  response->has_sum = true; response->sum = (int32_t)sum;
+  response->sum = (int32_t)sum;
   return 0;
 }
 ```
 {/* [/docs:calculator_server] */}
 
-上位机 Python SDK 直接用关键参数发起同步调用，并用常规异常捕获远程业务拒绝：
+除业务函数外，实现 `server_tx_write`，把完整帧同步写出或复制到自己的发送队列；收包调用 `server_rx_packet`。初始化 `server_init(&server)`，周期推进 `server_step(&server, now_ms)`。物理接口必须遵守[整帧与背压契约](/wirelink/zh-cn/how-to/custom-drivers/)。
+
+已有 UDP 驱动的完整构建示例见 `examples/05_zephyr_udp`；SDK 的可执行联调与 wheel 检查见 `examples/06_bindings`。构建并安装 SDK 后，用 `Client`、`Udp` 与 `RejectedError`：
 
 {/* [docs:python_sdk_client] */}
 ```python
@@ -78,23 +77,4 @@ with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
 ```
 {/* [/docs:python_sdk_client] */}
 
----
-
-## 30 秒本地构建体验（免 WLC 与硬件）
-
-仓库已包含预生成的确定性示例 C 代码（`examples/kernel/generated/`），只需 C11 编译器与 CMake 3.21+ 即可完成构建并运行全部主机核心测试：
-
-```sh
-cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
-cmake --build build/core --parallel
-ctest --test-dir build/core --output-on-failure
-./build/core/examples/wirelink_bare_metal_loopback
-```
-
-程序正常退出时将打印：
-
-```text
-6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
-```
-
-准备好动手深入学习？请继续阅读 [第 01 课：跑通第一个本地回环端点](/wirelink/zh-cn/learn/01-loopback-endpoint/)。
+这里 `port` 是实际服务端 UDP 端口。继续[第 01 课](/wirelink/zh-cn/learn/01-loopback-endpoint/)或查看[SDK 构建指南](/wirelink/zh-cn/how-to/host-sdks/)。

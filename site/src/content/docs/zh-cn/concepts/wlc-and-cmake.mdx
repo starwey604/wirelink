@@ -1,49 +1,53 @@
 ---
-title: WLC 工具链与 CMake 集成
-description: 掌握 wlc 子命令与 wirelink_wlc_generate 构建规则，自动验证生成契约并追踪依赖。
+title: WLC 与 CMake：按节点生成
+description: 当前 0.14 CLI、单对产物、节点选择及导入依赖追踪。
 sidebar:
   order: 3
 ---
 
-`wlc` 是采用 Rust 编写的 Wirelink 静态编译器。它不仅生成零动态分配的 ISO C11 编解码器与静态内核代码，还能生成完整上位机 SDK、计算静态预算并配合 CMake 完成精确增量编译。
+本地候选使用 WLC **0.14.0** / codegen contract **0.14**。生成的 C 与核心契约必须匹配；远端发布配对仍待新源码冻结，不能用既有 0.13 发布资产代替本地编译器。
 
-## `wlc` 核心子命令
+## 常用命令
 
-| 命令 | 典型用法 | 核心用途 |
-| :--- | :--- | :--- |
-| `compile` | `wlc compile app.wl --profile app.bind.wl --out-dir gen/` | 生成 `<mod>.h/.c`；传入 `--profile` 时额外生成 `<mod>_kernel.h/.c` 与部署清单 |
-| `compile-kernel` | `wlc compile-kernel app.wl --profile app.bind.wl --out-dir gen/` | 等价于强制要求 `--profile` 的 `compile`，专注生成静态端点内核 |
-| `sdk` | `wlc sdk app.wl --profile app.bind.wl --out-dir sdk/` | 一键生成包含 C++20 `Client` 与 Python `Client`/`AsyncClient` 的 UDP SDK 工程 |
-| `validate` | `wlc validate app.wl --previous old.wl --profile app.bind.wl` | 校验语法、语义、前后向演进兼容性以及绑定配置完整性 |
-| `plan` | `wlc plan app.wl --profile app.bind.wl` | 输出静态编解码缓冲、最大线缆尺寸与 RPC 槽位计划报告 |
-| `identity` | `wlc identity app.wl --profile app.bind.wl` | 打印模式与绑定组合的规范化诊断标识，用于构建排查 |
-| `codegen-contract` | `wlc codegen-contract` | 打印生成代码契约版本号，供构建系统校验编译器与核版本匹配 |
-
-此外，`module-name` 与 `dependencies` 两个辅助子命令专门用于给构建系统返回合法 C 符号前缀以及包含 `import` 在内的传递文件依赖列表。
-
-## 两种 CMake 代码生成宏
-
-在 `CMakeLists.txt` 中引入 `WirelinkWlc.cmake` 后，可以根据场景选择以下两种生成函数：
-
-### 1. 生成完整静态端点：`wirelink_wlc_generate`
-
-当目标同时包含 `.wl` 与至少一个 `.bind.wl` 时，使用 `wirelink_wlc_generate`。它会自动生成 `<mod>.c/.h`、`<mod>_kernel.c/.h`，并根据部署文件选择并链接 `Wirelink::stream_cobs_crc16` 或 `Wirelink::stream_length16_none`（如果配置了流式传输）。
-
-```cmake
-wirelink_wlc_generate(
-  TARGET device_proto
-  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/device.wl"
-  PROFILES
-    "${CMAKE_CURRENT_SOURCE_DIR}/device.bind.wl"
-    "${CMAKE_CURRENT_SOURCE_DIR}/upgrade.bind.wl"
-)
-target_link_libraries(app PRIVATE device_proto)
+```sh
+wlc compile app.wl --node device --out-dir generated
+wlc compile app.wl --all-nodes --out-dir loopback-generated
+wlc sdk app.wl --node client --out-dir sdk
+wlc validate app.wl --previous previous.wl
+wlc plan app.wl --node device
+wlc identity app.wl
+wlc codegen-contract
 ```
 
-- 支持可选参数 `PREVIOUS <old.wl>` 在构建阶段自动触发演进兼容检查。
-- 会在编译阶段自动调用 `WirelinkWlcVerifyManifest.cmake` 核对 `wlc` 版本与生成契约（当前契约 0.13）。
-- 如果在 Zephyr 下构建，`WirelinkWlc.cmake` 会校验 `CONFIG_WIRELINK=y` 以及对应的流控 Kconfig 选项是否已经打开。
+`compile` 生成一对 `<stem>.h/.c` 和 `<stem>_manifest.json`。没有 node 时生成纯 codecs；一个节点自动选择；多个节点必须指定 `--node` 或 `--all-nodes`。`--node` 与 `--all-nodes` 互斥。文件 stem 与节点符号前缀是两个概念。
 
-### 2. 纯编解码生成：`wirelink_wlc_generate_codec`
+`module-name` 返回合法化的文件模块名，`dependencies` 返回包含传递 import 的依赖列表。现有 `compile-kernel` 与 profile 参数已移除，直接使用 `compile`。
 
-如果你只需要使用底层 TLV / Positional 结构体编解码器，而不使用 `wl_kernel_t` 端点状态机，则调用 `wirelink_wlc_generate_codec`（禁止传递 `PROFILE` 或 `PROFILES`）。生成的库仅链接 `Wirelink::types`，产物更小且完全与传输解耦。
+## 让 CMake 管理生成与依赖
+
+```cmake
+find_package(Wirelink 0.14.0 EXACT CONFIG REQUIRED)
+wirelink_wlc_generate(
+  TARGET device_protocol
+  SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/app.wl"
+  NODE device
+)
+target_link_libraries(app PRIVATE device_protocol)
+```
+
+同进程回环改用 `ALL_NODES`；schema 只有一个节点时可以省略选择参数。`PREVIOUS old.wl` 启用演进检查。生成目标按 framing 自动链接依赖，追踪新增的传递 import，并校验清单与编译器契约。
+
+纯编解码目标使用：
+
+```cmake
+wirelink_wlc_generate_codec(TARGET data_codec SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/data.wl")
+```
+
+配置时指定本地匹配编译器：
+
+```sh
+cmake -S . -B build/host -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+  -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
+```
+
+Zephyr 工程还需启用 `CONFIG_WIRELINK=y` 和所选 stream 的 Kconfig 选项；参考 `samples/zephyr/` 的可构建工程。

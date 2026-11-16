@@ -54,8 +54,8 @@ export default defineConfig({
           items: [{ autogenerate: { directory: 'learn' } }],
         },
         {
-          label: 'Schema & WLC guide',
-          translations: { 'zh-CN': 'Schema 与编译器指南' },
+          label: 'Schema, nodes & WLC',
+          translations: { 'zh-CN': 'Schema、节点与编译器' },
           items: [{ autogenerate: { directory: 'concepts' } }],
         },
         {

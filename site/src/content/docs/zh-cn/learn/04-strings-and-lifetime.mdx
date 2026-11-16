@@ -1,6 +1,6 @@
 ---
-title: 04. 字符串、二进制与生命周期
-description: 理解定长容器与回调引用生命周期边界，安全携带变长负载。
+title: 04 字符串、字节数组与生命周期
+description: 有界字段内联保存，回调指针与无界借用有不同寿命。
 sidebar:
   order: 4
 ---
@@ -8,89 +8,71 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-嵌入式通信经常需要传输设备名称、固件版本或原始字节数组。Wirelink 的 `src/` 核心完全不使用 `malloc`、`free` 或 `strdup`，因此变长字段必须严格遵守静态容量上限与所有权边界。
+设备名称和原始采样块需要变长内容，但不需要动态分配。用 `string<N>` / `bytes<N>` 指定容量；生成器把数据数组直接放入消息结构体。
 
-## 为什么不用 `char *` 或堆分配
+## 有界内联，无界借用
 
-在 C11 核与端到端通信中，动态堆分配会引入内存碎片与不可预测延迟。Wirelink 在 `.wl` schema 中用 `string<N>` 与 `bytes<N>` 声明静态上限。
+| Schema 类型 | 生成字段存储 | 保留数据的方法 |
+| --- | --- | --- |
+| `string<N>` | `length` + `char data[N + 1]` | 结构体赋值会复制内容；有效字符串末尾有终止符 |
+| `bytes<N>` | `length` + `uint8_t data[N]` | 结构体赋值会复制全部内联存储 |
+| 无界 `string` / `bytes` | `wl_codec_string_t` / `wl_codec_bytes_t` 指针视图 | 纯 codec 解码借用输入，需单独复制内容 |
 
-`wlc` 生成的字段结构直接把长度和只读视图绑在一起。接收端在解包时只是把切片指针指向内部临时缓冲或线上传输帧，**不会自动帮你拷贝到永久堆内存**。
+节点路由要求静态帧长有界。无界视图用于独立 codec，不是默认节点的零拷贝字段。
 
-| `.wl` 类型 | 线上传输格式 | 生成 C 字段类型 | 解码内容存放位置 |
-| :--- | :--- | :--- | :--- |
-| `string<N>` | UTF-8 长度前缀 + 字节 | `wl_string_view_t`（`data`、`length`） | 指向接收解码缓冲区 |
-| `bytes<N>` | 原始长度前缀 + 字节 | `wl_bytes_view_t`（`data`、`length`） | 指向接收解码缓冲区 |
+有界字符串仍以 `length` 表示完整内容：中间可能含 `\0`，`printf("%s")` 会提前截断。默认值与终止符不改变线上按长度编码的规则。
 
-注意 `wl_string_view_t` 与 `wl_bytes_view_t` 都不以 `\0` 结尾，甚至 `bytes<N>` 内部可以合法包含 `\0` 字节。读取数据时必须始终以 `length` 为准，使用 `memcpy` 或带长度参数的函数。
+## 使用 setter，检查容量
 
-## 生命周期核心原则：回调返回即失效
+`<msg>_set_<field>(&value, cstr)` 用于有界字符串；bytes 版本为 `(&value, data, length)`。两者检查容量并复制内容；返回 `false` 时原字段保持不变。可选字段成功赋值后同时置 `has_<field>`。无界字符串可使用 `WL_STR("literal")` 构造借用视图，但字符串必须活到编码完成。
 
-接收端消息回调（`on_<msg>`）或异步 RPC 完成回调（`done`）收到指针时，指针指向的数据仅在**本次回调函数执行期间**有效。
+## 回调内复制整个有界响应
 
-一旦回调函数 `return`，内核会立即回收当前帧槽位并覆盖缓冲区。如果想在主循环或另一个线程中继续使用设备名称或字节负载，必须在回调结束前主动把数据拷贝到调用方持有的结构体里。
+回调收到的 `const info_response_t *` 只在回调期间有效。由于示例全部字段有界，可以直接 `saved = *response`，不用逐字段深拷贝。保存结构体指针则仍会悬空。
 
-```mermaid
-sequenceDiagram
-    participant K as wl_kernel
-    participant CB as 接收/完成回调
-    participant App as 用户持久状态
-    K->>CB: 传入响应结构体 (name 指向临时帧缓冲)
-    CB->>App: memcpy(app.buf, resp.name.data, resp.name.length)
-    CB-->>K: 回调返回
-    Note over K: 内核立即复用或释放帧缓冲区
-    Note over App: app.buf 中的拷贝依然安全可用
-```
-
-下面的示例来自 [examples/02_device_info/client.c](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/client.c)。可以看到即使连续发起查询并关闭端点，提前深拷贝出来的数据在端点关闭后依然安全有效，而且连中间嵌入的 `\0` 也完整保留。
+下面来自 `examples/02_device_info/client.c`；完成函数把响应按值保存，节点关闭后名称仍完整：
 
 {/* [docs:device_info_client] */}
 ```c
 for (unsigned call = 0; call < 8; ++call) {
-  info_request_t request = {0}; wl_kernel_call_handle_t handle;
-  EXAMPLE_REQUIRE(device_info_kernel_get_info_start(&endpoints[0], &request, pair.now, 500,
-    info_completed, NULL, &handle) == WL_OK);
-  example_pair_wait(&pair, &info_count, call + 1);
-  EXAMPLE_REQUIRE(info_result.outcome == WL_KERNEL_SUCCESS && info_value.query_count == call + 1);
+  EXAMPLE_REQUIRE(info_client_call_get_info(&caller, &(info_request_t){0}, done) == WL_OK);
+  EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
+  EXAMPLE_REQUIRE(info_server_step(&callee, call) == WL_OK);
+  EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
+  EXAMPLE_REQUIRE(completed == call + 1 && result.query_count == call + 1);
 }
-example_pair_close(&pair);
-EXAMPLE_REQUIRE(info_value.name.length == 11 && memcmp(info_value.name.data, "workbench\0x", 11) == 0);
+EXAMPLE_REQUIRE(info_client_close(&caller) == WL_OK && info_server_close(&callee) == WL_OK);
+EXAMPLE_REQUIRE(info_client_quiescent(&caller) && info_server_quiescent(&callee));
+EXAMPLE_REQUIRE(result.name.length == 11 && memcmp(result.name.data, "workbench\0x", 11) == 0);
 ```
+{/* [/docs:device_info_client] */}
 
-## 发送端同样有借用期限
-
-与接收端相对，发送消息或发起 RPC 时，内核在 `send` 或 `start` 返回之前就已经把消息序列化写入内部发送队列。因此调用 `send` 或 `start` 返回后，你可以立刻销毁、清空或覆盖局部请求结构体，不会破坏正在排队传输的字节流。
+发送或发起 RPC 返回 `WL_OK` 后，编码已快照到节点内部，输入结构体可以立即修改。返回背压则尚未接纳，应用自己保存待重试数据。
 
 <MultipleChoice
-  id="q-lesson-04-lifetime"
-  question="在 RPC 完成回调之外（例如主循环后续步骤中）想要保留响应中的 string<64> 字段，下列哪项做法是正确的？"
+  id="lesson-04-copy"
+  question="想在回调之外保留仅含有界字段的 info_response_t，应该怎样做？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
-    {
-      label: "直接保存 resp->name.data 指针并在主循环里用 printf(\"%s\") 打印",
-      correct: false,
-      feedback: "不对。回调返回后内核就会回收缓冲区，且 wl_string_view_t 不保证以 \\0 结尾，两种假设都会导致未定义行为。"
-    },
-    {
-      label: "在回调函数内按 resp->name.length 将字节 memcpy 到调用方自带的静态缓冲区，并自己记录长度",
-      correct: true,
-      feedback: "完全正确。视图只在回调作用域内有效，脱离作用域前必须按 length 完成深拷贝。"
-    },
-    {
-      label: "调用 free(resp->name.data) 接管其内存所有权",
-      correct: false,
-      feedback: "不对。Wirelink 核心从不调用 malloc，也绝不能对视图指针调用 free。"
-    }
-  ]}
+  {
+    "label": "在回调中把整个响应结构体赋值给应用持有的结构体。",
+    "correct": true,
+    "feedback": "正确。有界 string/bytes 内联保存，结构体复制会复制内容；回调指针本身不能保留。"
+  },
+  {
+    "label": "只保存 response 指针，关闭节点后继续读取。",
+    "correct": false,
+    "feedback": "不对。指针指向回调临时值，回调返回后不能继续使用。"
+  },
+  {
+    "label": "调用 free(response->name.data)。",
+    "correct": false,
+    "feedback": "不对。data 是内联数组，不是堆分配内存。"
+  }
+]}
 />
 
-<Checklist
-  id="checklist-lesson-04"
-  title="本课检查清单"
-  progressTemplate="已完成 {done} / {total} 项"
-  items={[
-    "理解为何 Wirelink 核心禁用堆分配并用 string<N> / bytes<N> 限定上界",
-    "分清发送参数（函数返回即可销毁）与接收视图（仅回调内有效）的生命周期",
-    "习惯按照 length 使用 memcpy，不假设字符串自带 \\0 终止符"
-  ]}
-/>
+<Checklist id="checklist-04" title="本课检查清单" progressTemplate="已完成 {done} / {total} 项" items={["区分有界内联字段与无界借用视图。", "按 length 处理可能含零字节的字符串。", "回调内保存值，不保存临时结构体指针。"]} />
+
+下一课：[05 并发、背压与长任务](/wirelink/zh-cn/learn/05-concurrency-backpressure/)。

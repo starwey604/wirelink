@@ -1,0 +1,58 @@
+---
+title: 节点声明：角色、分帧与 I/O
+description: 在同一份 .wl 中显式声明 call、serve、send、recv，按角色生成代码与存储。
+sidebar:
+  order: 2
+---
+
+`message` 和顶层 `rpc` 定义共享协议；`node` 选择一个固件或客户端使用哪些能力。每条路由都显式声明方向，不会自动为另一端启用对称路由。
+
+```wl
+message Request @id(1) { uint32 value @id(1); }
+message Response @id(2) { uint32 value @id(1); }
+message Event @id(3) { uint32 sequence @id(1); }
+rpc Execute(Request) -> Response;
+
+node controller { call Execute; recv Event; }
+node device { serve Execute; send Event; }
+```
+
+## 五项配置及默认值
+
+| 配置 | 默认值 | 可选值与含义 |
+| --- | --- | --- |
+| `framing` | `native` | `native`、`cobs_crc16`、`length16` |
+| `codec` | `schema_v1` | 普通消息可选 `positional_v1`；RPC 固定 schema_v1 |
+| `io` | `embedded` | 内嵌 port/双 RX/流缓冲；`external` 挂载已有 port |
+| `handlers` | `static` | 业务函数直接链接；`dynamic` 显式使用回调表与 user |
+| `timeout_ms` | `500` | `1..2147483647`；用于简化 RPC 调用 |
+
+```wl
+node serial_device {
+  framing = cobs_crc16;
+  timeout_ms = 1000;
+  serve Execute;
+  send Event;
+}
+```
+
+只改动需要覆盖的配置，其余省略。一个 `.wl` 没有节点时只生成 codecs；一个节点时自动选择；多个节点使用 `--node <name>` 或 `--all-nodes`。
+
+## 路由与静态函数
+
+| 声明 | 生成接口 |
+| --- | --- |
+| `send Event;` | `<node>_send_event(self, value)` |
+| `recv Event;` | `void <node>_on_event(self, const event_t *)` |
+| `call Execute;` | `<node>_call_execute` 和 `_ex` |
+| `serve Execute;` | `int32_t <node>_on_execute(self, const request_t *, response_t *)` |
+
+`recv Event = app_event;` / `serve Execute = app_execute;` 可指定静态业务符号。`call Execute = app_done;` 绑定默认完成函数，简化调用可省略 callback。普通消息可在路由上写 `@codec(positional_v1)` 覆盖节点默认编码；两端必须一致。
+
+`handlers = dynamic` 才生成 `<node>_handlers_t`。表字段是 `on_event` / `on_execute`，其首参为 `void *user`。静态模式首参则是 `<node>_node_t *self`。
+
+## 多模块产品
+
+用 `import "motor.wl";`、`import "upgrade.wl";` 汇集共享类型与 RPC，再在产品 node 中列出实际 `serve` / `send` 等路由。`examples/04_composed_services/product.wl` 展示这种组合，CMake 直接 `NODE product`，不再组合部署文件。
+
+帧上限由已选择角色计算，分别输出 REQUEST/REPLY/MESSAGE/RX/TX 宏。无 `call`、`serve` 或 `send` 时对应字节池为零，不要求 `--gc-sections` 才能链接单角色固件。

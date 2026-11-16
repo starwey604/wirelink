@@ -1,6 +1,6 @@
 ---
-title: 06. 上位机 SDK 与多传输切换
-description: 体验 Python/C++20 跨语言直连，以及同一套内核代码如何在串口与 UDP 之间零修改迁移。
+title: 06 上位机 SDK 与多传输接入
+description: 选择 node framing，生成 UDP Python/C++20 SDK。
 sidebar:
   order: 6
 ---
@@ -8,26 +8,27 @@ sidebar:
 import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
-前面 5 课的所有逻辑都运行在内存环回上。要真正连接外部设备或上位机，你无需修改一行业务代码：在固件侧把传输绑定从内存换成真实串口或网卡，而在上位机侧直接加载由同一份 `.wl` 生成的 Python 或 C++20 SDK 即可。
+消息与 RPC 定义可以跨链路复用，物理胶水仍须满足对应传输的边界和所有权契约。节点默认 embedded/native；异步 DMA 与现有适配器通常选择 external。
 
-## 两种封装载体：`native_packet` 与 `cobs_stream`
+## 在 node 内选择 framing
 
-Wirelink 在绑定配置（`.bind.wl`）中支持按物理介质特性选择不同的线缆成帧策略：
+| `framing` | 使用场景 | 默认 embedded 接收入口 |
+| --- | --- | --- |
+| `native` | 已保留每帧边界的 UDP、包队列或已分包的 USB 接入 | `<node>_rx_packet` |
+| `cobs_crc16` | UART、CDC ACM 等连续字节流 | `<node>_rx_feed(..., &consumed)` |
+| `length16` | 有完整性保障的受控字节通道 | `<node>_rx_feed(..., &consumed)` |
 
-| 传输属性 | `native_packet` | `cobs_stream` | `bus_length16` |
-| :--- | :--- | :--- | :--- |
-| 适用物理层 | UDP、USB Bulk、共享内存队列 | UART、RTT、USB CDC ACM 字节流 | SPI、I2C 等长度受控块总线 |
-| 边界感知 | 传输层原生保留帧边界 | 无原生边界，需字节流切帧 | 2 字节大端长度头 + 负载 |
-| 线缆开销 | 0 字节额外成帧开销 | `0x00` 哨兵 + COBS + CRC-16/CCITT | 2 字节长度头（无内建 CRC） |
-| 典型下位机接口 | `wl_packet_port_t` | `wl_byte_fifo_t` + `wl_packet_stream_t` | `wl_packet_stream_t` |
+COBS 使用 CRC-16/CCITT-FALSE 和 `0x00` 定界；length16 使用 **2 字节小端长度头**，不附 CRC。USB Bulk 的任意一次 USB transfer 不自动等于一帧，应由具体适配器提供完整包边界。
 
-无论是哪一种物理通道，只要底层的 `packet_port` 把收到的 Wire v2 报文递交给 `wl_kernel_t`，业务层发送与接收的 API 形态完全一致。
+## 生成 UDP 上位机 SDK
 
-## 上位机一步直连：`wlc sdk` Python 绑定
+当前 `wlc sdk` 生成 UDP C++20/Python 客户端，不是串口 SDK。选择含 `call` 的节点；存在多个候选时必须用 `--node`：
 
-利用 `wlc sdk` 命令，编译器能直接根据 `.wl` 与 `.bind.wl` 生成包含 C++20 与 Python 客户端的完整 SDK 工程（内置同步 `Client` 与异步 `AsyncClient`）。如果服务端以 `WL_KERNEL_REJECTED` 拒绝了请求，Python SDK 会自动将错误码映射成 `RejectedError` 异常并透传 `error.status`。
+```sh
+wlc sdk examples/01_rpc/calculator.wl --node client --name calculator --out-dir sdk
+```
 
-以下代码来自 [examples/06_bindings/tests/check_wheel.py](https://github.com/starwey604/wirelink/blob/main/examples/06_bindings/tests/check_wheel.py)，演示了通过 UDP 连接设备、完成正常加法 RPC，以及捕获整数溢出拒绝异常的完整过程：
+生成工程含 CMake、Python 包与 `.pyi`。构建好的 wheel 在兼容平台上运行时不需要 WLC；构建原生扩展仍需要 C/C++ 工具链。固件侧分别生成 server 并接入 UDP 物理驱动。
 
 {/* [docs:python_sdk_client] */}
 ```python
@@ -39,12 +40,13 @@ with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
     except RejectedError as error:
         assert error.status == 1
 ```
+{/* [/docs:python_sdk_client] */}
 
-## 固件端的阻塞等待与定时推送
+导入 `Client`、`Udp`、`RejectedError` 并准备实际服务端地址后即可使用；完整可运行环境见 `examples/06_bindings/tests/check_wheel.py`。
 
-在真机主循环或 POSIX / Zephyr 服务线程中，端点不仅要响应上位机 RPC，还需要周期性向外推送遥测。标准主循环遵循「步进内核 → 检查业务定时发送 → 计算下一次最近截止时间并休眠等待」的节拍，避免空转占满 CPU。
+## 实际 UDP 服务端循环
 
-以下 UDP 服务端循环来自 [examples/05_zephyr_udp/server.c](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)：
+`examples/05_zephyr_udp` 用 external/static 节点对接已有适配器。`step → 业务定时任务 → wait` 避免无事时空转：
 
 {/* [docs:udp_server_loop] */}
 ```c
@@ -52,8 +54,8 @@ while (example_running()) {
   uint32_t now = example_now_ms();
   if (example_udp_step(udp, &server.core, now) != WL_OK) { status = 1; break; }
   if ((int32_t)(now - due) >= 0) {
-    telemetry_t sample = {.has_sample = true, .sample = ++sequence};
-    const wl_err_t error = udp_demo_kernel_send_telemetry(&server, &sample);
+    telemetry_t sample = {.sample = ++sequence};
+    const wl_err_t error = udp_server_send_telemetry(&server, &sample);
     if (error != WL_OK && error != WL_ERR_WOULD_BLOCK) { status = 1; break; }
     due = now + 20;
   }
@@ -62,46 +64,29 @@ while (example_running()) {
   if (example_udp_wait(udp, &server.core, wait) != WL_OK) { status = 1; break; }
 }
 ```
+{/* [/docs:udp_server_loop] */}
 
-```mermaid
-sequenceDiagram
-    participant Py as Python SDK Client
-    participant UDP as UDP Socket (native_packet)
-    participant Srv as C11 Server (wl_kernel)
-    Srv->>UDP: 每 20ms 发送 telemetry 单向消息
-    UDP-->>Py: 接收并解码 telemetry 事件
-    Py->>UDP: client.add(left=20, right=22)
-    UDP->>Srv: 唤醒 example_udp_wait -> step 解码请求
-    Srv-->>UDP: 写回 sum=42 响应
-    UDP-->>Py: 返回 AddResponse(sum=42)
-```
+这里周期遥测在本地背压时允许跳过一帧，下一周期发送新值。与上一课保留任务完成通知的策略不同，应按业务选择。
 
 <MultipleChoice
-  id="q-lesson-06-framing"
-  question="打算让 MCU 通过无帧边界的裸 UART（只有字节收发中断）与上位机通信时，应优先选用哪种封装配置？"
+  id="lesson-06-framing"
+  question="裸 UART 只有字节流边界，node 应选什么？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
-    {
-      label: "native_packet",
-      correct: false,
-      feedback: "不对。native_packet 不插入任何定界符或 CRC，只能在 UDP、USB Bulk 这类原生支持分组边界的传输上使用。"
-    },
-    {
-      label: "cobs_stream",
-      correct: true,
-      feedback: "完全正确。cobs_stream 用 0x00 定界并在帧尾附带 CRC-16/CCITT，能在任意断包与粘包的串口流中可靠还原帧。"
-    }
-  ]}
+  {
+    "label": "framing = cobs_crc16;",
+    "correct": true,
+    "feedback": "正确。生成器负责 COBS/CRC 分帧，应用按 consumed 保留未消费字节。"
+  },
+  {
+    "label": "framing = native;，每次 UART 中断算一帧。",
+    "correct": false,
+    "feedback": "不对。中断批次可能拆开或合并协议帧，不能代替帧边界。"
+  }
+]}
 />
 
-<Checklist
-  id="checklist-lesson-06"
-  title="本课检查清单"
-  progressTemplate="已完成 {done} / {total} 项"
-  items={[
-    "分清 native_packet（分组传输）与 cobs_stream（字节流传输）的适用场景",
-    "了解 wlc sdk 如何通过 UDP 或串口把服务端直接暴露给 Python/C++20 调用方",
-    "掌握 step -> 定时发送 -> wait 的零空转事件循环节拍"
-  ]}
-/>
+<Checklist id="checklist-06" title="本课检查清单" progressTemplate="已完成 {done} / {total} 项" items={["用 native、cobs_crc16、length16 区分物理边界。", "明确当前生成 SDK 是 UDP 客户端。", "为不同业务选择背压重试或跳过旧遥测。"]} />
+
+继续：[节点声明](/wirelink/zh-cn/concepts/nodes/) · [驱动接入](/wirelink/zh-cn/how-to/custom-drivers/) · [SDK 指南](/wirelink/zh-cn/how-to/host-sdks/)。

@@ -29,7 +29,7 @@ Wirelink 的线缆层将「内核规范帧（Canonical Frame）」与「外层�
 
 ## 小端定长 RPC 子头
 
-Wire v2 将 RPC 元数据全部收敛为 **32 位自然对齐的小端整数**：
+Wire v2 将 RPC 元数据全部收敛为 **32 位小端整数**（通过 `wl_wire_get_u32` / `wl_wire_put_u32` 读写，输入缓冲不要求自然对齐）：
 
 - **请求与成功响应（`kind = 1` 或 `2`）**: 先接 8 字节子头 `[session (uint32 LE) | operation (uint32 LE)]`，随后紧跟编码后的请求或响应消息体。其中 `session` 与 `operation` 均严禁为 `0`。
 - **业务拒绝响应（`kind = 3`）**: 固定 12 字节 Payload `[session (uint32 LE) | operation (uint32 LE) | status (int32 LE)]`，无消息体。其中 `status` 为服务端返回的非零业务状态码；若 `status == 0` 视为畸形包。
@@ -51,9 +51,9 @@ Wire v2 将 RPC 元数据全部收敛为 **32 位自然对齐的小端整数**�
 
 ### Positional-v1（定序紧凑编码）
 
-当非 RPC 单向路由选择 Positional-v1 编码时，线缆上消除全部字段 Tag，仅保留按声明序紧凑排列的数据体与前导 Optional 存在位图（`ceil(optional_count / 8)` 字节）；若字段全部为 `required`，存在位图开销为 **0 字节**。
+当非 RPC 单向路由选择 Positional-v1 编码时，线缆上消除全部字段 Tag，仅保留按声明序紧凑排列的数据体与前导 Optional 存在位图（`ceil(optional_count / 8)` 字节）；由于字段默认必选，没有显式 `optional` / `optional packed` 字段时，存在位图开销为 **0 字节**。
 
 ## 外层字节流分帧
 
-- **`cobs_stream`（串口 / 字节流）**: `COBS_Encode( Canonical Frame || CRC16_BE ) || 0x00`。采用 CRC-16/CCITT-FALSE（初值 `0xFFFF`，多项式 `0x1021`，2 字节大端）。最大 2052 B 规范帧经过 COBS+CRC16 后不超过 2064 字节。
-- **`bus_length16`（干净块总线）**: `len (uint16 LE) || Canonical Frame`。`len` 必须满足 `4 .. 2052`，无额外 CRC 开销，封装上界为 `size + 2`。
+- **`cobs_crc16`（串口 / 字节流）**: `COBS_Encode( Canonical Frame || CRC16_BE ) || 0x00`。采用 CRC-16/CCITT-FALSE（初值 `0xFFFF`，多项式 `0x1021`，2 字节大端）。最大 2052 B 规范帧经过 COBS+CRC16 后不超过 2064 字节。
+- **`length16`（干净块总线）**: `len (uint16 LE) || Canonical Frame`。`len` 必须满足 `4 .. 2052`，无额外 CRC 开销，封装上界为 `size + 2`。

@@ -9,21 +9,23 @@ Wirelink 的 `src/` 核心不包含任何互斥锁、线程原语或系统时钟
 
 ## 单所有权契约（Single-Owner Contract）
 
-`wl_kernel_t` 及其上层生成的 `<mod>_kernel_t` 实例的所有公共操作（`init`、`send`、`start`、`cancel`、`step`、`ready`、`close`、`quiescent`）与用户回调（`on_<msg>`、`done`）都必须由**同一个执行上下文（Owner）**串行调用。
+`wl_kernel_t` 及其上层生成的 `<node>_node_t` 实例的所有公共操作（`init`、`send`、`call`、`cancel`、`step`、`ready`、`close`、`quiescent`）与用户回调（`on_<msg>`、`done`）都必须由**同一个执行上下文（Owner）**串行调用。
 
 - **I/O 生产者的边界**: 中断服务例程（ISR）或独立 DMA / Socket 线程**只能**操作底层 `wl_packet_port_t` 暴露的轻量级无锁接口（如 `wl_packet_rx_claim`、`wl_packet_rx_commit`、`wl_packet_tx_publish`、`wl_packet_activity`），禁止触碰 `wl_kernel_t` 或触发编解码与业务回调。
 - **防重入保证**: `wl_kernel_cancel` 与发送 API 不会在内部栈帧直接触发业务回调，所有解包投递、超时计算与取消通知都在 `wl_kernel_step` 推进期间统一派发。
+
+默认 embedded 的字节流喂入建议由同一 owner 处理；ISR 先写 FIFO。简化 call 不读系统时钟，超时从下一次 `step(now)` 开始。需要把提交后的排队时间计入预算时，用显式 now 的 `_ex`。
 
 ## 裸机主循环 vs RTOS 事件唤醒
 
 ### 1. 裸机前后台循环（Superloop）
 
-在无 RTOS 的 MCU 上，只需周期性传入当前单调毫秒时间戳 `now` 并推进步进预算（`budget`，范围 `1 .. WL_KERNEL_BUDGET`，通常为 `16`）：
+在无 RTOS 的 MCU 上，只需周期性传入当前单调毫秒时间戳 `now` 并推进步进预算；生成的 step 使用预算 16，直接调用 wl_kernel_step 时预算范围为 `1 .. WL_KERNEL_BUDGET`：
 
 ```c
 for (;;) {
   uint32_t now = board_millis();
-  wl_err_t err = my_proto_kernel_step(&endpoint, now);
+  wl_err_t err = my_proto_step(&endpoint, now);
   if (err != WL_OK && err != WL_ERR_WOULD_BLOCK) {
     /* 记录致命错误或触发重置 */
   }
@@ -46,7 +48,7 @@ for (;;) {
 
 在重启端口、重载配置或安全卸载线程前，绝对不能粗暴释放底层缓冲。请按以下四步排干状态：
 
-1. 调用 `wl_kernel_close(&core)` 进入关闭状态，并调用 `wl_packet_stop(port)` 停止底层新帧注入与发送提交。
-2. 等待适配器确认不再持有物理 TX 引用且不再写入 RX 槽位。
+1. 停止 RX 生产者并完成同步，再调用节点 `close` 或 `wl_kernel_close(&core)` 进入关闭状态；external 驱动同时执行自身停机流程和 `wl_packet_stop(port)`。
+2. 对异步 external 驱动，等待适配器确认不再持有物理 TX 引用且不再写入 RX 槽位。
 3. 继续运行驱动循环调用 `wl_kernel_step`，直到 `wl_kernel_quiescent(&core)` 返回非零，确认所有在途调用的终态回调（如 `WL_KERNEL_CLOSED`）均已派发完毕。
 4. 确认 `wl_packet_quiescent(port)` 与适配器停机完成后，方可复用或销毁静态缓冲区。

@@ -39,7 +39,7 @@ cargo test --manifest-path wlc/Cargo.toml
 新增或编辑在线文档后，运行教程代码片段校验与 Astro 静态构建验证：
 
 ```sh
-python3 tests/tutorials/doc_sources.py site/src/content/docs/zh-cn
+npm --prefix site run check:docs
 npm --prefix site run build
 ```
 

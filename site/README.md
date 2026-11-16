@@ -14,7 +14,11 @@ npm run dev
 Build and check the static site with:
 
 ```sh
+npm run check:docs
 npm run build
 ```
 
 Deployment setup is documented in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+`check:docs` checks example-backed snippets, internal documentation routes and
+single-answer quizzes. `build` type-checks Astro/MDX and creates the static site.
