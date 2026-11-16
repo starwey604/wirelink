@@ -1,16 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Extend only four application files; unchanged generation/owner infrastructure."""
+"""Extend only three application files; unchanged generation/owner infrastructure."""
 import argparse
-import hashlib
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 from device_service import check_demo
-
-
-def digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main():
@@ -28,24 +23,23 @@ def main():
         example = work / 'example'
         shutil.copytree(original, example)
         (work / 'common').mkdir()
-        shutil.copyfile(root / 'examples/common/loopback_owner.h', work / 'common/loopback_owner.h')
-        before = {p.name: digest(p) for p in example.iterdir() if p.is_file()}
-        for name, addition in [
-            ('device.wl', '\nmessage GetBuildLabelRequest @id(140) {}\nmessage GetBuildLabelResponse @id(141) { required string<31> label @id(1); }\n'),
-            ('services.bind.wl', '\nrpc GetBuildLabel { request=GetBuildLabelRequest; response=GetBuildLabelResponse; }\n'),
-        ]:
-            path = example / name
-            path.write_text(path.read_text() + addition)
+        for name in ('loopback_owner.h', 'example_check.h'):
+            shutil.copyfile(root / 'examples/common' / name, work / 'common' / name)
+        before = {p.name: p.read_bytes() for p in example.iterdir() if p.is_file()}
+        path = example / 'device.wl'
+        text = path.read_text() + '\nmessage GetBuildLabelRequest @id(140) {}\nmessage GetBuildLabelResponse @id(141) { string<31> label @id(1); }\nrpc GetBuildLabel(GetBuildLabelRequest) -> GetBuildLabelResponse;\n'
+        text = text.replace('node device_server {', 'node device_server {\n  serve GetBuildLabel;')
+        text = text.replace('node device_client {', 'node device_client {\n  call GetBuildLabel;')
+        path.write_text(text)
         path = example / 'device_service.c'
         text = path.read_text()
-        text = text.replace('/* extension: handlers */', '''static int32_t get_build_label(void *user, const get_build_label_request_t *request,
+        text = text.replace('/* extension: handlers */', '''int32_t device_server_on_get_build_label(device_server_node_t *self, const get_build_label_request_t *request,
     get_build_label_response_t *response) {
-  (void)user; (void)request;
-  response->has_label = true; response->label.length = 11;
+  (void)self; (void)request;
+  response->label.length = 11;
   memcpy(response->label.data, "development", 11); return 0;
 }
 ''')
-        text = text.replace('/* extension: registration */', 'config->on_rpc_get_build_label = get_build_label;')
         path.write_text(text)
         path = example / 'client.c'
         text = path.read_text().replace('/* extension: completions */', 'EXAMPLE_COMPLETION(get_build_label, get_build_label_response)')
@@ -54,9 +48,9 @@ def main():
   EXAMPLE_REQUIRE(get_build_label_value.label.length == 11 && memcmp(get_build_label_value.label.data, "development", 11) == 0);
   puts("new GetBuildLabel RPC: OK");''')
         path.write_text(text)
-        changed = {name for name, old in before.items() if digest(example / name) != old}
-        assert changed == {'device.wl', 'services.bind.wl', 'device_service.c', 'client.c'}, changed
-        assert before == {name: digest(original / name) for name in before}
+        changed = {name for name, old in before.items() if (example / name).read_bytes() != old}
+        assert changed == {'device.wl', 'device_service.c', 'client.c'}, changed
+        assert before == {name: (original / name).read_bytes() for name in before}
         (work / 'CMakeLists.txt').write_text(f'''cmake_minimum_required(VERSION 3.21)
 project(current_rpc_extension LANGUAGES C)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
@@ -74,7 +68,7 @@ add_subdirectory(example)
         subprocess.run([args.cmake, '--build', str(build), '--target', 'wirelink_device_service_demo', '--config', 'Release', '--parallel', '2'], check=True, timeout=90)
         candidates = [build / 'example' / suffix for suffix in ['wirelink_device_service_demo', 'wirelink_device_service_demo.exe', 'Release/wirelink_device_service_demo.exe']]
         check_demo(next(path for path in candidates if path.is_file()), extended=True)
-        print('New RPC acceptance: exactly four application files changed; infrastructure unchanged')
+        print('New RPC acceptance: exactly three application files changed; infrastructure unchanged')
 
 
 if __name__ == '__main__':

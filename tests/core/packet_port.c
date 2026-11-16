@@ -182,13 +182,43 @@ static void test_stop_reinit_exhaustion(void) {
   CHECK(wl_packet_tx_submit(&f.port, &source, 1U, &tx) == WL_ERR_ID_EXHAUSTED);
 }
 
+static void test_rx_push(void) {
+  fixture_t f = {0};
+  init(&f, 106U);
+  const uint8_t data[] = {1U, 2U, 3U};
+  CHECK(wl_packet_rx_push(NULL, data, sizeof(data)) == WL_ERR_INVALID_ARG);
+  CHECK(wl_packet_rx_push(&f.port, NULL, sizeof(data)) == WL_ERR_INVALID_ARG);
+  CHECK(wl_packet_rx_push(&f.port, data, 0U) == WL_ERR_INVALID_ARG);
+  CHECK(wl_packet_rx_push(&f.port, data, 33U) == WL_ERR_BUF_TOO_SMALL);
+  CHECK(wl_packet_rx_available(&f.port));
+  for (unsigned i = 0; i < WL_PACKET_RX_SLOTS; ++i)
+    CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_OK);
+  CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_ERR_WOULD_BLOCK);
+  wl_packet_borrow_t borrow;
+  for (unsigned i = 0; i < WL_PACKET_RX_SLOTS; ++i) {
+    CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
+    CHECK(borrow.length == sizeof(data) && !memcmp(borrow.data, data, sizeof(data)));
+    CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
+  }
+  wl_packet_claim_t held;
+  CHECK(wl_packet_rx_claim(&f.port, 1U, &held) == WL_OK);
+  CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_ERR_BUSY);
+  CHECK(wl_packet_rx_abort(&f.port, &held) == WL_OK);
+  CHECK(wl_packet_rx_available(&f.port));
+  wl_packet_stop(&f.port);
+  CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_ERR_INVALID_STATE);
+  CHECK(wl_packet_quiescent(&f.port));
+}
+
 #ifdef WL_PACKET_ZTEST
+ZTEST(static_packet_port, rx_push) { test_rx_push(); }
 ZTEST(static_packet_port, rx_ownership) { test_rx_ownership(); }
 ZTEST(static_packet_port, tx_lease) { test_tx_lease(); }
 ZTEST(static_packet_port, stop_reinit_exhaustion) { test_stop_reinit_exhaustion(); }
 ZTEST_SUITE(static_packet_port, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_rx_push();
   test_rx_ownership();
   test_tx_lease();
   test_stop_reinit_exhaustion();

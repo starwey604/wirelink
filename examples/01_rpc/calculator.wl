@@ -1,12 +1,10 @@
-version 1;
-
 // [docs:calculator_schema]
 message AddRequest @id(20) {
-  required int32 left @id(1);
-  required int32 right @id(2);
+  int32 left @id(1);
+  int32 right @id(2);
 }
-
-message AddResponse @id(21) {
-  required int32 sum @id(1);
-}
+message AddResponse @id(21) { int32 sum @id(1); }
+rpc Add(AddRequest) -> AddResponse;
+node client { call Add; }
+node server { serve Add; }
 // [/docs:calculator_schema]

@@ -19,6 +19,7 @@ endif()
 
 target_sources(testbinary PRIVATE
   src/main.c
+  ${WIRELINK_ROOT}/src/codec.c
   ${WLC_GENERATED_DIR}/control.c
 )
 

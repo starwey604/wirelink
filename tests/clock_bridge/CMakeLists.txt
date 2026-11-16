@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 add_library(wirelink_clock_bridge SHARED bridge.c native_clock.cpp)
 target_compile_definitions(wirelink_clock_bridge PRIVATE CLOCK_BRIDGE_BUILD)
-target_link_libraries(wirelink_clock_bridge PRIVATE calculator_protocol Wirelink::packet_loopback)
+target_link_libraries(wirelink_clock_bridge PRIVATE calculator_fixture_protocol Wirelink::packet_loopback)
 target_compile_features(wirelink_clock_bridge PRIVATE cxx_std_20)
 target_include_directories(wirelink_clock_bridge PRIVATE ../../runtime/host/include ../../examples/common)
 add_executable(wirelink_clock_bridge_cpp consumer.cpp)

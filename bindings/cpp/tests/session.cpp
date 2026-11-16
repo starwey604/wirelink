@@ -30,13 +30,13 @@ struct Call : wirelink::detail::OperationState<int32_t> {
   request_t request{};
   response_t response{};
   cpp_test_call_t bridge{};
-  explicit Call(int32_t input) { request.has_input = true; request.input = input; }
+  explicit Call(int32_t input) { request.input = input; }
   wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify,
                   void *user, wl_kernel_call_handle_t *handle) noexcept override {
     bridge.endpoint = endpoint; bridge.request = &request; bridge.response = &response;
     return cpp_test_submit(&bridge, now, timeout, notify, user, handle);
   }
-  int32_t decode_response() override { require(response.has_output); return response.output; }
+  int32_t decode_response() override { return response.output; }
 };
 class Server {
 public:

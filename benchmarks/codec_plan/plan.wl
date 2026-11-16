@@ -259,6 +259,6 @@ message Sparse64 @id(9) {
   optional uint32 f62 @id(61815);
   optional uint32 f63 @id(62812);
 }
-message Packed30 @id(10) { packed float32 values[30] @id(1); }
+message Packed30 @id(10) { optional packed float32 values[30] @id(1); }
 message Packed128 @id(11) { required packed float32 values[128] @id(21); }
-message Packed64 @id(12) { packed float64 values[64] @id(65535); }
+message Packed64 @id(12) { optional packed float64 values[64] @id(65535); }

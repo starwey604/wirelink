@@ -17,14 +17,11 @@ typedef struct add_request add_request_t;
 typedef struct add_response add_response_t;
 
 struct add_request {
-  bool has_left;
   int32_t left;
-  bool has_right;
   int32_t right;
 };
 
 struct add_response {
-  bool has_sum;
   int32_t sum;
 };
 
@@ -48,6 +45,37 @@ size_t add_response_encoded_size(const add_response_t *value);
 wl_codec_status_t add_response_encode(const add_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t add_response_decode(const uint8_t *input, size_t input_length, add_response_t *out);
 
+#include <wirelink/kernel.h>
+#include <wirelink/version.h>
+#if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(0, 14)
+#error "WLC requires generated-code contract 0.14"
+#endif
+
+typedef struct calculator_node calculator_node_t;
+#define CALCULATOR_REQUEST_FRAME_MAX 24U
+#define CALCULATOR_REPLY_FRAME_MAX 0U
+#define CALCULATOR_MESSAGE_FRAME_MAX 0U
+#define CALCULATOR_RX_FRAME_MAX 18U
+#define CALCULATOR_TX_FRAME_MAX 24U
+#define CALCULATOR_RX_WIRE_MAX 18U
+#define CALCULATOR_TX_WIRE_MAX 24U
+struct calculator_node {
+  wl_kernel_t core;
+  void *user;
+  wl_kernel_error_fn on_error;
+  uint8_t requests[WL_KERNEL_CALLS][24];
+};
+wl_err_t calculator_init(calculator_node_t *self, wl_packet_port_t *port);
+wl_err_t calculator_step(calculator_node_t *self, uint32_t now);
+/* Stop the RX producer before close, then step until quiescent. */
+wl_err_t calculator_close(calculator_node_t *self);
+int calculator_quiescent(const calculator_node_t *self);
+wl_err_t calculator_cancel(calculator_node_t *self, wl_kernel_call_handle_t handle);
+typedef void (*calculator_add_cb_t)(calculator_node_t *, wl_kernel_result_t, const add_response_t *);
+typedef void (*calculator_add_ex_cb_t)(void *, wl_kernel_result_t, const add_response_t *);
+/* Simplified calls start their timeout on the next step(now). */
+wl_err_t calculator_call_add(calculator_node_t *self, const add_request_t *request, calculator_add_cb_t callback);
+wl_err_t calculator_call_add_ex(calculator_node_t *self, const add_request_t *request, uint32_t now, uint32_t timeout_ms, calculator_add_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out);
 #ifdef __cplusplus
 }
 #endif

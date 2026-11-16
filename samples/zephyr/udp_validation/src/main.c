@@ -5,7 +5,7 @@
 #include "zephyr_owner.h"
 #include <string.h>
 /* Real generated RPCs over two real Zephyr UDP sockets. */
-static udp_demo_kernel_t endpoints[2];
+static udp_validation_node_t endpoints[2];
 static wl_packet_port_t ports[2];
 static wl_kernel_udp_t adapters[2];
 static uint8_t rx[2][2][2053];
@@ -35,8 +35,8 @@ static void setup(void) {
       .peer = address(base + 1U - side), .maximum_datagram_size = 2052, .service_budget = 8,
       .clock = {clock_read, NULL}};
     zassert_ok(wl_kernel_udp_open(&adapters[side], &config));
-    const udp_demo_kernel_handlers_t handlers = {.on_rpc_add = add, .on_message_telemetry = peer_sample};
-    zassert_ok(udp_demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, &states[side]));
+    const udp_validation_handlers_t handlers = {.on_add = add, .on_telemetry = peer_sample};
+    zassert_ok(udp_validation_init(&endpoints[side], &ports[side], &handlers, &states[side]));
   }
 }
 static void pass(void) {
@@ -50,22 +50,22 @@ static void close_pair(void) {
   }
 }
 static add_request_t request(int32_t left, int32_t right) {
-  return (add_request_t){.has_left = true, .left = left, .has_right = true, .right = right};
+  return (add_request_t){.left = left, .right = right};
 }
 ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
   setup();
   for (unsigned side = 0; side < 2; ++side) {
     for (unsigned slot = 0; slot < 4; ++slot) {
       add_request_t value = request(slot, 42 - slot); wl_kernel_call_handle_t handle;
-      zassert_ok(udp_demo_kernel_add_start(&endpoints[side], &value, tick, 500,
+      zassert_ok(udp_validation_call_add_ex(&endpoints[side], &value, tick, 500,
         peer_completed, &states[side], &handle));
       memset(&value, 0, sizeof(value));
     }
     add_request_t extra = request(1, 2); wl_kernel_call_handle_t handle;
-    zassert_equal(udp_demo_kernel_add_start(&endpoints[side], &extra, tick, 500,
+    zassert_equal(udp_validation_call_add_ex(&endpoints[side], &extra, tick, 500,
       peer_completed, &states[side], &handle), WL_ERR_WOULD_BLOCK);
-    telemetry_t sample = {.has_sample = true, .sample = 1234};
-    zassert_ok(udp_demo_kernel_send_telemetry(&endpoints[side], &sample));
+    telemetry_t sample = {.sample = 1234};
+    zassert_ok(udp_validation_send_telemetry(&endpoints[side], &sample));
     memset(&sample, 0, sizeof(sample));
   }
   for (unsigned i = 0; i < 500 && (states[0].completions != 4 || states[1].completions != 4 ||
@@ -81,13 +81,13 @@ ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
 ZTEST(udp_validation, test_business_rejection_cancel_timeout_wrap_and_close) {
   setup();
   add_request_t value = request(INT32_MAX, 1); wl_kernel_call_handle_t handle;
-  zassert_ok(udp_demo_kernel_add_start(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
+  zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
   for (unsigned i = 0; i < 500 && !states[0].completions; ++i) pass();
   zassert_equal(states[0].result.outcome, WL_KERNEL_REJECTED); zassert_equal(states[0].result.status, 1);
   value = request(20, 22); tick = UINT32_MAX - 2;
   wl_kernel_call_handle_t timed, cancelled;
-  zassert_ok(udp_demo_kernel_add_start(&endpoints[0], &value, tick, 5, peer_completed, &states[0], &timed));
-  zassert_ok(udp_demo_kernel_add_start(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &cancelled));
+  zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 5, peer_completed, &states[0], &timed));
+  zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &cancelled));
   zassert_ok(wl_kernel_cancel(&endpoints[0].core, cancelled));
   zassert_ok(peer_z_step(&adapters[0], &endpoints[0].core, tick));
   zassert_equal(states[0].completions, 2); zassert_equal(states[0].result.outcome, WL_KERNEL_CANCELLED);
@@ -98,7 +98,7 @@ ZTEST(udp_validation, test_business_rejection_cancel_timeout_wrap_and_close) {
    * create a second local completion. The kernel does not roll back side effects. */
   for (unsigned i = 0; i < 20; ++i) pass();
   zassert_true(executed >= 2); zassert_equal(states[0].completions, 3);
-  zassert_ok(udp_demo_kernel_add_start(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
+  zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
   close_pair();
   zassert_equal(states[0].completions, 4); zassert_equal(states[0].result.outcome, WL_KERNEL_CLOSED);
   setup();

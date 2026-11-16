@@ -114,7 +114,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
           CHECK(capacity >= 4U);
           memcpy(payload, &value, 4U);
           error = wl_kernel_call_commit(&f->core, slot, 21U, 22U, 4U, f->now,
-              1U + action, complete, callback, job, &job->handle);
+              1U + action, 1U, complete, callback, job, &job->handle);
         }
         value = 0; CHECK(job->callbacks == 0);
         if (error == WL_OK) ++f->admitted;

@@ -23,7 +23,7 @@ endfunction()
 wirelink_add_fuzzer(wirelink_fuzz_cobs cobs_decode.c)
 wirelink_add_fuzzer(wirelink_fuzz_kernel kernel.c)
 wirelink_add_fuzzer(wirelink_fuzz_packet_stream packet_stream.c)
-# Fuzz the current codec without rewriting frozen 0.12 conformance bytes.
+# Fuzz current codecs generated from the conformance schema.
 wirelink_wlc_generate_codec(TARGET wirelink_fuzz_codec
   SCHEMA "${PROJECT_SOURCE_DIR}/tests/fixtures/wlc/current/control.wl")
 target_compile_options(wirelink_fuzz_codec PRIVATE -fsanitize=fuzzer-no-link,address,undefined

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_CALCULATOR_EXAMPLE_SERVICE_H
 #define WIRELINK_CALCULATOR_EXAMPLE_SERVICE_H
-#include "calculator_kernel.h"
-int32_t calculator_add(void *, const add_request_t *, add_response_t *);
-void calculator_async_example(calculator_kernel_t *, calculator_kernel_t *);
+#include "calculator.h"
+void calculator_async_example(client_node_t *client);
+unsigned calculator_async_count(void);
 #endif

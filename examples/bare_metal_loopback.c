@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "demo_kernel.h"
+#include "demo.h"
 #include "wirelink/packet_loopback.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-static demo_kernel_t endpoints[2];
+static demo_node_t endpoints[2];
 static wl_packet_port_t ports[2];
 static uint8_t receive_storage[2][2][256];
 static wl_packet_loopback_t transport;
@@ -20,7 +20,6 @@ static void require(int condition) {
 static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user;
   ++executions;
-  response->has_output = true;
   response->output = request->input;
   return 0;
 }
@@ -46,26 +45,26 @@ int main(void) {
         .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
         .user = &transport.directions[side]};
     require(wl_packet_init(&ports[side], &config) == WL_OK);
-    demo_kernel_handlers_t handlers = {.on_rpc_execute = execute, .on_message_event = received};
-    require(demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, NULL) == WL_OK);
+    demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
+    require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
     /* [/docs:loopback_setup] */
     for (unsigned slot = 0; slot < WL_KERNEL_REPLIES; ++slot) {
-      request_t request = {.has_input = true, .input = INT32_MIN};
+      request_t request = {.input = INT32_MIN};
       wl_kernel_call_handle_t call;
-      require(demo_kernel_execute_start(&endpoints[side], &request, 0U, 500U,
+      require(demo_call_execute_ex(&endpoints[side], &request, 0U, 500U,
           completed, NULL, &call) == WL_OK);
       /* Admission copied the request; this object is no longer borrowed. */
       memset(&request, 0, sizeof(request));
     }
-    event_t event = {.has_data = true, .data = {.length = 3U, .data = {'a', 'b', 'c'}}};
-    require(demo_kernel_send_event(&endpoints[side], &event) == WL_OK);
+    event_t event = {.data = {.length = 3U, .data = {'a', 'b', 'c'}}};
+    require(demo_send_event(&endpoints[side], &event) == WL_OK);
     memset(&event, 0, sizeof(event));
   }
   const unsigned expected_rpcs = 2U * WL_KERNEL_REPLIES;
   for (uint32_t now = 0; now < 500U && (completions != expected_rpcs || messages != 2U); ++now) {
     /* All endpoint operations/callbacks share this owner. No core clock/thread. */
-    require(demo_kernel_step(&endpoints[0], now) == WL_OK);
-    require(demo_kernel_step(&endpoints[1], now) == WL_OK);
+    require(demo_step(&endpoints[0], now) == WL_OK);
+    require(demo_step(&endpoints[1], now) == WL_OK);
     require(wl_packet_loopback_service(&transport, 2U) == WL_OK);
   }
   require(completions == expected_rpcs && executions == expected_rpcs && messages == 2U);
@@ -73,7 +72,7 @@ int main(void) {
     require(wl_kernel_close(&endpoints[side].core) == WL_OK);
   wl_packet_loopback_stop(&transport);
   for (unsigned side = 0; side < 2U; ++side) {
-    require(demo_kernel_step(&endpoints[side], 500U) == WL_OK);
+    require(demo_step(&endpoints[side], 500U) == WL_OK);
     require(wl_kernel_quiescent(&endpoints[side].core));
   }
   puts("6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent");

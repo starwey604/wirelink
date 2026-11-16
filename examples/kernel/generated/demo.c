@@ -16,7 +16,6 @@
 static const wl_codec_desc_t event_desc;
 
 typedef struct wlc_scalar_shape_0_s {
-  bool h0;
   int32_t v0;
 } wlc_scalar_shape_0_t;
 
@@ -37,7 +36,6 @@ static size_t wlc_scalar_shape_0_encoded_size(const void *value) {
   if (value == NULL) return SIZE_MAX;
   wlc_scalar_shape_0_t v;
   memcpy(&v, value, sizeof(v));
-  if (!v.h0) return SIZE_MAX;
   return wlc_scalar_shape_0_measure_fields(&v);
 }
 
@@ -45,7 +43,6 @@ static wl_codec_status_t wlc_scalar_shape_0_encode(const void *value, uint8_t *o
   if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   wlc_scalar_shape_0_t v;
   memcpy(&v, value, sizeof(v));
-  if (!v.h0) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
   if (length == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   if (out == NULL || capacity < 6U) {
     const size_t need = wlc_scalar_shape_0_measure_fields(&v);
@@ -64,6 +61,7 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
   if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
   wlc_scalar_shape_0_t temp;
   wlc_scalar_shape_0_clear(&temp);
+  uint8_t seen = 0U;
   const uint8_t *cursor = input;
   const uint8_t *end = length != 0U ? input + length : input;
   while (cursor < end) {
@@ -77,14 +75,14 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
     switch ((uint16_t)number) {
       case 1U: {
         if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
-        if (temp.h0) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if ((seen & 1U) != 0U) return WL_CODEC_ERR_DUPLICATE_FIELD;
         uint64_t w = 0U;
         wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
         if (s != WL_CODEC_OK) return s;
         if (w > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
         const int32_t sv = wl_codec_unzz32((uint32_t)w);
         temp.v0 = (int32_t)sv;
-        temp.h0 = true;
+        seen |= 1U;
         break;
       }
       default: {
@@ -94,7 +92,7 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
       }
     }
   }
-  if (!temp.h0) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  if ((seen & 1U) != 1U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
   memcpy(out, &temp, sizeof(temp));
   return WL_CODEC_OK;
 }
@@ -133,7 +131,7 @@ wl_codec_status_t event_encode(const event_t *value, uint8_t *out, size_t out_ca
 wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; event_t scratch; return wl_codec_decode(&event_desc, input, input_length, out, &scratch); }
 
 static const wl_codec_field_t event_fields[] = {
-  { .number = 1U, .kind = WL_CODEC_KIND_INLINE_BYTES, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = (uint16_t)offsetof(event_t, has_data), .offset = (uint16_t)offsetof(event_t, data), .count_offset = (uint16_t)(offsetof(event_t, data.data) - offsetof(event_t, data)), .capacity_offset = 0U, .max_length = 9U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
+  { .number = 1U, .kind = WL_CODEC_KIND_INLINE_BYTES, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(event_t, data), .count_offset = (uint16_t)(offsetof(event_t, data.data) - offsetof(event_t, data)), .capacity_offset = 0U, .max_length = 9U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
 };
 static const wl_codec_desc_t event_desc = {
   .fields = event_fields,
@@ -150,3 +148,122 @@ static const wl_codec_desc_t event_desc = {
   .encode = NULL,
   .decode = NULL
 };
+
+
+#include <limits.h>
+wl_err_t demo_send_event(demo_node_t *self, const event_t *message) {
+  if (self == NULL || message == NULL) return WL_ERR_INVALID_ARG;
+  uint8_t *frame; size_t capacity;
+  wl_err_t error = wl_kernel_msg_claim(&self->core, &frame, &capacity);
+  if (error != WL_OK) return error;
+  size_t length = 0U;
+  if (event_encode(message, frame + 4U, capacity - 4U, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  error = wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, 42U, length);
+  return error == WL_OK ? wl_kernel_msg_commit(&self->core, length + 4U) : error;
+}
+static void demo_complete_execute(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+  (void)core;
+  response_t response;
+  const response_t *view = NULL;
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  }
+  ((demo_execute_cb_t)call->callback)((demo_node_t *)core, result, view);
+}
+static void demo_complete_execute_ex(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+  (void)core;
+  response_t response;
+  const response_t *view = NULL;
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  }
+  ((demo_execute_ex_cb_t)call->callback)(call->user, result, view);
+}
+static wl_err_t demo_call_execute_start(demo_node_t *self, const request_t *request, uint32_t now, uint32_t timeout, uint8_t has_now, wl_kernel_complete_fn complete, void (*callback)(void), void *user, wl_kernel_call_handle_t *out) {
+  if (out != NULL) *out = (wl_kernel_call_handle_t){0};
+  if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
+  if (timeout == 0U) timeout = 500U;
+  uint8_t slot; uint8_t *payload; size_t capacity;
+  wl_err_t error = wl_kernel_call_claim(&self->core, &slot, &payload, &capacity);
+  if (error != WL_OK) return error;
+  size_t length = 0U;
+  if (request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  return wl_kernel_call_commit(&self->core, slot, 40U, 41U, length, now, timeout, has_now, complete, callback, user, out);
+}
+wl_err_t demo_call_execute(demo_node_t *self, const request_t *request, demo_execute_cb_t callback) {
+  return demo_call_execute_start(self, request, 0U, 0U, 0U, demo_complete_execute, (void (*)(void))callback, self, NULL);
+}
+wl_err_t demo_call_execute_ex(demo_node_t *self, const request_t *request, uint32_t now, uint32_t timeout_ms, demo_execute_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out) {
+  return demo_call_execute_start(self, request, now, timeout_ms, 1U, demo_complete_execute_ex, (void (*)(void))callback, user, out);
+}
+static void demo_error(void *user, uint16_t id, wl_err_t error) {
+  demo_node_t *self = user;
+  if (self->on_error != NULL) self->on_error(self->user, id, error);
+}
+static wl_err_t demo_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
+  demo_node_t *self = (demo_node_t *)core;
+  (void)self;
+  switch (frame->message_id) {
+  case 41U: return wl_kernel_response(core, frame);
+  case 40U: {
+    if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
+    if (self->handlers.on_execute == NULL) return WL_ERR_NOT_SUPPORTED;
+    wl_kernel_rpc_metadata_t metadata;
+    wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
+    if (error != WL_OK) return error;
+    uint8_t slot; uint8_t *payload; size_t capacity;
+    error = wl_kernel_reply_claim(core, 41U, &metadata, &slot, &payload, &capacity);
+    if (error != WL_OK) return error;
+    request_t request;
+    if (request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
+      wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
+    }
+    response_clear(&self->reply.execute);
+    int32_t status = self->handlers.on_execute(self->user, &request, &self->reply.execute);
+    if (status != 0) return wl_kernel_reply_error(core, slot, status);
+    size_t length = 0U;
+    if (response_encode(&self->reply.execute, payload, capacity, &length) != WL_CODEC_OK) {
+      wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
+    }
+    return wl_kernel_reply_commit(core, slot, length);
+  }
+  case 42U: {
+    if (frame->kind != WL_WIRE_MSG) return WL_ERR_CORRUPT_PAYLOAD;
+    event_t message;
+    if (event_decode(frame->payload, frame->length, &message) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+    if (self->handlers.on_event != NULL) self->handlers.on_event(self->user, &message);
+    return WL_OK;
+  }
+  default: return WL_ERR_NOT_SUPPORTED;
+  }
+}
+wl_err_t demo_init(demo_node_t *self, wl_packet_port_t *port, const demo_handlers_t *handlers, void *user) {
+  if (self == NULL || port == NULL) return WL_ERR_INVALID_ARG;
+  if (handlers == NULL) return WL_ERR_INVALID_ARG;
+  const demo_handlers_t saved = *handlers;
+  memset(self, 0, sizeof(*self));
+  self->handlers = saved; self->user = user;
+  wl_kernel_config_t config = {.port = port, .route = demo_route, .on_error = demo_error, .user = self,
+      .storage = {
+          .requests = &self->requests[0][0], .request_stride = 18U,
+          .replies = &self->replies[0][0], .reply_stride = 18U,
+          .message = self->message, .message_capacity = 15U,
+      }};
+  return wl_kernel_init(&self->core, &config);
+}
+wl_err_t demo_step(demo_node_t *self, uint32_t now) {
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_step(&self->core, now, WL_KERNEL_BUDGET);
+}
+wl_err_t demo_close(demo_node_t *self) {
+  if (self == NULL) return WL_ERR_INVALID_ARG;
+  wl_err_t error = wl_kernel_close(&self->core);
+  return error;
+}
+int demo_quiescent(const demo_node_t *self) {
+  return self != NULL && wl_kernel_quiescent(&self->core);
+}
+wl_err_t demo_cancel(demo_node_t *self, wl_kernel_call_handle_t handle) {
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_cancel(&self->core, handle);
+}

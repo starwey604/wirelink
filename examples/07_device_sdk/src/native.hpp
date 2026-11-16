@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <wirelink/codec.h>
+#include <wirelink/kernel.h>
 // Only passive values cross this namespace. Endpoint callbacks stay in C.
 namespace device::wlc_native {
 #include "device.h"

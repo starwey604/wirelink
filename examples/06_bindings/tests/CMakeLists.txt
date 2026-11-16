@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-add_library(calculator_test_service STATIC service.c server_bridge.c)
-target_include_directories(calculator_test_service PUBLIC . ../generated)
+add_library(calculator_test_service STATIC service.c server_bridge.c generated/peer.c)
+target_include_directories(calculator_test_service PUBLIC . generated ../generated)
 target_link_libraries(calculator_test_service PUBLIC CalculatorSdk::client Wirelink::asio_udp)
 add_executable(calculator_cpp_tests client.cpp)
 target_link_libraries(calculator_cpp_tests PRIVATE calculator_test_service)

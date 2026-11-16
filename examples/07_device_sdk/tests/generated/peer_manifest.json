@@ -1,0 +1,38 @@
+{
+  "format": "wirelink-codegen-manifest-v1",
+  "compiler": {
+    "name": "wlc",
+    "version": "0.14.0",
+    "codegen_contract": {"major": 0, "minor": 14}
+  },
+  "module": "peer",
+  "identity": {
+    "algorithm": "fnv1a64-v1",
+    "schema": "0x7d9e3c07d7d6a0f5",
+    "node": "0x940ad88fd3a5e1b4"
+  },
+  "codec_formats": {
+    "PEER_CONFIGURE_REQUEST_CODEC_FORMAT": "schema-v1",
+    "PEER_CONFIGURE_RESPONSE_CODEC_FORMAT": "schema-v1",
+    "PEER_INFO_REQUEST_CODEC_FORMAT": "schema-v1",
+    "PEER_INFO_RESPONSE_CODEC_FORMAT": "schema-v1",
+    "PEER_NUMBERS_CODEC_FORMAT": "schema-v1",
+    "PEER_SETTINGS_CODEC_FORMAT": "schema-v1"
+  },
+  "bounded_fields": [
+    {"message": "PeerSettings", "message_id": 3, "field": "label", "field_number": 1, "kind": "string", "max_length": 12},
+    {"message": "PeerSettings", "message_id": 3, "field": "token", "field_number": 4, "kind": "bytes", "max_length": 8},
+    {"message": "PeerSettings", "message_id": 3, "field": "class", "field_number": 9, "kind": "string", "max_length": 8},
+    {"message": "PeerInfoResponse", "message_id": 4, "field": "name", "field_number": 1, "kind": "string", "max_length": 32},
+    {"message": "PeerConfigureRequest", "message_id": 5, "field": "opaque", "field_number": 2, "kind": "bytes", "max_length": 4},
+    {"message": "PeerConfigureResponse", "message_id": 6, "field": "opaque", "field_number": 2, "kind": "bytes", "max_length": 4},
+    {"message": "PeerNumbers", "message_id": 7, "field": "text", "field_number": 18, "kind": "string", "max_length": 16}
+  ],
+  "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
+  "artifacts": [
+    {"path": "peer.c", "size": 20972, "digest": "0x38be849104eff354"},
+    {"path": "peer.h", "size": 8769, "digest": "0x3b05757a8e32db18"}
+  ]
+,
+  "nodes": [{"name":"device_peer","framing":"native","io":"external","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":228,"message_frame_capacity":0,"rx_frame_capacity":222,"tx_frame_capacity":228,"rx_wire_capacity":222,"tx_wire_capacity":228}]
+}

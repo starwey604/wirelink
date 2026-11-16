@@ -59,6 +59,7 @@ static wl_err_t send_msg(wl_kernel_t *kernel, uint16_t id, uint32_t value) {
 
 static void erased_callback(void) {}
 static wl_err_t start(fixture_t *, unsigned, uint32_t, uint32_t, uint32_t);
+static wl_err_t start_auto(fixture_t *, unsigned, uint32_t, wl_kernel_call_handle_t *);
 
 static void complete(wl_kernel_t *kernel, const wl_kernel_call_t *call,
                       wl_kernel_result_t result, const uint8_t *body, size_t length) {
@@ -99,8 +100,19 @@ static wl_err_t start(fixture_t *f, unsigned index, uint32_t value,
   if (capacity < sizeof(uint32_t)) return WL_ERR_BUF_TOO_SMALL;
   memcpy(payload, &value, sizeof(uint32_t));
   return wl_kernel_call_commit(&f->kernel, slot, 100U, 101U, sizeof(uint32_t),
-      now, timeout, complete, erased_callback, &f->completions[index],
+      now, timeout, 1U, complete, erased_callback, &f->completions[index],
       &f->completions[index].handle);
+}
+
+static wl_err_t start_auto(fixture_t *f, unsigned index, uint32_t timeout,
+                            wl_kernel_call_handle_t *out) {
+  uint8_t slot;
+  uint8_t *payload;
+  wl_err_t error = wl_kernel_call_claim(&f->kernel, &slot, &payload, NULL);
+  if (error != WL_OK) return error;
+  memset(payload, 0, sizeof(uint32_t));
+  return wl_kernel_call_commit(&f->kernel, slot, 100U, 101U, sizeof(uint32_t),
+      UINT32_MAX, timeout, 0U, complete, erased_callback, &f->completions[index], out);
 }
 
 static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length,
@@ -137,7 +149,9 @@ static wl_err_t route(wl_kernel_t *kernel, const wl_kernel_frame_t *frame) {
     if (f->message_start) {
       unsigned action = f->message_start;
       f->message_start = 0U;
-      CHECK(start(f, 0U, 1U, 0U, 1U) == WL_OK);
+      CHECK((action == 3U
+          ? start_auto(f, 0U, 1U, &f->completions[0].handle)
+          : start(f, 0U, 1U, 0U, 1U)) == WL_OK);
       if (action == 2U)
         CHECK(wl_kernel_cancel(kernel, f->completions[0].handle) == WL_OK);
     }
@@ -578,7 +592,100 @@ static void test_empty_entry_generation_snapshot(void) {
   }
 }
 
+static void test_optional_storage(void) {
+  for (unsigned mask = 0; mask < 8U; ++mask) {
+    fixture_t f = {0};
+    init(&f, 911U);
+    wl_kernel_config_t config = {.port = &f.port, .storage = {
+        .requests = mask & 1U ? &f.tx[0][0] : NULL,
+        .request_stride = mask & 1U ? 64U : 0U,
+        .replies = mask & 2U ? &f.tx[4][0] : NULL,
+        .reply_stride = mask & 2U ? 64U : 0U,
+        .message = mask & 4U ? f.tx[7] : NULL,
+        .message_capacity = mask & 4U ? 64U : 0U,
+    }};
+    CHECK(wl_kernel_init(&f.kernel, &config) == WL_OK);
+    uint8_t slot, *data;
+    CHECK(wl_kernel_call_claim(&f.kernel, &slot, &data, NULL) ==
+        (mask & 1U ? WL_OK : WL_ERR_NOT_SUPPORTED));
+    CHECK(wl_kernel_msg_claim(&f.kernel, &data, NULL) ==
+        (mask & 4U ? WL_OK : WL_ERR_NOT_SUPPORTED));
+    f.kernel.in_step = 1U;
+    const wl_kernel_rpc_metadata_t metadata = {.session = 12U, .operation = 1U};
+    CHECK(wl_kernel_reply_claim(&f.kernel, 101U, &metadata, &slot, &data, NULL) ==
+        (mask & 2U ? WL_OK : WL_ERR_NOT_SUPPORTED));
+    if (mask & 2U) wl_kernel_reply_abort(&f.kernel, slot);
+    f.kernel.in_step = 0U;
+    inject(&f, 102U, 0U, 0U, 0, 1U);
+    CHECK(wl_kernel_step(&f.kernel, 0U, WL_KERNEL_BUDGET) == WL_ERR_NOT_SUPPORTED);
+    CHECK(!wl_packet_rx_ready(&f.port));
+    CHECK(wl_kernel_close(&f.kernel) == WL_OK);
+    CHECK(wl_kernel_quiescent(&f.kernel));
+    /* Reject every mismatched pointer/capacity pair, not just small buffers. */
+    config.storage.requests = NULL;
+    config.storage.request_stride = 12U;
+    CHECK(wl_kernel_init(&f.kernel, &config) == WL_ERR_INVALID_ARG);
+    config.storage.request_stride = 0U;
+    config.storage.replies = f.tx[4];
+    config.storage.reply_stride = 0U;
+    CHECK(wl_kernel_init(&f.kernel, &config) == WL_ERR_INVALID_ARG);
+    config.storage.replies = NULL;
+    config.storage.message = f.tx[7];
+    config.storage.message_capacity = 0U;
+    CHECK(wl_kernel_init(&f.kernel, &config) == WL_ERR_INVALID_ARG);
+  }
+}
+
+static void test_deferred_time(void) {
+  fixture_t f = {0};
+  init(&f, 912U);
+  CHECK(wl_kernel_step(&f.kernel, 1000U, WL_KERNEL_BUDGET) == WL_OK);
+  CHECK(start_auto(&f, 0U, 500U, NULL) == WL_OK);
+  int has_deadline = -1;
+  uint32_t deadline = 0U;
+  CHECK(wl_kernel_ready(&f.kernel, 100000U, &has_deadline, &deadline));
+  CHECK(!has_deadline);
+  CHECK(wl_kernel_step(&f.kernel, 100000U, WL_KERNEL_BUDGET) == WL_OK);
+  CHECK(f.completions[0].count == 0U && f.submitted == 1U);
+  (void)wl_kernel_ready(&f.kernel, 100499U, &has_deadline, &deadline);
+  CHECK(has_deadline && deadline == 100500U);
+  CHECK(wl_kernel_step(&f.kernel, 100499U, WL_KERNEL_BUDGET) == WL_OK);
+  CHECK(f.completions[0].count == 0U);
+  CHECK(wl_kernel_step(&f.kernel, 100500U, WL_KERNEL_BUDGET) == WL_OK);
+  CHECK(f.completions[0].count == 1U);
+  CHECK(f.completions[0].result.outcome == WL_KERNEL_TIMED_OUT);
+  CHECK(start_auto(&f, 1U, 10U, &f.completions[1].handle) == WL_OK);
+  CHECK(wl_kernel_cancel(&f.kernel, f.completions[1].handle) == WL_OK);
+  CHECK(wl_kernel_step(&f.kernel, 100500U, WL_KERNEL_BUDGET) == WL_OK);
+  CHECK(f.completions[1].count == 1U &&
+      f.completions[1].result.outcome == WL_KERNEL_CANCELLED);
+  CHECK(start_auto(&f, 2U, 10U, NULL) == WL_OK);
+  CHECK(wl_kernel_close(&f.kernel) == WL_OK);
+  CHECK(wl_kernel_step(&f.kernel, 100500U, WL_KERNEL_BUDGET) == WL_OK);
+  CHECK(f.completions[2].count == 1U &&
+      f.completions[2].result.outcome == WL_KERNEL_CLOSED);
+  CHECK(wl_kernel_quiescent(&f.kernel));
+  for (unsigned budget = 1U; budget <= WL_KERNEL_BUDGET; ++budget) {
+    fixture_t nested = {0};
+    init(&nested, 913U);
+    nested.message_start = 3U;
+    inject(&nested, 102U, 700U, 1U, 0, 7U);
+    CHECK(wl_kernel_step(&nested.kernel, 100000U, budget) == WL_OK);
+    CHECK(nested.completions[0].count == 0U);
+    CHECK(wl_kernel_ready(&nested.kernel, UINT32_MAX, &has_deadline, &deadline));
+    CHECK(!has_deadline);
+    /* A callback-created call arms on the next step, including across wrap. */
+    CHECK(wl_kernel_step(&nested.kernel, UINT32_MAX, WL_KERNEL_BUDGET) == WL_OK);
+    CHECK(nested.completions[0].count == 0U);
+    CHECK(wl_kernel_step(&nested.kernel, 0U, WL_KERNEL_BUDGET) == WL_OK);
+    CHECK(nested.completions[0].count == 1U &&
+        nested.completions[0].result.outcome == WL_KERNEL_TIMED_OUT);
+  }
+}
+
 #ifdef WL_PACKET_ZTEST
+ZTEST(static_kernel, optional_storage) { test_optional_storage(); }
+ZTEST(static_kernel, deferred_time) { test_deferred_time(); }
 ZTEST(static_kernel, empty_entry_generation_snapshot) { test_empty_entry_generation_snapshot(); }
 ZTEST(static_kernel, calls) { test_calls(); }
 ZTEST(static_kernel, physical_lease_and_callbacks) { test_physical_lease_and_callbacks(); }
@@ -591,6 +698,8 @@ ZTEST(static_kernel, small_budget_io_fairness) { test_small_budget_io_fairness()
 ZTEST_SUITE(static_kernel, NULL, NULL, NULL, NULL, NULL);
 #else
 int main(void) {
+  test_optional_storage();
+  test_deferred_time();
   test_empty_entry_generation_snapshot();
   test_small_budget_io_fairness();
   test_simultaneous_deadlines();

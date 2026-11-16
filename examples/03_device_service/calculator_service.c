@@ -2,49 +2,39 @@
 #include "device_service.h"
 #include <limits.h>
 
-static int32_t add(void *context, const add_request_t *request,
+int32_t device_server_on_add(device_server_node_t *self, const add_request_t *request,
                    add_response_t *response) {
   const int64_t sum = (int64_t)request->left + request->right;
-  (void)context;
+  (void)self;
   if (sum < INT32_MIN || sum > INT32_MAX) return DEVICE_OUT_OF_RANGE;
-  response->has_sum = true;
   response->sum = (int32_t)sum;
   return 0;
 }
 
-static int32_t scale(void *context, const scale_request_t *request,
+int32_t device_server_on_scale(device_server_node_t *self, const scale_request_t *request,
                      scale_response_t *response) {
   const int64_t value = (int64_t)request->value * request->factor;
-  (void)context;
+  (void)self;
   if (value < INT32_MIN || value > INT32_MAX) return DEVICE_OUT_OF_RANGE;
-  response->has_value = true;
   response->value = (int32_t)value;
   return 0;
 }
 
-static int32_t get_limits(void *context, const get_limits_request_t *request,
+int32_t device_server_on_get_limits(device_server_node_t *self, const get_limits_request_t *request,
                           get_limits_response_t *response) {
-  const device_service_t *device = context;
+  const device_service_t *device = self->user;
   (void)request;
-  response->has_lower = response->has_upper = true;
   response->lower = device->lower;
   response->upper = device->upper;
   return 0;
 }
 
-static int32_t set_limits(void *context, const set_limits_request_t *request,
+int32_t device_server_on_set_limits(device_server_node_t *self, const set_limits_request_t *request,
                           set_limits_response_t *response) {
-  device_service_t *device = context;
+  device_service_t *device = self->user;
   (void)response;
   if (request->lower > request->upper) return DEVICE_INVALID_ARGUMENT;
   device->lower = request->lower;
   device->upper = request->upper;
   return 0;
-}
-
-void calculator_service_bind(device_kernel_handlers_t *config) {
-  config->on_rpc_add = add;
-  config->on_rpc_scale = scale;
-  config->on_rpc_get_limits = get_limits;
-  config->on_rpc_set_limits = set_limits;
 }

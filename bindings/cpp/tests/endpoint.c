@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "endpoint.h"
-#include "probe_kernel.h"
+#include "probe.h"
 #include <string.h>
 typedef struct {
-  probe_kernel_t endpoint;
+  probe_node_t endpoint;
   wl_packet_port_t port;
   uint8_t rx[2][2053];
   int echo;
@@ -19,7 +19,9 @@ wl_err_t cpp_test_prepare(void *storage, wl_host_endpoint_t *driver, int echo) {
 static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user;
   if (request->input == INT32_MIN) return WL_ERR_TIMEOUT; /* Remote business code. */
-  response->has_output = true; response->output = request->input; return 0;
+
+  response->output = request->input;
+  return 0;
 }
 wl_err_t cpp_test_initialize(void *storage, uint32_t instance, wl_packet_sink_fn sink,
                             wl_packet_notify_fn notify, void *user) {
@@ -29,8 +31,8 @@ wl_err_t cpp_test_initialize(void *storage, uint32_t instance, wl_packet_sink_fn
     .submit = sink, .notify = notify, .user = user};
   wl_err_t status = wl_packet_init(&owner->port, &port);
   if (status != WL_OK) return status;
-  probe_kernel_handlers_t handlers = {.on_rpc_execute = owner->echo ? execute : NULL};
-  return probe_kernel_init(&owner->endpoint, &owner->port, &handlers, NULL, owner);
+  probe_handlers_t handlers = {.on_execute = owner->echo ? execute : NULL};
+  return probe_init(&owner->endpoint, &owner->port, &handlers, owner);
 }
 static void done(void *user, wl_kernel_result_t result, const response_t *response) {
   cpp_test_call_t *call = user;
@@ -46,5 +48,5 @@ wl_err_t cpp_test_submit(cpp_test_call_t *call, uint32_t now, uint32_t timeout,
                          wl_host_rpc_notify_fn notify, void *user, wl_kernel_call_handle_t *handle) {
   owner_t *owner = call->endpoint;
   call->notify = notify; call->user = user;
-  return probe_kernel_execute_start(&owner->endpoint, call->request, now, timeout, done, call, handle);
+  return probe_call_execute_ex(&owner->endpoint, call->request, now, timeout, done, call, handle);
 }

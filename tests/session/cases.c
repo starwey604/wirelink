@@ -1,11 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "session_kernel.h"
+#include "session.h"
 #include "wirelink/environment.h"
 #include <stdio.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) { printf("SESSION line=%d: %s FAIL\n", __LINE__, #x); return 1; } } while (0)
 typedef struct {
-  session_kernel_t endpoint;
+  session_node_t endpoint;
   wl_packet_port_t port;
   uint8_t rx[2][2053];
   wl_packet_port_t *peer;
@@ -47,7 +47,8 @@ static wl_packet_submit_t send(void *user, const uint8_t *data, size_t length,
 static int32_t execute(void *user, const request_t *request, response_t *response) {
   (void)user; ++executed;
   if (request->input < 0) return 7;
-  response->has_output = true; response->output = request->input + 1; return 0;
+  response->output = request->input + 1;
+  return 0;
 }
 static void completed(void *user, wl_kernel_result_t value, const response_t *view) {
   (void)user; result = value; ++notifications;
@@ -68,8 +69,8 @@ static wl_err_t init(owner_t *owner, wl_session_source_t source, bool service) {
     .submit = send, .user = owner};
   error = wl_packet_init(&owner->port, &config);
   if (error != WL_OK) return error;
-  session_kernel_handlers_t handlers = {.on_rpc_execute = service ? execute : NULL};
-  error = session_kernel_init(&owner->endpoint, &owner->port, &handlers, NULL, NULL);
+  session_handlers_t handlers = {.on_execute = service ? execute : NULL};
+  error = session_init(&owner->endpoint, &owner->port, &handlers, NULL);
   if (error == WL_OK) owner->previous = fresh;
   return error;
 }
@@ -77,7 +78,7 @@ static int close_owner(owner_t *owner) {
   CHECK(wl_kernel_close(&owner->endpoint.core) == WL_OK);
   /* RAM submit never retains a physical source after returning. */
   wl_packet_stop(&owner->port);
-  CHECK(session_kernel_step(&owner->endpoint, now) == WL_OK);
+  CHECK(session_step(&owner->endpoint, now) == WL_OK);
   CHECK(wl_kernel_quiescent(&owner->endpoint.core)); return 0;
 }
 static int drain(void) {
@@ -85,14 +86,14 @@ static int drain(void) {
     /* A peer credit change wakes a previously busy synchronous driver. */
     if (wl_packet_rx_available(&server.port)) wl_packet_activity(&client.port);
     if (wl_packet_rx_available(&client.port)) wl_packet_activity(&server.port);
-    CHECK(session_kernel_step(&client.endpoint, now) == WL_OK);
-    CHECK(session_kernel_step(&server.endpoint, now) == WL_OK); ++now;
+    CHECK(session_step(&client.endpoint, now) == WL_OK);
+    CHECK(session_step(&server.endpoint, now) == WL_OK); ++now;
   }
   return 0;
 }
 static wl_err_t call(int value, wl_kernel_call_handle_t *handle) {
-  request_t request = {.has_input = true, .input = value};
-  return session_kernel_execute_start(&client.endpoint, &request, now, 100,
+  request_t request = {.input = value};
+  return session_call_execute_ex(&client.endpoint, &request, now, 100,
     completed, NULL, handle);
 }
 int session_run(wl_session_source_t native) {
@@ -130,7 +131,7 @@ int session_run(wl_session_source_t native) {
   CHECK(wl_kernel_cancel(&client.endpoint.core, old) == WL_ERR_NOT_FOUND);
   CHECK(inject(&client.port, stale_success, success_size) == WL_OK);
   CHECK(inject(&client.port, stale_reject, metadata_size + 4) == WL_OK);
-  CHECK(session_kernel_step(&client.endpoint, now) == WL_OK && notifications == 1);
+  CHECK(session_step(&client.endpoint, now) == WL_OK && notifications == 1);
   /* Requests are not replay-deduplicated. The old request executes again, but
    * its response cannot complete a call from the new instance. */
   CHECK(inject(&server.port, stale_request, request_size) == WL_OK);

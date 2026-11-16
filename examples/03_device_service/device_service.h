@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef EXAMPLE_DEVICE_SERVICE_H
 #define EXAMPLE_DEVICE_SERVICE_H
-#include "device_kernel.h"
+#include "device.h"
 
 /* Application state, not endpoint storage or RPC bookkeeping. */
 typedef struct {
@@ -17,6 +17,4 @@ typedef struct {
 enum { DEVICE_INVALID_ARGUMENT = 1, DEVICE_OUT_OF_RANGE = 2, DEVICE_BUSY = 3 };
 
 void device_service_init(device_service_t *device);
-void device_service_bind(device_kernel_handlers_t *config);
-void calculator_service_bind(device_kernel_handlers_t *config);
 #endif

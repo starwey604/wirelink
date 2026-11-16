@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "usb_kernel.h"
+#include "usb.h"
 #include "wirelink/packet_loopback.h"
 #include <stdlib.h>
 #define CHECK(x)                                                                                   \
@@ -7,7 +7,7 @@
     if (!(x))                                                                                      \
       abort();                                                                                     \
   } while (0)
-static usb_kernel_t endpoints[2];
+static usb_node_t endpoints[2];
 static wl_packet_port_t ports[2];
 static wl_packet_loopback_t pair;
 static uint8_t rx[2][2][2048];
@@ -16,10 +16,7 @@ static int32_t handle(void *user, const setpoint_request_t *request,
                       setpoint_response_t *response) {
   (void)user;
   ++effects;
-  *response = (setpoint_response_t){.has_request_id = true,
-                                          .request_id = request->request_id,
-                                          .has_status = true,
-                                          .has_applied_value = true,
+  *response = (setpoint_response_t){.request_id = request->request_id,
                                           .applied_value = request->value + 1};
   return 0;
 }
@@ -39,16 +36,13 @@ int main(void) {
                             .notify = wl_packet_loopback_notify,
                             .user = &pair.directions[i]};
     CHECK(wl_packet_init(&ports[i], &c) == WL_OK);
-    usb_kernel_handlers_t h = {.on_rpc_setpoint = handle};
-    CHECK(usb_kernel_init(&endpoints[i], &ports[i], &h, NULL, NULL) == WL_OK);
+    usb_handlers_t h = {.on_setpoint = handle};
+    CHECK(usb_init(&endpoints[i], &ports[i], &h, NULL) == WL_OK);
     for (unsigned n = 0; n < 4; ++n) {
-      setpoint_request_t value = {.has_request_id = true,
-                                        .request_id = n,
-                                        .has_channel = true,
-                                        .has_value = true,
+      setpoint_request_t value = {.request_id = n,
                                         .value = 41};
       wl_kernel_call_handle_t call;
-      CHECK(usb_kernel_setpoint_start(&endpoints[i], &value, 0, 100, done, NULL, &call) == WL_OK);
+      CHECK(usb_call_setpoint_ex(&endpoints[i], &value, 0, 100, done, NULL, &call) == WL_OK);
     }
   }
   for (unsigned n = 0; n < 100 && callbacks < 8; ++n) {
@@ -69,7 +63,7 @@ int main(void) {
     CHECK(wl_kernel_close(&endpoints[i].core) == WL_OK);
   wl_packet_loopback_stop(&pair);
   for (unsigned i = 0; i < 2; ++i) {
-    CHECK(usb_kernel_step(&endpoints[i], 0) == WL_OK);
+    CHECK(usb_step(&endpoints[i], 0) == WL_OK);
     CHECK(wl_kernel_quiescent(&endpoints[i].core));
   }
 }

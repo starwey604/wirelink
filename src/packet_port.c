@@ -4,9 +4,43 @@
 #include <stdbool.h>
 #include <string.h>
 
+_Static_assert(sizeof(atomic_uint_least32_t) == sizeof(uint_least32_t) &&
+               _Alignof(atomic_uint_least32_t) == _Alignof(uint_least32_t),
+               "packet port requires matching C/C++ atomic u32 storage");
+_Static_assert(sizeof(atomic_bool) == sizeof(unsigned char) &&
+               _Alignof(atomic_bool) == _Alignof(unsigned char),
+               "packet port requires matching C/C++ atomic bool storage");
+
 #define TX_ACTIVE 1U
 #define TX_FLAGS 14U
 #define TX_SHIFT 4U
+
+static atomic_uint_least32_t instance_counter = 0;
+
+wl_err_t wl_packet_instance_next(uint32_t *out) {
+  if (out == NULL) return WL_ERR_INVALID_ARG;
+  *out = 0U;
+  if (!atomic_is_lock_free(&instance_counter)) return WL_ERR_NOT_SUPPORTED;
+  uint_least32_t previous = atomic_load_explicit(&instance_counter, memory_order_relaxed);
+  do {
+    if (previous == UINT32_MAX) return WL_ERR_ID_EXHAUSTED;
+  } while (!atomic_compare_exchange_weak_explicit(&instance_counter, &previous,
+      previous + 1U, memory_order_relaxed, memory_order_relaxed));
+  *out = (uint32_t)(previous + 1U);
+  return WL_OK;
+}
+
+WL_HOT_ATTR wl_err_t wl_packet_rx_push(wl_packet_port_t *port,
+                                       const uint8_t *data, size_t length) {
+  if (port == NULL || data == NULL || length == 0U) return WL_ERR_INVALID_ARG;
+  wl_packet_claim_t claim;
+  wl_err_t error = wl_packet_rx_claim(port, length, &claim);
+  if (error != WL_OK) return error;
+  memcpy(claim.span.data, data, length);
+  error = wl_packet_rx_commit(port, &claim, length);
+  if (error != WL_OK) (void)wl_packet_rx_abort(port, &claim);
+  return error;
+}
 
 wl_err_t wl_packet_init(wl_packet_port_t *port,
                         const wl_packet_config_t *config) {

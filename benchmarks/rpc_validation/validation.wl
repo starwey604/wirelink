@@ -9,5 +9,5 @@ message Large @id(2) {
 }
 message Nested @id(3) {
   required Large child @id(1);
-  packed float32 samples[128] @id(2);
+  optional packed float32 samples[128] @id(2);
 }

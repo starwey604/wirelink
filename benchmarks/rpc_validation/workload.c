@@ -65,7 +65,7 @@ int rpc_validation_init(rpc_validation_fixture_t *f, unsigned kind, unsigned sta
   int error;
   if (kind == 0U) {
     small_clear(&f->view.small);
-    f->view.small.has_text = f->view.small.has_body = true;
+    f->view.small.has_body = true;
     f->view.small.text.length = length;
     memcpy(f->view.small.text.data, f->canonical, length);
     f->view.small.body.length = length;
@@ -76,10 +76,10 @@ int rpc_validation_init(rpc_validation_fixture_t *f, unsigned kind, unsigned sta
     if (kind == 1U) { large_clear(&f->view.large); v = &f->view.large; }
     else {
       nested_clear(&f->view.nested); v = &f->view.nested.child;
-      f->view.nested.has_child = f->view.nested.has_samples = true;
+      f->view.nested.has_samples = true;
       for (size_t i = 0; i < 128; ++i) f->view.nested.samples[i] = (float)i;
     }
-    v->has_text = v->has_body = true;
+    v->has_body = true;
     v->text.length = length;
     memcpy(v->text.data, f->canonical, length);
     v->body.length = length;

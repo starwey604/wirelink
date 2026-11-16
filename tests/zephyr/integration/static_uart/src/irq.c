@@ -350,7 +350,7 @@ ZTEST(static_uart_irq, test_kernel_queued_frame_waits_for_real_drain) {
   zassert_true(capacity >= 4U);
   memcpy(payload, value, 4U);
   wl_kernel_call_handle_t h;
-  zassert_ok(wl_kernel_call_commit(&core, slot, 23U, 24U, 4U, 0U, 2000U,
+  zassert_ok(wl_kernel_call_commit(&core, slot, 23U, 24U, 4U, 0U, 2000U, 1U,
     completed_call, unused_callback, NULL, &h));
   zassert_ok(wl_kernel_step(&core, 0, 16));
   zassert_equal(port.tx_sequence, 1);

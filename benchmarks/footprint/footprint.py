@@ -214,7 +214,8 @@ def build_report(args):
         totals, sections = measure_elf(args.elf, size_tool)
         report["mode"] = "elf"
         report["target"] = str(args.elf)
-        report["elf_sha256"] = hashlib.sha256(args.elf.read_bytes()).hexdigest()
+        if args.digests:
+            report["elf_sha256"] = hashlib.sha256(args.elf.read_bytes()).hexdigest()
         report["sections"] = sections
         report["totals"] = totals
         return report
@@ -226,7 +227,8 @@ def build_report(args):
         modules, objects = measure_objects(args.cc, args.cflags, size_tool, root,
                                            workdir)
         report["modules"] = modules
-        report["source_sha256"] = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in modules}
+        if args.digests:
+            report["source_sha256"] = {name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in modules}
         for module in modules.values():
             for section in SECTIONS:
                 report["totals"][section] += module[section]
@@ -253,6 +255,8 @@ def parse_args(argv):
                         help="report a linked ELF instead of compiling objects")
     parser.add_argument("--no-probe", dest="probe", action="store_false",
                         help="skip the storage/structure probe")
+    parser.add_argument("--no-digests", dest="digests", action="store_false",
+                        help="measure sizes without source/image integrity digests")
     parser.add_argument("--json", type=Path, default=None,
                         help="output path (default: stdout)")
     args = parser.parse_args(argv)

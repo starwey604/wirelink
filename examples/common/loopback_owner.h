@@ -6,9 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define EXAMPLE_REQUIRE(condition) do { if (!(condition)) { \
-  fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #condition); abort(); \
-} } while (0)
+#include "example_check.h"
 typedef struct {
   wl_packet_port_t ports[2];
   wl_kernel_t *cores[2];

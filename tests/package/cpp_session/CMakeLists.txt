@@ -13,13 +13,13 @@ endif()
 get_filename_component(_root "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
 set(_fixture ${_root}/tests/package/static_kernel)
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/generated)
-add_custom_command(OUTPUT ${_generated}/probe.c ${_generated}/probe_kernel.c
-    ${_generated}/probe.h ${_generated}/probe_kernel.h
-  COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel ${_fixture}/probe.wl
-    --profile ${_fixture}/probe.bind.wl --out-dir ${_generated}
-  DEPENDS ${WIRELINK_WLC_EXECUTABLE} ${_fixture}/probe.wl ${_fixture}/probe.bind.wl VERBATIM)
+add_custom_command(OUTPUT ${_generated}/probe.c
+    ${_generated}/probe.h
+  COMMAND ${WIRELINK_WLC_EXECUTABLE} compile ${_fixture}/probe.wl
+    --out-dir ${_generated}
+  DEPENDS ${WIRELINK_WLC_EXECUTABLE} ${_fixture}/probe.wl VERBATIM)
 add_executable(installed_cpp_session ${_root}/bindings/cpp/tests/session.cpp
-  ${_root}/bindings/cpp/tests/endpoint.c ${_generated}/probe.c ${_generated}/probe_kernel.c)
+  ${_root}/bindings/cpp/tests/endpoint.c ${_generated}/probe.c)
 target_include_directories(installed_cpp_session PRIVATE ${_generated})
 target_link_libraries(installed_cpp_session PRIVATE Wirelink::cpp_host Wirelink::asio_udp)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

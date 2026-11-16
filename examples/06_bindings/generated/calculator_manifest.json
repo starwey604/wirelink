@@ -1,0 +1,27 @@
+{
+  "format": "wirelink-codegen-manifest-v1",
+  "compiler": {
+    "name": "wlc",
+    "version": "0.14.0",
+    "codegen_contract": {"major": 0, "minor": 14}
+  },
+  "module": "calculator",
+  "identity": {
+    "algorithm": "fnv1a64-v1",
+    "schema": "0x96a3b1226f6423df",
+    "node": "0x48cbaee3150ffe44"
+  },
+  "codec_formats": {
+    "ADD_REQUEST_CODEC_FORMAT": "schema-v1",
+    "ADD_RESPONSE_CODEC_FORMAT": "schema-v1"
+  },
+  "bounded_fields": [
+  ],
+  "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
+  "artifacts": [
+    {"path": "calculator.c", "size": 12690, "digest": "0x4663d683f8856eb2"},
+    {"path": "calculator.h", "size": 3184, "digest": "0x55e72939be26b8ea"}
+  ]
+,
+  "nodes": [{"name":"calculator","framing":"native","io":"external","handlers":"static","timeout_ms":500,"request_frame_capacity":24,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":18,"tx_frame_capacity":24,"rx_wire_capacity":18,"tx_wire_capacity":24}]
+}

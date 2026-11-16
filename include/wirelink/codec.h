@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -13,6 +14,8 @@ extern "C" {
 #ifndef WL_HOT_ATTR
 #define WL_HOT_ATTR
 #endif
+
+#define WL_CODEC_MAX_FIELDS 256U
 
 typedef struct {
   const uint8_t *data;
@@ -23,6 +26,39 @@ typedef struct {
   const char *data;
   size_t length;
 } wl_codec_string_t;
+
+/* The returned view borrows a non-NULL, NUL-terminated string. */
+static inline wl_codec_string_t wl_codec_str(const char *cstr) {
+  const wl_codec_string_t value = {cstr, strlen(cstr)};
+  return value;
+}
+
+#define WL_STR(literal) wl_codec_str(literal)
+
+/* max_len excludes the string terminator; buf has at least max_len + 1 bytes.
+ * Both setters leave the length and destination unchanged on failure. */
+static inline bool wl_codec_inline_str_set(size_t *out_len, char *buf,
+                                            size_t max_len, const char *cstr) {
+  if (out_len == NULL || buf == NULL || cstr == NULL) return false;
+  size_t length = 0U;
+  while (cstr[length] != '\0') {
+    if (length == max_len) return false;
+    ++length;
+  }
+  memmove(buf, cstr, length + 1U);
+  *out_len = length;
+  return true;
+}
+
+static inline bool wl_codec_inline_bytes_set(size_t *out_len, uint8_t *buf,
+                                              size_t max_len, const void *data,
+                                              size_t length) {
+  if (out_len == NULL || buf == NULL || length > max_len ||
+      (data == NULL && length != 0U)) return false;
+  if (length != 0U) memmove(buf, data, length);
+  *out_len = length;
+  return true;
+}
 
 typedef int32_t wl_codec_status_t;
 enum {
@@ -92,7 +128,7 @@ typedef struct wl_codec_field {
   uint8_t key_len;
   uint8_t key[3];
   uint8_t has_default;
-  uint16_t presence_offset;
+  uint16_t presence_offset; /* Optional/optional-packed only; ignored otherwise. */
   uint16_t offset;
   uint16_t count_offset;
   uint16_t capacity_offset;

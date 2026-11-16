@@ -8,7 +8,7 @@ list(APPEND CMAKE_MODULE_PATH "${WIRELINK_ROOT}/cmake")
 include(WirelinkWlc)
 set(WORKLOAD "${WIRELINK_ROOT}/benchmarks/mixed_traffic")
 wirelink_wlc_generate(TARGET mixed_protocol SCHEMA "${WORKLOAD}/mixed.wl"
-  PROFILE "${WORKLOAD}/mixed.bind.wl")
+  NODE mixed)
 target_sources(app PRIVATE src/main.c "${WORKLOAD}/workload.c")
 target_include_directories(app PRIVATE "${WORKLOAD}")
 target_link_libraries(app PRIVATE mixed_protocol)

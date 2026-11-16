@@ -11,7 +11,7 @@ endif()
 include(${HARNESS_ROOT}/cmake/WirelinkWlc.cmake)
 set(WORKLOAD "${HARNESS_ROOT}/benchmarks/mixed_traffic")
 wirelink_wlc_generate(TARGET mixed_protocol SCHEMA "${WORKLOAD}/mixed.wl"
-  PROFILE "${WORKLOAD}/mixed.bind.wl")
+  NODE mixed)
 target_sources(app PRIVATE src/main.c "${WORKLOAD}/workload.c")
 target_include_directories(app PRIVATE "${WORKLOAD}")
 target_compile_definitions(app PRIVATE MIXED_TRAFFIC_FIRMWARE=1)

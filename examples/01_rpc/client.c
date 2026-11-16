@@ -1,28 +1,46 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "service.h"
-#include "loopback_owner.h"
-unsigned calculator_async_count(void);
-static calculator_kernel_t endpoints[2];
-static example_pair_t pair;
-EXAMPLE_COMPLETION(add, add_response)
+#include "example_check.h"
+#include <limits.h>
+static client_node_t caller;
+static server_node_t callee;
+static unsigned completed;
+static wl_kernel_result_t result;
+wl_err_t client_tx_write(client_node_t *self, const uint8_t *data, size_t length) {
+  (void)self;
+  return server_rx_packet(&callee, data, length);
+}
+wl_err_t server_tx_write(server_node_t *self, const uint8_t *data, size_t length) {
+  (void)self;
+  return client_rx_packet(&caller, data, length);
+}
+static void advance(uint32_t now) {
+  /* A receiver releasing space makes the opposite physical sink writable. */
+  if (wl_packet_rx_available(&callee.port)) client_tx_ready(&caller);
+  if (wl_packet_rx_available(&caller.port)) server_tx_ready(&callee);
+  EXAMPLE_REQUIRE(client_step(&caller, now) == WL_OK);
+  EXAMPLE_REQUIRE(server_step(&callee, now) == WL_OK);
+}
+static void rejected(client_node_t *self, wl_kernel_result_t outcome, const add_response_t *response) {
+  (void)self;
+  EXAMPLE_REQUIRE(response == NULL);
+  result = outcome;
+  ++completed;
+}
 int main(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const calculator_kernel_handlers_t handlers = {.on_rpc_add = calculator_add};
-  for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
-  calculator_async_example(&endpoints[0], &endpoints[1]);
-  for (unsigned pass = 0; pass < 500 && calculator_async_count() != 4; ++pass) example_pair_step(&pair);
+  EXAMPLE_REQUIRE(client_init(&caller) == WL_OK && server_init(&callee) == WL_OK);
+  calculator_async_example(&caller);
+  for (unsigned pass = 0; pass < 100 && calculator_async_count() != 4; ++pass) advance(pass);
   EXAMPLE_REQUIRE(calculator_async_count() == 4);
-  /* A blocking application wrapper uses the same start/owner advancement. */
   /* [docs:calculator_sync_rpc] */
-  add_request_t request = {.has_left = true, .left = INT32_MAX, .has_right = true, .right = 1};
-  wl_kernel_call_handle_t handle;
-  EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[1], &request, pair.now, 500,
-    add_completed, NULL, &handle) == WL_OK);
-  example_pair_wait(&pair, &add_count, 1);
-  EXAMPLE_REQUIRE(add_result.outcome == WL_KERNEL_REJECTED && add_result.status == 1);
+  EXAMPLE_REQUIRE(client_call_add(&caller, &(add_request_t){
+      .left = INT32_MAX, .right = 1}, rejected) == WL_OK);
+  for (unsigned pass = 0; pass < 100 && !completed; ++pass) advance(100 + pass);
+  EXAMPLE_REQUIRE(completed == 1 && result.outcome == WL_KERNEL_REJECTED && result.status == 1);
   /* [/docs:calculator_sync_rpc] */
-  example_pair_close(&pair);
-  puts("four concurrent copied requests and reverse-direction rejection passed");
+  EXAMPLE_REQUIRE(client_close(&caller) == WL_OK && server_close(&callee) == WL_OK);
+  advance(200);
+  EXAMPLE_REQUIRE(client_quiescent(&caller) && server_quiescent(&callee));
+  puts("four concurrent copied requests and business rejection passed");
   return 0;
 }

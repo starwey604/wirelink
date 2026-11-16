@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Deterministic application/packet-time model, not a hardware CPU benchmark. */
-#include "mixed_kernel.h"
+#include "mixed.h"
 #include "wirelink/packet_stream.h"
 #include "workload.h"
 #include <stdio.h>
@@ -43,7 +43,7 @@ struct simulation {
   scenario_t scenario;
   unsigned tick;
   int envelope;
-  mixed_kernel_t endpoints[2];
+  mixed_node_t endpoints[2];
   port_t ports[2];
   unsigned completed, handled, timed_out, max_rpc;
 };
@@ -116,7 +116,9 @@ static void service(port_t *p) {
 }
 static int32_t echo(void *user, const echo_request_t *request, echo_response_t *response) {
   port_t *p = user; ++p->simulation->handled;
-  response->has_sequence = true; response->sequence = request->sequence; return 0;
+
+  response->sequence = request->sequence;
+  return 0;
 }
 static void telemetry(void *user, const telemetry_t *value) {
   port_t *p = user; simulation_t *s = p->simulation;
@@ -140,29 +142,28 @@ static void completed(void *user, wl_kernel_result_t result, const echo_response
 }
 static void start(job_t *job) {
   simulation_t *s = job->simulation;
-  echo_request_t value = {.has_sequence = true, .sequence = job->sequence};
+  echo_request_t value = {.sequence = job->sequence};
   wl_kernel_call_handle_t handle;
-  CHECK(mixed_kernel_echo_start(&s->endpoints[job->side], &value, now(s), 80,
+  CHECK(mixed_call_echo_ex(&s->endpoints[job->side], &value, now(s), 80,
     completed, job, &handle) == WL_OK);
   memset(&value, 0, sizeof(value)); ++job->attempts; job->retry = false;
 }
 static void send_sample(port_t *p) {
   simulation_t *s = p->simulation;
   if (s->tick % s->scenario.sample_ms == 0) {
-    p->latest = (telemetry_t){.has_sequence = true,
-      .sequence = s->tick / s->scenario.sample_ms + 1,
-      .has_sampled_at = true, .sampled_at = s->tick};
+    p->latest = (telemetry_t){.sequence = s->tick / s->scenario.sample_ms + 1,
+      .sampled_at = s->tick};
     p->latest_pending = true;
   }
   if (!p->latest_pending) return;
-  wl_err_t error = mixed_kernel_send_telemetry(&s->endpoints[p->side], &p->latest);
+  wl_err_t error = mixed_send_telemetry(&s->endpoints[p->side], &p->latest);
   CHECK(error == WL_OK || error == WL_ERR_WOULD_BLOCK);
   if (error == WL_OK) { ++p->accepted; p->latest_pending = false; }
 }
 static void run(scenario_t scenario, int envelope, bool check) {
   simulation_t *s = &simulation; memset(s, 0, sizeof(*s));
   s->scenario = scenario; s->envelope = envelope;
-  const mixed_kernel_handlers_t handlers = {.on_rpc_echo = echo, .on_message_telemetry = telemetry};
+  const mixed_handlers_t handlers = {.on_echo = echo, .on_telemetry = telemetry};
   for (unsigned side = 0; side < 2; ++side) {
     port_t *p = &s->ports[side]; p->simulation = s; p->side = side;
     wl_packet_config_t config = {.instance = ++next_instance, .rx_storage = &p->rx[0][0],
@@ -178,7 +179,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
       CHECK((envelope == 0 ? wl_packet_stream_cobs_crc16_init(&p->stream, &stream) :
         wl_packet_stream_length16_none_init(&p->stream, &stream)) == WL_OK);
     }
-    CHECK(mixed_kernel_init(&s->endpoints[side], &p->port, &handlers, NULL, p) == WL_OK);
+    CHECK(mixed_init(&s->endpoints[side], &p->port, &handlers, p) == WL_OK);
   }
 #ifdef MIXED_TRAFFIC_FIRMWARE
   mixed_fw_case_begin();
@@ -198,7 +199,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
       for (unsigned index = 0; index < CALLS; ++index) if (p->jobs[index].retry) start(&p->jobs[index]);
     }
     if (scenario.telemetry_first) for (unsigned side = 0; side < 2; ++side) send_sample(&s->ports[side]);
-    for (unsigned side = 0; side < 2; ++side) CHECK(mixed_kernel_step(&s->endpoints[side], now(s)) == WL_OK);
+    for (unsigned side = 0; side < 2; ++side) CHECK(mixed_step(&s->endpoints[side], now(s)) == WL_OK);
     if (!scenario.telemetry_first) for (unsigned side = 0; side < 2; ++side) send_sample(&s->ports[side]);
     for (unsigned side = 0; side < 2; ++side) {
       port_t *p = &s->ports[side];
@@ -245,7 +246,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
       CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_TX_ERROR) == WL_OK);
     }
     if (envelope != 1) CHECK(wl_packet_stream_abort_rx(&p->stream) == WL_OK);
-    wl_err_t error = mixed_kernel_step(&s->endpoints[side], now(s));
+    wl_err_t error = mixed_step(&s->endpoints[side], now(s));
     CHECK(error == WL_OK || (cancelled && error == WL_ERR_IO));
     CHECK(wl_kernel_quiescent(&s->endpoints[side].core));
   }

@@ -9,3 +9,11 @@ message Reading @id(201) {
   required packed fixed32 samples[3] @id(2);
   optional bytes<17> note @id(3);
 }
+
+
+node instrument {
+  io = external;
+  handlers = dynamic;
+  recv Reading;
+  send Reading;
+}

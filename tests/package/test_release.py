@@ -19,38 +19,38 @@ class InventoryTests(unittest.TestCase):
         for package in release.PACKAGES:
             for abi in release.ABIS:
                 for platform in ('manylinux_2_28_x86_64', 'macosx_13_0_x86_64', 'macosx_13_0_arm64', 'win_amd64'):
-                    (manylinux / f'{package}-0.13.0-{abi}-{abi}-{platform}.whl').touch()
-            (manylinux / f'{package}-0.13.0.tar.gz').touch()
+                    (manylinux / f'{package}-0.14.0-{abi}-{abi}-{platform}.whl').touch()
+            (manylinux / f'{package}-0.14.0.tar.gz').touch()
 
     def test_complete_supported_inventory(self):
-        self.assertEqual(len(release.inventory(self.root, '0.13.0')), 42)
+        self.assertEqual(len(release.inventory(self.root, '0.14.0')), 42)
 
     def test_missing_and_duplicate_platforms_fail_even_at_forty_wheels(self):
         wheel = next(self.root.rglob('*.whl'))
         wheel.unlink()
         with self.assertRaises(ValueError):
-            release.inventory(self.root, '0.13.0')
+            release.inventory(self.root, '0.14.0')
         remaining = next(self.root.rglob('*.whl'))
         (self.root / remaining.name).touch()
         with self.assertRaises(ValueError):
-            release.inventory(self.root, '0.13.0')
+            release.inventory(self.root, '0.14.0')
 
     def test_abi_version_and_platform_contracts(self):
         for name in ('wirelink_calculator_sdk-0.12.0-cp310-cp310-win_amd64.whl',
-                     'wirelink_calculator_sdk-0.13.0-cp314-cp314t-win_amd64.whl',
-                     'wirelink_calculator_sdk-0.13.0-cp314-cp314-linux_x86_64.whl',
-                     'wirelink_calculator_sdk-0.13.0-cp314-cp314-macosx_15_0_arm64.whl'):
+                     'wirelink_calculator_sdk-0.14.0-cp314-cp314t-win_amd64.whl',
+                     'wirelink_calculator_sdk-0.14.0-cp314-cp314-linux_x86_64.whl',
+                     'wirelink_calculator_sdk-0.14.0-cp314-cp314-macosx_15_0_arm64.whl'):
             with self.assertRaises(ValueError):
-                release.wheel_key(name, '0.13.0')
+                release.wheel_key(name, '0.14.0')
 
     def test_both_tested_source_distributions_are_required(self):
         next(self.root.rglob('*.tar.gz')).unlink()
         with self.assertRaises(ValueError):
-            release.inventory(self.root, '0.13.0')
+            release.inventory(self.root, '0.14.0')
 
     def test_current_pair_and_release_notes_are_consistent(self):
-        value = release.validate_source(release.ROOT, 'v0.13.0')
-        self.assertEqual(value['wlc']['codegen_contract'], '0.13')
+        value = release.validate_source(release.ROOT, 'v0.14.0')
+        self.assertEqual(value['wlc']['codegen_contract'], '0.14')
         with self.assertRaises(AssertionError):
             release.validate_source(release.ROOT, 'v0.8.0')
 

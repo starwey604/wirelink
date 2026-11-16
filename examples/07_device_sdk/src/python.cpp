@@ -203,7 +203,7 @@ struct wlc_python_signal_handle {
 
 NB_MODULE(_native, module) {
   module.attr("core_version") = WIRELINK_VERSION_STRING;
-  module.attr("codegen_contract") = "0.13";
+  module.attr("codegen_contract") = "0.14";
   module.attr("binding_api") = 3;
   nb::class_<wirelink::Error>(module, "Error")
       .def_prop_ro("kind", [](const wirelink::Error& e) { return wirelink::error_kind_name(e.kind); })

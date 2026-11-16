@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
-#include "calculator_kernel.h"
+#include "calculator_fixture.h"
 #include "loopback_owner.h"
 #include "wirelink/zephyr/kernel_timeout.h"
-static calculator_kernel_t endpoints[2];
+static calculator_node_t endpoints[2];
 static example_pair_t pair;
 static unsigned reads, completed, handled;
 static wl_kernel_result_t result;
@@ -13,7 +13,7 @@ static uint32_t read_clock(void) { ++reads; return k_uptime_get_32(); }
 static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
   (void)user; ++handled;
   if (mode == 1) return 7;
-  response->has_sum = true; response->sum = request->left + request->right; return 0;
+  response->sum = request->left + request->right; return 0;
 }
 static void done(void *user, wl_kernel_result_t value, const add_response_t *response) {
   (void)user; result = value;
@@ -23,19 +23,19 @@ static void done(void *user, wl_kernel_result_t value, const add_response_t *res
 static void transaction(int selected, unsigned idle_ms) {
   mode = selected; completed = handled = 0; unsigned unsupported = 0;
   example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const calculator_kernel_handlers_t handlers = {.on_rpc_add = selected == 2 ? NULL : add};
+  const calculator_handlers_t handlers = {.on_add = selected == 2 ? NULL : add};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(calculator_init(&endpoints[side], &pair.ports[side], &handlers, NULL) == WL_OK);
   k_sleep(K_MSEC(idle_ms)); /* No step before submit: owner supplies fresh now. */
   const uint32_t began = read_clock();
-  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  add_request_t request = {.left = 20, .right = 22};
   wl_kernel_call_handle_t call; unsigned before = reads;
-  EXAMPLE_REQUIRE(calculator_kernel_add_start(&endpoints[0], &request, began, 50, done, NULL, &call) == WL_OK);
+  EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[0], &request, began, 50, done, NULL, &call) == WL_OK);
   EXAMPLE_REQUIRE(reads == before);
   while (!completed) {
     uint32_t now = read_clock(); before = reads;
     for (unsigned side = 0; side < 2; ++side) {
-      const wl_err_t error = calculator_kernel_step(&endpoints[side], now);
+      const wl_err_t error = calculator_step(&endpoints[side], now);
       EXAMPLE_REQUIRE(error == WL_OK || (selected == 2 && side == 1 && error == WL_ERR_NOT_SUPPORTED));
       if (error == WL_ERR_NOT_SUPPORTED) ++unsupported;
     }
@@ -59,14 +59,14 @@ static void transaction(int selected, unsigned idle_ms) {
   printk("CLOCK_CHECK rpc mode=%u idle_ms=%u elapsed_ms=%u explicit_now PASS\n", selected, idle_ms, k_uptime_get_32() - began);
 }
 int main(void) {
-  printk("CLOCK_CHECK contract=0.13 native_ms=%u start\n", k_uptime_get_32());
+  printk("CLOCK_CHECK contract=0.14 native_ms=%u start\n", k_uptime_get_32());
   transaction(0, 75); transaction(0, 150); transaction(1, 75); transaction(2, 75);
   example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const calculator_kernel_handlers_t handlers = {0};
+  const calculator_handlers_t handlers = {0};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(calculator_init(&endpoints[side], &pair.ports[side], &handlers, NULL) == WL_OK);
   uint32_t now = read_clock(); unsigned before = reads; uint32_t began = k_cycle_get_32();
-  for (unsigned i = 0; i < 20000; ++i) EXAMPLE_REQUIRE(calculator_kernel_step(&endpoints[0], now) == WL_OK);
+  for (unsigned i = 0; i < 20000; ++i) EXAMPLE_REQUIRE(calculator_step(&endpoints[0], now) == WL_OK);
   uint32_t cycles = k_cycle_get_32() - began;
   EXAMPLE_REQUIRE(reads == before);
   printk("CLOCK_CHECK idle iterations=20000 cycles/op=%u core_reads/op=0 endpoint_bytes=%u\n", cycles / 20000, (unsigned)sizeof(endpoints[0]));

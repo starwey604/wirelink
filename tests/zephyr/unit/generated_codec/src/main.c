@@ -7,6 +7,8 @@
 
 #include "control.h"
 
+/* Both schema revisions use the current 0.14 codec/Wire v2 contract. These
+ * fixtures test schema evolution and borrow semantics, not compiler ABI history. */
 static bool points_into(const void *pointer, size_t length,
                         const uint8_t *storage, size_t storage_length) {
   const uintptr_t address = (uintptr_t)pointer;
@@ -121,6 +123,7 @@ static uint32_t get_float_bits(const float *value) {
 
 ZTEST(wirelink_generated_codec, test_dense_float_control_is_compact_and_bit_exact)
 {
+  /* Current 0.14 codec contract uses little-endian fixed-width wire values. */
   static const uint32_t first_bits[] = {
       UINT32_C(0x00000000), /* +0 */
       UINT32_C(0x80000000), /* -0 */
@@ -128,8 +131,8 @@ ZTEST(wirelink_generated_codec, test_dense_float_control_is_compact_and_bit_exac
       UINT32_C(0x3F800000), /* 1.0 */
   };
   static const uint8_t positive_zero_bytes[] = {0x00U, 0x00U, 0x00U, 0x00U};
-  static const uint8_t negative_zero_bytes[] = {0x80U, 0x00U, 0x00U, 0x00U};
-  static const uint8_t nan_bytes[] = {0x7FU, 0xC1U, 0x23U, 0x45U};
+  static const uint8_t negative_zero_bytes[] = {0x00U, 0x00U, 0x00U, 0x80U};
+  static const uint8_t nan_bytes[] = {0x45U, 0x23U, 0xC1U, 0x7FU};
   const uint8_t malformed_length[] = {0x0AU, 0x04U, 0U, 0U, 0U, 0U};
   arm_mit_command_t command = {0};
   arm_mit_command_t decoded = {0};
@@ -244,7 +247,7 @@ ZTEST(wirelink_generated_codec, test_bounded_bulk_chunk_rejects_oversize)
   chunk.has_offset = true;
   chunk.offset = 0U;
   chunk.has_data = true;
-  chunk.data.data = chunk_bytes;
+  memcpy(chunk.data.data, chunk_bytes, sizeof(chunk.data.data));
   chunk.data.length = sizeof(chunk_bytes);
   zassert_equal(bulk_chunk_encoded_size(&chunk), SIZE_MAX);
   zassert_equal(bulk_chunk_encode(&chunk, encoded, sizeof(encoded),
@@ -267,8 +270,9 @@ ZTEST(wirelink_generated_codec, test_bounded_bulk_chunk_rejects_oversize)
                 WL_CODEC_OK);
   zassert_true(decoded.has_data);
   zassert_equal(decoded.data.length, sizeof(chunk_bytes) - 1U);
-  zassert_true(points_into(decoded.data.data, decoded.data.length, encoded,
-                           encoded_length));
+  zassert_false(points_into(decoded.data.data, decoded.data.length, encoded,
+                            encoded_length));
+  zassert_mem_equal(decoded.data.data, chunk_bytes, sizeof(chunk.data.data));
 }
 #endif
 

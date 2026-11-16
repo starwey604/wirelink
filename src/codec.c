@@ -251,7 +251,8 @@ static void clear_single_field(uint8_t *base, const wl_codec_field_t *f) {
     *(size_t *)(base + f->count_offset) = 0U;
     return;
   }
-  *(bool *)(base + f->presence_offset) = false;
+  if (!is_required_card(f->cardinality))
+    *(bool *)(base + f->presence_offset) = false;
   if (is_packed_card(f->cardinality)) {
     memset(dst, 0, (size_t)f->max_length * (size_t)f->scalar_size);
     return;
@@ -830,11 +831,8 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_measure(const wl_codec_desc_t *desc,
       }
       continue;
     }
-    const bool present = *(const bool *)(base + f->presence_offset);
-    if (!present) {
-      if (is_required_card(f->cardinality)) {
-        return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
-      }
+    if (!is_required_card(f->cardinality) &&
+        !*(const bool *)(base + f->presence_offset)) {
       continue;
     }
     size_t value_bytes = 0U;
@@ -894,7 +892,8 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_encode(const wl_codec_desc_t *desc,
       }
       continue;
     }
-    if (!*(const bool *)(base + f->presence_offset)) {
+    if (!is_required_card(f->cardinality) &&
+        !*(const bool *)(base + f->presence_offset)) {
       continue;
     }
     memcpy(cursor, f->key, f->key_len);
@@ -917,9 +916,11 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
                                               size_t input_length, void *out,
                                               void *scratch) {
   if (desc == NULL || out == NULL || scratch == NULL ||
+      desc->field_count > WL_CODEC_MAX_FIELDS ||
       (input_length != 0U && input == NULL)) {
     return WL_CODEC_ERR_INVALID_VALUE;
   }
+  uint64_t seen[WL_CODEC_MAX_FIELDS / 64U] = {0};
   if (desc->has_repeated != 0U) {
     memcpy(scratch, out, desc->struct_size);
   }
@@ -978,8 +979,9 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
       }
       ++(*count);
     } else {
-      bool *present = (bool *)(base + f->presence_offset);
-      if (*present) {
+      const size_t index = (size_t)(f - desc->fields);
+      const uint64_t bit = UINT64_C(1) << (index & 63U);
+      if ((seen[index >> 6U] & bit) != 0U) {
         return WL_CODEC_ERR_DUPLICATE_FIELD;
       }
       if (is_packed_card(f->cardinality)) {
@@ -990,13 +992,15 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
       if (status != WL_CODEC_OK) {
         return status;
       }
-      *present = true;
+      seen[index >> 6U] |= bit;
+      if (!is_required_card(f->cardinality))
+        *(bool *)(base + f->presence_offset) = true;
     }
   }
   for (size_t i = 0U; i < desc->field_count; ++i) {
     const wl_codec_field_t *f = &desc->fields[i];
     if (is_required_card(f->cardinality) &&
-        !*(const bool *)(base + f->presence_offset)) {
+        (seen[i >> 6U] & (UINT64_C(1) << (i & 63U))) == 0U) {
       return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
     }
   }
@@ -1014,10 +1018,8 @@ wl_codec_positional_measure(const wl_codec_desc_t *desc, const void *msg,
   size_t total = desc->presence_bytes;
   for (size_t i = 0U; i < desc->field_count; ++i) {
     const wl_codec_field_t *f = &desc->fields[i];
-    if (!*(const bool *)(base + f->presence_offset)) {
-      if (is_required_card(f->cardinality)) {
-        return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
-      }
+    if (!is_required_card(f->cardinality) &&
+        !*(const bool *)(base + f->presence_offset)) {
       continue;
     }
     size_t value_bytes = 0U;
@@ -1073,7 +1075,8 @@ wl_codec_positional_encode(const wl_codec_desc_t *desc, const void *msg,
   }
   for (size_t i = 0U; i < desc->field_count; ++i) {
     const wl_codec_field_t *f = &desc->fields[i];
-    if (!*(const bool *)(base + f->presence_offset)) {
+    if (!is_required_card(f->cardinality) &&
+        !*(const bool *)(base + f->presence_offset)) {
       continue;
     }
     if (is_packed_card(f->cardinality)) {
@@ -1093,6 +1096,7 @@ WL_HOT_ATTR wl_codec_status_t
 wl_codec_positional_decode(const wl_codec_desc_t *desc, const uint8_t *input,
                            size_t input_length, void *out, void *scratch) {
   if (desc == NULL || out == NULL || scratch == NULL ||
+      desc->field_count > WL_CODEC_MAX_FIELDS ||
       (input_length != 0U && input == NULL)) {
     return WL_CODEC_ERR_INVALID_VALUE;
   }
@@ -1103,8 +1107,8 @@ wl_codec_positional_decode(const wl_codec_desc_t *desc, const uint8_t *input,
     return WL_CODEC_ERR_MALFORMED;
   }
   const uint8_t *bitmap = cursor;
-  cursor += desc->presence_bytes;
   if (desc->presence_bytes > 0U) {
+    cursor += desc->presence_bytes;
     size_t opt_count = 0U;
     for (size_t i = 0U; i < desc->field_count; ++i) {
       if (!is_required_card(desc->fields[i].cardinality)) {
@@ -1136,17 +1140,11 @@ wl_codec_positional_decode(const wl_codec_desc_t *desc, const uint8_t *input,
     if (status != WL_CODEC_OK) {
       return status;
     }
-    *(bool *)(base + f->presence_offset) = true;
+    if (!is_required_card(f->cardinality))
+      *(bool *)(base + f->presence_offset) = true;
   }
   if (cursor != end) {
     return WL_CODEC_ERR_MALFORMED;
-  }
-  for (size_t i = 0U; i < desc->field_count; ++i) {
-    const wl_codec_field_t *f = &desc->fields[i];
-    if (is_required_card(f->cardinality) &&
-        !*(const bool *)(base + f->presence_offset)) {
-      return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
-    }
   }
   memcpy(out, scratch, desc->struct_size);
   return WL_CODEC_OK;

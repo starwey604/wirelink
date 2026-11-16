@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Checked-in deterministic WLC output keeps the default C build tool-independent.
-add_library(wirelink_example_codec STATIC kernel/generated/demo.c kernel/generated/demo_kernel.c)
+add_library(wirelink_example_codec STATIC kernel/generated/demo.c)
 target_include_directories(wirelink_example_codec PUBLIC kernel/generated)
 target_link_libraries(wirelink_example_codec PUBLIC wirelink_kernel)
 wl_warnings(wirelink_example_codec PRIVATE -Wall -Wextra -Wpedantic -Werror)

@@ -2,19 +2,22 @@
 #include "business.h"
 #include "network.h"
 #include <string.h>
-static udp_demo_kernel_t client;
+static udp_client_node_t client;
 static sample_udp_t udp;
+void udp_client_on_telemetry(udp_client_node_t *self, const telemetry_t *sample) {
+  peer_sample(self->user, sample);
+}
 int main(void) {
   if (sample_network_init() < 0) { printk("network unavailable\n"); return 1; }
   wl_err_t error = sample_udp_open(&udp);
   if (error != WL_OK) { printk("UDP open: %d\n", error); return 1; }
   peer_client_t state = {0};
-  const udp_demo_kernel_handlers_t handlers = {.on_rpc_add = peer_add, .on_message_telemetry = peer_sample};
-  error = udp_demo_kernel_init(&client, &udp.port, &handlers, NULL, &state);
+  error = udp_client_init(&client, &udp.port);
+  client.user = &state;
   if (error != WL_OK) { (void)wl_kernel_udp_close(&udp.adapter); return 1; }
-  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
+  add_request_t request = {.left = 20, .right = 22};
   wl_kernel_call_handle_t call;
-  error = udp_demo_kernel_add_start(&client, &request, k_uptime_get_32(), 1500, peer_completed, &state, &call);
+  error = udp_client_call_add_ex(&client, &request, k_uptime_get_32(), 1500, peer_completed, &state, &call);
   memset(&request, 0, sizeof(request));
   while (error == WL_OK && !state.completions) {
     error = peer_z_step(&udp.adapter, &client.core, k_uptime_get_32());

@@ -29,6 +29,6 @@ wl_err_t executor_test_call(uint32_t now, uint32_t timeout,
   if (capacity < 1U) return WL_ERR_BUF_TOO_SMALL;
   payload[0] = 77U;
   wl_kernel_call_handle_t call;
-  return wl_kernel_call_commit(&core, slot, 40U, 41U, 1U, now, timeout,
+  return wl_kernel_call_commit(&core, slot, 40U, 41U, 1U, now, timeout, 1U,
       complete, callback_marker, user, &call);
 }

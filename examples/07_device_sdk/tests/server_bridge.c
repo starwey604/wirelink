@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "server_bridge.h"
 #include "service.h"
-#include "device_kernel.h"
+#include "peer.h"
 #include <string.h>
 typedef struct {
-  device_kernel_t endpoint;
+  device_peer_node_t endpoint;
   wl_packet_port_t port;
   uint8_t rx[2][2053];
   void (*before)(void*);
@@ -22,12 +22,12 @@ wl_err_t device_test_server_prepare(void* storage, wl_host_endpoint_t* descripto
 void device_test_server_hook(void* storage, void (*hook)(void*), void* user) {
   owner_t* owner=storage; owner->before=hook; owner->before_user=user;
 }
-static int32_t get_info(void* user,const info_request_t* request,info_response_t* response) {
+static int32_t get_info(void* user,const peer_info_request_t* request,peer_info_response_t* response) {
   owner_t* owner=user;
   if(owner->before)owner->before(owner->before_user);
   return device_test_get_info(&owner->state,request,response);
 }
-static int32_t configure(void* user,const configure_request_t* request,configure_response_t* response) {
+static int32_t configure(void* user,const peer_configure_request_t* request,peer_configure_response_t* response) {
   owner_t* owner=user;
   if(owner->before)owner->before(owner->before_user);
   return device_test_configure(&owner->state,request,response);
@@ -41,6 +41,6 @@ wl_err_t device_test_server_initialize(void* storage, uint32_t instance, wl_pack
     .submit=sink,.notify=notify,.user=user};
   wl_err_t error=wl_packet_init(&owner->port,&config);
   if(error!=WL_OK)return error;
-  const device_kernel_handlers_t handlers={.on_rpc_get_info=get_info,.on_rpc_configure=configure};
-  return device_kernel_init(&owner->endpoint,&owner->port,&handlers,NULL,owner);
+  const device_peer_handlers_t handlers={.on_get_info=get_info,.on_configure=configure};
+  return device_peer_init(&owner->endpoint,&owner->port,&handlers,owner);
 }

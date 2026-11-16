@@ -61,6 +61,7 @@ struct wl_kernel_call {
   wl_kernel_result_t result;
   uint8_t state;
   uint8_t sent;
+  uint8_t armed;
 };
 
 typedef struct {
@@ -139,13 +140,15 @@ WL_HOT_ATTR wl_err_t wl_kernel_msg_claim(wl_kernel_t *, uint8_t **out_frame,
 WL_HOT_ATTR wl_err_t wl_kernel_msg_commit(wl_kernel_t *, size_t frame_length);
 
 /* Zero-callback RPC request: claim slot + payload buffer (after 12B headers),
- * encode request body, then commit with timeout (1..INT32_MAX ticks). */
+ * encode request body, then commit with timeout (1..INT32_MAX ticks).
+ * has_now != 0 starts the timeout at now; otherwise the next step starts it.
+ * out_handle may be NULL when cancellation is not needed. */
 WL_HOT_ATTR wl_err_t wl_kernel_call_claim(wl_kernel_t *, uint8_t *out_slot,
                                           uint8_t **out_payload,
                                           size_t *out_capacity);
 WL_HOT_ATTR wl_err_t wl_kernel_call_commit(
     wl_kernel_t *, uint8_t slot, uint16_t request_id, uint16_t response_id,
-    size_t body_length, uint32_t now, uint32_t timeout, wl_kernel_complete_fn,
+    size_t body_length, uint32_t now, uint32_t timeout, uint8_t has_now, wl_kernel_complete_fn,
     void (*callback)(void), void *user, wl_kernel_call_handle_t *);
 
 wl_err_t wl_kernel_cancel(wl_kernel_t *, wl_kernel_call_handle_t);

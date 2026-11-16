@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-project(wirelink VERSION 0.13.0 LANGUAGES C)
+project(wirelink VERSION 0.14.0 LANGUAGES C)
 include(CTest)
 include(GNUInstallDirs)
 include(cmake/WirelinkWlc.cmake)
@@ -111,6 +111,11 @@ if(BUILD_TESTING)
   target_link_libraries(packet_port_test PRIVATE wirelink_packet_port)
   add_test(NAME packet_port COMMAND packet_port_test)
   find_package(Threads REQUIRED)
+  add_executable(packet_port_cpp_test tests/core/cpp_owner.c tests/core/packet_port_cpp.cpp)
+  target_compile_features(packet_port_cpp_test PRIVATE cxx_std_20)
+  target_link_libraries(packet_port_cpp_test PRIVATE wirelink_packet_port Threads::Threads)
+  wl_warnings(packet_port_cpp_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_test(NAME packet_port_cpp COMMAND packet_port_cpp_test)
   add_executable(packet_port_concurrent_test tests/core/packet_port_concurrent.c tests/core/threaded_fixture.cpp)
   target_compile_features(packet_port_concurrent_test PRIVATE cxx_std_17)
   target_link_libraries(packet_port_concurrent_test PRIVATE wirelink_packet_port Threads::Threads)
@@ -128,13 +133,12 @@ if(BUILD_TESTING)
   if(WIRELINK_WLC_EXECUTABLE)
     set(_generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
     add_custom_command(OUTPUT ${_generated}/usb.c ${_generated}/usb.h
-        ${_generated}/usb_kernel.c ${_generated}/usb_kernel.h
-        ${_generated}/usb_kernel_manifest.json ${_generated}/usb_kernel_deployment.json
-      COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel
+        ${_generated}/usb_manifest.json
+      COMMAND ${WIRELINK_WLC_EXECUTABLE} compile
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/usb.wl
-        --profile ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/usb.bind.wl --out-dir ${_generated}
-      DEPENDS ${WIRELINK_WLC_EXECUTABLE} tests/fixtures/static_kernel/usb.wl tests/fixtures/static_kernel/usb.bind.wl VERBATIM)
-    add_library(kernel_usb_fixture_codec ${_generated}/usb.c ${_generated}/usb_kernel.c)
+        --out-dir ${_generated}
+      DEPENDS ${WIRELINK_WLC_EXECUTABLE} tests/fixtures/static_kernel/usb.wl VERBATIM)
+    add_library(kernel_usb_fixture_codec ${_generated}/usb.c)
     target_include_directories(kernel_usb_fixture_codec PUBLIC ${_generated})
     target_link_libraries(kernel_usb_fixture_codec PUBLIC wirelink_kernel)
     wl_warnings(kernel_usb_fixture_codec PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -152,15 +156,13 @@ if(BUILD_TESTING)
     add_test(NAME generated_loopback COMMAND generated_loopback_test)
     set(_instrument "${CMAKE_CURRENT_BINARY_DIR}/instrument")
     add_custom_command(OUTPUT ${_instrument}/instrument.c ${_instrument}/instrument.h
-        ${_instrument}/instrument_kernel.c
-        ${_instrument}/instrument_kernel.h
-        ${_instrument}/instrument_kernel_manifest.json ${_instrument}/instrument_kernel_deployment.json
-      COMMAND ${WIRELINK_WLC_EXECUTABLE} compile-kernel
+        ${_instrument}/instrument_manifest.json
+      COMMAND ${WIRELINK_WLC_EXECUTABLE} compile
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/instrument.wl
-        --profile ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/static_kernel/instrument.bind.wl --out-dir ${_instrument}
-      DEPENDS ${WIRELINK_WLC_EXECUTABLE} tests/fixtures/static_kernel/instrument.wl tests/fixtures/static_kernel/instrument.bind.wl VERBATIM)
+        --out-dir ${_instrument}
+      DEPENDS ${WIRELINK_WLC_EXECUTABLE} tests/fixtures/static_kernel/instrument.wl VERBATIM)
     add_executable(generated_instrument_test tests/core/generated_instrument.c
-      ${_instrument}/instrument.c ${_instrument}/instrument_kernel.c)
+      ${_instrument}/instrument.c)
     target_include_directories(generated_instrument_test PRIVATE ${_instrument})
     wl_warnings(generated_instrument_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(generated_instrument_test PRIVATE wirelink_kernel)
@@ -295,6 +297,12 @@ endif()
 add_library(wirelink_types src/types.c src/codec.c)
 wl_kernel_headers(wirelink_types)
 wl_warnings(wirelink_types PRIVATE -Wall -Wextra -Wpedantic -Werror)
+if(BUILD_TESTING)
+  add_executable(codec_required_test tests/core/codec_required.c)
+  target_link_libraries(codec_required_test PRIVATE wirelink_types)
+  wl_warnings(codec_required_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  add_test(NAME codec_required COMMAND codec_required_test)
+endif()
 wl_warnings(wirelink_framing_primitives PRIVATE -Wall -Wextra -Wpedantic -Werror)
 target_link_libraries(wirelink_kernel_wire INTERFACE wirelink_types)
 target_link_libraries(wirelink_kernel PUBLIC wirelink_types)

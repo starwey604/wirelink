@@ -104,15 +104,18 @@ static wl_err_t find_call_slot(const wl_kernel_t *kernel, int *out_slot) {
   return exhausted ? WL_ERR_ID_EXHAUSTED : WL_ERR_WOULD_BLOCK;
 }
 
+static int valid_storage(const uint8_t *data, uint16_t capacity, uint16_t minimum) {
+  return data == NULL ? capacity == 0U : capacity >= minimum;
+}
+
 wl_err_t wl_kernel_init(wl_kernel_t *kernel, const wl_kernel_config_t *config) {
   if (kernel == NULL || config == NULL || config->port == NULL ||
-      config->route == NULL || config->port->config.instance == 0U ||
-      config->storage.requests == NULL ||
-      config->storage.request_stride < CALL_PREFIX ||
-      config->storage.replies == NULL ||
-      config->storage.reply_stride < (WL_KERNEL_NATIVE_HEADER + WL_KERNEL_RPC_HEADER_ERR) ||
-      config->storage.message == NULL ||
-      config->storage.message_capacity < WL_KERNEL_NATIVE_HEADER)
+      config->port->config.instance == 0U ||
+      !valid_storage(config->storage.requests, config->storage.request_stride, CALL_PREFIX) ||
+      !valid_storage(config->storage.replies, config->storage.reply_stride,
+                     WL_KERNEL_NATIVE_HEADER + WL_KERNEL_RPC_HEADER_ERR) ||
+      !valid_storage(config->storage.message, config->storage.message_capacity,
+                     WL_KERNEL_NATIVE_HEADER))
     return WL_ERR_INVALID_ARG;
   const wl_kernel_config_t value = *config;
   memset(kernel, 0, sizeof(*kernel));
@@ -130,6 +133,7 @@ WL_HOT_ATTR wl_err_t wl_kernel_msg_claim(wl_kernel_t *kernel,
                                          size_t *out_capacity) {
   if (kernel == NULL || out_frame == NULL) return WL_ERR_INVALID_ARG;
   if (kernel->closed) return WL_ERR_INVALID_STATE;
+  if (kernel->storage.message == NULL) return WL_ERR_NOT_SUPPORTED;
   if (kernel->tx[MESSAGE_TX].state != FREE) return WL_ERR_WOULD_BLOCK;
   *out_frame = kernel->storage.message;
   if (out_capacity != NULL) *out_capacity = kernel->storage.message_capacity;
@@ -141,6 +145,7 @@ WL_HOT_ATTR wl_err_t wl_kernel_msg_commit(wl_kernel_t *kernel,
   if (kernel == NULL || frame_length < WL_KERNEL_NATIVE_HEADER)
     return WL_ERR_INVALID_ARG;
   if (kernel->closed) return WL_ERR_INVALID_STATE;
+  if (kernel->storage.message == NULL) return WL_ERR_NOT_SUPPORTED;
   if (kernel->tx[MESSAGE_TX].state != FREE) return WL_ERR_WOULD_BLOCK;
   if (frame_length - WL_KERNEL_NATIVE_HEADER > WL_WIRE_MAX_PAYLOAD)
     return WL_ERR_PAYLOAD_TOO_LONG;
@@ -165,6 +170,7 @@ WL_HOT_ATTR wl_err_t wl_kernel_call_claim(wl_kernel_t *kernel,
   if (kernel == NULL || out_slot == NULL || out_payload == NULL)
     return WL_ERR_INVALID_ARG;
   if (kernel->closed) return WL_ERR_INVALID_STATE;
+  if (kernel->storage.requests == NULL) return WL_ERR_NOT_SUPPORTED;
   int call_slot = -1;
   wl_err_t error = find_call_slot(kernel, &call_slot);
   if (error != WL_OK) return error;
@@ -179,16 +185,17 @@ WL_HOT_ATTR wl_err_t wl_kernel_call_claim(wl_kernel_t *kernel,
 
 WL_HOT_ATTR wl_err_t wl_kernel_call_commit(
     wl_kernel_t *kernel, uint8_t slot, uint16_t request_id,
-    uint16_t response_id, size_t body_length, uint32_t now, uint32_t timeout,
+    uint16_t response_id, size_t body_length, uint32_t now, uint32_t timeout, uint8_t has_now,
     wl_kernel_complete_fn complete, void (*callback)(void), void *user,
     wl_kernel_call_handle_t *out) {
   if (out != NULL) *out = (wl_kernel_call_handle_t){0};
-  if (kernel == NULL || out == NULL || slot >= WL_KERNEL_CALLS ||
+  if (kernel == NULL || slot >= WL_KERNEL_CALLS ||
       request_id == 0U || response_id == 0U || request_id == response_id ||
       complete == NULL || callback == NULL || timeout == 0U ||
       timeout > INT32_MAX)
     return WL_ERR_INVALID_ARG;
   if (kernel->closed) return WL_ERR_INVALID_STATE;
+  if (kernel->storage.requests == NULL) return WL_ERR_NOT_SUPPORTED;
   wl_kernel_tx_t *tx = &kernel->tx[slot];
   if (tx->state != FREE) return WL_ERR_INVALID_STATE;
   int call_slot = -1;
@@ -208,7 +215,8 @@ WL_HOT_ATTR wl_err_t wl_kernel_call_commit(
   ++call->generation;
   call->operation = operation;
   call->response_id = response_id;
-  call->deadline = now + timeout;
+  call->deadline = has_now ? now + timeout : timeout;
+  call->armed = has_now != 0U;
   call->complete = complete;
   call->callback = callback;
   call->user = user;
@@ -217,7 +225,7 @@ WL_HOT_ATTR wl_err_t wl_kernel_call_commit(
   tx->call_slot = (uint8_t)call_slot;
   tx->generation = call->generation;
   kernel->operation = operation;
-  *out = (wl_kernel_call_handle_t){
+  if (out != NULL) *out = (wl_kernel_call_handle_t){
       instance(kernel), call->generation, operation, (uint8_t)call_slot};
   return WL_OK;
 }
@@ -243,6 +251,7 @@ WL_HOT_ATTR wl_err_t wl_kernel_reply_claim(
   if (response_id == 0U || request == NULL || request->session == 0U ||
       request->operation == 0U || out_slot == NULL || out_payload == NULL)
     return WL_ERR_INVALID_ARG;
+  if (kernel->storage.replies == NULL) return WL_ERR_NOT_SUPPORTED;
   int index = free_tx(kernel, REPLY_FIRST, MESSAGE_TX);
   if (index < 0) return WL_ERR_WOULD_BLOCK;
   uint8_t *frame = tx_buf(kernel, (unsigned)index);
@@ -375,7 +384,8 @@ WL_HOT_ATTR static int terminal(wl_kernel_t *kernel, uint32_t now,
     wl_kernel_call_t *call = &kernel->calls[slot];
     if (call->generation != generations[slot] || call->state == CALL_FREE)
       continue;
-    if (call->state == CALL_WAITING && !expired(now, call->deadline)) continue;
+    if (call->state == CALL_WAITING &&
+        (!call->armed || !expired(now, call->deadline))) continue;
     wl_kernel_result_t result =
         call->state == CALL_TERMINAL
             ? call->result
@@ -437,7 +447,8 @@ WL_HOT_ATTR static int receive(wl_kernel_t *kernel, wl_err_t *out_error) {
   wl_err_t error = WL_OK;
   if (!kernel->closed) {
     error = wl_wire_frame_read(kernel->rx.data, kernel->rx.length, &frame);
-    if (error == WL_OK) error = kernel->route(kernel, &frame);
+    if (error == WL_OK)
+      error = kernel->route != NULL ? kernel->route(kernel, &frame) : WL_ERR_NOT_SUPPORTED;
   }
   if (error == WL_ERR_WOULD_BLOCK) {
     kernel->rx_blocked = 1U;
@@ -457,8 +468,14 @@ WL_HOT_ATTR wl_err_t wl_kernel_step(wl_kernel_t *kernel, uint32_t now,
   if (kernel->in_step) return WL_ERR_REENTRANT;
   kernel->in_step = 1U;
   uint32_t generations[WL_KERNEL_CALLS];
-  for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i)
+  for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i) {
+    wl_kernel_call_t *call = &kernel->calls[i];
+    if (call->state == CALL_WAITING && !call->armed) {
+      call->deadline += now;
+      call->armed = 1U;
+    }
     generations[i] = kernel->calls[i].generation;
+  }
   if (wl_packet_take_activity(kernel->port)) kernel->tx_blocked = 0U;
   unsigned count = 0U;
   wl_err_t result = WL_OK;
@@ -498,6 +515,10 @@ WL_HOT_ATTR int wl_kernel_ready(const wl_kernel_t *kernel, uint32_t now,
   for (unsigned i = 0U; i < WL_KERNEL_CALLS; ++i) {
     const wl_kernel_call_t *call = &kernel->calls[i];
     if (call->state == CALL_FREE) continue;
+    if (call->state == CALL_WAITING && !call->armed) {
+      ready = 1;
+      continue;
+    }
     if (call->state == CALL_TERMINAL || expired(now, call->deadline))
       ready = 1;
     else if (!*has_deadline ||

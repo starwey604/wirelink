@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.20)
+list(APPEND ZEPHYR_EXTRA_MODULES "${CMAKE_CURRENT_LIST_DIR}/../../..")
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_codec_plan_cpu LANGUAGES C)
 if(NOT DEFINED CODEC_PLAN_EXPECT_LTO)

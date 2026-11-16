@@ -66,18 +66,25 @@ typedef struct {
  * init/reinit requires stopped I/O and no outstanding borrow or physical lease.
  * Only publish/claim/commit/abort/activity may run in the producer/I/O context.
  * No codec, handler, allocation, clock or owner callback runs here. */
-/* C owns the atomic representation. C++ uses an opaque pointer; do not
- * substitute std::atomic or assume it has the C atomic ABI. */
+/* C++ storage uses the qualified C ABI representation. All atomic access and
+ * initialization belongs to packet_port.c; do not access or copy live fields
+ * from C++. Supported toolchains must pass the cross-language layout test. */
+#ifdef __cplusplus
+typedef uint_least32_t wl_atomic_u32_t;
+typedef unsigned char wl_atomic_bool_t;
+#else
+typedef atomic_uint_least32_t wl_atomic_u32_t;
+typedef atomic_bool wl_atomic_bool_t;
+#endif
 typedef struct wl_packet_port wl_packet_port_t;
-#ifndef __cplusplus
 struct wl_packet_port {
   wl_packet_config_t config;
-  atomic_uint_least32_t write_cursor;
-  atomic_uint_least32_t read_cursor;
-  atomic_uint_least32_t tx_state;
-  atomic_bool running;
-  atomic_bool claim_active;
-  atomic_bool activity;
+  wl_atomic_u32_t write_cursor;
+  wl_atomic_u32_t read_cursor;
+  wl_atomic_u32_t tx_state;
+  wl_atomic_bool_t running;
+  wl_atomic_bool_t claim_active;
+  wl_atomic_bool_t activity;
   size_t lengths[WL_PACKET_RX_SLOTS];
   uint32_t rx_sequences[WL_PACKET_RX_SLOTS];
   uint32_t claim_sequence;
@@ -87,10 +94,15 @@ struct wl_packet_port {
   unsigned tx_delivered;
   uint8_t borrowed;
 };
-#endif
 
 size_t wl_packet_rx_unit_size(const wl_packet_port_t *);
+/* Allocate a nonzero identity unique among automatic allocations in this
+ * process. Does not survive reboot: persistent transports must supply a fresh
+ * explicit identity. Never wraps; exhaustion returns WL_ERR_ID_EXHAUSTED. */
+wl_err_t wl_packet_instance_next(uint32_t *out);
 wl_err_t wl_packet_init(wl_packet_port_t *, const wl_packet_config_t *);
+/* Single-producer copy admission. On failure no new claim remains held. */
+WL_HOT_ATTR wl_err_t wl_packet_rx_push(wl_packet_port_t *, const uint8_t *, size_t);
 WL_HOT_ATTR wl_err_t wl_packet_rx_claim(wl_packet_port_t *, size_t, wl_packet_claim_t *);
 WL_HOT_ATTR wl_err_t wl_packet_rx_commit(wl_packet_port_t *, const wl_packet_claim_t *, size_t);
 wl_err_t wl_packet_rx_abort(wl_packet_port_t *, const wl_packet_claim_t *);

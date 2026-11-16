@@ -6,8 +6,7 @@ set(WIRELINK_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." CACHE PATH "Wirelink s
 set(WIRELINK_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WIRELINK_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory("${WIRELINK_SOURCE_DIR}" wirelink)
-wirelink_wlc_generate(TARGET mixed_protocol SCHEMA "${CMAKE_CURRENT_LIST_DIR}/mixed.wl"
-  PROFILE "${CMAKE_CURRENT_LIST_DIR}/mixed.bind.wl")
+wirelink_wlc_generate(TARGET mixed_protocol SCHEMA "${CMAKE_CURRENT_LIST_DIR}/mixed.wl")
 add_executable(wirelink_mixed_traffic main.c workload.c)
 target_link_libraries(wirelink_mixed_traffic PRIVATE mixed_protocol Wirelink::stream_cobs_crc16 Wirelink::stream_length16_none)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

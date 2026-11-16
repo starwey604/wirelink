@@ -45,7 +45,8 @@ int codec_plan_init(codec_plan_fixture_t *f, unsigned kind, unsigned pattern, un
       uint64_t bits;
       if (width == 4) { float value = (float)i - 0.5F; uint32_t v; memcpy(&v, &value, 4); bits = v; }
       else { double value = (double)i - 0.5; memcpy(&bits, &value, 8); }
-      for (unsigned b = width; b; --b) f->expected[f->expected_length++] = (uint8_t)(bits >> ((b - 1) * 8));
+      /* Wire v2 packed IEEE values are little-endian. */
+      for (unsigned b = 0; b < width; ++b) f->expected[f->expected_length++] = (uint8_t)(bits >> (b * 8));
     }
     memcpy(f->input, f->expected, f->expected_length); f->input_length = f->expected_length;
   }
@@ -62,6 +63,11 @@ int codec_plan_init(codec_plan_fixture_t *f, unsigned kind, unsigned pattern, un
   return result;
 }
 int codec_plan_check(codec_plan_fixture_t *f) {
+  /* Check values as well as bytes: a symmetric endian bug must not pass. */
+  if ((f->kind == 9 && (f->view.packed30.values[0] != -0.5F || f->view.packed30.values[29] != 28.5F)) ||
+      (f->kind == 10 && (f->view.packed128.values[0] != -0.5F || f->view.packed128.values[127] != 126.5F)) ||
+      (f->kind == 11 && (f->view.packed64.values[0] != -0.5 || f->view.packed64.values[63] != 62.5)))
+    return WL_CODEC_ERR_INVALID_VALUE;
   unsigned stage = f->stage;
   f->stage = 1;
   int result = codec_plan_step(f);

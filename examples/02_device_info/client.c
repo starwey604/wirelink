@@ -1,26 +1,38 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "device_info_kernel.h"
-#include "loopback_owner.h"
-int32_t device_info_query(void *, const info_request_t *, info_response_t *);
-static device_info_kernel_t endpoints[2];
-static example_pair_t pair;
-EXAMPLE_COMPLETION(info, info_response)
+#include "device_info.h"
+#include "example_check.h"
+#include <string.h>
+static info_client_node_t caller;
+static info_server_node_t callee;
+static unsigned completed;
+static info_response_t result;
+wl_err_t info_client_tx_write(info_client_node_t *self, const uint8_t *data, size_t length) {
+  (void)self; return info_server_rx_packet(&callee, data, length);
+}
+wl_err_t info_server_tx_write(info_server_node_t *self, const uint8_t *data, size_t length) {
+  (void)self; return info_client_rx_packet(&caller, data, length);
+}
+static void done(info_client_node_t *self, wl_kernel_result_t outcome, const info_response_t *response) {
+  (void)self;
+  EXAMPLE_REQUIRE(outcome.outcome == WL_KERNEL_SUCCESS && response);
+  result = *response;
+  ++completed;
+}
 int main(void) {
   unsigned queries = 0;
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
-  const device_info_kernel_handlers_t handlers = {.on_rpc_get_info = device_info_query};
-  for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(device_info_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, &queries) == WL_OK);
+  EXAMPLE_REQUIRE(info_client_init(&caller) == WL_OK && info_server_init(&callee) == WL_OK);
+  callee.user = &queries;
   /* [docs:device_info_client] */
   for (unsigned call = 0; call < 8; ++call) {
-    info_request_t request = {0}; wl_kernel_call_handle_t handle;
-    EXAMPLE_REQUIRE(device_info_kernel_get_info_start(&endpoints[0], &request, pair.now, 500,
-      info_completed, NULL, &handle) == WL_OK);
-    example_pair_wait(&pair, &info_count, call + 1);
-    EXAMPLE_REQUIRE(info_result.outcome == WL_KERNEL_SUCCESS && info_value.query_count == call + 1);
+    EXAMPLE_REQUIRE(info_client_call_get_info(&caller, &(info_request_t){0}, done) == WL_OK);
+    EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
+    EXAMPLE_REQUIRE(info_server_step(&callee, call) == WL_OK);
+    EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
+    EXAMPLE_REQUIRE(completed == call + 1 && result.query_count == call + 1);
   }
-  example_pair_close(&pair);
-  EXAMPLE_REQUIRE(info_value.name.length == 11 && memcmp(info_value.name.data, "workbench\0x", 11) == 0);
+  EXAMPLE_REQUIRE(info_client_close(&caller) == WL_OK && info_server_close(&callee) == WL_OK);
+  EXAMPLE_REQUIRE(info_client_quiescent(&caller) && info_server_quiescent(&callee));
+  EXAMPLE_REQUIRE(result.name.length == 11 && memcmp(result.name.data, "workbench\0x", 11) == 0);
   /* [/docs:device_info_client] */
   puts("bounded UTF-8/NUL response copied before callback exit and retained after close");
   return 0;

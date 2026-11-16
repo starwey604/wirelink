@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 wirelink_wlc_generate(TARGET composed_protocol SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/product.wl"
-  PROFILES "${CMAKE_CURRENT_SOURCE_DIR}/arm.bind.wl" "${CMAKE_CURRENT_SOURCE_DIR}/upgrade.bind.wl")
+  NODE product)
 add_executable(wirelink_composed_services main.c)
 target_include_directories(wirelink_composed_services PRIVATE ../common)
 target_link_libraries(wirelink_composed_services PRIVATE composed_protocol Wirelink::packet_loopback)

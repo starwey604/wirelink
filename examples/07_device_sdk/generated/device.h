@@ -40,13 +40,10 @@ struct info_request {
 struct settings {
   bool has_label;
   struct { size_t length; char data[13]; } label;
-  bool has_enabled;
   bool enabled;
   bool has_mode;
   mode_t mode;
-  bool has_token;
   struct { size_t length; uint8_t data[8]; } token;
-  bool has_gains;
   float gains[3];
   bool has_counters;
   uint64_t counters[2];
@@ -60,15 +57,34 @@ struct settings {
   uint16_t timeout;
 };
 
+static inline bool settings_set_label(settings_t *msg, const char *value) {
+  if (msg == NULL || !wl_codec_inline_str_set(&msg->label.length, msg->label.data, 12U, value)) return false;
+  msg->has_label = true;
+  return true;
+}
+
+static inline bool settings_set_token(settings_t *msg, const void *value, size_t length) {
+  if (msg == NULL || !wl_codec_inline_bytes_set(&msg->token.length, msg->token.data, 8U, value, length)) return false;
+  return true;
+}
+
+static inline bool settings_set_class_(settings_t *msg, const char *value) {
+  if (msg == NULL || !wl_codec_inline_str_set(&msg->class_.length, msg->class_.data, 8U, value)) return false;
+  msg->has_class_ = true;
+  return true;
+}
+
 struct info_response {
-  bool has_name;
   struct { size_t length; char data[33]; } name;
-  bool has_settings;
   settings_t settings;
 };
+
+static inline bool info_response_set_name(info_response_t *msg, const char *value) {
+  if (msg == NULL || !wl_codec_inline_str_set(&msg->name.length, msg->name.data, 32U, value)) return false;
+  return true;
+}
 
 struct configure_request {
-  bool has_settings;
   settings_t settings;
   bool has_opaque;
   struct { size_t length; uint8_t data[4]; } opaque;
@@ -76,45 +92,42 @@ struct configure_request {
   settings_t backup;
 };
 
+static inline bool configure_request_set_opaque(configure_request_t *msg, const void *value, size_t length) {
+  if (msg == NULL || !wl_codec_inline_bytes_set(&msg->opaque.length, msg->opaque.data, 4U, value, length)) return false;
+  msg->has_opaque = true;
+  return true;
+}
+
 struct configure_response {
-  bool has_settings;
   settings_t settings;
   bool has_opaque;
   struct { size_t length; uint8_t data[4]; } opaque;
   bool has_backup;
   settings_t backup;
-  bool has_count;
   uint32_t count;
 };
 
+static inline bool configure_response_set_opaque(configure_response_t *msg, const void *value, size_t length) {
+  if (msg == NULL || !wl_codec_inline_bytes_set(&msg->opaque.length, msg->opaque.data, 4U, value, length)) return false;
+  msg->has_opaque = true;
+  return true;
+}
+
 struct numbers {
-  bool has_i8;
   int8_t i8;
-  bool has_u8;
   uint8_t u8;
-  bool has_i16;
   int16_t i16;
-  bool has_u16;
   uint16_t u16;
-  bool has_i32;
   int32_t i32;
-  bool has_u32;
   uint32_t u32;
-  bool has_i64;
   int64_t i64;
-  bool has_u64;
   uint64_t u64;
-  bool has_f32;
   uint32_t f32;
-  bool has_f64;
   uint64_t f64;
-  bool has_single;
   float single;
-  bool has_double_;
   double double_;
   bool has_doubles;
   double doubles[2];
-  bool has_words;
   uint32_t words[2];
   bool has_offset;
   int64_t offset;
@@ -125,6 +138,12 @@ struct numbers {
   bool has_text;
   struct { size_t length; char data[17]; } text;
 };
+
+static inline bool numbers_set_text(numbers_t *msg, const char *value) {
+  if (msg == NULL || !wl_codec_inline_str_set(&msg->text.length, msg->text.data, 16U, value)) return false;
+  msg->has_text = true;
+  return true;
+}
 
 #define INFO_REQUEST_MESSAGE_ID 2U
 #define INFO_REQUEST_CODEC_PROFILE 1U
@@ -186,6 +205,42 @@ size_t numbers_encoded_size(const numbers_t *value);
 wl_codec_status_t numbers_encode(const numbers_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t numbers_decode(const uint8_t *input, size_t input_length, numbers_t *out);
 
+#include <wirelink/kernel.h>
+#include <wirelink/version.h>
+#if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(0, 14)
+#error "WLC requires generated-code contract 0.14"
+#endif
+
+typedef struct device_node device_node_t;
+#define DEVICE_REQUEST_FRAME_MAX 222U
+#define DEVICE_REPLY_FRAME_MAX 0U
+#define DEVICE_MESSAGE_FRAME_MAX 0U
+#define DEVICE_RX_FRAME_MAX 228U
+#define DEVICE_TX_FRAME_MAX 222U
+#define DEVICE_RX_WIRE_MAX 228U
+#define DEVICE_TX_WIRE_MAX 222U
+struct device_node {
+  wl_kernel_t core;
+  void *user;
+  wl_kernel_error_fn on_error;
+  uint8_t requests[WL_KERNEL_CALLS][222];
+};
+wl_err_t device_init(device_node_t *self, wl_packet_port_t *port);
+wl_err_t device_step(device_node_t *self, uint32_t now);
+/* Stop the RX producer before close, then step until quiescent. */
+wl_err_t device_close(device_node_t *self);
+int device_quiescent(const device_node_t *self);
+wl_err_t device_cancel(device_node_t *self, wl_kernel_call_handle_t handle);
+typedef void (*device_configure_cb_t)(device_node_t *, wl_kernel_result_t, const configure_response_t *);
+typedef void (*device_configure_ex_cb_t)(void *, wl_kernel_result_t, const configure_response_t *);
+/* Simplified calls start their timeout on the next step(now). */
+wl_err_t device_call_configure(device_node_t *self, const configure_request_t *request, device_configure_cb_t callback);
+wl_err_t device_call_configure_ex(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout_ms, device_configure_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out);
+typedef void (*device_get_info_cb_t)(device_node_t *, wl_kernel_result_t, const info_response_t *);
+typedef void (*device_get_info_ex_cb_t)(void *, wl_kernel_result_t, const info_response_t *);
+/* Simplified calls start their timeout on the next step(now). */
+wl_err_t device_call_get_info(device_node_t *self, const info_request_t *request, device_get_info_cb_t callback);
+wl_err_t device_call_get_info_ex(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout_ms, device_get_info_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out);
 #ifdef __cplusplus
 }
 #endif

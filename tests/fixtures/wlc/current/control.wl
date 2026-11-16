@@ -48,7 +48,7 @@ message ArmCommand = 16 {
 }
 
 message ArmMitCommand = 17 {
-  packed float32 controls[30] = 1;
+  optional packed float32 controls[30] = 1;
   optional uint64 sequence = 2;
   optional float32 dt_s = 3;
 }

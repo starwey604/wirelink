@@ -5,3 +5,14 @@ message Telemetry @id(23) {
   required fixed32 sequence @id(1);
   required fixed32 sampled_at @id(2);
 }
+
+rpc Echo(EchoRequest) -> EchoResponse;
+
+node mixed {
+  io = external;
+  handlers = dynamic;
+  call Echo;
+  serve Echo;
+  recv Telemetry;
+  send Telemetry;
+}

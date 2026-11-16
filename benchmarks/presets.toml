@@ -116,7 +116,7 @@ run = [
 ]
 stamp = [
   "benchmarks/api/micro.cpp", "benchmarks/api/fixture.c", "benchmarks/api/fixture.h",
-  "benchmarks/api/kernel_api.wl", "benchmarks/api/kernel_api.bind.wl",
+  "benchmarks/api/kernel_api.wl",
 ]
 compare = ["{python}", "benchmarks/api/compare_kernel.py"]
 gate_absolute_flag = "--max-regression-ns"

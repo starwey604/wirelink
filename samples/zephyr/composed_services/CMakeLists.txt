@@ -7,7 +7,7 @@ project(wirelink_composed_services)
 include(${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake)
 set(COMPOSED_ROOT "${WIRELINK_ROOT}/examples/04_composed_services")
 wirelink_wlc_generate(TARGET composed_protocol SCHEMA "${COMPOSED_ROOT}/product.wl"
-  PROFILES "${COMPOSED_ROOT}/arm.bind.wl" "${COMPOSED_ROOT}/upgrade.bind.wl")
+  NODE product)
 target_sources(app PRIVATE "${COMPOSED_ROOT}/main.c")
 target_include_directories(app PRIVATE "${WIRELINK_ROOT}/examples/common")
 target_link_libraries(app PRIVATE composed_protocol)

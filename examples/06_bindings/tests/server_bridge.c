@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "server_bridge.h"
 #include "service.h"
-#include "calculator_kernel.h"
+#include "peer.h"
 #include <string.h>
 typedef struct {
-  calculator_kernel_t endpoint;
+  calculator_peer_node_t endpoint;
   wl_packet_port_t port;
   uint8_t rx[2][2053];
   void (*before)(void*);
@@ -22,7 +22,7 @@ wl_err_t calculator_test_server_prepare(void* storage, wl_host_endpoint_t* descr
 void calculator_test_server_hook(void* storage, void (*hook)(void*), void* user) {
   owner_t* owner=storage; owner->before=hook; owner->before_user=user;
 }
-static int32_t add(void* user,const add_request_t* request,add_response_t* response) {
+static int32_t add(void* user,const peer_add_request_t* request,peer_add_response_t* response) {
   owner_t* owner=user;
   if(owner->before)owner->before(owner->before_user);
   return calculator_test_add(NULL,request,response);
@@ -36,6 +36,6 @@ wl_err_t calculator_test_server_initialize(void* storage, uint32_t instance, wl_
     .submit=sink,.notify=notify,.user=user};
   wl_err_t error=wl_packet_init(&owner->port,&config);
   if(error!=WL_OK)return error;
-  const calculator_kernel_handlers_t handlers={.on_rpc_add=add};
-  return calculator_kernel_init(&owner->endpoint,&owner->port,&handlers,NULL,owner);
+  const calculator_peer_handlers_t handlers={.on_add=add};
+  return calculator_peer_init(&owner->endpoint,&owner->port,&handlers,owner);
 }

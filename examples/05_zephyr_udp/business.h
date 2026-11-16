@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_UDP_PEER_BUSINESS_H
 #define WIRELINK_UDP_PEER_BUSINESS_H
-#include "udp_demo_kernel.h"
+#include "udp_demo.h"
 #include <limits.h>
 static inline int32_t peer_add(void *user, const add_request_t *request, add_response_t *response) {
   (void)user;
   int64_t sum = (int64_t)request->left + request->right;
   if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-  response->has_sum = true; response->sum = (int32_t)sum; return 0;
+  response->sum = (int32_t)sum;
+  return 0;
 }
 typedef struct {
   unsigned completions, samples;

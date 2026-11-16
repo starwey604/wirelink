@@ -11,9 +11,7 @@
 #endif
 
 typedef struct wlc_scalar_shape_0_s {
-  bool h0;
   int32_t v0;
-  bool h1;
   int32_t v1;
 } wlc_scalar_shape_0_t;
 
@@ -35,8 +33,6 @@ static size_t wlc_scalar_shape_0_encoded_size(const void *value) {
   if (value == NULL) return SIZE_MAX;
   wlc_scalar_shape_0_t v;
   memcpy(&v, value, sizeof(v));
-  if (!v.h0) return SIZE_MAX;
-  if (!v.h1) return SIZE_MAX;
   return wlc_scalar_shape_0_measure_fields(&v);
 }
 
@@ -44,8 +40,6 @@ static wl_codec_status_t wlc_scalar_shape_0_encode(const void *value, uint8_t *o
   if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   wlc_scalar_shape_0_t v;
   memcpy(&v, value, sizeof(v));
-  if (!v.h0) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
-  if (!v.h1) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
   if (length == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   if (out == NULL || capacity < 12U) {
     const size_t need = wlc_scalar_shape_0_measure_fields(&v);
@@ -66,6 +60,7 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
   if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
   wlc_scalar_shape_0_t temp;
   wlc_scalar_shape_0_clear(&temp);
+  uint8_t seen = 0U;
   const uint8_t *cursor = input;
   const uint8_t *end = length != 0U ? input + length : input;
   while (cursor < end) {
@@ -79,26 +74,26 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
     switch ((uint16_t)number) {
       case 1U: {
         if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
-        if (temp.h0) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if ((seen & 1U) != 0U) return WL_CODEC_ERR_DUPLICATE_FIELD;
         uint64_t w = 0U;
         wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
         if (s != WL_CODEC_OK) return s;
         if (w > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
         const int32_t sv = wl_codec_unzz32((uint32_t)w);
         temp.v0 = (int32_t)sv;
-        temp.h0 = true;
+        seen |= 1U;
         break;
       }
       case 2U: {
         if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
-        if (temp.h1) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if ((seen & 2U) != 0U) return WL_CODEC_ERR_DUPLICATE_FIELD;
         uint64_t w = 0U;
         wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
         if (s != WL_CODEC_OK) return s;
         if (w > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
         const int32_t sv = wl_codec_unzz32((uint32_t)w);
         temp.v1 = (int32_t)sv;
-        temp.h1 = true;
+        seen |= 2U;
         break;
       }
       default: {
@@ -108,14 +103,12 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
       }
     }
   }
-  if (!temp.h0) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
-  if (!temp.h1) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  if ((seen & 3U) != 3U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
   memcpy(out, &temp, sizeof(temp));
   return WL_CODEC_OK;
 }
 
 typedef struct wlc_scalar_shape_1_s {
-  bool h0;
   int32_t v0;
 } wlc_scalar_shape_1_t;
 
@@ -136,7 +129,6 @@ static size_t wlc_scalar_shape_1_encoded_size(const void *value) {
   if (value == NULL) return SIZE_MAX;
   wlc_scalar_shape_1_t v;
   memcpy(&v, value, sizeof(v));
-  if (!v.h0) return SIZE_MAX;
   return wlc_scalar_shape_1_measure_fields(&v);
 }
 
@@ -144,7 +136,6 @@ static wl_codec_status_t wlc_scalar_shape_1_encode(const void *value, uint8_t *o
   if (value == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   wlc_scalar_shape_1_t v;
   memcpy(&v, value, sizeof(v));
-  if (!v.h0) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
   if (length == NULL) return WL_CODEC_ERR_INVALID_VALUE;
   if (out == NULL || capacity < 6U) {
     const size_t need = wlc_scalar_shape_1_measure_fields(&v);
@@ -163,6 +154,7 @@ static wl_codec_status_t wlc_scalar_shape_1_decode(const uint8_t *input, size_t 
   if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
   wlc_scalar_shape_1_t temp;
   wlc_scalar_shape_1_clear(&temp);
+  uint8_t seen = 0U;
   const uint8_t *cursor = input;
   const uint8_t *end = length != 0U ? input + length : input;
   while (cursor < end) {
@@ -176,14 +168,14 @@ static wl_codec_status_t wlc_scalar_shape_1_decode(const uint8_t *input, size_t 
     switch ((uint16_t)number) {
       case 1U: {
         if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
-        if (temp.h0) return WL_CODEC_ERR_DUPLICATE_FIELD;
+        if ((seen & 1U) != 0U) return WL_CODEC_ERR_DUPLICATE_FIELD;
         uint64_t w = 0U;
         wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
         if (s != WL_CODEC_OK) return s;
         if (w > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
         const int32_t sv = wl_codec_unzz32((uint32_t)w);
         temp.v0 = (int32_t)sv;
-        temp.h0 = true;
+        seen |= 1U;
         break;
       }
       default: {
@@ -193,7 +185,7 @@ static wl_codec_status_t wlc_scalar_shape_1_decode(const uint8_t *input, size_t 
       }
     }
   }
-  if (!temp.h0) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
+  if ((seen & 1U) != 1U) return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
   memcpy(out, &temp, sizeof(temp));
   return WL_CODEC_OK;
 }
@@ -224,4 +216,81 @@ wl_codec_status_t add_response_decode(const uint8_t *input, size_t input_length,
   wl_codec_status_t status = wlc_scalar_shape_1_decode(input, input_length, &temp);
   if (status == WL_CODEC_OK) memcpy(out, &temp, sizeof(temp));
   return status;
+}
+
+
+#include <limits.h>
+static void calculator_complete_add(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+  (void)core;
+  add_response_t response;
+  const add_response_t *view = NULL;
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (add_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  }
+  ((calculator_add_cb_t)call->callback)((calculator_node_t *)core, result, view);
+}
+static void calculator_complete_add_ex(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+  (void)core;
+  add_response_t response;
+  const add_response_t *view = NULL;
+  if (result.outcome == WL_KERNEL_SUCCESS) {
+    if (add_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  }
+  ((calculator_add_ex_cb_t)call->callback)(call->user, result, view);
+}
+static wl_err_t calculator_call_add_start(calculator_node_t *self, const add_request_t *request, uint32_t now, uint32_t timeout, uint8_t has_now, wl_kernel_complete_fn complete, void (*callback)(void), void *user, wl_kernel_call_handle_t *out) {
+  if (out != NULL) *out = (wl_kernel_call_handle_t){0};
+  if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
+  if (timeout == 0U) timeout = 500U;
+  uint8_t slot; uint8_t *payload; size_t capacity;
+  wl_err_t error = wl_kernel_call_claim(&self->core, &slot, &payload, &capacity);
+  if (error != WL_OK) return error;
+  size_t length = 0U;
+  if (add_request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+  return wl_kernel_call_commit(&self->core, slot, 20U, 21U, length, now, timeout, has_now, complete, callback, user, out);
+}
+wl_err_t calculator_call_add(calculator_node_t *self, const add_request_t *request, calculator_add_cb_t callback) {
+  return calculator_call_add_start(self, request, 0U, 0U, 0U, calculator_complete_add, (void (*)(void))callback, self, NULL);
+}
+wl_err_t calculator_call_add_ex(calculator_node_t *self, const add_request_t *request, uint32_t now, uint32_t timeout_ms, calculator_add_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out) {
+  return calculator_call_add_start(self, request, now, timeout_ms, 1U, calculator_complete_add_ex, (void (*)(void))callback, user, out);
+}
+static void calculator_error(void *user, uint16_t id, wl_err_t error) {
+  calculator_node_t *self = user;
+  if (self->on_error != NULL) self->on_error(self->user, id, error);
+}
+static wl_err_t calculator_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
+  calculator_node_t *self = (calculator_node_t *)core;
+  (void)self;
+  switch (frame->message_id) {
+  case 21U: return wl_kernel_response(core, frame);
+  default: return WL_ERR_NOT_SUPPORTED;
+  }
+}
+wl_err_t calculator_init(calculator_node_t *self, wl_packet_port_t *port) {
+  if (self == NULL || port == NULL) return WL_ERR_INVALID_ARG;
+  memset(self, 0, sizeof(*self));
+  wl_kernel_config_t config = {.port = port, .route = calculator_route, .on_error = calculator_error, .user = self,
+      .storage = {
+          .requests = &self->requests[0][0], .request_stride = 24U,
+          .replies = NULL, .reply_stride = 0U,
+          .message = NULL, .message_capacity = 0U,
+      }};
+  return wl_kernel_init(&self->core, &config);
+}
+wl_err_t calculator_step(calculator_node_t *self, uint32_t now) {
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_step(&self->core, now, WL_KERNEL_BUDGET);
+}
+wl_err_t calculator_close(calculator_node_t *self) {
+  if (self == NULL) return WL_ERR_INVALID_ARG;
+  wl_err_t error = wl_kernel_close(&self->core);
+  return error;
+}
+int calculator_quiescent(const calculator_node_t *self) {
+  return self != NULL && wl_kernel_quiescent(&self->core);
+}
+wl_err_t calculator_cancel(calculator_node_t *self, wl_kernel_call_handle_t handle) {
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_cancel(&self->core, handle);
 }

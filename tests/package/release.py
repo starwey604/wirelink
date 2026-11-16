@@ -24,7 +24,7 @@ def pair(root):
     assert re.fullmatch(r'\d+\.\d+\.\d+', value['wirelink_version'])
     assert re.fullmatch(r'\d+\.\d+\.\d+', value['wlc']['rust_toolchain'])
     assert value['wlc']['version'] == value['wirelink_version']
-    assert value['wlc']['codegen_contract'] == '0.13' and value['wlc']['binding_api'] == 3
+    assert value['wlc']['codegen_contract'] == '0.14' and value['wlc']['binding_api'] == 3
     return value
 
 
@@ -34,7 +34,7 @@ def validate_source(root, tag=''):
     assert not tag or tag == f'v{version}', 'release tag differs from frozen version'
     header = (root / 'include/wirelink/version.h').read_text()
     assert f'#define WIRELINK_VERSION_STRING "{version}"' in header
-    assert '#define WIRELINK_CODEGEN_CONTRACT_MINOR 13' in header
+    assert '#define WIRELINK_CODEGEN_CONTRACT_MINOR 14' in header
     assert f'project(wirelink VERSION {version} LANGUAGES C)' in (root / 'CMakeLists.txt').read_text()
     for example in ('06_bindings', '07_device_sdk'):
         project = tomllib.loads((root / 'examples' / example / 'pyproject.toml').read_text())

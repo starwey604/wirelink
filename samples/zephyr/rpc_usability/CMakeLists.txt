@@ -9,7 +9,7 @@ if(DEFINED WIRELINK_RPC_TEST_CAPACITY)
   message(FATAL_ERROR "The current kernel has four fixed call slots; the one-slot capacity knob was removed")
 endif()
 wirelink_wlc_generate(TARGET validation_protocol SCHEMA "${CMAKE_CURRENT_LIST_DIR}/rpc_validation.wl"
-  PROFILE "${CMAKE_CURRENT_LIST_DIR}/rpc_validation.bind.wl")
+  NODE rpc_validation)
 target_sources(app PRIVATE src/main.c)
 target_include_directories(app PRIVATE "${WIRELINK_ROOT}/examples/common")
 target_link_libraries(app PRIVATE validation_protocol)

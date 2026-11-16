@@ -22,11 +22,9 @@ DOC_BLOCK_RE = re.compile(
 )
 REQUIRED_SNIPPETS = {
     "telemetry_schema",
-    "telemetry_bind",
     "telemetry_publish",
     "telemetry_receive",
     "calculator_schema",
-    "calculator_bind",
     "calculator_server",
     "calculator_sync_rpc",
     "calculator_async_rpc",
@@ -102,8 +100,8 @@ def verify_documents(
 
 
 def default_documents(root: Path) -> list[Path]:
-    """Return default WP-5 documentation entry points present in the repository."""
-    docs = [root / "README.md"]
+    """Return repository documentation entry points present in the checkout."""
+    docs = [root / "README.md", root / "README-en.md"]
     docs_dir = root / "docs"
     if docs_dir.is_dir():
         docs.extend(sorted(docs_dir.glob("*.md")))

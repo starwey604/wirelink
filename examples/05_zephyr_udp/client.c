@@ -2,18 +2,20 @@
 #include "business.h"
 #include "peer_options.h"
 #include <string.h>
+void udp_client_on_telemetry(udp_client_node_t *self, const telemetry_t *message) {
+  peer_sample(self->user, message);
+}
 int main(int argc, char **argv) {
-  static udp_demo_kernel_t client;
+  static udp_client_node_t client;
   static wl_packet_port_t port;
   static uint8_t rx[2][2053];
   peer_client_t state = {0};
   example_udp_t *udp = peer_open(&port, (wl_span_t){&rx[0][0], sizeof(rx)}, sizeof(rx[0]), argc, argv);
   CHECK(udp);
-  const udp_demo_kernel_handlers_t handlers = {.on_rpc_add = peer_add, .on_message_telemetry = peer_sample};
-  CHECK(udp_demo_kernel_init(&client, &port, &handlers, NULL, &state) == WL_OK);
-  add_request_t request = {.has_left = true, .left = 20, .has_right = true, .right = 22};
-  wl_kernel_call_handle_t call;
-  CHECK(udp_demo_kernel_add_start(&client, &request, example_now_ms(), 1500, peer_completed, &state, &call) == WL_OK);
+  CHECK(udp_client_init(&client, &port) == WL_OK);
+  client.user = &state;
+  add_request_t request = {.left = 20, .right = 22};
+  CHECK(udp_client_call_add_ex(&client, &request, example_now_ms(), 1500, peer_completed, &state, NULL) == WL_OK);
   memset(&request, 0, sizeof(request));
   int status = 1;
   while (example_running() && !state.completions) {

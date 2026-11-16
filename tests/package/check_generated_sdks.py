@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import subprocess
 import tempfile
+from sdk_peers import generate_peer
 
 
 def main():
@@ -17,8 +18,7 @@ def main():
         project = root / "examples" / "kernel"
         output = Path(temporary) / "demo"
         subprocess.run([
-            str(compiler), "compile-kernel", str(project / "demo.wl"),
-            "--profile", str(project / "demo.bind.wl"), "--out-dir", str(output),
+            str(compiler), "compile", str(project / "demo.wl"), "--out-dir", str(output),
         ], check=True)
         for artifact in sorted(output.iterdir()):
             expected = project / "generated" / artifact.name
@@ -30,9 +30,8 @@ def main():
             output = Path(temporary) / name
             subprocess.run([
                 str(compiler), "sdk", str(project / "schema" / f"{name}.wl"),
-                "--profile", str(project / "schema" / f"{name}.bind.wl"),
                 "--out-dir", str(output), "--name", name,
-                "--package-version", "0.13.0",
+                "--package-version", "0.14.0",
             ], check=True)
             for artifact in sorted(output.rglob("*")):
                 if artifact.is_file():
@@ -41,6 +40,13 @@ def main():
                     if not expected.is_file() or artifact.read_bytes() != expected.read_bytes():
                         raise SystemExit(f"SDK differs from WLC output: {expected}")
                     checked += 1
+            peer = Path(temporary) / f"{name}-peer"
+            generate_peer(compiler, project / "schema" / f"{name}.wl", name, peer)
+            for artifact in sorted(peer.iterdir()):
+                expected = project / "tests" / "generated" / artifact.name
+                if not expected.is_file() or artifact.read_bytes() != expected.read_bytes():
+                    raise SystemExit(f"SDK peer differs from WLC output: {expected}")
+                checked += 1
     print(f"Verified {checked} generated artifacts")
 
 

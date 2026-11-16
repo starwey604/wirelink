@@ -28,22 +28,19 @@ inline bool to_c(const Settings& input, wlc_native::settings_t& output) {
     output.label.length = (*input.label).size();
     std::copy((*input.label).begin(), (*input.label).end(), output.label.data);
   }
-  output.has_enabled = true;
-  if (output.has_enabled) {
+  {
     output.enabled = input.enabled;
   }
   output.has_mode = input.mode.has_value();
   if (output.has_mode) {
     output.mode = static_cast<std::int32_t>((*input.mode));
   }
-  output.has_token = true;
-  if (output.has_token) {
+  {
     if (input.token.size() > 8U) return false;
     output.token.length = input.token.size();
     std::copy(input.token.begin(), input.token.end(), output.token.data);
   }
-  output.has_gains = true;
-  if (output.has_gains) {
+  {
     std::memcpy(output.gains, input.gains.data(), sizeof(output.gains));
   }
   output.has_counters = input.counters.has_value();
@@ -78,17 +75,17 @@ inline Settings from_c(const wlc_native::settings_t& input) {
     output.label.emplace();
     (*output.label).assign(input.label.data, input.label.data + input.label.length);
   }
-  if (input.has_enabled) {
+  {
     output.enabled = input.enabled;
   }
   if (input.has_mode) {
     output.mode.emplace();
     (*output.mode) = static_cast<Mode>(input.mode);
   }
-  if (input.has_token) {
+  {
     output.token.assign(input.token.data, input.token.data + input.token.length);
   }
-  if (input.has_gains) {
+  {
     std::memcpy(output.gains.data(), input.gains, sizeof(input.gains));
   }
   if (input.has_counters) {
@@ -117,14 +114,12 @@ inline Settings from_c(const wlc_native::settings_t& input) {
 inline bool to_c(const InfoResponse& input, wlc_native::info_response_t& output) {
   (void)input;
   wlc_native::info_response_clear(&output);
-  output.has_name = true;
-  if (output.has_name) {
+  {
     if (input.name.size() > 32U) return false;
     output.name.length = input.name.size();
     std::copy(input.name.begin(), input.name.end(), output.name.data);
   }
-  output.has_settings = true;
-  if (output.has_settings) {
+  {
     if (!to_c(input.settings, output.settings)) return false;
   }
   return true;
@@ -133,10 +128,10 @@ inline bool to_c(const InfoResponse& input, wlc_native::info_response_t& output)
 inline InfoResponse from_c(const wlc_native::info_response_t& input) {
   (void)input;
   InfoResponse output{};
-  if (input.has_name) {
+  {
     output.name.assign(input.name.data, input.name.data + input.name.length);
   }
-  if (input.has_settings) {
+  {
     output.settings = from_c(input.settings);
   }
   return output;
@@ -145,8 +140,7 @@ inline InfoResponse from_c(const wlc_native::info_response_t& input) {
 inline bool to_c(const ConfigureRequest& input, wlc_native::configure_request_t& output) {
   (void)input;
   wlc_native::configure_request_clear(&output);
-  output.has_settings = true;
-  if (output.has_settings) {
+  {
     if (!to_c(input.settings, output.settings)) return false;
   }
   output.has_opaque = input.opaque.has_value();
@@ -165,7 +159,7 @@ inline bool to_c(const ConfigureRequest& input, wlc_native::configure_request_t&
 inline ConfigureRequest from_c(const wlc_native::configure_request_t& input) {
   (void)input;
   ConfigureRequest output{};
-  if (input.has_settings) {
+  {
     output.settings = from_c(input.settings);
   }
   if (input.has_opaque) {
@@ -182,8 +176,7 @@ inline ConfigureRequest from_c(const wlc_native::configure_request_t& input) {
 inline bool to_c(const ConfigureResponse& input, wlc_native::configure_response_t& output) {
   (void)input;
   wlc_native::configure_response_clear(&output);
-  output.has_settings = true;
-  if (output.has_settings) {
+  {
     if (!to_c(input.settings, output.settings)) return false;
   }
   output.has_opaque = input.opaque.has_value();
@@ -196,8 +189,7 @@ inline bool to_c(const ConfigureResponse& input, wlc_native::configure_response_
   if (output.has_backup) {
     if (!to_c((*input.backup), output.backup)) return false;
   }
-  output.has_count = true;
-  if (output.has_count) {
+  {
     output.count = input.count;
   }
   return true;
@@ -206,7 +198,7 @@ inline bool to_c(const ConfigureResponse& input, wlc_native::configure_response_
 inline ConfigureResponse from_c(const wlc_native::configure_response_t& input) {
   (void)input;
   ConfigureResponse output{};
-  if (input.has_settings) {
+  {
     output.settings = from_c(input.settings);
   }
   if (input.has_opaque) {
@@ -217,7 +209,7 @@ inline ConfigureResponse from_c(const wlc_native::configure_response_t& input) {
     output.backup.emplace();
     (*output.backup) = from_c(input.backup);
   }
-  if (input.has_count) {
+  {
     output.count = input.count;
   }
   return output;
@@ -226,60 +218,47 @@ inline ConfigureResponse from_c(const wlc_native::configure_response_t& input) {
 inline bool to_c(const Numbers& input, wlc_native::numbers_t& output) {
   (void)input;
   wlc_native::numbers_clear(&output);
-  output.has_i8 = true;
-  if (output.has_i8) {
+  {
     output.i8 = input.i8;
   }
-  output.has_u8 = true;
-  if (output.has_u8) {
+  {
     output.u8 = input.u8;
   }
-  output.has_i16 = true;
-  if (output.has_i16) {
+  {
     output.i16 = input.i16;
   }
-  output.has_u16 = true;
-  if (output.has_u16) {
+  {
     output.u16 = input.u16;
   }
-  output.has_i32 = true;
-  if (output.has_i32) {
+  {
     output.i32 = input.i32;
   }
-  output.has_u32 = true;
-  if (output.has_u32) {
+  {
     output.u32 = input.u32;
   }
-  output.has_i64 = true;
-  if (output.has_i64) {
+  {
     output.i64 = input.i64;
   }
-  output.has_u64 = true;
-  if (output.has_u64) {
+  {
     output.u64 = input.u64;
   }
-  output.has_f32 = true;
-  if (output.has_f32) {
+  {
     output.f32 = input.f32;
   }
-  output.has_f64 = true;
-  if (output.has_f64) {
+  {
     output.f64 = input.f64;
   }
-  output.has_single = true;
-  if (output.has_single) {
+  {
     std::memcpy(&output.single, &(input.single), sizeof(output.single));
   }
-  output.has_double_ = true;
-  if (output.has_double_) {
+  {
     std::memcpy(&output.double_, &(input.double_), sizeof(output.double_));
   }
   output.has_doubles = input.doubles.has_value();
   if (output.has_doubles) {
     std::memcpy(output.doubles, (*input.doubles).data(), sizeof(output.doubles));
   }
-  output.has_words = true;
-  if (output.has_words) {
+  {
     std::copy(input.words.begin(), input.words.end(), output.words);
   }
   output.has_offset = input.offset.has_value();
@@ -306,47 +285,47 @@ inline bool to_c(const Numbers& input, wlc_native::numbers_t& output) {
 inline Numbers from_c(const wlc_native::numbers_t& input) {
   (void)input;
   Numbers output{};
-  if (input.has_i8) {
+  {
     output.i8 = input.i8;
   }
-  if (input.has_u8) {
+  {
     output.u8 = input.u8;
   }
-  if (input.has_i16) {
+  {
     output.i16 = input.i16;
   }
-  if (input.has_u16) {
+  {
     output.u16 = input.u16;
   }
-  if (input.has_i32) {
+  {
     output.i32 = input.i32;
   }
-  if (input.has_u32) {
+  {
     output.u32 = input.u32;
   }
-  if (input.has_i64) {
+  {
     output.i64 = input.i64;
   }
-  if (input.has_u64) {
+  {
     output.u64 = input.u64;
   }
-  if (input.has_f32) {
+  {
     output.f32 = input.f32;
   }
-  if (input.has_f64) {
+  {
     output.f64 = input.f64;
   }
-  if (input.has_single) {
+  {
     std::memcpy(&(output.single), &input.single, sizeof(input.single));
   }
-  if (input.has_double_) {
+  {
     std::memcpy(&(output.double_), &input.double_, sizeof(input.double_));
   }
   if (input.has_doubles) {
     output.doubles.emplace();
     std::memcpy((*output.doubles).data(), input.doubles, sizeof(input.doubles));
   }
-  if (input.has_words) {
+  {
     std::copy_n(input.words, 2, output.words.begin());
   }
   if (input.has_offset) {

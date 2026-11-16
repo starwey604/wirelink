@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.21)
-project(DeviceSdk VERSION 0.13.0 LANGUAGES C CXX)
+project(DeviceSdk VERSION 0.14.0 LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-find_package(Wirelink 0.13.0 EXACT CONFIG REQUIRED COMPONENTS cpp_host)
+find_package(Wirelink 0.14.0 EXACT CONFIG REQUIRED COMPONENTS cpp_host)
 foreach(dependency cpp_host platform)
   if(NOT TARGET Wirelink::${dependency})
     message(FATAL_ERROR "Install Wirelink with CPP_BINDINGS and PLATFORM enabled")
@@ -14,14 +14,13 @@ endforeach()
 # Checked-in C artifacts make the source distribution independent of a WLC
 # checkout/compiler. Verify the paired compiler and codegen contract before
 # compiling any generated C.
-set(WIRELINK_WLC_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/generated/device_kernel_manifest.json")
+set(WIRELINK_WLC_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/generated/device_manifest.json")
 set(WIRELINK_WLC_EXPECTED_VERSION "${WIRELINK_WLC_VERSION}")
 set(WIRELINK_WLC_EXPECTED_CONTRACT_MAJOR "${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}")
 set(WIRELINK_WLC_EXPECTED_CONTRACT_MINOR "${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}")
 include("${Wirelink_DIR}/WirelinkWlcVerifyManifest.cmake")
 
-add_library(device_client STATIC src/client.cpp src/endpoint.c generated/device.c
-  generated/device_kernel.c)
+add_library(device_client STATIC src/client.cpp src/endpoint.c generated/device.c)
 add_library(DeviceSdk::client ALIAS device_client)
 set_target_properties(device_client PROPERTIES EXPORT_NAME client
   POSITION_INDEPENDENT_CODE ON C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO

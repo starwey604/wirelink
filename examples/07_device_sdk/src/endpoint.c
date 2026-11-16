@@ -1,19 +1,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* C owns atomic port storage and all kernel callback types. */
 #include "endpoint.h"
-#include "device_kernel.h"
+#include "device.h"
 #include <string.h>
 typedef struct {
-  device_kernel_t endpoint;
+  device_node_t endpoint;
   wl_packet_port_t port;
-  uint8_t rx[2][2053];
+  uint8_t rx[WL_PACKET_RX_SLOTS][229];
 } device_sdk_owner_t;
 size_t device_sdk_endpoint_size(void) { return sizeof(device_sdk_owner_t); }
 size_t device_sdk_endpoint_alignment(void) { return _Alignof(device_sdk_owner_t); }
 wl_err_t device_sdk_endpoint_prepare(void* storage, wl_host_endpoint_t* descriptor) {
   device_sdk_owner_t* owner = storage;
   memset(owner, 0, sizeof(*owner));
-  *descriptor = (wl_host_endpoint_t){owner, &owner->endpoint.core, &owner->port, 2052};
+  *descriptor = (wl_host_endpoint_t){owner, &owner->endpoint.core, &owner->port, 228};
   return WL_OK;
 }
 wl_err_t device_sdk_endpoint_initialize(void* storage, uint32_t instance,
@@ -24,8 +24,7 @@ wl_err_t device_sdk_endpoint_initialize(void* storage, uint32_t instance,
     .submit = sink, .notify = notify, .user = user};
   const wl_err_t error = wl_packet_init(&owner->port, &config);
   if (error != WL_OK) return error;
-  const device_kernel_handlers_t handlers = {0};
-  return device_kernel_init(&owner->endpoint, &owner->port, &handlers, NULL, NULL);
+  return device_init(&owner->endpoint, &owner->port);
 }
 static void device_sdk_configure_done(void* context, wl_kernel_result_t result, const configure_response_t* response) {
   device_sdk_call_t* state = context;
@@ -42,7 +41,7 @@ wl_err_t device_sdk_configure_submit(device_sdk_call_t* state, uint32_t now, uin
   device_sdk_owner_t* owner = state->endpoint;
   state->notify = notify;
   state->notify_context = context;
-  return device_kernel_configure_start(&owner->endpoint, state->request, now, timeout,
+  return device_call_configure_ex(&owner->endpoint, state->request, now, timeout,
       device_sdk_configure_done, state, call);
 }
 
@@ -61,6 +60,6 @@ wl_err_t device_sdk_get_info_submit(device_sdk_call_t* state, uint32_t now, uint
   device_sdk_owner_t* owner = state->endpoint;
   state->notify = notify;
   state->notify_context = context;
-  return device_kernel_get_info_start(&owner->endpoint, state->request, now, timeout,
+  return device_call_get_info_ex(&owner->endpoint, state->request, now, timeout,
       device_sdk_get_info_done, state, call);
 }

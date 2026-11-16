@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "usb_kernel.h"
+#include "usb.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +18,7 @@ typedef struct {
   unsigned state;
 } flight_t;
 struct side {
-  usb_kernel_t endpoint;
+  usb_node_t endpoint;
   wl_packet_port_t port;
   uint8_t rx[2][2048];
   flight_t flight;
@@ -105,9 +105,8 @@ static int32_t handle(void *user, const setpoint_request_t *request,
                         setpoint_response_t *response) {
   (void)user;
   ++effects;
-  *response = (setpoint_response_t){.has_request_id = true,
-    .request_id = request->request_id, .has_status = true, .status = 0,
-    .has_applied_value = true, .applied_value = request->value + 1U};
+  *response = (setpoint_response_t){.request_id = request->request_id, .status = 0,
+    .applied_value = request->value + 1U};
   return 0;
 }
 static void done(void *user, wl_kernel_result_t result, const setpoint_response_t *response) {
@@ -163,22 +162,22 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
       .rx_storage = &side->rx[0][0], .rx_unit_size = sizeof(side->rx[0]),
       .rx_storage_size = sizeof(side->rx), .submit = submit, .notify = notify, .user = side};
     CHECK(wl_packet_init(&side->port, &config) == WL_OK);
-    usb_kernel_handlers_t handlers = {.on_rpc_setpoint = handle, .on_message_sample = sample};
-    CHECK(usb_kernel_init(&side->endpoint, &side->port, &handlers, NULL, side) == WL_OK);
+    usb_handlers_t handlers = {.on_setpoint = handle, .on_sample = sample};
+    CHECK(usb_init(&side->endpoint, &side->port, &handlers, side) == WL_OK);
   }
   for (expected = 0U; expected < CALLS; ++expected) {
     phase = ADMISSION;
-    setpoint_request_t request = {.has_request_id = true, .request_id = expected,
-      .has_channel = true, .channel = 1U, .has_value = true, .value = expected + 100U};
+    setpoint_request_t request = {.request_id = expected,
+      .channel = 1U, .value = expected + 100U};
     wl_kernel_call_handle_t call;
-    CHECK(usb_kernel_setpoint_start(&sides[expected & 1U].endpoint, &request,
+    CHECK(usb_call_setpoint_ex(&sides[expected & 1U].endpoint, &request,
           0U, 1000U, done, NULL, &call) == WL_OK);
     memset(&request, 0xa5, sizeof(request));
     for (unsigned i = 0; i < 2U; ++i) {
-      sample_t value = {.has_sequence = true, .sequence = expected,
-        .has_sample_tick = true, .sample_tick = 7U, .has_value = true, .value = 42U + i,
-        .has_flags = true, .flags = 0U};
-      CHECK(usb_kernel_send_sample(&sides[i].endpoint, &value) == WL_OK);
+      sample_t value = {.sequence = expected,
+        .sample_tick = 7U, .value = 42U + i,
+        .flags = 0U};
+      CHECK(usb_send_sample(&sides[i].endpoint, &value) == WL_OK);
       memset(&value, 0xa5, sizeof(value));
     }
     drive(expected + 1U);

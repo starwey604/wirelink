@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "workload.h"
-#include "mixed_kernel.h"
+#include "mixed.h"
 #include <zephyr/kernel.h>
 #include <zephyr/timing/timing.h>
 
@@ -46,7 +46,7 @@ int main(void) {
   timing_start();
   printk("mixed_kernel_fw_begin_v1,hz=%llu,lto=%u,endpoint_bytes=%u,barriers=1\n",
       (unsigned long long)timing_freq_get(), IS_ENABLED(CONFIG_LTO),
-      (unsigned)sizeof(mixed_kernel_t));
+      (unsigned)sizeof(mixed_node_t));
   __ASSERT_NO_MSG(mixed_traffic_run(true) == 0);
   printk("mixed_kernel_fw_end_v1,result=pass,traffic_rows=42,cpu_groups=21\n");
   return 0;
