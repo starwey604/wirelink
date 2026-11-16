@@ -1,7 +1,7 @@
 # Packet transport tools
 
 These tools build the current core and packet adapters. They require a local
-matching WLC 0.13 executable; no published compiler is assumed:
+matching WLC 0.14 executable; no published compiler is assumed:
 
 ```sh
 cmake -S . -B build/packet-tools -DCMAKE_BUILD_TYPE=Release \

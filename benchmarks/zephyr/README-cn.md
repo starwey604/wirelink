@@ -18,13 +18,13 @@ west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/framing -d build/framing-hw
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/rpc_validation -d build/codec-validation-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.14
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/mixed_traffic -d build/mixed-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.14
 ```
 
-codec_plan 要求 `CODEC_PLAN_CODEC_DIR` 中有另行生成的纯 `plan.c/.h/_values.h`；保留 baseline 冻结产物，candidate 在新目录生成并登记 compiler。当前 public codec validation 不再使用私有 fingerprint seam，不能设置 `RPC_VALIDATION_OPTIMIZED_CODEC=1`。
+codec_plan 要求 `CODEC_PLAN_CODEC_DIR` 中有另行生成的纯 `plan.c/.h`；保留 baseline 冻结产物，candidate 在新目录生成并登记 compiler。当前 public codec validation 不再使用私有 fingerprint seam，不能设置 `RPC_VALIDATION_OPTIMIZED_CODEC=1`。
 
 ESP32-S3 app 使用 USB Serial/JTAG console，启动后等两秒输出。先发现实际板卡、烧录桥、console 路径，不能假定稳定设备名。只在明确选择时刷相应固件，烧录桥与 console 分开占用，结束后关闭进程。临时诊断镜像不满足静态内核计划的最终合格新 B 交回要求。
 

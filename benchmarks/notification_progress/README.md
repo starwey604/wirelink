@@ -1,7 +1,7 @@
 # Deterministic notification and ownership census
 
 This optional, non-timing model exercises the accepted static kernel with the
-real generated profile-v2 USB schema, both RPC roles, C-owned port storage,
+real generated USB node from its single-file `.wl` schema, both RPC roles, C-owned port storage,
 RX claims/releases and physical TX tokens. Each case performs 32 alternating
 RPCs and 64 ordinary messages. It checks exactly-once effects/callbacks, poisoned
 admission inputs, delayed source leases and quiescent close.

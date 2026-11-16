@@ -14,7 +14,10 @@ MSVC builds retain `/utf-8` and require a compiler with C11 atomic support;
 header targets. That flag is not applied to C++ consumers. Windows execution
 still needs its own CI runner; a Linux run is not Windows qualification.
 
-Generated endpoint fixtures use a matching local WLC 0.13. The public packet
-port and byte-FIFO atomic representations are opaque to C++. The separate
-installed-consumer, foreign-bridge, Zephyr and adapter suites test their actual
-ownership boundaries rather than sharing a second RPC implementation.
+Generated node fixtures use a matching local WLC 0.14. `wl_packet_port_t` is a
+complete, standard-layout type in C++20; C++ may embed it, while atomic access
+remains in the C11 implementation. `packet_port_cpp.cpp` compares size, alignment
+and every member offset against C, then exercises concurrent RX/TX, quiescent
+close and in-place reinitialization of a C++-owned port. The byte FIFO remains
+opaque to C++. The separate installed-consumer, foreign-bridge, Zephyr and
+adapter suites test their actual ownership boundaries rather than sharing a second RPC implementation.

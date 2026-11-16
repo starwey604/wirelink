@@ -20,14 +20,14 @@ west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/framing -d build/framing-hw
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/rpc_validation -d build/codec-validation-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.14
 west build -b esp32s3_devkitc/esp32s3/procpu \
   /path/to/wirelink/benchmarks/zephyr/mixed_traffic -d build/mixed-hw -- \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.13
+  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching-wlc-0.14
 ```
 
 `codec_plan` requires `CODEC_PLAN_CODEC_DIR` containing separately generated
-public `plan.c/.h/_values.h`. Preserve frozen baseline artifacts, generate with
+public `plan.c/.h`. Preserve frozen baseline artifacts, generate with
 the intended compiler into another directory, and record both identities.
 Current public codec validation no longer accepts the private optimized
 fingerprint seam. Do not set `RPC_VALIDATION_OPTIMIZED_CODEC=1`.

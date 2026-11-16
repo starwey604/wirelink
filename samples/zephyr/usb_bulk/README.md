@@ -7,7 +7,7 @@ application commands, not a framework Bulk service. There is no RPC service,
 ARQ, ACK state, automatic reliable transfer or automatic retry.
 
 The complete public `tests/fixtures/wlc/current/control.wl` schema and its message
-IDs/encodings are unchanged. WLC 0.13 generates its pure codec. In particular,
+IDs/encodings are unchanged. WLC 0.14 generates its pure codec. In particular,
 `bytes<4096>` remains a legal public schema domain; this deployment separately
 limits each actual object chunk to min(requested size, 2016), and the native
 packet payload to 2048. No generated bound is silently reduced to fit transport.

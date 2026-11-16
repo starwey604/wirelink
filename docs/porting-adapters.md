@@ -1,43 +1,66 @@
-# 传输层移植指南（对接 `wl_packet_port_t`）
+# 接入物理链路：先选 embedded，异步驱动用 external
 
-[返回文档总览](README.md) · [Wire v2 规范](wire-format.md) · 核心接口：[`packet_port.h`](../include/wirelink/packet_port.h) · [`packet_stream.h`](../include/wirelink/packet_stream.h) · [`byte_fifo.h`](../include/wirelink/byte_fifo.h)
+[文档总览](README.md) · [节点与生成 API](../wlc/README.md) · [packet_port.h](../include/wirelink/packet_port.h) · [packet_stream.h](../include/wirelink/packet_stream.h)
 
-Wirelink 内核不绑定任何操作系统、ISR、DMA 或 Socket API。将自定义硬件驱动（如 STM32 UART DMA、ESP32 SPI 从机、USB Bulk 或私有无线电芯片）接入 Wirelink，只需实现约 **60~120 行**适配器胶水代码。
+Wirelink 核心不读取时钟，也不运行线程、ISR、DMA 或 socket。普通同步发送先使用默认的 `io = embedded`：节点自带端口、精确大小的收发缓冲及所选流连接器。需要异步 DMA、零拷贝、驱动 stop/drain 协议或已有 Host/Zephyr 执行器时，选择 `io = external`，由应用提供 `wl_packet_port_t`。
 
----
+## 一、embedded：只实现物理收发
 
-## 一、架构边界与并发铁律
+以下以 [遥测回环](../examples/00_telemetry/) 的 `pub` / `sub` 为例。生成同一进程使用的两个角色：
 
-```text
-  Hardware / ISR / DMA                    Single Owner Loop / Task
- ========================              ==============================
-  RX Done IRQ                           wl_byte_fifo_to_cobs() [若用串口]
-    ├─ 包传输: wl_packet_rx_claim          │
-    │          memcpy / DMA write          ▼
-    │          wl_packet_rx_commit ───► wl_kernel_step(&ep.core, now, 16)
-    │                                      ├─ 分发超时/取消/RPC 完成回调
-    └─ 流传输: wl_byte_fifo_reserve        ├─ 借用 RX -> route() -> release
-               wl_byte_fifo_commit         └─ 调用 config.submit() 发送 TX
-                                                │
-  TX Done IRQ                                   ▼
-    └─ wl_packet_tx_publish(token, flags) ◄── 驱动异步发送完成发布
+```sh
+wlc compile examples/00_telemetry/telemetry.wl --all-nodes --out-dir build/telemetry
 ```
 
-请严格遵守以下两条**并发红线**：
+### 初始化与 native 接收
 
-1. **所有内核 API 只属于单一 Owner**：`wl_kernel_step`、`*_start`、`*_send_*`、`wl_kernel_cancel`、`wl_kernel_close` 及生成回调均必须在同一个线程/主循环中顺序调用（或受同一把外层互斥锁保护）。
-2. **ISR / I/O 线程禁止直接运行内核**：中断或 DMA 回调中**只能**调用原子边界函数：
-   - 接收：原生包调用 `wl_packet_rx_claim` + `wl_packet_rx_commit` / `wl_packet_rx_abort`；字节流调用 `wl_byte_fifo_reserve` + `wl_byte_fifo_commit` + `wl_byte_fifo_note_gap`。
-   - 发送完成：`wl_packet_tx_publish(port, token, flags)`。
-   - 唤醒通知：`wl_packet_activity(port)`（再触发外层信号量 / EventGroup / Flag）。
+```c
+#include "telemetry.h"
+static pub_node_t publisher;
+static sub_node_t subscriber;
 
----
+wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
+  (void)self;
+  return sub_rx_packet(&subscriber, data, length);
+}
+```
 
-## 二、模式 A：有消息边界的驱动（USB Bulk / UDP / SPI 定长帧）
+初始化 `pub_init(&publisher)` / `sub_init(&subscriber)` 并检查返回值后，调用 `pub_send_telemetry()`；owner 步进 `pub_step()` 和 `sub_step()` 即可收发。应用实现 `sub_on_telemetry()` 接收业务值，不用注册 handler 表。上面物理钩子用于短回环；实际驱动把完整包交给 `<node>_rx_packet()`，其成功返回表示已复制接收，不表示业务回调已执行。
 
-适用于物理层本身能交付完整报文（Short Packet / ZLP / UDP Datagram / 定长包）的设备。硬件包直接交给 `wl_packet_port_t` 的双槽原子 RX 环（`WL_PACKET_RX_SLOTS = 2`）。
+默认初始化通过进程级 `wl_packet_instance_next()` 分配非零、不会回绕的实例号，分配失败会传递给调用者。它只保证本进程内自动分配之间唯一。链路可能残留重启前旧包时，用 `pub_init_with_instance(&publisher, id)` 接入应用的持久会话身份策略，并避免显式 ID 与自动 ID 冲突。
 
-### 1. 初始化静态存储与端口（`~15` 行）
+### TX 是整帧事务，忙后必须通知恢复
+
+`<node>_tx_write(self, bytes, length)` 在 owner 步进期间调用：
+
+- 返回 `WL_OK`：已在返回前同步消费并完成整帧物理发送，之后不再保留此指针。
+- 返回 `WL_ERR_WOULD_BLOCK` 或 `WL_ERR_BUSY`：没有接受任何字节。待硬件或对端 RX 槽恢复可用后，调用 `<node>_tx_ready(self)`，让 owner 重试。
+- 其他错误：发送失败，按节点错误/调用完成路径报告。
+
+不能先写半帧再返回忙，也不能启动 DMA 后立即返回 `WL_OK`。如果物理设备只支持部分写入或异步持有指针，使用 external 管理真实物理租约。
+
+回环中的可写条件是对端 RX 有空槽：owner 消费完接收包后通知发送端 `tx_ready()`。单次普通消息提交成功不等于槽位已可复用；后续提交背压时保留业务值，待步进/恢复事件后再试。
+
+### 流接收必须保留 consumed 之外的尾部
+
+在节点中选择 `framing = cobs_crc16` 或 `framing = length16` 后，生成入口改为：
+
+```c
+size_t consumed = 0;
+wl_err_t error = sensor_rx_feed(&sensor, bytes, length, &consumed);
+```
+
+这里假定节点名为 `sensor`。返回值 `error` 是 `wl_err_t` 状态，`consumed` 输出已消费字节数。无论返回成功、背压还是坏帧，都按 `consumed` 推进输入；只重试 `bytes + consumed` 之后的尾部。RX 暂满时等待 owner 释放槽位再继续，不能丢尾部、重复喂入前缀或原地忙循环。`rx_feed` 的生产者必须串行；若 ISR 无法保留尾部，先通过 SPSC 字节 FIFO 交给 owner，再由 owner 喂入。字节确实丢失时应走所用连接器的断流/重同步路径，不能当作成功接收。
+
+### 关闭顺序
+
+1. 停止并确认 RX 生产者不再调用 `rx_packet()` / `rx_feed()`。
+2. owner 调用 `<node>_close()`。embedded stream 节点会 abort 尚未完成的半帧 RX claim。
+3. 继续 `<node>_step(now)`，直到 `<node>_quiescent()` 为真，再释放或重新初始化节点存储。
+
+## 二、external：由驱动持有端口与物理租约
+
+在 schema 中选择 `io = external`。静态节点初始化是 `n_init(&node, &port)`；只有显式选择 `handlers = dynamic` 时才追加 handler 表与 `user`。下段来自 [裸机回环](../examples/bare_metal_loopback.c)，同时演示 external 与 dynamic：
 
 <!-- [docs:loopback_setup] -->
 ```c
@@ -47,109 +70,57 @@ wl_packet_config_t config = {.instance = 1001U + side,
     .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
     .user = &transport.directions[side]};
 require(wl_packet_init(&ports[side], &config) == WL_OK);
-demo_kernel_handlers_t handlers = {.on_rpc_execute = execute, .on_message_event = received};
-require(demo_kernel_init(&endpoints[side], &ports[side], &handlers, NULL, NULL) == WL_OK);
+demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
+require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
 ```
 <!-- [/docs:loopback_setup] -->
 
-关键参数要求：
-- `instance`：**必须非零**，每次重启/重新初始化链路时递增或更换新值，防止旧中断携带过期 token 污染当前会话。
-- `rx_storage_size`：必须等于 `2 * rx_unit_size`，且对原生 USB/UDP 建议 `rx_unit_size >= 最大规范帧 + 1`（预留 1 字节以检测超长截断包）。
+`instance` 必须非零；每次新建物理会话应使用应用选定的不冲突身份。`rx_storage_size` 等于 `WL_PACKET_RX_SLOTS * rx_unit_size`。端口的最大规范接收帧按 `<N>_RX_FRAME_MAX` 计算；USB/UDP 驱动若以容量检测截断，应额外预留一个字节。外设缓冲还须服从适配器的具体边界规则，而非盲目只取发送方向的宏。
 
-### 2. 实现 TX `submit` 回调与异步完成发布
+### 异步 TX：submit 与 completion
 
-`wl_packet_sink_fn` 在 Owner 上下文内由 `wl_kernel_step` 同步调用，驱动需按实际异步能力返回四个枚举值之一：
+owner 调用 `wl_packet_sink_fn`。驱动返回值决定是否持有传入的数据指针和 token：
 
-| 返回值 | 含义 | 驱动后续义务 |
+| 返回值 | 接受状态 | 后续义务 |
 | --- | --- | --- |
-| `WL_PACKET_SENT` | 在当前调用返回前已消费完 `data` 且物理发送已完成 | 无需调用 `wl_packet_tx_publish` |
-| `WL_PACKET_STARTED` | 已接管 `data`（指针在发送完成前保持稳定），正在 DMA/外设发送 | 后续必须携带传入的 `token` 调用 `wl_packet_tx_publish` |
-| `WL_PACKET_BUSY` | 驱动硬件忙碌，本次**未接收**任何字节 | 硬件空闲时必须调用 `wl_packet_activity(port)` 唤醒 Owner 重试 |
-| `WL_PACKET_FAILED` | 确定性发送失败，本次未接收 | 内核向相关请求标记本地 I/O 错误，无后续 completion |
+| `WL_PACKET_SENT` | 返回前已消费整帧，物理发送也已完成 | 无 completion |
+| `WL_PACKET_STARTED` | 已接受，DMA/设备仍持有稳定指针 | 携带原 token 发布最终 completion |
+| `WL_PACKET_BUSY` | 未接受任何字节 | 资源恢复时 `wl_packet_activity(port)` 唤醒 owner |
+| `WL_PACKET_FAILED` | 未接受，确定发送失败 | 无 completion；相关请求报告本地 I/O 错误 |
 
-异步完成后发布 flags 规则：
-- `WL_PACKET_CONSUMED`：物理外设/DMA 已读取完毕 `data` 内存（例如字节已全部拷入驱动 FIFO），但总线尚未 idle。
-- `WL_PACKET_DRAINED`：物理总线传输彻底完成（**隐含 `CONSUMED`**，通知 `wl_kernel` 释放该 TX 租约槽位）。
-- `WL_PACKET_TX_ERROR`：传输中止或失败（**隐含 `CONSUMED | DRAINED`**）。
+异步驱动用 `wl_packet_tx_publish(port, token, flags)` 发布状态：
 
-### 3. ISR / RX Producer 零拷贝接收模板
+- `WL_PACKET_CONSUMED`：外设已不再读取源缓冲，但物理总线可能仍忙。
+- `WL_PACKET_DRAINED`：物理发送完成，隐含 `CONSUMED`，允许释放租约。
+- `WL_PACKET_TX_ERROR`：传输失败，隐含 `CONSUMED | DRAINED`。
 
-```c
-/* 在硬件收到一包完整数据时由 RX 中断或接收线程调用（串行生产者） */
-static void on_hw_packet_received(wl_packet_port_t *port,
-                                  const uint8_t *hw_buf, size_t len) {
-  wl_packet_claim_t claim;
-  if (len == 0U || wl_packet_rx_claim(port, len, &claim) != WL_OK) {
-    return; /* RX 双槽暂满或长度非法：丢弃或触发流控 */
-  }
-  memcpy(claim.span.data, hw_buf, len);
-  wl_packet_rx_commit(port, &claim, len); /* 内部自动触发 config.notify(user) */
-}
-```
+业务 RPC 超时或取消不会使仍在 DMA 使用中的缓冲提前失效。节点与驱动存储必须保留到实际租约归还。
 
-若底层 DMA 可直接把收包写到指定地址，也可提前 `wl_packet_rx_claim` 并将 `claim.span.data` 交给 DMA 描述符；收到损坏包/错误中断时调用 `wl_packet_rx_abort(port, &claim)`。
+### RX：完整包或单生产者字节 FIFO
 
----
+完整包驱动可直接使用 `wl_packet_rx_push(port, bytes, length)` 复制一包，并检查返回值。真正零拷贝时先 `wl_packet_rx_claim()`，把 `claim.span.data` 交给 DMA，完成后 `wl_packet_rx_commit()`；失败时 `wl_packet_rx_abort()`。双槽 RX 暂满时，由硬件流控或应用丢包策略处理，不能覆盖已提交的槽。
 
-## 三、模式 B：字节流驱动（UART DMA / UART IRQ / CDC ACM）
+UART 等流式链路使用 `wl_packet_stream_t`，再按需增加 `wl_byte_fifo_t` 隔离 ISR 与 owner。参考 [packet_tool_owner.c](../examples/common/packet_tool_owner.c) 与 [Zephyr UART 适配器](../adapters/zephyr/)：
 
-串口字节流没有物理包边界，推荐在 `wl_packet_port_t` 下挂接 `wl_byte_fifo_t` + `wl_packet_stream_t`（参考完整 C 实现 [`examples/common/packet_tool_owner.c`](../examples/common/packet_tool_owner.c)）：
+- `wl_packet_stream_config_t.maximum_frame_size` 使用节点 TX 规范帧上界；`maximum_rx_frame_size` 使用 RX 上界。
+- stream TX 存储至少容纳 `<N>_TX_WIRE_MAX`；RX 单元按所选连接器的实际存储要求分配，不能把 TX/RX 两个角色混为一个大小。
+- ISR 使用 `wl_byte_fifo_reserve()` / `commit()`；FIFO 满导致字节丢失时调用 `wl_byte_fifo_note_gap()`。
+- owner 用 `wl_byte_fifo_to_cobs()` 排入 stream；直接调用 stream `feed()` 时也必须处理 `consumed` 尾部。
 
-```c
-/* 1. 静态声明串口所需对象（全部可放静态 BSS） */
-static wl_packet_port_t port;
-static wl_packet_stream_t stream;
-static wl_byte_fifo_t rx_fifo;
-static uint8_t port_rx[2][2064];
-static uint8_t stream_tx[2064]; /* >= wl_packet_stream_cobs_crc16_bound(max_frame) */
-static uint8_t fifo_buf[1024];
+### 单 owner 与安全关闭
 
-/* 2. 初始化链路 */
-wl_packet_config_t pcfg = {
-    .instance = next_instance(),
-    .rx_storage = &port_rx[0][0],
-    .rx_unit_size = sizeof(port_rx[0]),
-    .rx_storage_size = sizeof(port_rx),
-    .submit = wl_packet_stream_cobs_crc16_submit,
-    .notify = wl_packet_stream_notify,
-    .user = &stream,
-};
-wl_packet_init(&port, &pcfg);
+所有节点调用、发送、步进、取消、关闭及业务回调都在同一 owner 中顺序运行。ISR / I/O 线程只能使用传输层允许的单生产者/原子入口：RX claim/commit/abort/push、FIFO reserve/commit/note_gap、TX publish 与 activity 通知；不能运行内核。
 
-wl_packet_stream_config_t scfg = {
-    .port = &port,
-    .tx_storage = {stream_tx, sizeof(stream_tx)},
-    .maximum_frame_size = APP_KERNEL_WIRE_FRAME_MAX,
-    .physical_submit = my_uart_dma_submit, /* 只发不打包 */
-    .notify = my_wakeup_owner,
-    .user = &my_uart_ctx,
-};
-wl_packet_stream_cobs_crc16_init(&stream, &scfg);
-wl_byte_fifo_init(&rx_fifo, (wl_span_t){fifo_buf, sizeof(fifo_buf)},
-                  my_wakeup_owner, &my_uart_ctx);
+external 关闭按以下顺序完成：
 
-/* 3. UART RX ISR / DMA 半满中断内调用 */
-static void on_uart_rx_bytes(const uint8_t *bytes, size_t len) {
-  wl_span_t dst;
-  size_t off = 0U;
-  while (off < len && wl_byte_fifo_reserve(&rx_fifo, &dst) == WL_OK) {
-    size_t n = len - off;
-    if (n > dst.length) n = dst.length;
-    memcpy(dst.data, bytes + off, n);
-    wl_byte_fifo_commit(&rx_fifo, n);
-    off += n;
-  }
-  if (off < len) wl_byte_fifo_note_gap(&rx_fifo); /* FIFO 满丢字节时显式报错重同步 */
-}
-```
+1. 停止 RX 生产者并等待其退出；若外部 stream 持有半帧 claim，此时调用 `wl_packet_stream_abort_rx()`。
+2. owner 调用节点 `close()`，停止新业务提交并安排 `WL_KERNEL_CLOSED` 完成回调。
+3. 停止/排空物理驱动，让所有异步 TX 发布最终状态；继续 owner `step(now)`，直至节点 quiescent 且驱动确认不再访问存储。
+4. 才能释放端口、stream、FIFO、节点及驱动缓冲，或用新实例号重新初始化。
 
-然后在 Owner 主循环每次 `step` 前，调用 `wl_byte_fifo_to_cobs(&rx_fifo, &stream, 16U)` 将 FIFO 中的原始串口字节解码为完整规范包提交给 `port`。
+## 三、Host / RTOS 事件循环
 
----
-
-## 四、Owner 调度循环、低功耗等待与安全关闭
-
-为了在 RTOS/Linux 事件循环中实现**零轮询、零唤醒丢失**的低功耗等待，推荐采用“先 `service` + `step`、再检查 `wl_kernel_ready`”的闭环模型（下段来自可编译验证的 Host UDP 示例 [`examples/common/tutorial_host.cpp`](../examples/common/tutorial_host.cpp) 与 [`examples/05_zephyr_udp/server.c`](../examples/05_zephyr_udp/server.c)）：
+对于已有异步适配器，使用 `service + step` 推进，再以 ready/deadline 和外层锁存通知决定等待，避免唤醒丢失。以下来自可编译的 [Host UDP 示例](../examples/05_zephyr_udp/)：
 
 <!-- [docs:udp_host_step] -->
 ```cpp
@@ -169,8 +140,8 @@ while (example_running()) {
   uint32_t now = example_now_ms();
   if (example_udp_step(udp, &server.core, now) != WL_OK) { status = 1; break; }
   if ((int32_t)(now - due) >= 0) {
-    telemetry_t sample = {.has_sample = true, .sample = ++sequence};
-    const wl_err_t error = udp_demo_kernel_send_telemetry(&server, &sample);
+    telemetry_t sample = {.sample = ++sequence};
+    const wl_err_t error = udp_server_send_telemetry(&server, &sample);
     if (error != WL_OK && error != WL_ERR_WOULD_BLOCK) { status = 1; break; }
     due = now + 20;
   }
@@ -181,13 +152,6 @@ while (example_running()) {
 ```
 <!-- [/docs:udp_server_loop] -->
 
-### 安全关闭与静态存储回收顺序
+简化 RPC 从下一次 owner step 才开始超时；`_ex` 和 SDK 使用显式时刻，排队时间计入预算。恢复可写、RX 到达、关闭或未挂表调用都应能唤醒 owner，不应依赖固定周期轮询。
 
-1. Owner 调用 `wl_kernel_close(&endpoint.core)`（进入关闭态，拒绝新调用并将待完成本地调用转入 `WL_KERNEL_CLOSED`）。
-2. 停止底层物理驱动，确保正在进行的异步 RX/TX 归还缓冲区并发布最终 completion。
-3. Owner 继续调用 `wl_kernel_step(&endpoint.core, now, 16)`，直至 `wl_kernel_quiescent(&endpoint.core)` 返回非零，此时所有回调与物理租约已彻底清零，可安全释放或以新 `instance` 重新初始化静态区。
-
-> 参考仓库现成适配器实现：
-> - Zephyr UART DMA / IRQ：`adapters/zephyr/uart_dma/`、`adapters/zephyr/uart_irq/`
-> - Zephyr USB Bulk：`adapters/zephyr/usb_bulk/`
-> - Asio UDP / Astrial 串口与 USB：`adapters/asio_udp/`、`adapters/astrial/`、`adapters/astrial_usb/`
+现成适配器： [Zephyr](../adapters/zephyr/)（UART DMA / IRQ、USB Bulk）、[Asio UDP](../adapters/asio_udp/)、[Astrial 串口](../adapters/astrial/)、[Astrial USB](../adapters/astrial_usb/)。

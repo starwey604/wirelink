@@ -1,8 +1,8 @@
-# Wirelink Documentation (English Placeholder)
+# Wirelink Documentation
 
 [简体中文文档总览 (Simplified Chinese)](README.md) · [Main README](../README.md)
 
-**Documentation in English is coming soon.**
+The [English quick start](../README-en.md) covers the 0.14.0 local candidate. Detailed engineering documentation remains in Simplified Chinese.
 
 Please refer to the Simplified Chinese engineering documentation in this directory:
 

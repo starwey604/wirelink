@@ -1,6 +1,6 @@
 # C-owned kernel clock bridge
 
-Enable `WIRELINK_BUILD_FOREIGN_TESTS=ON` with matching local WLC 0.13. The C
+Enable `WIRELINK_BUILD_FOREIGN_TESTS=ON` with matching local WLC 0.14. The C
 shared library owns both kernels, ports, C11 atomic objects and loopback storage.
 C++ and Python use opaque exported C handles; Python callbacks are not involved.
 The test wrapper allocates once at create and frees after close/quiescence.

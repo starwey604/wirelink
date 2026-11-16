@@ -3,23 +3,24 @@
 [中文](README-cn.md).
 
 Current `wirelink-footprint-v2` compiles every `src/*.c` separately and records
-object sections, actual compiler version/flags and source hashes. This sum
+object sections and actual compiler version/flags. Source/image integrity hashes
+are enabled by default; use `--no-digests` for ordinary size comparisons. This sum
 includes optional independent framing/container/stream tools: it is **not** the
 linked default product image size. The default native kernel does not acquire
 those optional execution costs merely because their objects exist.
 
 ```sh
-python benchmarks/footprint/footprint.py --json footprint.json
-python benchmarks/footprint/footprint.py --cc clang --json clang.json
+python benchmarks/footprint/footprint.py --no-digests --json footprint.json
+python benchmarks/footprint/footprint.py --no-digests --cc clang --json clang.json
 python benchmarks/footprint/compare.py before.json after.json
 ```
 
-The C probe uses the checked-in generated demo kernel's actual layout, plus
+The C probe uses the checked-in generated demo node's actual layout, plus
 packet port, stream, byte FIFO and call-handle sizes. Three explicit example
 assemblies show endpoint, port, two RX units, optional stream TX/object and
 optional byte staging budgets. Every storage number is bytes. Generated endpoint
-size already includes kernel metadata, four request snapshots, four reply
-snapshots, one ordinary snapshot and codec scratch. Do not add these twice.
+size already includes kernel metadata, four request snapshots, three reply
+snapshots, one ordinary snapshot and typed reply scratch. Do not add these twice.
 Native USB reserves one byte beyond its maximum frame. Stream budgets use the
 actual selected connector bound. Byte staging uses a caller-selected sample
 budget, not a universal library requirement. Driver objects and padding in an

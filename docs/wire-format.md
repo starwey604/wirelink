@@ -32,7 +32,7 @@ Wirelink 的线协议分层清晰：**规范帧（Canonical Frame）**面向包�
 
 ## 二、RPC 定长小端子头（`kind = 1, 2, 3`）
 
-Wire v2 取消了旧版变长 `uint64` 会话编码，所有 RPC 字段均为 **32 位自然对齐小端整数**，直接映射 32 位 MCU 寄存器读取（`wl_wire_get_u32` / `wl_wire_put_u32`）：
+Wire v2 取消了旧版变长 `uint64` 会话编码，所有 RPC 字段均为 **32 位小端整数**，通过 `wl_wire_get_u32` / `wl_wire_put_u32` 读写；输入缓冲不要求自然对齐：
 
 ### 1. 请求与成功响应（`WL_WIRE_RPC_REQ = 1`, `WL_WIRE_RPC_RESP = 2`，8 字节）
 
@@ -92,11 +92,11 @@ tag = varint( (field_number << 3) | wire_type )
 
 - 不接受非规范冗长 Varint（前导高字节不能全 0，否则返回 `WL_CODEC_ERR_MALFORMED`）。
 - 未知 `field_number` 允许按 `wire_type` 安全跳过（`wl_codec_skip`），保证字段演进兼容性。
-- `required` 字段缺失返回 `WL_CODEC_ERR_MISSING_REQUIRED_FIELD`；重复非 `repeated` 字段返回 `WL_CODEC_ERR_DUPLICATE_FIELD`。
+- 字段默认必选，显式 `required` 含义相同；必选字段不生成 `has_*`。只有 `optional` / `optional packed` 使用存在位。必选字段缺失返回 `WL_CODEC_ERR_MISSING_REQUIRED_FIELD`；重复非 `repeated` 字段返回 `WL_CODEC_ERR_DUPLICATE_FIELD`。
 
 ### 2. Positional-v1（可选超紧凑定序编码，仅限普通消息路由）
 
-当 `.bind.wl` 为普通 `send`/`direct` 路由指定 Positional-v1 时，取消所有字段 Tag：
+当 `.wl` 节点设置 `codec = positional_v1`，或普通 `send` / `recv` 路由使用 `@codec(positional_v1)` 时，取消字段 Tag。RPC 不使用此编码：
 
 ```text
 +------------------------------+------------------------------------------+
@@ -105,8 +105,9 @@ tag = varint( (field_number << 3) | wire_type )
 +------------------------------+------------------------------------------+
 ```
 
-- 存在位图按声明中非 `required` 字段顺序从 Byte 0 的 LSB（bit 0）起排布；末尾未使用的填充 bit 必须为 `0`。
-- 若消息所有字段均为 `required`，`presence_bytes = 0`，无位图开销。
+- 存在位图仅按声明中 `optional` / `optional packed` 字段顺序从 Byte 0 的 LSB（bit 0）起排布；末尾未使用的填充 bit 必须为 `0`。
+- 没有显式 optional 字段时，`presence_bytes = 0`，无位图开销。`packed` 默认必选；从旧版可选 packed 迁移时应写 `optional packed`。
+- 两端需使用一致的字段顺序、类型与 optional 布局。默认必选是 schema 与 C API 规则的变化；没有新增 Wire v2 帧头版本。
 
 ---
 
@@ -114,7 +115,7 @@ tag = varint( (field_number << 3) | wire_type )
 
 针对无天然包边界的流式物理链路（如 UART / RS-485 / SPI 字节流），在 [`packet_stream.h`](../include/wirelink/packet_stream.h) 中提供两种独立连接器，**所有校验与分帧与内层 `wl_kernel_t` 完全正交**：
 
-### 1. `cobs_stream`（COBS + CRC-16/CCITT-FALSE，UART 推荐）
+### 1. `framing = cobs_crc16`（COBS + CRC-16/CCITT-FALSE，UART 推荐）
 
 ```text
 +-------------------------------------------------------+------+
@@ -128,7 +129,7 @@ tag = varint( (field_number << 3) | wire_type )
 - **静态表开销**：`src/crc.c` 采用 16 项 nibble 查表，`.rodata` 仅 **32 字节**（恰好占用单条 32 B I-Cache Line）。
 - **缓冲区上界**：TX/RX 物理缓冲至少需 `wl_packet_stream_cobs_crc16_bound(max_canonical_size)` 字节（当 `max = 2052` 时，最大 COBS 编码体含 `0x00` 尾符不超过 `2064` 字节）。
 
-### 2. `bus_length16`（Length16 / NONE，干净硬件总线）
+### 2. `framing = length16`（Length16 / NONE，干净硬件总线）
 
 ```text
 +--------------------+----------------------------------+

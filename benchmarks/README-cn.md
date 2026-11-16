@@ -11,16 +11,15 @@ Wirelink 的可选、可复现测量。它们都不是正确性门槛，依赖�
 | [rpc_validation](rpc_validation/README-cn.md) | 公开 codec 解码、canonical bytes 摘要与 owned 转换 | 主机、ESP32-S3 |
 | [codec_plan](codec_plan/README-cn.md) | 字段查找与定长 packed array 的 codec 入口成本 | 主机、ESP32-S3 |
 | [mixed_traffic](mixed_traffic/README-cn.md) | 请求/响应丢失与背压下，遥测年龄和显式应用重试 | 主机、ESP32-S3 |
-| [framing](framing/README-cn.md) | 独立 framing 编码/alias/decode 工具 | 主机、ESP32-S3 |
 | [owner_pass](owner_pass/README-cn.md) | 32 命令槽、8 命令预算与 stop 拒绝（计数验证） | 主机 |
 | [footprint](footprint/README-cn.md) | 各模块静态代码大小与调用方存储契约 | 主机 |
 
 `benchmarks/zephyr/` 下的[固件变体](zephyr/README-cn.md)在 ESP32-S3 DevKitC 上跑同一批负载，
 两侧必须使用同一份冻结生成产物。
 
-七个套件分为三个预设：`smoke` 运行 owner_pass、mixed_traffic 与 footprint；
-`quick` 运行 framing、codec_plan 与 rpc_validation；`full` 运行包括 api 的全部七项。
-代码生成使用匹配的本地 WLC 0.13。物理 USB/串口工具见 [host](host/README.md)。
+六个套件分为三个预设：`smoke` 运行 owner_pass、mixed_traffic 与 footprint；
+`quick` 运行 codec_plan 与 rpc_validation；`full` 运行包括 api 的全部六项。
+代码生成使用匹配的本地 WLC 0.14。物理 USB/串口工具见 [host](host/README.md)。
 
 ## 统一入口
 

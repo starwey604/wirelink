@@ -5,8 +5,8 @@ building, testing and extending the example; [README.md](README.md) is generated
 from WLC's SDK template. The Python distribution is `wirelink-calculator-sdk`,
 imported as `calculator_sdk`.
 
-Use matching **WLC 0.13.0**, generated contract **0.13**, binding source API **3**
-and **Wirelink 0.13.0**. This example's package version is **0.13.0**.
+Use matching **WLC 0.14.0**, generated contract **0.14**, binding source API **3**
+and **Wirelink 0.14.0**. This example's package version is **0.14.0**.
 Run shell commands from the Wirelink root. SDK authors need C11/C++20 compilers,
 CMake 3.21+ and standalone Asio headers; Python builds need Python 3.10+ with
 its development headers.
@@ -153,7 +153,7 @@ completion outcome remain separate.
 ## Link a C++ consumer
 
 ```cmake
-find_package(CalculatorSdk 0.13.0 CONFIG REQUIRED)
+find_package(CalculatorSdk 0.14.0 CONFIG REQUIRED)
 target_link_libraries(app PRIVATE CalculatorSdk::client)
 ```
 
@@ -196,14 +196,14 @@ Rebuild matching WLC after modifying templates, then regenerate:
 
 ```sh
 /absolute/path/to/matching-wlc sdk examples/06_bindings/schema/calculator.wl \
-  --profile examples/06_bindings/schema/calculator.bind.wl \
-  --out-dir examples/06_bindings --name calculator --package-version 0.13.0 --overwrite
+  --out-dir examples/06_bindings --name calculator --package-version 0.14.0 --overwrite
 python3 tests/package/check_generated_sdks.py --wlc /absolute/path/to/matching-wlc
 ```
 
-The schema/profile match `examples/01_rpc`. Files listed in `wlc-sdk-manifest.json`
+The schema matches `examples/01_rpc`; without a `node` declaration, `wlc sdk`
+synthesizes a client from the top-level RPC. Files listed in `wlc-sdk-manifest.json`
 are generated; keep this GUIDE and business tests outside that inventory.
-CMake requires Wirelink 0.13.0 and checks WLC version/codegen contract in the
+CMake requires Wirelink 0.14.0 and checks WLC version/codegen contract in the
 included kernel manifest against the installed package metadata. Build metadata in `wlc-sdk-build.json` uses format
 `wirelink-sdk-build-v2`, kernel contract 1; it is not a linker-layout control.
 

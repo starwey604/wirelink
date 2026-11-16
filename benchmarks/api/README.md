@@ -2,8 +2,8 @@
 
 [中文](README-cn.md).
 
-The current benchmark runs the real generated four-call/four-reply kernel with
-both RPC roles and ordinary Sample DATA. The C fixture owns both kernels,
+The current benchmark runs the real generated four-call/three-reply kernel with
+both RPC roles and ordinary Sample messages declared in one `.wl` node. The C fixture owns both kernels,
 packet ports, C11 atomics and RAM loopback storage. C++ only drives Google
 Benchmark through an opaque C function interface. Caller-supplied manual ticks
 advance the kernels; there are no hidden clock reads or RPC tables in a wrapper.
@@ -11,7 +11,7 @@ advance the kernels; there are no hidden clock reads or RPC tables in a wrapper.
 ```sh
 cmake -S . -B build/api -DCMAKE_BUILD_TYPE=Release \
   -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_API_BENCHMARK=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.13 \
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.14 \
   -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/path/to/google-benchmark
 cmake --build build/api --parallel
 ctest --test-dir build/api --output-on-failure
@@ -19,7 +19,7 @@ build/api/benchmarks/api/wirelink_api_benchmark \
   --benchmark_min_time=0.01s --benchmark_repetitions=5 \
   --benchmark_out=after.json --benchmark_out_format=json
 python benchmarks/stamp.py after.json benchmarks/api/fixture.c benchmarks/api/fixture.h \
-  benchmarks/api/micro.cpp benchmarks/api/kernel_api.wl benchmarks/api/kernel_api.bind.wl
+  benchmarks/api/micro.cpp benchmarks/api/kernel_api.wl
 python benchmarks/api/compare_kernel.py before.json after.json
 ```
 

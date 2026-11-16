@@ -2,9 +2,7 @@
 
 [English](README.md).
 
-C 业务与 Zephyr peer 共用 schema/profile，显式选择 native_packet/NONE。每端都保留 RPC 发起和处理角色，Add 使用短 typed handler，telemetry 走普通 send/direct route。
-
-应用按需保存收到的值，不依赖 LATEST、ACK 或 replay 执行层。
+C 业务与 Zephyr peer 共用 `udp_demo.wl`。external 节点 `udp_client` 发起 Add 并接收 telemetry，`udp_server` 处理 Add 并发送 telemetry。每个程序只生成自己的节点，无须实现另一角色的 handler。native 封装直接保留 UDP 包边界。
 
 ```sh
 cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \

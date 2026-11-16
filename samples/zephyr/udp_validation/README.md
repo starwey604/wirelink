@@ -8,7 +8,7 @@ late response suppression, CLOSED completion, stale handle rejection and finite
 idle/latched notification waits. No old engine or Python protocol implementation
 is linked. A timeout/cancel can still leave a remotely executing request.
 
-Run from a Zephyr workspace with matching WLC 0.13.0:
+Run from a Zephyr workspace with matching WLC 0.14.0:
 
 ```sh
 west twister -T /path/to/wirelink/samples/zephyr/udp_validation \

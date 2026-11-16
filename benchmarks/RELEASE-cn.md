@@ -2,11 +2,11 @@
 
 [English](RELEASE.md).
 
-选择产品合同与工作负载兼容的两个已提交版本。0.13 裁剪前后的发布版不能直接用当前 preset 重建混比，应使用封存工具并明确语义变化。运行 benchmark 不授权 push 或发布。
+选择产品合同与工作负载兼容的两个已提交版本。0.13 裁剪前后的发布版不能直接用当前 preset 重建混比，应使用封存工具并明确语义变化。0.14 的 node／必选字段 ABI 同样需要配套 schema 和编译器，不能复用 0.13 生成产物。运行 benchmark 不授权 push 或发布。
 
-1. 先完成正确性、包和编译器检查。设置匹配的本地 `WIRELINK_WLC_EXECUTABLE`（0.13）和 `WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR`（1.9+）。
+1. 先完成正确性、包和编译器检查。设置匹配的本地 `WIRELINK_WLC_EXECUTABLE`（0.14）和 `WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR`（1.9+）。
 2. 执行 `python3 benchmarks/bench.py doctor --preset full`。使用同一台已标识的空闲主机，固定编译器、flags、电源策略和 affinity；构建/测试并行时的计时不能作为合格性能证据。
-3. 选择兼容的 base/candidate，保留完整输出目录。七个套件分别由 smoke、quick、api 覆盖一次：
+3. 选择兼容的 base/candidate，保留完整输出目录。六个套件分别由 smoke、quick、api 覆盖一次：
 
 ```sh
 python3 benchmarks/bench.py pair --preset smoke --base BASE --candidate CANDIDATE --out out/release-smoke

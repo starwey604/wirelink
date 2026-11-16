@@ -1,11 +1,12 @@
 # Static RPC, telemetry and application upload
 
-One generated kernel per peer carries Query/Reboot RPCs and ordinary messages.
-`product.wl` imports `arm.wl` and `upgrade.wl`; profiles compose at generation.
+One generated `product_node_t` per peer carries Query/Reboot RPCs and ordinary messages.
+`product.wl` imports `arm.wl` and `upgrade.wl` and declares the external `product`
+node. CMake selects `NODE product`; handlers are linked as `product_on_*` symbols.
 The existing business message structures/IDs and upload phase/status numbers
 remain unchanged. The application messages do not define a standard bulk wire.
 
-Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching WLC 0.13.0, then run
+Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching WLC 0.14.0, then run
 `wirelink_composed_services` or `ctest -R 'composed_services|import_dependencies'`.
 The same source runs in the Zephyr composed_services sample. It transfers 4096
 bytes through packet loopback, without flash writes, actuators or a real reboot.

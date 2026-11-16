@@ -16,7 +16,6 @@ in the test matrix exist for correctness, not for timing.
 | [rpc_validation](rpc_validation/README.md) | Public codec decode, canonical-byte digest and owned conversion | Host, ESP32-S3 |
 | [codec_plan](codec_plan/README.md) | Field lookup and packed-array codec entry cost | Host, ESP32-S3 |
 | [mixed_traffic](mixed_traffic/README.md) | Telemetry age and explicit application retry under request/response loss and backpressure | Host, ESP32-S3 |
-| [framing](framing/README.md) | Independent framing encode/alias/decode tools | Host, ESP32-S3 |
 | [owner_pass](owner_pass/README.md) | 32 command slots, eight-command fairness and stop rejection, by counting | Host |
 | [footprint](footprint/README.md) | Static code size per module and the caller storage contract | Host |
 
@@ -24,10 +23,10 @@ The firmware variants under [`benchmarks/zephyr/`](zephyr/README.md) run the
 same workloads on the ESP32-S3 DevKitC and must use the same frozen generated
 artifacts on both sides.
 
-The seven registered suites use three presets: `smoke` runs owner_pass,
-mixed_traffic and footprint; `quick` runs framing, codec_plan and rpc_validation;
-`full` runs all seven, including api. Code generation uses matching local
-WLC 0.13. Physical USB/serial tools are described under [host](host/README.md).
+The six registered suites use three presets: `smoke` runs owner_pass,
+mixed_traffic and footprint; `quick` runs codec_plan and rpc_validation;
+`full` runs all six, including api. Code generation uses matching local
+WLC 0.14. Physical USB/serial tools are described under [host](host/README.md).
 
 ## Unified entry
 

@@ -6,7 +6,7 @@ the same C application as the host example: explicit job/upload advancement,
 ordinary message retry/idempotency, Query RPC, telemetry and close/drain. No USB,
 flash programming, MCUboot operation or actual reboot is performed.
 
-From an initialized Zephyr workspace with a matching local WLC 0.13.0:
+From an initialized Zephyr workspace with a matching local WLC 0.14.0:
 
 ```sh
 west build -s /path/to/wirelink/samples/zephyr/composed_services -b native_sim \

@@ -1,10 +1,10 @@
 # 新内核 RPC 与应用遥测模型
 
-[English](README.md)。构建和采集命令见英文页，需要匹配的本地 WLC 0.13。
+[English](README.md)。构建和采集命令见英文页，需要匹配的本地 WLC 0.14。
 
 模型运行真实生成的双角色内核和 packet port，每组 2400 个确定性 tick；分别显式
 连接 native packet、COBS/CRC16 和 length16/NONE。Echo／Telemetry 业务 schema
-和消息 ID 不变，profile 改为 v2。它不预测 USB／UART 延迟、CPU 或 OS 调度。
+和消息 ID 不变，同一 `.wl` 中的 `node` 声明 external I/O 与 dynamic handlers。它不预测 USB／UART 延迟、CPU 或 OS 调度。
 
 七组场景覆盖纯遥测、正常 RPC、丢一个请求、丢一个响应、有限 BUSY、丢包加背压，
 以及饱和遥测与 u32 时钟回绕。每方向五个应用 job，超时后应用显式重试，最多三次，

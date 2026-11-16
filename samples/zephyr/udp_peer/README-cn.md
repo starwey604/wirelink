@@ -1,8 +1,8 @@
 # 双设备 UDP peer
 
-client/server 和 [desktop 对端](../../../examples/05_zephyr_udp/README.md) 共用业务 schema、managed tagged RPC wire、明确 native_packet/NONE profile。每端保留双 RPC 角色，Add 为短 typed handler；telemetry 是应用每 20 ms 尝试发送的普通消息，没有 LATEST／ACK／replay 执行层。
+client/server 和 [desktop 对端](../../../examples/05_zephyr_udp/README.md) 共用 `udp_demo.wl` 中的 external 节点与 native 分帧。每个固件只生成选中的 `NODE`（`udp_client` 或 `udp_server`），无需实现另一角色的 handler。Add 为短 typed handler；telemetry 是应用每 20 ms 尝试发送的普通消息，没有 LATEST／ACK／replay 执行层。
 
-先在应用配置板卡 Ethernet/Wi-Fi driver、IPv4、网络缓冲和真实 fresh-instance 来源，再由 `net_config_init` 初始化网络。默认 server 为 `192.0.2.2/24:49101`，peer 为 `192.0.2.1:49100`；这些文档网段地址需在试验网络正确配置或覆盖。没有自动发现。使用 matching WLC 0.13.0：
+先在应用配置板卡 Ethernet/Wi-Fi driver、IPv4、网络缓冲和真实 fresh-instance 来源，再由 `net_config_init` 初始化网络。默认 server 为 `192.0.2.2/24:49101`，peer 为 `192.0.2.1:49100`；这些文档网段地址需在试验网络正确配置或覆盖。没有自动发现。使用 matching WLC 0.14.0：
 
 ```sh
 west build -s /path/to/wirelink/samples/zephyr/udp_peer -b YOUR_BOARD \

@@ -11,26 +11,26 @@ adds is a uniform way for a *performance regression gate* to fail
 predictably, on an identified testbed, with evidence a human can audit.
 
 
-## Current workload boundary (0.13)
+## Current workload boundary (0.14)
 
-The registry has seven suites. `smoke` runs the owner command/stop model,
+The registry has six suites. `smoke` runs the owner command/stop model,
 explicit application retry model and static footprint; `quick` runs independent
-framing, codec planning and public codec validation; `full` adds the kernel API
+codec planning and public codec validation; `full` adds the kernel API
 pair workload. ARQ/replay/framework-Bulk and old executor executables are
 retired. Historical readers are retained outside the current registry.
 
 Native comparators are selected from each registry entry, including
 `compare_kernel.py` for API and mixed traffic. Current raw identities are
 `wirelink-kernel-api-v1`, mixed `format: 2`, `wirelink-owner-kernel-v1`,
-`wirelink-framing-v3`, `wirelink-codec-validation-v3` and
-`wirelink-footprint-v2`. Normalized current framing/validation cases carry `v3/`,
+`wirelink-codec-plan-v1`, `wirelink-codec-validation-v3` and
+`wirelink-footprint-v2`. Normalized current validation cases carry `v3/`,
 mixed cases `kernel-v2/`, and footprint cases `v2/`; this prevents historical
 cases with the same spelling from becoming an apparent comparable result.
 All repetitions remain in normalized reports. Owner startup service counts are
 diagnostic; complete command/stop contracts are validated before normalization.
 
-Use a matching local WLC 0.13. Current profiles cannot build a pre-cut release;
-use archived tools for its historical reports. The API pair includes two
+Use a matching local WLC 0.14. Current node schemas cannot build an older
+profile-based release; use archived tools for its historical reports. The API pair includes two
 kernels, real RAM delivery, admission, steps and checked outcomes, and does not
 measure physical USB/serial or C++ Session timing. Sample submission alone is a
 different measurement. Object retries and duplicate behavior belong to the
@@ -69,7 +69,7 @@ The unified HIL command remains planned; firmware suites currently use their
 per-suite build, flash, and capture instructions.
 
 Presets are declared in `benchmarks/presets.toml`. Each suite entry names its
-`kind` (`deterministic`, `timing`, `size`), the CMake options it needs, its
+`kind` (`model`, `gb`, `size`), the CMake options it needs, its
 command, and its gate profile. Initial presets: `smoke`, `quick`, `full`.
 
 ## Exit codes
@@ -129,7 +129,7 @@ Suite-native formats stay in `raw/`; only this layer is uniform.
   "environment": {
     "compiler": "gcc (Ubuntu ...) 13.2.0",
     "flags": "-O3 -DNDEBUG",
-    "cmake_options": "WIRELINK_BUILD_FRAMING_BENCHMARK=ON;...",
+    "cmake_options": "CODEC_PLAN_CODEC_DIR=<generated codec directory>;...",
     "cpu": "<model>",
     "affinity": "<pinned cpu list or empty>",
     "governor": "<performance/schedutil/unknown>",
@@ -138,8 +138,8 @@ Suite-native formats stay in `raw/`; only this layer is uniform.
   },
   "measurements": [
     {
-      "suite": "framing",
-      "case": "v3/spare/e0/i2/p2/b512",
+      "suite": "codec_plan",
+      "case": "k0/p0/s0",
       "metric": "cpu_ns",
       "unit": "ns",
       "direction": "lower",
@@ -169,8 +169,8 @@ Rules:
 
 ```json
 {
-  "suite": "framing",
-  "case": "v3/spare/e0/i2/p2/b512",
+  "suite": "codec_plan",
+  "case": "k0/p0/s0",
   "metric": "cpu_ns",
   "direction": "lower",
   "before": 120.1, "after": 126.5,
@@ -220,15 +220,15 @@ testbeds.
 | --- | --- | --- |
 | Ordinary push/PR | benchmark tool unit tests only; no measurements | Yes |
 | Manual smoke | deterministic models, storage contract, code size | No |
-| Manual quick | selected framing/codec/RPC host timing | No |
-| Pre-tag release | smoke + quick + API/UDP against the previous tag | No |
+| Manual quick | selected codec host timing | No |
+| Pre-tag release | smoke + quick + kernel API against the previous tag | No |
 | Future HIL | ESP32-S3 cycles, RX backend, USB/CDC/UART transports | No |
 
 Notes:
 
 - `.github/workflows/benchmark.yml` has only `workflow_dispatch`; it never
   consumes runner time for an ordinary push or pull request.
-- Its `release` profile covers all eight registered host suites. Hosted-runner
+- Its `release` profile covers all six registered host suites. Hosted-runner
   timing is diagnostic; an authoritative release comparison belongs on the
   same stable machine and toolchain used for its baseline.
 - The initial `smoke` preset gives deterministic metrics a zero directional

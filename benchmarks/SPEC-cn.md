@@ -10,13 +10,13 @@ Benchmark 保持 opt-in，永远不是正确性门。本文件增加的是：让
 以可预测的方式失败——在同一 testbed 上、带着人类可审计的证据。
 
 
-## 当前工作负载边界（0.13）
+## 当前工作负载边界（0.14）
 
-注册表有七个套件：smoke 跑 owner 命令/stop、显式应用重试模型及静态 footprint；quick 跑独立 framing、codec planning 和公开 codec validation；full 增加 kernel API pair。ARQ/replay/框架 Bulk 及旧 executor 可执行负载已经删除，历史读取器保留在当前注册表之外。
+注册表有六个套件：smoke 跑 owner 命令/stop、显式应用重试模型及静态 footprint；quick 跑 codec planning 和公开 codec validation；full 增加 kernel API pair。ARQ/replay/框架 Bulk 及旧 executor 可执行负载已经删除，历史读取器保留在当前注册表之外。
 
-比较器取自注册表，API/mixed 使用 `compare_kernel.py`。当前 raw 身份分别为 `wirelink-kernel-api-v1`、mixed `format: 2`、`wirelink-owner-kernel-v1`、`wirelink-framing-v3`、`wirelink-codec-validation-v3`、`wirelink-footprint-v2`。归一化 case 对当前 framing/validation 加 `v3/`、mixed 加 `kernel-v2/`、footprint 加 `v2/`，防止旧报告同名指标被当成可比较数据。全部 repetition 保留；owner 启动服务次数只是诊断，命令/stop 合同先严格验证再归一化。
+比较器取自注册表，API/mixed 使用 `compare_kernel.py`。当前 raw 身份分别为 `wirelink-kernel-api-v1`、mixed `format: 2`、`wirelink-owner-kernel-v1`、`wirelink-codec-plan-v1`、`wirelink-codec-validation-v3`、`wirelink-footprint-v2`。归一化 case 对当前 validation 加 `v3/`、mixed 加 `kernel-v2/`、footprint 加 `v2/`，防止旧报告同名指标被当成可比较数据。全部 repetition 保留；owner 启动服务次数只是诊断，命令/stop 合同先严格验证再归一化。
 
-使用匹配的本地 WLC 0.13。当前 profile 无法构建裁剪前发布版，历史报告应使用封存工具。API pair 包含两个 kernel、真实 RAM 传递、admission/step/结果检查，不等于物理 USB/串口、C++ Session 或 Sample 单次提交成本。对象重试与重复行为属于应用；模拟毫秒不能解释为 CPU 性能证据。
+使用匹配的本地 WLC 0.14。当前 node schema 无法构建旧 profile 发布版，历史报告应使用封存工具。API pair 包含两个 kernel、真实 RAM 传递、admission/step/结果检查，不等于物理 USB/串口、C++ Session 或 Sample 单次提交成本。对象重试与重复行为属于应用；模拟毫秒不能解释为 CPU 性能证据。
 
 ## 统一入口
 
@@ -49,7 +49,7 @@ python3 benchmarks/bench.py calibrate --preset <name> --runs N
 统一 HIL 命令仍在规划中；固件套件当前使用各自的构建、烧录与采集说明。
 
 预设声明在 `benchmarks/presets.toml`。每个套件条目声明其 `kind`
-（`deterministic`、`timing`、`size`）、所需 CMake 选项、命令与 gate
+（`model`、`gb`、`size`）、所需 CMake 选项、命令与 gate
 profile。初始预设：`smoke`、`quick`、`full`。
 
 ## 退出码
@@ -105,7 +105,7 @@ out/<run-id>/
   "environment": {
     "compiler": "gcc (Ubuntu ...) 13.2.0",
     "flags": "-O3 -DNDEBUG",
-    "cmake_options": "WIRELINK_BUILD_FRAMING_BENCHMARK=ON;...",
+    "cmake_options": "CODEC_PLAN_CODEC_DIR=<generated codec directory>;...",
     "cpu": "<model>",
     "affinity": "<绑定的 CPU 列表，可为空>",
     "governor": "<performance/schedutil/unknown>",
@@ -114,8 +114,8 @@ out/<run-id>/
   },
   "measurements": [
     {
-      "suite": "framing",
-      "case": "v3/spare/e0/i2/p2/b512",
+      "suite": "codec_plan",
+      "case": "k0/p0/s0",
       "metric": "cpu_ns",
       "unit": "ns",
       "direction": "lower",
@@ -144,8 +144,8 @@ out/<run-id>/
 
 ```json
 {
-  "suite": "framing",
-  "case": "v3/spare/e0/i2/p2/b512",
+  "suite": "codec_plan",
+  "case": "k0/p0/s0",
   "metric": "cpu_ns",
   "direction": "lower",
   "before": 120.1, "after": 126.5,
@@ -173,7 +173,7 @@ out/<run-id>/
 | 指标类型 | 规则 |
 | --- | --- |
 | storage contract、公共结构体尺寸 | `exact`；任何变化都是发现项 |
-| 确定性协议指标（reliable loss、mixed traffic、owner pass） | exact 或非常严格的相对界 |
+| 确定性协议指标（显式应用重试、owner pass） | exact 或非常严格的相对界 |
 | 链接后 flash/RAM（footprint `--elf`） | 绝对字节 **加** 百分比 |
 | 主机 CPU timing | PR 仅 `warn`；专用 runner 可 `fail` |
 | UDP/USB p99 | 趋势与报告；永不阻塞 PR |
@@ -192,15 +192,15 @@ out/<run-id>/
 | --- | --- | --- |
 | 普通 push/PR | 只运行 benchmark 工具单元测试，不做性能测量 | 是 |
 | 手工 smoke | 确定性模型、storage contract、代码尺寸 | 否 |
-| 手工 quick | 精选 framing/codec/RPC 主机计时 | 否 |
-| tag 前 release | 对比上一个 tag，运行 smoke + quick + API/UDP | 否 |
+| 手工 quick | 精选 codec 主机计时 | 否 |
+| tag 前 release | 对比上一个 tag，运行 smoke + quick + kernel API | 否 |
 | 未来 HIL | ESP32-S3 cycles、RX backend、USB/CDC/UART transport | 否 |
 
 说明：
 
 - `.github/workflows/benchmark.yml` 只支持 `workflow_dispatch`，普通 push
   和 PR 不消耗性能测量所需的 runner 时间。
-- `release` 模式覆盖当前全部 8 个主机套件。GitHub 托管 runner 的计时只
+- `release` 模式覆盖当前全部 6 个主机套件。GitHub 托管 runner 的计时只
   作诊断；权威发布比较应在与基线相同的固定机器和工具链上运行。
 - 初始 `smoke` 预设对确定性指标采用方向性零退化容忍：任何变差都会
   要求发布审核，而改善仍然通过。

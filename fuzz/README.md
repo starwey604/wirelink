@@ -1,20 +1,20 @@
 # Current-contract fuzz targets
 
-Use Clang with libFuzzer and matching local WLC 0.13:
+Use Clang with libFuzzer and matching local WLC 0.14:
 
 ```sh
 cmake -S . -B build/fuzz -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
   -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_FUZZERS=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.13
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
 cmake --build build/fuzz --parallel
 ctest --test-dir build/fuzz -R fuzz --output-on-failure
 ```
 
 The private fuzz library compiles the same production source files with coverage,
 ASan and UBSan. It introduces no alternate engine or installed target. Current
-pure codecs are generated into the build directory; frozen 0.12 conformance
-codec files remain byte-identical and run in their independent unit suite.
-No warning suppression is applied to the new code or generator output.
+pure codecs are generated into the build directory from
+`tests/fixtures/wlc/current/control.wl`. No warning suppression is applied to the
+new code or generator output.
 
 COBS and public frame fuzzers preserve independent byte/alias oracles, including
 historical frame encodings supported by the standalone utility. The current

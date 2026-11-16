@@ -1,30 +1,19 @@
-# Frozen WLC codec conformance fixtures
+# WLC codec conformance fixtures
 
-`previous/control.wl` and `current/control.wl` are a compatible schema pair.
-Their checked-in `control.c`, `control.h` and `control_values.h` files are frozen
-0.12 pure codec artifacts. Keep their bytes and the business schemas unchanged:
-they independently test payload evolution, IEEE bits, packed lengths, strings,
-unknown fields and the 4096-byte Chunk schema bound. The standalone codec
-contract explicitly accepts this frozen 0.12 fixture; this does not retain any
-old endpoint or execution ABI.
+`previous/control.wl` and `current/control.wl` are a compatible schema pair,
+compiled with WLC 0.14. The checked-in C codecs and manifests test schema
+payload evolution under the current little-endian codec contract, not 0.12
+binary interoperability. Optional packed arrays explicitly use `optional packed`.
 
-The two `control_manifest.json` files are unchanged **historical provenance**
-for the original complete artifact sets, not manifests for the current retained
-subset. Do not run current artifact-set validation on those historical files.
-The v1 binding profiles next to the schemas are historical/rejection inputs;
-they no longer describe supported execution or a regeneration command.
-
-Generate current pure codecs into a fresh directory with matching WLC 0.13:
+Regenerate each revision with the matching compiler:
 
 ```sh
-wlc compile tests/fixtures/wlc/current/control.wl --out-dir /tmp/control-codec-013
+wlc compile tests/fixtures/wlc/current/control.wl --out-dir tests/fixtures/wlc/generated/current
+wlc compile tests/fixtures/wlc/previous/control.wl --out-dir tests/fixtures/wlc/generated/previous
 ```
 
-Do not overwrite frozen fixtures with that output. New typed execution fixtures
-live in `tests/fixtures/static_kernel` and select an explicit v2 profile. Current
-ordinary routes, RPC ownership, old-instance isolation and application jobs run
-in the kernel tests, session tests and migrated tutorials. FIFO/LATEST remain
-independent containers; applications own any scheduling or retention policy.
-The USB object sample uses the complete public schema through a pure codec,
-with an explicit deployment chunk limit; there is no framework Bulk service,
-replay cache, reliable FIFO execution or deferred reply token.
+Tests preserve IEEE bits, packed lengths, unknown fields, optional defaults and
+the 4096-byte Chunk schema bound. Bounded strings/bytes are inline; unbounded
+strings/bytes remain borrowed views. Node routes require finite packet bounds.
+Current typed execution fixtures live in `tests/fixtures/static_kernel`, with
+explicit external I/O and dynamic handlers to exercise asynchronous ownership.

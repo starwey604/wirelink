@@ -1,9 +1,10 @@
 # Two-device UDP peer
 
-The client/server use the same business schema, managed tagged RPC wire and
-native_packet/NONE profile as the [desktop peers](../../../examples/05_zephyr_udp/README.md).
-Both RPC roles remain in each generated kernel. Add is a short typed handler;
-ordinary telemetry runs at an application-selected 20 ms period.
+The client/server use the same `udp_demo.wl` external nodes and native packet
+framing as the [desktop peers](../../../examples/05_zephyr_udp/README.md). Each
+firmware image generates only its selected `NODE` (`udp_client` or `udp_server`),
+so it does not implement the opposite role's handlers. Add is a short typed
+handler; ordinary telemetry runs at an application-selected 20 ms period.
 
 Configure a board's Ethernet/Wi-Fi driver, IPv4 address, network buffers and a
 real initialization-time fresh-instance source before opening the adapter. The
@@ -19,7 +20,7 @@ west build -s /path/to/wirelink/samples/zephyr/udp_peer -b YOUR_OTHER_BOARD \
   -DEXTRA_CONF_FILE=client.conf
 ```
 
-Use matching WLC 0.13.0; override Kconfig peer/local addresses and ports explicitly.
+Use matching WLC 0.14.0; override Kconfig peer/local addresses and ports explicitly.
 `sim.conf` supplies a test random source only for simulation. Do not use it for
 product identities. The desktop client accepts explicit local/peer IPv4/ports and
 can be used while validating one board. Expected client output contains

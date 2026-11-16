@@ -2,14 +2,15 @@
 
 [English](README.md)。当前格式为 `wirelink-footprint-v2`。
 
-工具分别编译所有 `src/*.c`，记录对象段、实际编译器版本／flags 和源码 hash。
+工具分别编译所有 `src/*.c`，记录对象段和实际编译器版本／flags。默认附带源码／镜像
+hash；普通尺寸比较使用 `--no-digests` 省略完整性摘要。
 这一总和包括可选独立帧工具、container、stream；它不是默认产品最终链接尺寸，
 不能因可选对象存在就认为 native 内核仍承担旧执行成本。
 
-C 探针读取已提交生成的 demo kernel 实际布局，以及 port、stream、byte FIFO、
+C 探针读取已提交生成的 demo node 实际布局，以及 port、stream、byte FIFO、
 call handle 尺寸。三种明确的示例组合列出 endpoint、port、两个 RX unit 和可选
 stream／byte 暂存预算，所有 storage 字段单位均为字节。endpoint 已含内核元数据、
-四个 request snapshot、四个 reply snapshot、一个 ordinary snapshot 和 codec
+四个 request snapshot、三个 reply snapshot、一个 ordinary snapshot 和类型化 reply
 scratch，不能重复加算。native USB 留出大于最大帧的一字节空间；stream 使用实际
 连接器上界。byte staging 是调用方示例预算，不是库对所有应用的统一要求。
 外层结构 padding、驱动对象不计入这些分项。

@@ -23,7 +23,7 @@ because those execution capabilities no longer exist. This sample exercises one
 explicit native packet deployment, with both client and server APIs available.
 Actual asynchronous adapter drain/stop contracts are tested separately.
 
-From an initialized Zephyr workspace, with matching local WLC 0.13:
+From an initialized Zephyr workspace, with matching local WLC 0.14:
 
 ```sh
 west build -s /path/to/wirelink/samples/zephyr/session -b native_sim \

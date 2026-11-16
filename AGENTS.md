@@ -9,6 +9,7 @@ The allocation-free ISO C11 core lives in `src/`, with public headers in `includ
 - `cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release` configures the core, loopback example, and host checks.
 - `cmake --build build/core --parallel` builds the configured C targets.
 - `ctest --test-dir build/core --output-on-failure` runs host core tests, packet-tool tests, loopback smoke, and `wirelink_tutorial_doc_sources`.
+- `python3 tests/tutorials/doc_sources.py` checks source-anchored blocks in both root READMEs, `docs/*.md`, and `wlc/README.md`.
 - `cargo test --manifest-path wlc/Cargo.toml` runs the WLC compiler suite.
 - `cargo clippy --manifest-path wlc/Cargo.toml --all-targets --all-features -- -D warnings` enforces Rust lint cleanliness.
 - `west twister -T tests/zephyr/unit -T tests/zephyr/integration -p unit_testing -p native_sim` runs Zephyr C suites from an initialized Zephyr workspace. Add QEMU platforms (`qemu_cortex_m3`, `qemu_riscv32`, `qemu_x86_64`) and `samples/zephyr` for full coverage.
@@ -16,6 +17,12 @@ The allocation-free ISO C11 core lives in `src/`, with public headers in `includ
 ## Coding Style & Naming Conventions
 
 Use strict ISO C11 and keep GCC/Clang builds warning-clean (`-Wall -Wextra -Wpedantic -Werror`). Follow two-space indentation, same-line braces, and `snake_case` filenames/functions. Public symbols use `wl_`; macros and enum constants use `WL_`. Retain SPDX headers. Format Rust with `cargo fmt --manifest-path wlc/Cargo.toml` and keep generated C deterministic.
+
+## Schema & Generated-Code Contract
+
+The local candidate pairs Wirelink 0.14.0 with WLC 0.14.0 and codegen contract 0.14. Declare messages, RPCs, and nodes in one `.wl`; use `wlc compile --node NAME` or `--all-nodes` for multiple nodes, and CMake `NODE` or `ALL_NODES`. Generation produces one header/source pair and manifest. Fields are required by default; only `optional` and `optional packed` have presence flags. Preserve old optional wire semantics explicitly when migrating schemas.
+
+Prefer default embedded I/O and static handlers for introductory examples. Embedded TX hooks must accept a whole frame synchronously or reject it completely; notify `tx_ready` when a busy sink becomes writable. Preserve unconsumed stream tails, stop RX before close, and step until quiescent. Use external I/O for asynchronous/zero-copy drivers and preserve physical leases through drain. Simple RPC deadlines start on the next owner step; `_ex` uses explicit time.
 
 ## Testing Guidelines
 

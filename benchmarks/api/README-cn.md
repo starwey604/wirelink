@@ -2,7 +2,7 @@
 
 [English](README.md)，构建／采集／stamp 命令见英文页。
 
-当前 workload 为 `wirelink-kernel-api-v1`，真实生成的双角色四槽内核运行于 C 拥有的
+当前 workload 为 `wirelink-kernel-api-v1`，真实生成的双角色内核（四个 call 槽、三个 reply 槽）运行于 C 拥有的
 port／C11 atomic／RAM loopback 中，C++ 只通过不透明 C 接口驱动 Google Benchmark。
 外层显式提供 manual tick，不在包装层复制 RPC 关联或 deadline 表。
 

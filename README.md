@@ -1,91 +1,94 @@
 # Wirelink
 
-[English Placeholder](README-en.md) · [工程文档](docs/README.md) · [WLC 编译器](wlc/README.md) · [在线文档](https://docs.silkenkite.ink/wirelink/)
+[English](README-en.md) · [工程文档](docs/README.md) · [WLC 编译器](wlc/README.md) · [在线文档](https://docs.silkenkite.ink/wirelink/)
 
-面向嵌入式 MCU（裸机 / RTOS / Zephyr）与上位机通信的**纯 C11 零动态分配**通信中间件——写一份 `.wl` 消息定义，自动生成跨语言代码，用数行固定内存 API 打通 **UART / USB Bulk / UDP / SPI**。
+面向 MCU（裸机 / RTOS / Zephyr）与上位机的 **ISO C11、零堆分配**通信中间件。用一份 `.wl` 声明消息、RPC 与节点，生成一对 `.h/.c`；默认节点自带端口和定长缓冲，实现物理收发钩子即可接入 UART、USB Bulk、UDP 或 SPI。
 
-- **严格 ISO C11 核心**：不依赖 `malloc`、线程、系统时钟或 OS 原语，静态区 `.data = 0`、`.bss = 0`。
-- **单结构体直觉 API**：每条消息只生成单一 C 结构体 `<name>_t`，零 View/Owned Value 双套胶水、零编码回调函数指针。
-- **小端 Wire v2 协议**：4 字节帧头 + 8/12 字节定长小端 RPC 头，支持 Schema-v1 TLV 与 Positional-v1 定序编码。
-- **确定性内存与背压**：4 槽并发 RPC（`WL_KERNEL_CALLS = 4`）、3 槽回复（`WL_KERNEL_REPLIES = 3`）、8 槽循环 TX 队列，超限即返回 `WL_ERR_WOULD_BLOCK`。
+- **核心无 OS 与时钟依赖**：应用在单一 owner 中传入时间并步进；ISR / I/O 线程只使用传输层原子边界。
+- **直接填写业务结构体**：字段默认必选，不需要 `has_*`；只有 `optional` 字段带存在位。
+- **固定容量与显式背压**：最多 4 个并发 RPC、3 个待发回复、8 个 TX 队列项；普通消息有一个发送存储槽。资源暂满返回 `WL_ERR_WOULD_BLOCK`，应用稍后重试。
+- **Wire v2**：4 字节小端帧头、8/12 字节 RPC 子头；普通消息可选 Schema-v1 TLV 或 Positional-v1，RPC 使用 Schema-v1。
 
----
+当前本地候选：**Wirelink 0.14.0 / WLC 0.14.0 / Codegen 0.14 / SDK Binding API 3**。升级需重新生成 C 与 SDK，见 [0.14 迁移说明](docs/release-v0.14.0-cn.md)。
 
-## 三步完成端到端通信（The 3-Step Workflow）
+## 三步运行 RPC
 
-### 第 1 步：定义消息结构（`.wl`）与链路绑定（`.bind.wl`）
+### 1. 在一个 `.wl` 中定义消息与两个角色
 
-`calculator.wl` 描述跨端数据结构；`calculator.bind.wl` 声明该部署开启哪些 RPC / 单向消息与物理通道边界（修改通道无需改动业务结构体）：
+[`examples/01_rpc/calculator.wl`](examples/01_rpc/calculator.wl)：
 
 <!-- [docs:calculator_schema] -->
 ```wl
 message AddRequest @id(20) {
-  required int32 left @id(1);
-  required int32 right @id(2);
+  int32 left @id(1);
+  int32 right @id(2);
 }
-
-message AddResponse @id(21) {
-  required int32 sum @id(1);
-}
+message AddResponse @id(21) { int32 sum @id(1); }
+rpc Add(AddRequest) -> AddResponse;
+node client { call Add; }
+node server { serve Add; }
 ```
 <!-- [/docs:calculator_schema] -->
 
-<!-- [docs:calculator_bind] -->
-```wl
-profile version 2;
-endpoint { envelope=native_packet; }
+节点默认 `io = embedded`、`handlers = static`、`framing = native`、`codec = schema_v1`，RPC 默认超时 500 ms。无需另写绑定文件、端口配置或 handler 注册表。
 
-rpc Add {
-  request = AddRequest;
-  response = AddResponse;
-}
-```
-<!-- [/docs:calculator_bind] -->
-
-### 第 2 步：运行 `wlc` 生成 MCU C11 端点与上位机 SDK
+### 2. 选择节点并生成一对 C 文件
 
 ```sh
-# 生成纯 C11 编解码器与类型化端点（calculator.h/.c, calculator_kernel.h/.c）
-wlc compile calculator.wl --profile calculator.bind.wl --out-dir generated
+# 在仓库根目录构建本地 WLC。
+cargo build --release --locked --manifest-path wlc/Cargo.toml
 
-# 一键生成跨平台 C++20 + Python 3.10+ 上位机 UDP SDK 包
-wlc sdk     calculator.wl --profile calculator.bind.wl --name calculator --out-dir sdk
+# 回环程序同时承载 client 和 server。
+wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
+  --all-nodes --out-dir build/calculator
+
+# 只部署服务端时改用 --node server；产物仍为 calculator.h/.c 和 manifest。
 ```
 
-### 第 3 步：MCU 端 C11 与上位机 Python 联调
+无节点时仅生成编解码器；一个节点自动选择；多个节点必须使用 `--node <name>` 或 `--all-nodes`。CMake 对应 `wirelink_wlc_generate(... NODE server)` 或 `ALL_NODES`。
 
-左/上为 MCU 端处理与发包代码，右/下为上位机 Python 调用（两段代码均直接取自可编译运行示例）：
+### 3. 实现静态钩子，初始化并步进
 
-**MCU 端（纯 C11 RPC Handler & 遥测发送）：**
+服务端直接实现生成头中的函数，不需要注册：
 
 <!-- [docs:calculator_server] -->
 ```c
-int32_t calculator_add(void *user, const add_request_t *request, add_response_t *response) {
-  (void)user;
+int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
+  (void)self;
   const int64_t sum = (int64_t)request->left + request->right;
   if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-  response->has_sum = true; response->sum = (int32_t)sum;
+  response->sum = (int32_t)sum;
   return 0;
 }
 ```
 <!-- [/docs:calculator_server] -->
 
-<!-- [docs:telemetry_publish] -->
+在 [完整回环示例](examples/01_rpc/client.c) 中，`client_tx_write()` 将完整帧交给 `server_rx_packet()`，反向亦然。`client_init(&caller)` / `server_init(&callee)` 后即可并发发起请求：
+
+<!-- [docs:calculator_async_rpc] -->
 ```c
-const telemetry_kernel_handlers_t handlers = {.on_message_telemetry = telemetry_receive};
-for (unsigned side = 0; side < 2; ++side)
-  EXAMPLE_REQUIRE(telemetry_kernel_init(&endpoints[side], &pair.ports[side], &handlers, NULL, NULL) == WL_OK);
-for (unsigned sample = 0; sample < 12; ++sample) {
-  telemetry_t message = {.has_sample = true, .sample = sample,
-    .has_temperature_centi_c = true, .temperature_centi_c = -1234};
-  EXAMPLE_REQUIRE(telemetry_kernel_send_telemetry(&endpoints[0], &message) == WL_OK);
-  memset(&message, 0, sizeof(message)); /* Admission copied the source. */
-  example_pair_wait(&pair, &telemetry_received, sample + 1);
+void calculator_async_example(client_node_t *client) {
+  /* Four accepted calls coexist; request values are copied during admission. */
+  for (int32_t i = 0; i < 4; ++i) {
+    EXAMPLE_REQUIRE(client_call_add(client, &(add_request_t){
+        .left = i, .right = 42 - i}, done) == WL_OK);
+  }
 }
 ```
-<!-- [/docs:telemetry_publish] -->
+<!-- [/docs:calculator_async_rpc] -->
 
-**上位机端（Python SDK 同步调用与业务错误捕获）：**
+`done` 是接收 `client_node_t *`、`wl_kernel_result_t` 和响应指针的回调。请求在调用成功时已编码复制；响应仅在回调期间有效。单一 owner 持续调用 `client_step(&caller, now_ms)` / `server_step(&callee, now_ms)` 分发收发与完成事件。简化调用从**下一次 step** 开始计时；需要显式时刻、超时、上下文或取消句柄时使用 `client_call_add_ex()`。
+
+物理钩子只能整帧同步接受或完全拒绝；忙后恢复可写时调用 `client_tx_ready()` / `server_tx_ready()`。异步 DMA 或零拷贝驱动选择 `io = external`，详见 [移植指南](docs/porting-adapters.md)。关闭前先停止 RX 生产者，再调用节点 `close()` 并步进至 `quiescent()`。
+
+### 连接上位机
+
+```sh
+wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
+  --node client --name calculator --out-dir build/calculator-sdk
+```
+
+SDK 提供 C++20 和 Python 3.10+ 的 UDP 客户端。服务端需接入 UDP 适配器；[UDP 双端示例](examples/05_zephyr_udp/) 与 [可安装 SDK 示例](examples/06_bindings/) 展示完整接法。Python 调用如下：
 
 <!-- [docs:python_sdk_client] -->
 ```python
@@ -99,32 +102,21 @@ with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
 ```
 <!-- [/docs:python_sdk_client] -->
 
----
+## 实测内存：比较完整装配，不只比较节点结构体
 
-## 实测静态体积与核心保证
+本机 GCC 16.2.1、`-std=c11 -Os -ffunction-sections -fdata-sections` 的对象统计：核心 12 个目标文件合计 `.text = 17,474 B`、`.rodata = 1,524 B`、`.data = 0 B`、`.bss = 4 B`。这 4 B 是进程级自动实例号分配器。实际链接由 `--gc-sections` 裁剪未用代码。
 
-下表数据由 [`benchmarks/footprint/footprint.py`](benchmarks/footprint/footprint.py) 在当前 WP-4 核心上使用 `-std=c11 -Os -ffunction-sections -fdata-sections` 实测得出（零动态内存分配，全局 `.data = 0 B`、`.bss = 0 B`）：
+| 同一双向 demo 装配 | 0.13 基线总 RAM | 当前总 RAM | 变化 |
+| --- | ---: | ---: | ---: |
+| native | 782 B | 790 B | +8 B |
+| COBS + CRC16（含 FIFO） | 1,046 B | 1,054 B | +8 B |
+| length16 | 924 B | 932 B | +8 B |
 
-| 模块 / 结构体 | `.text` (B) | `.rodata` (B) | 静态 RAM 占用 | 职责说明 |
-| --- | ---: | ---: | --- | --- |
-| `src/kernel.c` | 4,384 | 0 | `wl_kernel_t`: 440 B | 微内核状态机、8 槽 TX 队列、4 槽并发 RPC、超时与取消 |
-| `src/packet_port.c` | 1,315 | 0 | `wl_packet_port_t`: 128 B | 2 槽原子 RX 交接、TX 物理租约令牌 |
-| `src/codec.c` | 6,202 | 232 | 0 B（无全局状态） | 共享 TLV 与 Positional-v1 运行时、ZigZag、UTF-8 校验 |
-| `src/types.c` | 244 | 1,260 | 0 B | `wl_err_str()` 错误码字符串映射 |
-| `src/cobs_crc16_stream.c` + `cobs.c` + `crc.c` | 2,184 | 32 | `wl_packet_stream_t`: 120 B | UART/串口 COBS 分隔与 CRC-16/CCITT-FALSE（32 B nibble 表） |
-| `src/length16_none_stream.c` + `packet_stream.c` | 1,158 | 0 | 共用 `wl_packet_stream_t` | 2 字节小端长度前缀流式连接器 |
-| `src/byte_fifo.c` + `byte_fifo_cobs.c` | 767 | 0 | `wl_byte_fifo_t`: 72 B | ISR 到 Owner 的无锁 SPSC 字节暂存 |
-| `src/packet_loopback.c` | 727 | 0 | `wl_packet_loopback_t`: 136 B | 主机/单元测试用双端内存回环传输 |
-| **全核心 12 个目标文件合计** | **16,981** | **1,524** | `demo_kernel_t`: **616 B** | 实际链接时通过 `--gc-sections` 仅保留所用传输与消息路由 |
-
-> [!NOTE]
-> 版本兼容基线：Wirelink **0.13.0** · WLC **0.13.0** · Codegen 契约 **0.13** · SDK Binding API **3** · Binding Profile **v2**。
-
----
+总 RAM 包含节点、外部端口、RX 存储以及所需 stream/FIFO 对象与缓冲，不含上面的进程级全局状态。当前 `demo_node_t` 为 624 B，`wl_kernel_t` 为 440 B，`wl_packet_port_t` 为 128 B。该双向外部 I/O demo 没有 RAM 降幅；缺少相应路由的节点才能省去未使用的请求、回复或普通消息存储。复现方式与统计边界见 [footprint 指南](benchmarks/footprint/README-cn.md)。
 
 ## 30 秒本地体验（无需 WLC 或硬件）
 
-仓库已包含预生成的确定性示例 C 代码（`examples/kernel/generated/`），只需 C11 编译器与 CMake 3.21+ 即可编译并运行双端双向回环示例：
+仓库包含 [预生成 C](examples/kernel/generated/)。以下默认构建需要 C11、C++20 编译器与 CMake 3.21+；C++20 用于测试 C/C++ 端口 ABI，核心与回环示例仍为纯 C11：
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
@@ -133,25 +125,18 @@ ctest --test-dir build/core --output-on-failure
 ./build/core/examples/wirelink_bare_metal_loopback
 ```
 
-运行后预期输出：
+预期输出：
 
 ```text
 6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
 ```
 
----
+## 深入阅读
 
-## 文档导航与深入阅读
+- [语言、CLI 与生成 API](wlc/README.md)：`optional`、节点选择、静态/动态 handler、CMake。
+- [Wire v2 字节规范](docs/wire-format.md)：帧头、RPC、TLV、Positional 与流分帧。
+- [移植 UART / USB / UDP / SPI](docs/porting-adapters.md)：embedded 快速接入与 external 异步租约。
+- [开发与验证](docs/development.md)：主机、SDK、Zephyr、安装消费与本地发布边界。
+- [教学示例](examples/) · [Zephyr 示例](samples/zephyr/) · [基准测试](benchmarks/)。
 
-| 文档 / 目录 | 内容 |
-| --- | --- |
-| [docs/README.md](docs/README.md) | 中文文档总览与快速入口 |
-| [docs/wire-format.md](docs/wire-format.md) | Wire v2 帧头、RPC 子头、TLV / Positional-v1 与 COBS+CRC16 字节级规范 |
-| [docs/porting-adapters.md](docs/porting-adapters.md) | 自定义 UART DMA / USB Bulk / SPI / UDP 驱动接入 `wl_packet_port_t` 指南 |
-| [docs/development.md](docs/development.md) | 仓库目录、CMake / Cargo / Zephyr Twister 构建与全量测试矩阵 |
-| [wlc/README.md](wlc/README.md) | Schema 编译器 `wlc` 使用说明、CLI 子命令与代码生成契约 |
-| [examples/](examples/) | 完整可编译示例（遥测、RPC、异步取消、设备服务、UDP 联调、Python/C++ SDK） |
-| [samples/zephyr/](samples/zephyr/) | Zephyr RTOS 平台示例（UART DMA、USB Bulk、UDP Peer、多服务组合） |
-| [benchmarks/](benchmarks/) | 静态体积测算与嵌入式/主机微基准套件 |
-
-[Apache-2.0 许可证](LICENSE) · [English Placeholder](README-en.md)
+[Apache-2.0 许可证](LICENSE)

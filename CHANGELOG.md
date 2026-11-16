@@ -1,5 +1,20 @@
 # Release notes
 
+## 0.14.0
+
+- Replace binding profiles with single-file RPC and node declarations, explicit
+  multi-node selection, and one generated C source/header pair.
+- Make fields required by default and remove required-field presence members;
+  retain presence only for optional fields and optional packed arrays.
+- Generate static handlers and embedded packet/stream I/O by default, with
+  explicit dynamic handlers and external asynchronous ports when needed.
+- Size node TX/RX storage by role; expose consumed-byte and TX-ready backpressure
+  contracts, deferred simple-call timeouts and explicit-time extended RPC calls.
+- Qualify embeddable C/C++ packet-port layouts and use exact codegen contract
+  0.14. Regenerate all SDKs and migrate installed, host and Zephyr consumers.
+
+See [the migration notes](docs/release-v0.14.0-cn.md).
+
 ## 0.13.0
 
 - Freeze the compiler source pair in `.github/release-pair.json`; add release
@@ -24,5 +39,5 @@
   desktop and Zephyr integration.
 - C++ and Python UDP SDKs with owned results and deterministic shutdown.
 
-See the [kernel API](docs/kernel-api.md) for execution and
+See the [porting guide](docs/porting-adapters.md) for execution and
 ownership, and [development checks](docs/development.md) for validation.

@@ -19,7 +19,7 @@ west twister -T /path/to/wirelink/samples/zephyr/rpc_usability \
   --extra-args WIRELINK_WLC_EXECUTABLE=/path/to/matching/wlc
 ```
 
-The current contract always has four call/four reply slots. The old one-slot
+The current contract always has four call/three reply slots. The old one-slot
 capacity knob is explicitly rejected. All four listed platforms now execute the
 same full four-slot, 2023-byte-response scenario, including the 64-KiB Cortex-M3.
 No schema bound is reduced for that platform. Expected marker:

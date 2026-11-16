@@ -1,9 +1,10 @@
 # Desktop UDP peers
 
-C business code uses the same schema/profile as the Zephyr peers, with explicit
-native_packet/NONE and both RPC roles. Add is a short typed handler; telemetry
-uses ordinary send/direct routes. No retained mailbox, reliable DATA/ACK or replay
-semantics are implied.
+C business code uses the same `udp_demo.wl` as the Zephyr peers. The external
+`udp_client` node calls Add and receives telemetry; `udp_server` serves Add and
+sends telemetry. Each executable generates only its selected node, so it does not
+need to implement the other role's handlers. Native packet framing preserves UDP
+packet boundaries.
 
 ```sh
 cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \

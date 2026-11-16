@@ -5,13 +5,13 @@
 This deterministic 2400-tick model runs real generated kernels and packet ports
 in both directions. It is a protocol/application-time regression, not a CPU,
 USB/UART latency or OS scheduling benchmark. The unchanged Echo/Telemetry
-business schema now has an explicit v2 native packet profile. One shared kernel
+business schema declares an external-I/O, dynamic-handler `node` in the same `.wl` file. One shared kernel
 runs over native packets, an explicit COBS/CRC16 connector or length16/NONE.
 There is no endpoint selector, ACK engine or generated retention service.
 
 ```sh
 cmake -S benchmarks/mixed_traffic -B build/mixed \
-  -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.13
+  -DCMAKE_BUILD_TYPE=Release -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.14
 cmake --build build/mixed --parallel
 ctest --test-dir build/mixed --output-on-failure
 build/mixed/wirelink_mixed_traffic --report > after.jsonl

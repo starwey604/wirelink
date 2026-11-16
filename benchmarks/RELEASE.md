@@ -5,16 +5,18 @@
 Choose two committed revisions with the same product and workload contract.
 The 0.13 cut cannot be compared to a pre-cut release by rebuilding both with
 current presets. Use its sealed historical tools and explicitly report the
-semantic difference. No benchmark run authorizes publishing or pushing.
+semantic difference. The 0.14 node/required-field ABI likewise needs its matching
+schema and compiler; do not reuse 0.13 generated output. No benchmark run
+authorizes publishing or pushing.
 
 1. Run correctness/package/compiler checks first. Set matching local
-   `WIRELINK_WLC_EXECUTABLE` (0.13) and
+   `WIRELINK_WLC_EXECUTABLE` (0.14) and
    `WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR` (1.9+).
 2. Run `python3 benchmarks/bench.py doctor --preset full`. Use one identified,
    quiet host, identical compiler/flags, power policy and affinity. Timing
    during builds or correctness tests is not a qualified performance run.
 3. Choose a compatible committed base and candidate; preserve the complete
-   output directories. The seven suites are covered once by smoke, quick and
+   output directories. The six suites are covered once by smoke, quick and
    the api suite:
 
 ```sh

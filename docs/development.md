@@ -25,6 +25,8 @@
 
 ### 1. 默认核心构建与基础测试（无需 WLC 或硬件）
 
+默认启用测试，需 C11、C++20 编译器与 CMake 3.21+；C++20 用于 `packet_port_cpp` 等跨语言 ABI 测试。核心与回环示例保持纯 C11。
+
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
 cmake --build build/core --parallel
@@ -35,7 +37,7 @@ ctest --test-dir build/core --output-on-failure
 
 ### 2. 编译 Rust 编译器 `wlc` 并运行编译器测试
 
-`wlc/` 是独立 Cargo 项目，要求 Rust 1.96.1（与 [`.github/release-pair.json`](../.github/release-pair.json) 一致）：
+`wlc/` 是独立 Cargo 项目。本地候选使用 WLC **0.14.0** 与生成契约 **0.14**；现有 CI 工具链固定为 Rust 1.96.1。不要用旧 release-pair 的编译器构建当前生成代码：
 
 ```sh
 cargo fmt --manifest-path wlc/Cargo.toml --check
@@ -61,7 +63,7 @@ cmake --build build/all --parallel
 ctest --test-dir build/all --output-on-failure
 ```
 
-校验已检入 SDK 与消费者构建：
+校验已检入 SDK 的生成一致性与发布脚本自身单测：
 
 ```sh
 python3 tests/package/check_generated_sdks.py --wlc "$PWD/wlc/target/release/wlc"
@@ -96,7 +98,7 @@ west twister -T samples/zephyr \
 ### 6. 静态代码体积测算（`-Os`）
 
 ```sh
-python3 benchmarks/footprint/footprint.py
+python3 benchmarks/footprint/footprint.py --no-digests --json build/footprint.json
 ```
 
 ---
@@ -109,5 +111,27 @@ python3 benchmarks/footprint/footprint.py
 | Wire v2 帧头 / RPC 子头 | [`kernel_wire.h`](../include/wirelink/kernel_wire.h)、`wlc/src/codegen/wire.rs` | `cargo test`、`build/fuzz`、`tests/zephyr/unit/generated_codec` |
 | TLV / Positional 编解码运行时 | [`src/codec.c`](../src/codec.c)、[`codec.h`](../include/wirelink/codec.h) | `tests/zephyr/unit/generated_codec`、`cargo test`、`build/fuzz` |
 | `cobs_crc16` / `length16` 流连接器 | [`src/cobs_crc16_stream.c`](../src/cobs_crc16_stream.c)、[`src/length16_none_stream.c`](../src/length16_none_stream.c)、[`src/crc.c`](../src/crc.c) | `tests/zephyr/unit/{cobs,static_stream}`、`tests/packet_tools/`、`build/fuzz` |
-| `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/{engine,descriptor,fixed,packed,positional,positional_fixed}.rs` | `cargo test`、`cargo clippy`、`check_generated_sdks.py`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |
-| 文档与示例片段同步 | `README.md`、`docs/*.md`、`examples/` 锚点 | `python3 tests/tutorials/doc_sources.py` |
+| `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、`check_generated_sdks.py`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |
+| 文档与示例片段同步 | `README*.md`、`docs/*.md`、`wlc/README.md`、`examples/` 锚点 | `python3 tests/tutorials/doc_sources.py` |
+
+
+## 四、生成代码与文档的验收边界
+
+当前生成入口是单个 `.wl`，节点选择通过 CLI `--node` / `--all-nodes` 或 CMake `NODE` / `ALL_NODES`。有多个节点时不能依赖默认选择。生成输出为单对 `.h/.c` 与 manifest；安装消费工程应只链接实际需要的节点，验证默认链接选项下不产生未实现的其他角色静态钩子。
+
+默认字段必选且不带 `has_*`；旧可选字段显式写 `optional`，旧可选数组写 `optional packed`。修改 schema 后同时检查生成布局、初始化、业务回调、测试和 SDK，不能只做函数名替换。对 embedded 的验证至少覆盖：TX 忙后 `tx_ready` 恢复、流接收 `consumed` 尾部、停 RX 后关闭半帧与 quiescent。external 还需保留物理租约完成/停止测试。
+
+文档代码锚点直接取自可运行示例：
+
+```sh
+python3 tests/tutorials/doc_sources.py
+ctest --test-dir build/core -R wirelink_tutorial_doc_sources --output-on-failure
+```
+
+体积报告应同时列出节点、端口、RX、stream、FIFO 与 TX 存储；缓冲移到结构体内部不等于减少总 RAM。本机 0.13→0.14 双向 demo 的完整装配分别为 native 782→790 B、COBS 1,046→1,054 B、length16 924→932 B，均增加 8 B。对象统计中的进程级自动实例号另占 `.bss` 4 B；不要把对象总和或 `sizeof(node)` 当作最终固件资源。
+
+## 五、本地候选与发布配对分开验收
+
+本轮授权只保留本地修改，不提交、推送、创建标签或 Release。[`.github/release-pair.json`](../.github/release-pair.json) 仍固定已冻结的 **0.13** 编译器 SHA，不能把该 SHA 标为 0.14。开发构建显式设置 `WIRELINK_WLC_EXECUTABLE`，使用本地 0.14 WLC。
+
+`test_release.py` 验证脚本逻辑，不证明当前源代码的发布配对成立。新候选的 `release.py prepare`、实际冻结 SHA 与远端 CI 配对验收，需待用户允许冻结源码后完成；不属于当前本地测试的通过结论。发布时再按实际候选执行这些门禁，保留源版本、构建日志与安装消费证据。
