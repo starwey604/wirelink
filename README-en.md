@@ -4,7 +4,7 @@
 
 Wirelink is an allocation-free ISO C11 communication library for embedded MCUs and host tools over UART, USB Bulk, UDP, or SPI. One `.wl` file declares messages, RPCs, and node roles; WLC generates one C header/source pair. Nodes default to embedded I/O and static handlers. Fields are required by default; only explicit `optional` fields carry presence flags.
 
-The local 0.14.0 candidate requires **WLC 0.14.0 / codegen contract 0.14 / SDK Binding API 3**. Regenerate C and SDK artifacts when migrating from 0.13; see the [migration notes (中文)](docs/release-v0.14.0-cn.md).
+The local 0.14.0 candidate requires **WLC 0.14.0 / codegen contract 0.14 / SDK Binding API 3**. Regenerate C and SDK artifacts when migrating from 0.13.
 
 ## Three steps
 
@@ -34,7 +34,5 @@ ctest --test-dir build/core --output-on-failure
 This default build needs C11 and C++20 compilers plus CMake 3.21+. C++20 is used by the C/C++ packet-port ABI tests; the core and checked-in loopback demo remain pure C11. Detailed engineering documentation is in Simplified Chinese: [wire format](docs/wire-format.md), [transport adapters](docs/porting-adapters.md), and [development/testing](docs/development.md).
 
 The measured bidirectional demo uses 790 B (native), 1,054 B (COBS + FIFO), or 932 B (length16) of total assembly RAM, **8 B more** than each 0.13 baseline. These totals include external ports and buffers, not just the node object; see [footprint methodology](benchmarks/footprint/README.md).
-
-This is a local candidate, not a remotely published release. The frozen release-pair file still describes 0.13.
 
 [Apache-2.0 License](LICENSE)

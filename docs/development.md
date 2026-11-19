@@ -37,7 +37,7 @@ ctest --test-dir build/core --output-on-failure
 
 ### 2. 编译 Rust 编译器 `wlc` 并运行编译器测试
 
-`wlc/` 是独立 Cargo 项目。本地候选使用 WLC **0.14.0** 与生成契约 **0.14**；现有 CI 工具链固定为 Rust 1.96.1。不要用旧 release-pair 的编译器构建当前生成代码：
+`wlc/` 是独立 Cargo 项目。本地候选使用 WLC **0.14.0** 与生成契约 **0.14**。CI 使用 stable Rust：
 
 ```sh
 cargo fmt --manifest-path wlc/Cargo.toml --check
@@ -63,12 +63,7 @@ cmake --build build/all --parallel
 ctest --test-dir build/all --output-on-failure
 ```
 
-校验已检入 SDK 的生成一致性与发布脚本自身单测：
-
-```sh
-python3 tests/package/check_generated_sdks.py --wlc "$PWD/wlc/target/release/wlc"
-python3 tests/package/test_release.py
-```
+安装 Wirelink 后，构建 `examples/06_bindings` 与 `examples/07_device_sdk`，并运行各自的测试。消费端检查见 [tests/package](../tests/package/)。
 
 ### 4. libFuzzer + ASan/UBSan（需 Clang）
 
@@ -111,7 +106,7 @@ python3 benchmarks/footprint/footprint.py --no-digests --json build/footprint.js
 | Wire v2 帧头 / RPC 子头 | [`kernel_wire.h`](../include/wirelink/kernel_wire.h)、`wlc/src/codegen/wire.rs` | `cargo test`、`build/fuzz`、`tests/zephyr/unit/generated_codec` |
 | TLV / Positional 编解码运行时 | [`src/codec.c`](../src/codec.c)、[`codec.h`](../include/wirelink/codec.h) | `tests/zephyr/unit/generated_codec`、`cargo test`、`build/fuzz` |
 | `cobs_crc16` / `length16` 流连接器 | [`src/cobs_crc16_stream.c`](../src/cobs_crc16_stream.c)、[`src/length16_none_stream.c`](../src/length16_none_stream.c)、[`src/crc.c`](../src/crc.c) | `tests/zephyr/unit/{cobs,static_stream}`、`tests/packet_tools/`、`build/fuzz` |
-| `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、`check_generated_sdks.py`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |
+| `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |
 | 文档与示例片段同步 | `README*.md`、`docs/*.md`、`wlc/README.md`、`examples/` 锚点 | `python3 tests/tutorials/doc_sources.py` |
 
 
@@ -129,9 +124,3 @@ ctest --test-dir build/core -R wirelink_tutorial_doc_sources --output-on-failure
 ```
 
 体积报告应同时列出节点、端口、RX、stream、FIFO 与 TX 存储；缓冲移到结构体内部不等于减少总 RAM。本机 0.13→0.14 双向 demo 的完整装配分别为 native 782→790 B、COBS 1,046→1,054 B、length16 924→932 B，均增加 8 B。对象统计中的进程级自动实例号另占 `.bss` 4 B；不要把对象总和或 `sizeof(node)` 当作最终固件资源。
-
-## 五、本地候选与发布配对分开验收
-
-本轮授权只保留本地修改，不提交、推送、创建标签或 Release。[`.github/release-pair.json`](../.github/release-pair.json) 仍固定已冻结的 **0.13** 编译器 SHA，不能把该 SHA 标为 0.14。开发构建显式设置 `WIRELINK_WLC_EXECUTABLE`，使用本地 0.14 WLC。
-
-`test_release.py` 验证脚本逻辑，不证明当前源代码的发布配对成立。新候选的 `release.py prepare`、实际冻结 SHA 与远端 CI 配对验收，需待用户允许冻结源码后完成；不属于当前本地测试的通过结论。发布时再按实际候选执行这些门禁，保留源版本、构建日志与安装消费证据。

@@ -22,16 +22,10 @@ not flash or open the board's native USB device. The serial PTY case uses a
 controlled physical-drain query and is not a hardware UART qualification.
 
 The calculator/device consumer projects require installed SDK 0.14 packages.
-`check_generated_sdks.py` compares checked-in output with matching WLC, while
-`check_sdk_wheels.py` creates an isolated environment, installs both wheels
-without network/dependencies/compiler PATH, and exercises sync/async calls with
-independent C peers. Errors retain separate outcome/status/OS fields. A business
-rejection is not a transport error. Local wheel tests do not claim all Python
-ABIs or manylinux qualification.
+Build and install both SDKs separately, then configure and test the
+calculator and device consumer projects against that install prefix.
+The bindings CI also builds both wheels and runs their Python tests against
+independent C peers.
 
-`build_manylinux_sdks.sh` runs only inside the specified manylinux container and
-requires `WIRELINK_WLC_EXECUTABLE` to name a matching executable **inside** that
-container (for example a separately built static musl compiler). It does not
-publish artifacts. The platform completion/timeout scripts compile unchanged
-external driver snapshots against controlled fixtures; those are separate from
-the Wirelink package and never edit vendor sources.
+The platform completion/timeout scripts compile external driver snapshots
+against controlled fixtures.

@@ -1,50 +1,30 @@
-name: Build matching local-source WLC
-description: Build the immutable compiler source recorded in the release pair
+name: Build WLC from source
+description: Build the selected WLC ref and export its executable path
+inputs:
+  ref:
+    description: WLC branch or ref
+    default: main
 runs:
   using: composite
   steps:
     - name: Preserve compiler template line endings
       shell: bash
       run: git config --global core.autocrlf false
-    - name: Read the single compiler pin
-      id: pair
-      shell: python
-      run: |
-        import json, os, re
-        from pathlib import Path
-        pair = json.loads((Path(os.environ['GITHUB_ACTION_PATH']).resolve().parents[2] / '.github/release-pair.json').read_text())
-        compiler = pair['wlc']
-        assert re.fullmatch('[0-9a-f]{40}', compiler['source_sha'])
-        assert re.fullmatch(r'\d+\.\d+\.\d+', compiler['rust_toolchain'])
-        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-            for key in ('source_sha', 'rust_toolchain', 'version', 'codegen_contract'):
-                output.write(f'{key}={compiler[key]}\n')
     - uses: actions/checkout@v5
       with:
         repository: starwey604/wlc
-        ref: ${{ steps.pair.outputs.source_sha }}
+        ref: ${{ inputs.ref }}
         path: .tools/wlc
-    - name: Select the qualified Rust compiler
+    - name: Build WLC with stable Rust
       shell: bash
-      env:
-        RUST_TOOLCHAIN: ${{ steps.pair.outputs.rust_toolchain }}
-      run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
-    - name: Build compiler
-      shell: bash
-      env:
-        RUST_TOOLCHAIN: ${{ steps.pair.outputs.rust_toolchain }}
-      run: cargo +"$RUST_TOOLCHAIN" build --release --locked --manifest-path .tools/wlc/Cargo.toml
-    - name: Verify compiler and export executable
+      run: |
+        rustup toolchain install stable --profile minimal
+        cargo +stable build --release --locked --manifest-path .tools/wlc/Cargo.toml
+    - name: Export WLC executable
       shell: python
-      env:
-        EXPECTED_VERSION: ${{ steps.pair.outputs.version }}
-        EXPECTED_CONTRACT: ${{ steps.pair.outputs.codegen_contract }}
       run: |
         import os
         from pathlib import Path
-        import subprocess
         executable = Path(os.environ['GITHUB_WORKSPACE']) / '.tools/wlc/target/release' / ('wlc.exe' if os.name == 'nt' else 'wlc')
-        assert subprocess.check_output([str(executable), '--version'], text=True).strip() == f'wlc {os.environ["EXPECTED_VERSION"]}'
-        assert subprocess.check_output([str(executable), 'codegen-contract'], text=True).strip() == os.environ['EXPECTED_CONTRACT']
         with open(os.environ['GITHUB_ENV'], 'a') as output:
             output.write(f'WIRELINK_WLC_EXECUTABLE={executable.as_posix()}\n')

@@ -226,11 +226,8 @@ testbeds.
 
 Notes:
 
-- `.github/workflows/benchmark.yml` has only `workflow_dispatch`; it never
-  consumes runner time for an ordinary push or pull request.
-- Its `release` profile covers all six registered host suites. Hosted-runner
-  timing is diagnostic; an authoritative release comparison belongs on the
-  same stable machine and toolchain used for its baseline.
+- Run the `release` profile locally to cover all six host suites. Use the same
+  machine and toolchain as the baseline for performance comparisons.
 - The initial `smoke` preset gives deterministic metrics a zero directional
   regression tolerance: any worsening needs release review, while an
   improvement passes.
@@ -239,8 +236,7 @@ Notes:
 
 ## Adoption status
 
-The shared registry, three-state comparisons, reports, calibration, and manual
-release workflow are implemented. Automatic push/PR measurements are
+The shared registry, three-state comparisons, reports, and calibration are implemented. Automatic push/PR measurements are
 deliberately disabled during early development. A unified HIL command and a
 dedicated stable runner remain future work. Until a suite is converted, its
 `compare.py` keeps working directly and its native output stays authoritative

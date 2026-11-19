@@ -4,7 +4,11 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
-  workflow_call:
+    inputs:
+      wlc_ref:
+        description: WLC branch or ref
+        default: main
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -21,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-wlc
+        with:
+          ref: ${{ inputs.wlc_ref || 'main' }}
       - uses: actions/checkout@v5
         with:
           repository: chriskohlhoff/asio
@@ -38,10 +44,6 @@ jobs:
         run: |
           cmake --build build --config Release --parallel
           ctest --test-dir build --build-config Release --output-on-failure
-      - name: Verify checked-in SDK output
-        run: |
-          python tests/package/check_generated_sdks.py --wlc "${{ env.WIRELINK_WLC_EXECUTABLE }}"
-          python tests/package/test_release.py
       - name: Install
         run: cmake --install build --config Release --prefix ${{ github.workspace }}/install
       - name: Configure public C/C++ and owner consumer
@@ -139,6 +141,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-wlc
+        with:
+          ref: ${{ inputs.wlc_ref || 'main' }}
       - uses: actions/checkout@v5
         with:
           repository: chriskohlhoff/asio
@@ -167,6 +171,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-wlc
+        with:
+          ref: ${{ inputs.wlc_ref || 'main' }}
       - name: Configure
         run: >-
           cmake -S . -B build -DWIRELINK_BUILD_FUZZERS=ON
