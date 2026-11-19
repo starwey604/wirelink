@@ -1,11 +1,11 @@
 ---
-title: 02 单向遥测（Telemetry）与双向 RPC 的协同
-description: 厘清 send/recv 单向遥测与 call/serve 双向 RPC 的设计分工，掌握“短 RPC 启动 + 异步消息推送”的设备架构模式。
+title: 02 单向消息（Telemetry）与 RPC
+description: 编写单向遥测消息节点，理解 Telemetry（send/recv）与 RPC（call/serve）的分工，并掌握两者配合处理耗时任务的方法。
 sidebar:
   order: 2
 ---
 
-import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
 import Challenge from '../../../../components/tutorial/Challenge.astro';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
@@ -13,73 +13,56 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 <LessonHeader
   unit={2}
-  duration="8 分钟"
+  duration="7 分钟"
   examplePath="examples/00_telemetry"
   goals={[
-    '理解单向消息 (send / recv) 与双向调用 (call / serve) 的本质区别与选型原则',
-    '编写单向遥测节点，掌握 send 的“输入立即快照”特性与 C 客户端调用 RPC 的回调处理',
-    '学会将两者结合：用“短 RPC 立即领任务号 + 主循环推送单向进度消息”解决耗时硬件任务',
+    '使用 send 与 recv 定义并运行单向遥测消息（Telemetry）',
+    '厘清 Telemetry 与 RPC 的适用边界',
+    '掌握“短 RPC 启动任务 + 单向消息上报进度”的组合模式',
   ]}
 />
 
-在上一课中，我们用 `rpc`（`call` / `serve`）实现了一问一答的加法调用。但在设计一套完整的上下位机协议时，你很快会遇到这样一个架构问题：
+第 01 课实现了需要请求与响应配对的 RPC 服务。然而在设备通信中，很多数据属于单向推送——例如传感器以固定频率上报温度、姿态或电压——发送端并不需要每次都等待对端回复。
 
-> **“哪些数据应该定义成单向消息（Telemetry / Event，用 `send`/`recv`），哪些操作应该定义成双向 RPC（用 `call`/`serve`）？它们俩在一个设备里怎么配合？”**
-
-这一课我们就把这个问题彻底讲透。
+Wirelink 通过**单向消息（Telemetry）**支持这类场景。本课先通过一个温度上报示例演示单向消息的写法，再对照 RPC 说明两者的分工与配合方式。
 
 ---
 
-## 第一部分：一张表看懂 Telemetry 与 RPC 的分工
+## 第一步：编写单向消息协议 `telemetry.wl`
 
-在 Wirelink 中，单向消息和双向 RPC 共享同一套二进制类型系统和线缆通道，但它们的**交互生命周期**完全不同：
+查看仓库中的 [`examples/00_telemetry/telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl)：
 
-```mermaid
-flowchart TB
-  subgraph Telemetry["📡 单向消息 (Telemetry / Event)：send ➔ recv"]
-    direction LR
-    P["发送端 (send)"] -->|"只发不等：编码进 1 个快照槽即完成"| S["接收端 (recv)<br/>触发 on_<msg> 回调"]
-  end
+{/* [docs:telemetry_schema] */}
+```wl
+message Telemetry @id(10) {
+  uint32 sample @id(1);
+  int32 temperature_centi_c @id(2);
+}
+node pub { send Telemetry; }
+node sub { recv Telemetry; }
+```
+{/* [/docs:telemetry_schema] */}
 
-  subgraph RPC["🔄 双向调用 (RPC)：call ⇄ serve"]
-    direction LR
-    C["调用方 (call)<br/>占用 1 个并发请求槽 + 挂表计时"] -->|"1. 发送请求 (RPC_REQ)"| V["服务方 (serve)<br/>触发 on_<rpc> 处理函数"]
-    V -->|"2. 返回成功 (RPC_RESP) 或 拒绝码 (RPC_ERR)"| C
-  end
+与第 01 课的 `calculator.wl` 相比，这里没有 `rpc` 声明，而是直接在节点中指定消息方向：
+- `node pub { send Telemetry; }`：发送端声明可以主动发送 `Telemetry` 消息，编译器会生成发送函数 `pub_send_telemetry`。
+- `node sub { recv Telemetry; }`：接收端声明可以接收 `Telemetry` 消息，编译器会要求你实现接收回调 `sub_on_telemetry`。
+
+如果需要在同一个 C 程序里同时使用 `pub` 和 `sub`（例如编写本地回环测试），生成代码时将 `--node <name>` 替换为 `--all-nodes` 即可：
+
+```sh
+wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
+  --all-nodes --out-dir build/telemetry
 ```
 
-| 对比维度 | 单向消息（`send` / `recv`） | 双向 RPC（`call` / `serve`） |
-| :--- | :--- | :--- |
-| **有没有回包确认？** | **没有**。发出去就释放槽位，不等待对端回复 | **必有终态**：成功响应（`SUCCESS`）、业务拒绝（`REJECTED`）或超时（`TIMED_OUT`） |
-| **线缆帧头开销** | 仅 **4 字节**帧头 + 消息体 | **12 字节**（4B 帧头 + 8B 会话/操作子头）+ 消息体 |
-| **适用场景** | • 传感器周期上报（温度、电机转速、姿态）<br/>• 异步事件通知（按键触发、后台任务完成进度） | • 下发控制指令（必须知道设备有没有收下并执行）<br/>• 查询设备参数、触发自检并获取任务 ID |
-
 ---
 
-## 第二部分：单向遥测（`send` / `recv`）怎么写？
+## 第二步：实现发送与接收
 
-当传感器每 10ms 向上位机推一次温度采样时，如果每次都要等上位机回一个 ACK，不仅带宽浪费一倍，一旦上位机稍微卡顿还会把 MCU 的请求槽堵满。这时候就该用 `send` 和 `recv`。
-
-来看看 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 的完整实现：
+在 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 中，为了无需硬件外设即可直接运行，发送端 `pub` 与接收端 `sub` 放在同一个 C 程序里，`pub_tx_write` 直接将输出帧交给 `sub_rx_packet`。示例中的 `EXAMPLE_REQUIRE(...)` 是用于验证返回值的断言宏。
 
 <Tabs>
-  <TabItem label="1. 协议定义 (telemetry.wl)">
-    发布端 `pub` 声明 `send Telemetry;`，接收端 `sub` 声明 `recv Telemetry;`：
-
-    {/* [docs:telemetry_schema] */}
-    ```wl
-    message Telemetry @id(10) {
-      uint32 sample @id(1);
-      int32 temperature_centi_c @id(2);
-    }
-    node pub { send Telemetry; }
-    node sub { recv Telemetry; }
-    ```
-    {/* [/docs:telemetry_schema] */}
-  </TabItem>
-
-  <TabItem label="2. 发送与接收钩子">
-    在内存回环示例 [`examples/00_telemetry/publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c) 与 [`subscriber.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c) 中，发送端的 `pub_tx_write` 把打包好的帧交给接收端，接收端在 `sub_on_telemetry` 中直接拿到解码好的结构体：
+  <TabItem label="1. 连接收发 (publisher.c)">
+    发送端的物理发送钩子将字节直接送入接收端：
 
     {/* [docs:telemetry_tx_write] */}
     ```c
@@ -89,6 +72,10 @@ flowchart TB
     }
     ```
     {/* [/docs:telemetry_tx_write] */}
+  </TabItem>
+
+  <TabItem label="2. 接收回调 (subscriber.c)">
+    接收端实现 `sub_on_telemetry`，在收到并解码消息后读取字段。由于单向消息不需要回复，回调返回类型为 `void`：
 
     {/* [docs:telemetry_receive] */}
     ```c
@@ -103,8 +90,8 @@ flowchart TB
     {/* [/docs:telemetry_receive] */}
   </TabItem>
 
-  <TabItem label="3. 主循环连发 12 条遥测">
-    初始化两端后，每次调用 `pub_send_telemetry` 放入一条采样，接着推进两端的 `step`：
+  <TabItem label="3. 发送循环 (publisher.c)">
+    初始化两端后，循环调用 `pub_send_telemetry` 提交采样，再通过 `pub_step` 与 `sub_step` 推进发送与接收：
 
     {/* [docs:telemetry_publish] */}
     ```c
@@ -122,149 +109,143 @@ flowchart TB
   </TabItem>
 </Tabs>
 
-<Aside type="note" title="为什么 pub_send_telemetry 可以直接传栈上的临时复合字面量？">
-因为 `pub_send_telemetry`（以及 RPC 的 `client_call_xxx`）采用**输入立即快照（Input Snapshot）**机制：**在函数返回 `WL_OK` 之前，它就已经把你的 C 结构体编码成二进制字节、复制进节点内部的发送槽里了**！函数一旦返回 `WL_OK`，你传入的局部变量就可以立刻销毁或复用。
-</Aside>
+注意 `pub_send_telemetry` 中传入的是一个栈上临时结构体 `&(telemetry_t){ ... }`。调用 `pub_send_telemetry` 返回 `WL_OK` 时，数据已经被编码并复制到节点内部缓冲区，因此调用结束后无需再维持该临时变量的生命周期。
+
+在仓库根目录构建并运行该示例：
+
+```sh
+cmake --build build/examples --target wirelink_telemetry_demo
+./build/examples/examples/00_telemetry/wirelink_telemetry_demo
+```
+
+预期输出：
+
+```text
+12 ordinary telemetry messages received; both endpoints quiescent
+```
 
 ---
 
-## 第三部分：C 语言客户端怎么接收 RPC 结果？
+## 第三步：何时选择单向消息，何时选择 RPC？
 
-在第一课里我们看了 Python 客户端调 RPC，那如果调用方也是用 C 语言写的（比如主控 MCU 调从控 MCU，见 [`examples/01_rpc/client.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c)），它是怎么拿到响应或拒绝码的？
+单向消息与 RPC 可以在同一个节点上共存。设计协议时，可以按是否需要明确的“调用结果”来区分：
 
-因为 C11 节点是**单线程非阻塞**的，`client_call_add` 不会卡住主循环死等回包，而是接收一个完成回调函数（如这里的 `rejected`）：
-
-{/* [docs:calculator_sync_rpc] */}
-```c
-EXAMPLE_REQUIRE(client_call_add(&caller, &(add_request_t){
-    .left = INT32_MAX, .right = 1}, rejected) == WL_OK);
-for (unsigned pass = 0; pass < 100 && !completed; ++pass) advance(100 + pass);
-EXAMPLE_REQUIRE(completed == 1 && result.outcome == WL_KERNEL_REJECTED && result.status == 1);
-```
-{/* [/docs:calculator_sync_rpc] */}
-
-当服务端返回响应（或超时到期）时，`client_step` 会调用你传入的完成回调：
-
-{/* [docs:calculator_rejected_callback] */}
-```c
-static void rejected(client_node_t *self, wl_kernel_result_t outcome, const add_response_t *response) {
-  (void)self;
-  EXAMPLE_REQUIRE(response == NULL);
-  result = outcome;
-  ++completed;
-}
-```
-{/* [/docs:calculator_rejected_callback] */}
-
-- **成功时**：`outcome.outcome == WL_KERNEL_SUCCESS`，此时 `response` 指针非空，可以直接读取 `response->sum`。
-- **被拒绝、超时或取消时**：`outcome.outcome` 为 `WL_KERNEL_REJECTED`（`outcome.status` 即服务端返回的非零错误码 `1`）、`WL_KERNEL_TIMED_OUT` 或 `WL_KERNEL_CANCELLED`，此时 **`response` 一律为 `NULL`**！
+| 对比维度 | 单向消息（Telemetry / Event） | 双向调用（RPC） |
+| :--- | :--- | :--- |
+| **节点声明关键字** | 发送方 `send` / 接收方 `recv` | 调用方 `call` / 服务方 `serve` |
+| **是否有应答** | 无内置应答，发出后即完成 | 必有明确终态：成功响应、业务拒绝码或超时 |
+| **接收回调签名** | `void <node>_on_<msg>(...)` | `int32_t <node>_on_<rpc>(..., response)` |
+| **适用场景** | 传感器周期上报（温度、转速、姿态）、状态变更通知、异步任务进度推送 | 下发控制命令、修改配置参数、查询设备信息、需要确认执行结果的动作 |
 
 ---
 
-## 第四部分：强强联手——“短 RPC 启动 + 单向消息推进度”
+## 第四步：组合使用——用短 RPC 启动耗时任务，用单向消息推送结果
 
-现在，假设上位机要让 MCU 执行一次**硬件自检（Self-Test）**、**电机归零**或 **Flash 擦写**，这个动作在硬件上需要耗时 **20 毫秒甚至几秒钟**。
+实际硬件中经常存在耗时较长的操作，例如需要运行几百毫秒的硬件自检或电机回零。由于 Wirelink 的 `on_<rpc>` 回调运行在主循环中，**不能在 RPC 回调里阻塞等待硬件完成**。
 
-如果你只用 RPC，或者只用单向消息，都会很难受：
-- ❌ **如果只用单向消息启动**：上位机发了 `StartSelfTest` 消息过去，如果此刻 MCU 正忙着做上一次自检，上位机根本不知道这次请求被忽略了！
-- ❌ **如果在 RPC 服务函数里死等 20ms 做完再返回**：因为在单线程主循环里，`on_start_self_test` 卡住 20ms，这 20ms 内你的整个固件主循环和其他串口收发就全都卡死了！
-
-**Wirelink 的标准工程模式是把 RPC 和单向消息组合起来**（源自 [`examples/03_device_service/`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service)）：
+更合理的做法是在同一个节点上组合使用 `serve`（RPC）与 `send`（单向消息），将一次长操作拆成两步（摘自 [`examples/03_device_service/self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c)）：
 
 ```mermaid
 sequenceDiagram
-  participant Client as 💻 上位机 / 客户端
-  participant Server as 📟 下位机 MCU (device_server)
+  participant Host as 上位机
+  participant MCU as 下位机 (device_server)
 
-  Client->>Server: 1. 调短 RPC：call StartSelfTest(pattern)
-  Note over Server: 微秒级检查：若正忙则立刻返回 DEVICE_BUSY 拒绝；<br/>若空闲则登记定时任务，分配 job_id 并立即返回 0！
-  Server-->>Client: 2. 立即收到 RPC 响应：已受理 (job_id = 1)
-  Note over Server: 主循环继续顺畅运转 20ms，完全不阻塞其他收发...
-  Server->>Client: 3. 20ms 到期后，主动 send SelfTestProgress(job_id = 1, observed)
+  Host->>MCU: 1. RPC 调用 StartSelfTest(pattern)
+  MCU-->>Host: 2. 校验状态后立即返回 job_id (若忙碌则返回拒绝码)
+  Note over MCU: 在主循环或后台推进硬件自检，不阻塞通信
+  MCU->>Host: 3. 自检完成后，单向 send SelfTestProgress(job_id, result)
 ```
 
-看看 [`examples/03_device_service/self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c) 里的 `device_server_on_start_self_test` 是多么干净利落：
+<Tabs>
+  <TabItem label="1. 短 RPC 校验并立即返回任务号">
+    收到 `StartSelfTest` 请求时，先检查设备是否正在执行其他任务；若忙碌则直接返回拒绝码 `DEVICE_BUSY`，否则登记任务参数与计划完成时间，并将 `job_id` 填回响应结构体立即返回 `0`：
 
-{/* [docs:device_job_start] */}
-```c
-int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
-                     start_self_test_response_t *response) {
-  device_service_t *state = self->user;
-  if (state->job_pending || state->next_job == UINT32_MAX) return DEVICE_BUSY;
-  state->job_id = ++state->next_job;
-  state->pattern = request->pattern;
-  state->due = state->now + 20U;
-  state->job_pending = true;
-  response->job_id = state->job_id;
-  return 0;
-}
-```
-{/* [/docs:device_job_start] */}
+    {/* [docs:device_job_start] */}
+    ```c
+    int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
+                         start_self_test_response_t *response) {
+      device_service_t *state = self->user;
+      if (state->job_pending || state->next_job == UINT32_MAX) return DEVICE_BUSY;
+      state->job_id = ++state->next_job;
+      state->pattern = request->pattern;
+      state->due = state->now + 20U;
+      state->job_pending = true;
+      response->job_id = state->job_id;
+      return 0;
+    }
+    ```
+    {/* [/docs:device_job_start] */}
+  </TabItem>
 
-1. **短 RPC 负责“准入确认”**：如果已经有任务在进行（`state->job_pending`），当场返回非零拒绝码 `DEVICE_BUSY`；如果空闲，登记到期时间 `state->due = state->now + 20U`，把分配好的 `job_id` 填进 `response` 并立刻 `return 0`，耗时不到 1 微秒！
-2. **单向消息负责“异步结果交付”**：主循环照常跑，等 20ms 到期后，通过 `device_server_send_self_test_progress` 把带有 `job_id` 的结果单向推给客户端（我们将在第 05 课进一步看到轮询发送时如何处理队列背压）。
+  <TabItem label="2. 主循环完成后发送单向进度消息">
+    主循环每次轮询 `self_test_poll`，待硬件任务到达完成条件后，调用 `device_server_send_self_test_progress` 将结果推送给上位机。如果此时发送缓冲区暂满（返回 `WL_ERR_WOULD_BLOCK`），则保留 `job_pending` 标志，留待下一轮主循环继续发送：
+
+    {/* [docs:device_job_poll] */}
+    ```c
+    void self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
+      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return;
+      self_test_progress_t progress = {.job_id = state->job_id,
+        .observed = state->pattern ^ UINT32_C(0xa5a5)};
+      const wl_err_t error = device_server_send_self_test_progress(endpoint, &progress);
+      if (error == WL_ERR_WOULD_BLOCK) return;
+      EXAMPLE_REQUIRE(error == WL_OK);
+      state->job_pending = false;
+    }
+    ```
+    {/* [/docs:device_job_poll] */}
+  </TabItem>
+</Tabs>
+
+*(注：关于 `WL_ERR_WOULD_BLOCK` 的完整处理策略，将在第 05 课详细展开。)*
 
 <Challenge
-  title="架构设计思考"
-  prompt="当客户端调用某次 RPC 后收到了 WL_KERNEL_REJECTED (status = DEVICE_BUSY) vs 收到了 WL_KERNEL_TIMED_OUT，这两种失败在业务层有什么本质区别？"
+  title="检查理解：为什么自检任务不直接在 RPC 回调里等待完成？"
+  prompt="如果硬件自检需要 300 毫秒，直接在 device_server_on_start_self_test 中延迟 300 毫秒再填写结果并返回，会带来什么问题？"
 >
-  - **`WL_KERNEL_REJECTED`（业务拒绝）**：代表请求**100% 已经到达了下位机**，且下位机明确告诉你“我没执行这个操作，原因码是 `DEVICE_BUSY`”。
-  - **`WL_KERNEL_TIMED_OUT`（等待超时）**：代表客户端在规定时间内没收到回包。但**超时无法证明下位机没有执行过该请求**——有可能是去程的请求包丢了（下位机没收到），也有可能是下位机其实已经执行了、但回程的响应包在路上丢了！因此，对于非幂等的控制动作，携带 `job_id` 或提供状态查询 RPC 是非常好的工程习惯。
+  在 RPC 回调中阻塞等待会导致主循环停在当前 `step()` 调用内：在这 300 毫秒期间，节点无法接收其他控制命令（如急停指令），也无法继续上报周期遥测，且容易触发调用方的 RPC 超时。
+
+  采用“短 RPC 返回任务号 + 单向消息推送结果”的组合，可以保证每次回调都在微秒级内返回，让通信始终保持响应。
 </Challenge>
 
 ---
 
-## 本课小测验
+## 小测验
 
 <MultipleChoice
-  id="lesson-02-pattern"
-  question="在单线程主循环驱动的 MCU 上，当上位机请求执行一个耗时 500ms 的电机校准动作时，最合理的协议设计是什么？"
+  id="lesson-02-telemetry-vs-rpc"
+  question="设备需要以 50Hz 频率向上位机上报电机电流与温度，同时支持上位机下发“设置目标转速”指令。这两种需求在 .wl 节点中应如何声明？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "用短 RPC 检查设备状态并立即返回 job_id（若忙则返回非零码拒绝），再由主循环在校准完成后通过 send 单向消息推送校准结果。",
+    "label": "电流与温度上报使用单向消息（设备端 send / 上位机 recv）；设置目标转速使用 RPC（上位机 call / 设备端 serve）。",
     "correct": true,
-    "feedback": "完全正确！这样既能让上位机立刻获知指令是否被受理，又不会阻塞 MCU 的单线程主循环。"
+    "feedback": "正确。高频周期采样不需要每次等待应答，适合用单向消息；设置转速需要确认设备是否接受或拒绝，适合用 RPC。"
   },
   {
-    "label": "在 RPC 处理函数 on_calibrate 里直接调用 delay_ms(500) 等电机走完再 return 0。",
+    "label": "两者都定义成单向消息，因为单向消息开销更小。",
     "correct": false,
-    "feedback": "不对。在 on_<rpc> 中长时间阻塞会导致整个单线程主循环停摆，期间无法处理任何其他收发和心跳。"
-  }
-]}
-/>
-
-<MultipleChoice
-  id="lesson-02-snapshot"
-  question="当调用 pub_send_telemetry(&publisher, &msg) 返回 WL_OK 后，关于传入的 msg 结构体，下列说法正确的是？"
-  checkLabel="检查答案"
-  emptyFeedback="请先选择一个选项。"
-  choices={[
-  {
-    "label": "msg 的数据在函数返回 WL_OK 前已经编码复制进节点内部的快照槽，调用方可以立即修改或销毁 msg。",
-    "correct": true,
-    "feedback": "正确！所有 send 和 call 接口在返回 WL_OK 时都已完成输入编码快照，不会在返回后继续引用调用方的输入结构体指针。"
+    "feedback": "控制指令通常需要知道设备是否成功接收或因参数越界被拒绝，使用 RPC 能够获得明确的终态反馈。"
   },
   {
-    "label": "必须把 msg 声明为全局变量并一直保持不变，直到对端收到为止。",
+    "label": "两者都定义成 RPC，让设备每 20ms 等上位机回复一次采样确认。",
     "correct": false,
-    "feedback": "不需要。输入结构体在 send 返回 WL_OK 前就已经完成了编码复制。"
+    "feedback": "高频遥测使用 RPC 会增加不必要的往返开销；一旦上位机处理稍慢，还会造成请求堆积。"
   }
 ]}
 />
 
 <Checklist
   id="checklist-02"
-  title="本课掌握清单"
+  title="本课检查清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "能根据业务需求选择单向消息（send/recv，高频状态与异步通知）或双向 RPC（call/serve，需确认执行结果或拒绝码）。",
-    "理解 send 与 call 返回 WL_OK 代表已完成输入快照，以及在 C 客户端完成回调中先检查 outcome 再访问 response。",
-    "掌握“短 RPC 立即领 job_id + 主循环推送单向进度消息”的长耗时任务协同模式。"
+    "能够使用 send 与 recv 定义单向消息，并实现接收端 on_<message> 回调。",
+    "理解单向消息与 RPC 的区别，能为不同业务场景选择合适的通信模式。",
+    "掌握“短 RPC 返回任务号 + 单向消息上报结果”的组合方式，避免阻塞主循环。"
   ]}
 />
 
-前两课里，我们的消息字段都是简单的 `int32` 和 `uint32`。但在真实产品里，你一定需要传**设备名称字符串（`string`）**、**原始采样字节块（`bytes`）**、**可选扩展字段（`optional`）**，甚至把大项目拆成多个 `.wl` 文件！在零 `malloc` 的 C11 里，变长字符串存在哪？回调结束后怎么安全保存数据？
+前两课分别演示了 RPC 服务端与单向消息的收发。在 C 语言中，如果当前设备需要作为**调用方**主动发起一次 RPC，该如何传入请求并区分成功响应与服务端拒绝？
 
-下一课：[03 打造真实协议：字符串、可选字段与内存生命周期 →](/wirelink/zh-cn/learn/03-rpc-basics/)
+下一课：[03 C 语言客户端调用与错误处理 →](/wirelink/zh-cn/learn/03-rpc-basics/)

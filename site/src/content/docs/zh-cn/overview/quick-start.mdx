@@ -1,27 +1,76 @@
 ---
-title: 5 分钟快速上手
-description: 三步走完从定义 .wl 协议文件，到生成下位机 C11 节点与上位机 Python/C++ 客户端的完整闭环。
+title: 快速开始
+description: 配置本地工具链，运行内置通信示例，并使用 wlc 编译你的第一份 .wl 协议文件。
 sidebar:
   order: 2
 ---
 
-import { Aside, Steps, Tabs, TabItem, FileTree } from '@astrojs/starlight/components';
+import { Steps, FileTree } from '@astrojs/starlight/components';
 
-使用 Wirelink 开发上下位机通信，核心流程永远只有三步：**写一份 `.wl` 协议 $\rightarrow$ 用 `wlc` 生成两端代码 $\rightarrow$ 填上业务函数并驱动 `step(now_ms)`**。
-
-下面我们以一个“远程加法服务”为例，带你 5 分钟走完从定义协议到上下位机通话的全过程。
+本页将引导你完成两项准备工作：
+1. 验证本地 C11 构建环境并运行仓库自带的基础示例。
+2. 构建协议编译器 `wlc`，从 `.wl` 文件生成 C 代码并运行对应的示例程序。
 
 ---
 
-## 三步打通你的第一个上下位机服务
+## 前置要求
 
-在这个例子里，下位机（MCU）扮演服务端 `server` 提供加法计算，并在整数溢出时主动拒绝请求；上位机扮演客户端 `client` 发起调用。
+开始前请确认本地已安装以下工具：
+
+- **CMake 3.21+** 与支持 **ISO C11** 的编译器（GCC、Clang 或 MSVC）
+- **Rust / Cargo**：用于构建协议编译器 `wlc`（若暂未安装，仍可先完成第一步）
+
+---
+
+## 第一步：编译并运行基础示例
+
+仓库中自带了一份无需重新生成代码即可运行的基础示例，适合先验证本地 C 工具链是否正常工作。
 
 <Steps>
 
-1. **第一步：写一份 `calculator.wl` 定义消息与两端角色**
+1. 克隆仓库并进入根目录：
 
-   创建 `calculator.wl`，把请求消息、响应消息、RPC 配对以及上下位机两个节点角色写在同一份文件里：
+   ```sh
+   git clone https://github.com/starwey604/wirelink.git
+   cd wirelink
+   ```
+
+2. 配置并构建核心库与示例：
+
+   ```sh
+   cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+   cmake --build build/core --parallel
+   ```
+
+3. 运行本地内存回环示例：
+
+   ```sh
+   ./build/core/examples/wirelink_bare_metal_loopback
+   ```
+
+</Steps>
+
+终端输出以下内容表示构建与运行正常：
+
+```text
+6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
+```
+
+---
+
+## 第二步：构建 `wlc` 并生成第一份 C 代码
+
+在实际项目中，你会先编写 `.wl` 协议文件，再由编译器 `wlc` 生成对应的 C11 节点代码或上位机客户端包。
+
+<Steps>
+
+1. 构建本地 `wlc` 可执行文件：
+
+   ```sh
+   cargo build --release --locked --manifest-path wlc/Cargo.toml
+   ```
+
+2. 查看示例协议 [`examples/01_rpc/calculator.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.wl)，其中定义了一个远程加法服务以及调用方（`client`）、服务方（`server`）两个角色：
 
    {/* [docs:calculator_schema] */}
    ```wl
@@ -36,117 +85,45 @@ import { Aside, Steps, Tabs, TabItem, FileTree } from '@astrojs/starlight/compon
    ```
    {/* [/docs:calculator_schema] */}
 
-   <Aside type="tip" title="看懂这几行声明">
-   - **`@id(20)` 与 `@id(1)`**：分别指定消息的线缆路由 ID 和字段编号。
-   - **`node client` 与 `node server`**：显式声明谁是调用方（`call Add;`）、谁是服务方（`serve Add;`）。默认情况下，节点自带内部收发缓冲区并直接链接同名 C 函数，无需编写繁琐的初始化配置表。
-   </Aside>
-
-2. **第二步：用 `wlc` 生成下位机 C11 代码与上位机 SDK**
-
-   在仓库根目录下编译 `wlc` 工具，然后分别为下位机固件和上位机生成代码：
+3. 使用 `wlc compile` 为 `server` 节点生成 C 代码：
 
    ```sh
-   # 1. 构建 WLC 编译器
-   cargo build --release --locked --manifest-path wlc/Cargo.toml
-
-   # 2. 为下位机 MCU 生成纯 C11 服务端节点（指定 --node server）
    wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
-     --node server --out-dir build/server
-
-   # 3. 为上位机生成 Python / C++20 客户端 SDK（指定 --node client）
-   wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
-     --node client --name calculator --out-dir build/calculator-sdk
+     --node server --out-dir build/my-server
    ```
 
-   生成后的目录结构非常干净：
+4. 查看生成的 `build/my-server/` 目录，其中包含以下文件：
 
    <FileTree>
-   - build/
-     - server/ 下位机固件只需把这一对 .h/.c 加入工程
-       - **calculator.h** 生成的消息结构体、server_node_t 与函数声明
-       - **calculator.c** 编解码与服务端节点状态机实现
-       - calculator_manifest.json 构建校验清单
-     - calculator-sdk/ 上位机 C++20 与 Python 客户端包工程
-       - CMakeLists.txt
-       - pyproject.toml
-       - include/calculator/client.hpp
-       - python/calculator_sdk/
+   - build/my-server/
+     - **calculator.h** 消息结构体与节点函数声明，在业务代码中 `#include`
+     - **calculator.c** 编解码与节点状态机实现，加入编译列表
+     - calculator_manifest.json 构建与版本核对清单
    </FileTree>
 
-   *(提示：如果你想在同一个 C 程序里同时运行 `client` 和 `server` 做本地回环测试，把 `--node server` 换成 `--all-nodes` 即可。)*
+5. 使用 CMake 编译并运行该协议对应的完整示例：
 
-3. **第三步：在下位机实现业务函数，从上位机发起调用**
+   ```sh
+   cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release \
+     -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+     -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
+   cmake --build build/examples --target wirelink_calculator_demo
+   ctest --test-dir build/examples -R wirelink_calculator_demo --output-on-failure
+   ```
 
-   打开生成的 `calculator.h`，下位机 `server_node_t` 只需要你提供两个函数：一个处理加法业务的 `server_on_add`，一个把打包好的帧字节写出去的 `server_tx_write`。
-
-   <Tabs>
-     <TabItem label="下位机 MCU 服务端 (server.c)">
-       实现 `server_on_add`：返回 `0` 表示执行成功并发送 `response`；返回非零值（如这里的 `1`）表示**业务拒绝**，客户端会收到该状态码：
-
-       {/* [docs:calculator_server] */}
-       ```c
-       int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
-         (void)self;
-         const int64_t sum = (int64_t)request->left + request->right;
-         if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-         response->sum = (int32_t)sum;
-         return 0;
-       }
-       ```
-       {/* [/docs:calculator_server] */}
-
-       接着在固件中完成三件小事就能跑起来：
-       - 实现 `server_tx_write(self, data, length)` 把字节写到你的串口或网络接口；
-       - 收到数据时喂给节点（数据包调 `server_rx_packet`，串口字节流调 `server_rx_feed`）；
-       - 调用 `server_init(&server)` 初始化后，在主循环里周期性调用 `server_step(&server, now_ms)`。
-     </TabItem>
-
-     <TabItem label="上位机 Python 客户端">
-       当下位机或服务端运行起来后（完整双端可运行工程见 [`examples/05_zephyr_udp`](https://github.com/starwey604/wirelink/tree/main/examples/05_zephyr_udp) 与 [`examples/06_bindings`](https://github.com/starwey604/wirelink/tree/main/examples/06_bindings)），上位机 Python 代码可以像调用本地函数一样调用远端设备：
-
-       {/* [docs:python_sdk_client] */}
-       ```python
-       with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
-           saved = client.add(left=20, right=22)
-           assert saved.sum == 42
-           try:
-               client.add(left=2**31 - 1, right=1)
-           except RejectedError as error:
-               assert error.status == 1
-       ```
-       {/* [/docs:python_sdk_client] */}
-     </TabItem>
-   </Tabs>
+   测试通过后，表示「`.wl` 定义 → `wlc` 代码生成 → C11 编译运行」的完整链路已在本地就绪。
 
 </Steps>
 
 ---
 
-## 附：30 秒免安装 WLC 验证本地 C 工具链
+## 接下来的学习路径
 
-如果你还没装 Rust 工具链，想先花 30 秒验证本机的 CMake（3.21+）和 C11 编译器能否直接跑通 Wirelink，仓库在 `examples/kernel/generated/` 下内置了一份预生成的节点代码，可直接编译运行：
+完成环境验证后，可以按顺序阅读 6 节实战教程：
 
-```sh
-cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
-cmake --build build/core --parallel
-./build/core/examples/wirelink_bare_metal_loopback
-```
-
-看到如下输出即说明纯 C11 双端内存回环（6 次双向并发 RPC + 2 条单向遥测消息）已在本机顺利通过：
-
-```text
-6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
-```
-
----
-
-## 接下来：按顺序进入 6 节实战教程
-
-我们已经为你按最符合直觉的工程顺序编排了 **6 节交互式课程**（每课约 6~8 分钟，包含源码拆解、思考题与掌握清单）：
-
-1. **[第 01 课：编写 .wl 并打通上下位机通信](/wirelink/zh-cn/learn/01-loopback-endpoint/)** —— 透视生成的 `.h` 头文件，掌握 `init`、`tx_write`、`rx_packet` 与 `step(now)` 的完整闭环。
-2. **[第 02 课：单向遥测（Telemetry）与双向 RPC 的协同](/wirelink/zh-cn/learn/02-telemetry/)** —— 搞懂什么时候用 `send`/`recv`、什么时候用 `call`/`serve`，以及如何用“短 RPC + 异步遥测”处理耗时硬件任务。
-3. **[第 03 课：打造真实协议：字符串、可选字段与内存生命周期](/wirelink/zh-cn/learn/03-rpc-basics/)** —— 零 `malloc` 传输变长字符串 `string<N>`，用 `import` 组合多模块，彻底避开回调悬空指针。
-4. **[第 04 课：接上真实物理链路：UART 串口与 UDP 上位机联调](/wirelink/zh-cn/learn/04-strings-and-lifetime/)** —— 串口 `cobs_crc16` 怎么喂字节流？UDP 服务端怎么和 Python / C++20 SDK 联调？
-5. **[第 05 课：并发调用、超时取消与发送背压控制](/wirelink/zh-cn/learn/05-concurrency-backpressure/)** —— 摸清 4 路并发槽位上限，区分“丢旧采样”与“保留重试”两种 `WOULD_BLOCK` 背压策略。
-6. **[第 06 课：进阶内核机制：安全停机、RTOS 唤醒与零拷贝 DMA](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)** —— 掌握 `close` $\rightarrow$ `quiescent` 安全停机、RTOS 低功耗唤醒以及 `io = external` 零拷贝 DMA 接入。
+1. **[01 编写第一个 `.wl` 并运行服务端](/wirelink/zh-cn/learn/01-loopback-endpoint/)** —— 打开生成的 `calculator.h`，理解生成符号的命名规则，实现服务处理函数与主循环。
+2. **[02 单向消息（Telemetry）与 RPC](/wirelink/zh-cn/learn/02-telemetry/)** —— 学习 `send` / `recv` 单向推送，理清它与双向 RPC 的分工与配合方式。
+3. **[03 C 语言客户端调用与错误处理](/wirelink/zh-cn/learn/03-rpc-basics/)** —— 在 C 代码中发起 RPC 调用，在回调中区分成功响应与服务端业务拒绝。
+4. **[04 字符串、可选字段与多文件组合](/wirelink/zh-cn/learn/04-strings-and-lifetime/)** —— 使用 `string<N>`、`bytes<N>`、`optional` 与 `import`，掌握回调中的结构体拷贝规则。
+5. **[05 并发调用、超时取消与发送队列控制](/wirelink/zh-cn/learn/05-concurrency-backpressure/)** —— 处理并发请求、设置调用超时与主动取消，以及应对 `WL_ERR_WOULD_BLOCK`。
+6. **[06 接入串口、UDP 与上位机 Python / C++ SDK](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)** —— 配置 UART 串口分帧与 UDP 传输，并生成 Python 与 C++20 上位机客户端进行联调。

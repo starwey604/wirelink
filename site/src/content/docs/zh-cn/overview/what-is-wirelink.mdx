@@ -1,95 +1,91 @@
 ---
 title: 什么是 Wirelink？
-description: 用最短时间看懂 Wirelink 如何打通上下位机通信、Telemetry 与 RPC 的关系，以及单线程 step(now) 驱动模型。
+description: 了解 Wirelink 的定位、.wl 协议的三个基本概念，以及下位机节点的运行方式。
 sidebar:
   order: 1
 ---
 
-import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-在嵌入式系统中，下位机（运行在裸机、FreeRTOS 或 Zephyr 上的 MCU）与上位机（PC 端 Python/C++ 程序、边缘主机或另一块主控板）之间的通信，通常面临两类麻烦：
+在嵌入式开发中，下位机（MCU）与上位机（PC 工具、边缘主机或另一块控制器）之间的通信通常面临两类重复工作：
 
-- **自己手写串口协议与状态机**：一旦涉及**串口粘包断包**、**跨平台字节序与对齐**、**等待对端应答（超时与错误码）**，代码很快就会演变成难以维护的 `switch-case` 和全局变量泥潭。
-- **只用纯序列化库（如 Protobuf / Nanopb）**：它们只负责“结构体 $\leftrightarrow$ 字节流”的转换，却**不管通信过程**——你仍然得自己写请求会话匹配、超时定时器、发送队列流控和串口 COBS/CRC 分帧。
+- **手写通信协议**：需要自行处理串口粘包与断包、字节序转换、校验和，以及请求与响应的匹配和超时逻辑。随着接口增多，状态管理会逐渐变得难以维护。
+- **单独使用序列化库（如 Protobuf）**：序列化库只解决数据结构与字节流之间的编解码，不包含链路分帧、会话匹配与超时控制，这些部分仍需应用层自行实现。
 
-**Wirelink 为嵌入式上下位机提供了一套完整的端到端方案**：你只需要写一份 `.wl` 协议文件，就能同时生成**零动态内存分配（0 `malloc`）的纯 ISO C11 节点代码**与**上位机 Python / C++20 客户端 SDK**。
+**Wirelink** 将协议定义、二进制编解码、链路分帧以及通信状态管理整合为一套统一的工具链。你只需维护一份 `.wl` 协议文件，通过编译器 `wlc` 即可分别生成：
+
+- **下位机 C11 代码**：不依赖操作系统、线程、时钟 API 或 `malloc`，可直接集成到裸机主循环、FreeRTOS 或 Zephyr 工程中。
+- **上位机客户端 SDK**：生成带完整类型定义的 Python 与 C++20 客户端，用于控制、测试或与设备联调。
 
 ---
 
-## 一、 一份 `.wl` 文件里的三个核心概念
+## `.wl` 协议中的三个基本概念
 
-Wirelink 的协议定义非常直观，所有内容都围绕三个概念展开：
+一份 `.wl` 文件围绕三个概念描述通信契约：
 
 ```mermaid
 flowchart LR
-  subgraph WL["📄 同一份 .wl 协议文件"]
+  subgraph WL["协议文件 (.wl)"]
     direction TB
-    M["1. message（数据结构）<br/>定义传输的字段<br/>例如：Telemetry、AddRequest"]
-    R["2. rpc（一问一答配对）<br/>绑定请求与响应消息<br/>例如：rpc Add(AddRequest) -> AddResponse"]
-    N["3. node（通信两端角色）<br/>声明本端收发哪些消息、用什么物理分帧<br/>例如：node client / node server"]
+    M["1. message：数据结构<br/>定义传输的字段与类型"]
+    R["2. rpc：远程调用<br/>将请求消息与响应消息配对"]
+    N["3. node：通信节点<br/>声明某一端具备的收发角色"]
     M --> R
     M --> N
     R --> N
   end
-  WL -->|"wlc compile --node server"| MCU["📟 下位机 C11 节点 (.h / .c)"]
-  WL -->|"wlc sdk --node client"| Host["💻 上位机 Python / C++20 SDK"]
+  WL -->|"wlc compile"| MCU["下位机 C11 代码 (.h / .c)"]
+  WL -->|"wlc sdk"| Host["上位机 Python / C++20 SDK"]
 ```
 
-1. **`message`（消息数据）**：定义数据包里的字段（如整型、浮点数、枚举、有界字符串 `string<31>`、有界字节数组 `bytes<64>`）。字段默认是必选的，直接对应 C 结构体中的普通成员；需要可选字段时加上 `optional` 即可。
-2. **`rpc`（远程过程调用）**：把一个请求 `message` 和一个响应 `message` 配成一对。Wirelink 会自动帮你管理请求会话 ID、超时倒计时、主动取消以及服务端的业务拒绝码。
-3. **`node`（节点角色）**：声明通信中的某一方（如下位机 `device` 或上位机 `controller`）具体拥有哪些收发能力（`send`、`recv`、`call`、`serve`）以及物理链路分帧方式（如串口用的 `framing = cobs_crc16;`）。编译器会**按角色精确生成代码并分配静态缓冲区**——一个只负责上报数据的传感器节点，不会分配任何多余的 RPC 缓冲区。
+1. **`message`（消息）**：定义传输的数据结构，包含整型、浮点、枚举、定长数组、有界字符串等字段。
+2. **`rpc`（远程过程调用）**：将一个请求 `message` 与一个响应 `message` 绑定为一对调用，由 Wirelink 负责请求匹配、超时与错误码传递。
+3. **`node`（节点）**：声明通信中某一方的角色，即它负责发送、接收、发起调用还是提供服务。
 
 ---
 
-## 二、 两种通信模式：Telemetry 与 RPC 如何配合？
+## 两种通信模式
 
-在真实的嵌入式设备中，上下位机交互可以归结为两种基本模式，你在 `.wl` 的 `node` 里可以把它们自由组合：
+在同一个节点上，你可以根据业务需要自由组合以下两种通信模式：
 
-| 通信模式 | `.wl` 节点关键字 | 交互特点 | 典型工程场景 |
-| :--- | :--- | :--- | :--- |
-| **单向消息（Telemetry / Event）** | 发送方写 **`send`**<br/>接收方写 **`recv`** | **单向推送、无内置 ACK 等待**：发送方把数据编码进内部快照槽即可继续干活，吞吐高、开销极小 | • 传感器周期上报温度、姿态、电压<br/>• 设备异步上报状态变化或长任务进度 |
-| **双向调用（RPC）** | 调用方写 **`call`**<br/>服务方写 **`serve`** | **一问一答、明确终态**：调用方必然得到“成功响应（`SUCCESS`）”、“业务拒绝（`REJECTED` + 状态码）”或“超时（`TIMED_OUT`）” | • 上位机下发控制指令、修改配置参数<br/>• 查询设备信息、启动自检并获取任务号 |
-
-<Aside type="tip" title="实战黄金搭档：用 RPC 下发指令，用 Telemetry 推送高频状态与长任务进度">
-在很多设备里，这两种模式是协同工作的：
-- 上位机通过 **`call`** 下发控制命令（必须确认 MCU 是否接受，比如设备忙时 MCU 直接返回非零拒绝码）；
-- MCU 在后台执行任务，并通过 **`send`** 周期性向上位机推送实时遥测或任务完成进度（避免上位机阻塞死等耗时硬件操作）。我们在**第 02 课**会深入剖析这套协同设计。
-</Aside>
+| 通信模式 | 行为特点 | 典型场景 |
+| :--- | :--- | :--- |
+| **双向调用（RPC）** | 一问一答。调用方会明确收到成功响应、业务拒绝状态码或超时错误。 | 下发控制指令、修改设备参数、查询设备状态 |
+| **单向消息（Telemetry）** | 单向推送，不等待对端确认，开销更低。 | 周期上报传感器读数、推送异步事件或后台任务进度 |
 
 ---
 
-## 三、 下位机怎么跑起来？单线程 `step(now_ms)` 模型
+## 下位机的驱动方式
 
-Wirelink 的 C11 核心**不创建线程、不使用互斥锁、不调用系统时钟 API，也不绑死任何芯片的寄存器**。无论你用的是裸机 `while (1)` 主循环还是 RTOS 任务，驱动一个节点只需要三步：
+Wirelink 生成的 C11 代码不会在后台创建线程，也不直接操作特定芯片的硬件寄存器。无论目标平台是裸机主循环还是 RTOS 任务，接入一个节点都遵循相同的三步交互：
 
 ```mermaid
 sequenceDiagram
   participant HW as 串口 / 网络驱动
-  participant App as 你的主循环 (Single Owner)
-  participant Node as 生成的 Wirelink 节点
+  participant App as 应用主循环
+  participant WL as 生成的 Wirelink 节点
 
-  HW->>Node: 1. 喂入收到的字节流或数据包 (rx_feed / rx_packet)
-  App->>Node: 2. 按需发起发送或调用 (send_xxx / call_xxx)
-  App->>Node: 3. 周期性推进心跳：node_step(&node, now_ms)
-  activate Node
-  Node->>App: 自动解码并调用你的业务处理函数 (on_xxx)
-  Node->>HW: 调用你的物理发送钩子写出帧字节 (tx_write)
-  Node->>App: 派发 RPC 完成或超时回调 (done)
-  deactivate Node
+  HW->>WL: 1. 收到数据时，将字节传入节点
+  App->>WL: 2. 定期调用 step(now_ms)
+  activate WL
+  WL->>App: 解码并调用对应的业务处理函数
+  WL->>HW: 调用发送函数输出打包好的字节
+  deactivate WL
 ```
 
-- **单一执行上下文（Single Owner）**：一个节点的所有业务操作（`init`、`send`、`call`、`step`、`close`）都在同一个主循环或同一个专属任务中串行调用，彻底省去加锁开销。
-- **固定容量与显式流控**：所有缓冲区大小在编译期完全确定（单个节点最多支持 4 路并发出站 RPC、3 个待发回复、1 个普通消息发送槽）。当发送槽满或外设暂忙时，API 立即返回 `WL_ERR_WOULD_BLOCK`，绝不静默丢包或动态扩容。
+1. **输入接收数据**：硬件收到数据后，将字节传入生成的接收函数。
+2. **推进节点状态**：在主循环中定期传入当前毫秒时间戳并调用 `step` 函数，完成解码、业务回调派发与超时检查。
+3. **输出发送数据**：当节点需要对外发送帧时，会回调你实现的发送函数，由你的硬件驱动将字节写出。
 
 ---
 
-## 四、 下一步去哪？
+## 下一步
 
 <CardGrid>
-  <Card title="⚡ 5 分钟快速上手" icon="rocket">
-    3 步走完从编写 `.wl` 到生成 MCU 固件代码与上位机 Python 客户端的完整闭环。[前往快速上手 →](/wirelink/zh-cn/overview/quick-start/)
+  <Card title="快速开始" icon="rocket">
+    在本地构建并运行第一个示例，体验用 wlc 编译 .wl 文件。[前往快速开始 →](/wirelink/zh-cn/overview/quick-start/)
   </Card>
-  <Card title="📖 第 01 课：编写 .wl 并打通上下位机通信" icon="open-book">
-    进入 6 节循序渐进的互动式教程，边看真实可编译源码、边做思考题掌握每一个核心能力。[开始第 01 课 →](/wirelink/zh-cn/learn/01-loopback-endpoint/)
+  <Card title="第 01 课：编写第一个 .wl 并运行服务" icon="open-book">
+    从定义协议开始，一步步看懂生成的 C 头文件并完成首次调用。[进入第 01 课 →](/wirelink/zh-cn/learn/01-loopback-endpoint/)
   </Card>
 </CardGrid>

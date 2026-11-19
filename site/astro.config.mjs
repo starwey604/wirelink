@@ -15,7 +15,7 @@ export default defineConfig({
     }),
     starlight({
       title: 'Wirelink',
-      description: '面向嵌入式 MCU 与上位机的纯 C11 零动态分配通信中间件。',
+      description: '写一份 .wl 协议，自动生成单片机 C 代码与上位机 Python / C++ 客户端。',
       favicon: '/favicon.svg',
       disable404Route: true,
       customCss: ['./src/styles/custom.css'],
@@ -45,32 +45,32 @@ export default defineConfig({
       sidebar: [
         {
           label: 'Overview',
-          translations: { 'zh-CN': '概览' },
+          translations: { 'zh-CN': '开始使用' },
           items: [{ autogenerate: { directory: 'overview' } }],
         },
         {
           label: 'Interactive tutorials',
-          translations: { 'zh-CN': '渐进式互动教程' },
+          translations: { 'zh-CN': '新手实战教程' },
           items: [{ autogenerate: { directory: 'learn' } }],
         },
         {
           label: 'Schema, nodes & WLC',
-          translations: { 'zh-CN': 'Schema、节点与编译器' },
+          translations: { 'zh-CN': '协议与工具指南' },
           items: [{ autogenerate: { directory: 'concepts' } }],
         },
         {
           label: 'Platform & SDK guides',
-          translations: { 'zh-CN': '平台接入与上位机 SDK' },
+          translations: { 'zh-CN': '硬件接入与进阶' },
           items: [{ autogenerate: { directory: 'how-to' } }],
         },
         {
           label: 'API & wire reference',
-          translations: { 'zh-CN': 'API 与协议参考' },
+          translations: { 'zh-CN': 'API 与底层参考' },
           items: [{ autogenerate: { directory: 'reference' } }],
         },
         {
           label: 'Development & testing',
-          translations: { 'zh-CN': '开发与验证' },
+          translations: { 'zh-CN': '参与开发' },
           items: [{ autogenerate: { directory: 'development' } }],
         },
       ],
