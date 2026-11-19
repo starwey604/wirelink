@@ -2,7 +2,7 @@
 
 [简体中文文档总览 (Simplified Chinese)](README.md) · [Main README](../README.md)
 
-The [English quick start](../README-en.md) covers the 0.14.0 local candidate. Detailed engineering documentation remains in Simplified Chinese.
+Start with the [English quick start](../README-en.md). Detailed engineering documentation is available in [Simplified Chinese](README.md).
 
 Please refer to the Simplified Chinese engineering documentation in this directory:
 

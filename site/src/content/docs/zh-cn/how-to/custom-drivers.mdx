@@ -29,7 +29,7 @@ node sensor {
 
 ### 1. 发送端：实现 `<node>_tx_write` 与恢复通知 `<node>_tx_ready`
 
-当你在主循环调用 `sensor_step(&sensor, now_ms)` 时，如果有待发帧，节点会调用你实现的 `sensor_tx_write`：
+当你在主循环调用 `sensor_step(&sensor, 0)` 时，节点会调用 `sensor_tx_write` 发送待发帧。这个传感器节点只有消息收发，时间参数传 `0`。
 
 ```c
 wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length) {
@@ -74,7 +74,7 @@ wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length
         uart_rx_ring_drop(consumed);
       }
     }
-    sensor_step(&sensor, board_millis());
+    sensor_step(&sensor, 0);
     ```
   </TabItem>
 

@@ -49,12 +49,14 @@ flowchart LR
 
 {/* [docs:calculator_async_rpc] */}
 ```c
-void calculator_async_example(client_node_t *client) {
+wl_err_t calculator_async_example(client_node_t *client) {
   /* Four accepted calls coexist; request values are copied during admission. */
   for (int32_t i = 0; i < 4; ++i) {
-    EXAMPLE_REQUIRE(client_call_add(client, &(add_request_t){
-        .left = i, .right = 42 - i}, done) == WL_OK);
+    const wl_err_t error = client_call_add(client, &(add_request_t){
+        .left = i, .right = 42 - i}, done);
+    if (error != WL_OK) return error;
   }
+  return WL_OK;
 }
 ```
 {/* [/docs:calculator_async_rpc] */}
@@ -75,18 +77,19 @@ void calculator_async_example(client_node_t *client) {
   <TabItem label="策略 A：关键状态/进度通知 ➔ 保留标志，下次重试">
     在第 02 课的耗时自检服务（[`examples/03_device_service/self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c)）中，`SelfTestProgress` 是通知上位机“自检做完了”的关键事件，**绝对不能因为发送槽恰巧正忙就被静默吞掉**！
 
-    看 `self_test_poll` 的第 6~8 行是怎么处理的：
+    `self_test_poll` 遇到发送缓冲暂满时保留待发结果，下次轮询重试。
 
     {/* [docs:device_job_poll] */}
     ```c
-    void self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
-      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return;
+    wl_err_t self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
+      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return WL_OK;
       self_test_progress_t progress = {.job_id = state->job_id,
         .observed = state->pattern ^ UINT32_C(0xa5a5)};
       const wl_err_t error = device_server_send_self_test_progress(endpoint, &progress);
-      if (error == WL_ERR_WOULD_BLOCK) return;
-      EXAMPLE_REQUIRE(error == WL_OK);
+      if (error == WL_ERR_WOULD_BLOCK) return WL_OK;
+      if (error != WL_OK) return error;
       state->job_pending = false;
+      return WL_OK;
     }
     ```
     {/* [/docs:device_job_poll] */}
@@ -122,35 +125,23 @@ void calculator_async_example(client_node_t *client) {
 | :--- | :--- | :--- |
 | **超时怎么算？** | 使用节点默认 `timeout_ms`（默认 500ms），从**下一次 `<node>_step(self, now)`** 传入的 `now` 开始挂表倒计时 | 从你调用时显式传入的 **`now`** 立即开始倒计时（排队等待 `step` 的时间也计入超时预算） |
 | **回调首参是什么？** | 强类型的节点指针 `<node>_node_t *self` | 你本次调用单独传入的 `void *user` 上下文指针 |
-| **能否主动取消？** | 不返回句柄，等待自然完成或超时 | 可通过输出参数 `&handle` 拿到句柄，随时调用 `<node>_cancel(self, handle)` 主动取消 |
+| **能否主动取消？** | 不返回句柄，等待自然完成或超时 | 可通过输出参数 `&handle` 拿到句柄，调用 `wl_endpoint_cancel(&self->core, handle)` 主动取消 |
 
 <Aside type="tip" title="为什么简化调用要从“下一次 step(now)”才开始计时？">
 因为 Wirelink 核心不自己读取系统时钟！如果你的设备休眠了 10 分钟后被按键唤醒并调用了简化版 `client_call_add()`，假如节点拿 10 分钟前最后一次 `step` 的旧时间戳来算超时，这个请求刚放进去就会被误判为“已超时 10 分钟”。等到下一次 `step(now)` 拿到新鲜时间戳时再启动倒计时，就彻底避免了陈旧时间戳误判！
 </Aside>
 
-### 主动取消（`cancel`）与防重入铁律
+### 主动取消与完成回调
 
 在 [`examples/01_rpc/lifecycle.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/lifecycle.c) 中，展示了填满 4 个并发槽、第 5 个返回 `WL_ERR_WOULD_BLOCK`、然后用 `handles[0]` 主动取消第 1 个请求的过程：
 
 {/* [docs:calculator_cancel_timeout] */}
 ```c
-for (unsigned i = 0; i < 4; ++i)
-  EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[0], &request, 0, 2,
-    done, &completions[i], &handles[i]) == WL_OK);
-EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[0], &request, 0, 2,
-  done, &completions[4], &rejected) == WL_ERR_WOULD_BLOCK);
-EXAMPLE_REQUIRE(completed == 0);
-
-/* Hold the transport: one request is leased, the other three stay queued. */
-EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 0) == WL_OK);
-EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handles[0]) == WL_OK);
-EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. */
+if (wl_endpoint_cancel(&endpoints[0].core, handles[0]) != WL_OK) return 1;
 ```
 {/* [/docs:calculator_cancel_timeout] */}
 
-注意看最后两行：调用 `cancel` 返回 `WL_OK` 时，**为什么 `completed` 仍然是 `0`，没有在 `cancel` 内部当场调用 `done` 回调？**
-- 这是 Wirelink 的**防重入保证（Anti-Reentrancy）**：如果 `cancel()` 在当前栈帧上直接调 `done()`，而你的 `done()` 回调里又发起了新的调用或操作了同一个状态机，极易引发重入死锁或 MCU 栈溢出。
-- 因此，**所有的完成回调（成功、拒绝、超时、取消、关闭）100% 统一在 `<node>_step()` 内部派发**。
+`wl_endpoint_cancel` 返回 `WL_OK` 后，后续的 `<node>_step()` 会派发 `WL_RPC_CANCELLED` 完成回调。
 
 <Challenge
   title="思考：本地取消 (cancel) 能撤回已经发上线的请求吗？"
@@ -186,7 +177,7 @@ EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. *
 
 <MultipleChoice
   id="lesson-05-cancel"
-  question="调用 cancel(&node, handle) 返回 WL_OK 后，对应的完成回调（outcome = WL_RPC_CANCELLED）会在何时触发？"
+  question="调用 wl_endpoint_cancel(&node.core, handle) 返回 WL_OK 后，对应的完成回调（outcome = WL_RPC_CANCELLED）会在何时触发？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[

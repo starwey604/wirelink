@@ -40,7 +40,7 @@ void device_client_on_self_test_progress(device_client_node_t *self, const self_
 }
 static void advance(void) {
   service.now = pair.now;
-  self_test_poll(&service, &server);
+  EXAMPLE_REQUIRE(self_test_poll(&service, &server) == WL_OK);
   example_pair_step(&pair);
 }
 static void await(const unsigned *count, unsigned target) {

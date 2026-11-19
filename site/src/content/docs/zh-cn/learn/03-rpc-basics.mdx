@@ -110,45 +110,43 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
       (void)request;
       unsigned *queries = self->user;
       response->name.length = 11; memcpy(response->name.data, "workbench\0x", 11);
-      response->firmware.length = 6; memcpy(response->firmware.data, "0.14.0", 6);
+      response->firmware.length = 6; memcpy(response->firmware.data, "0.0.99", 6);
       response->query_count = ++*queries;
       return 0;
     }
     ```
     {/* [/docs:device_info_server] */}
 
-    *(注：普通 C 字符串直接调生成的 `info_response_set_firmware(response, "0.14.0")` 即可；这里示例故意在 `"workbench\0x"` 中间塞了一个零字节 `\0`，用来证明 Wirelink 在线缆上是严格按 `length = 11` 完整传输全部字节的，不会被中间的 `\0` 截断！)*
+    普通 C 字符串可以用 `info_response_set_firmware(response, "0.0.99")` 写入。`"workbench\0x"` 含内嵌零字节，显式设置 `length = 11` 会传输全部 11 个字节。
   </TabItem>
 
   <TabItem label="2. 客户端回调按值保存 (client.c)">
-    看客户端的完成回调 `done` 第 4 行：
+    客户端的完成回调 `done` 在调用成功时保存响应的副本。
 
     {/* [docs:device_info_done] */}
     ```c
     static void done(info_client_node_t *self, wl_rpc_result_t outcome, const info_response_t *response) {
       (void)self;
-      EXAMPLE_REQUIRE(outcome.outcome == WL_RPC_SUCCESS && response);
+      if (outcome.outcome != WL_RPC_SUCCESS || response == NULL) return;
       result = *response;
       ++completed;
     }
     ```
     {/* [/docs:device_info_done] */}
 
-    **为什么必须写 `result = *response;`，而不能把 `response` 指针存起来？**
-    因为回调参数 `const info_response_t *response` 指向的是 `info_client_step()` 栈帧上的**临时解码变量**！一旦 `done()` 回调函数返回，那个栈上临时变量就销毁了。而通过 `result = *response;` 按值复制后，哪怕后面把两个节点彻底关闭，保存在 `result` 里的字符串依然完好无损：
+    响应指针在回调期间有效。`result = *response;` 会复制结构体及其内联字符串，关闭节点后仍可读取 `result`。下例在同一进程中分别推进请求、服务端和响应。客户端的 `now` 用于出站 RPC 超时，服务端可以传 `0`。
 
     {/* [docs:device_info_client] */}
     ```c
-    for (unsigned call = 0; call < 8; ++call) {
-      EXAMPLE_REQUIRE(info_client_call_get_info(&caller, &(info_request_t){0}, done) == WL_OK);
-      EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
-      EXAMPLE_REQUIRE(info_server_step(&callee, call) == WL_OK);
-      EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
-      EXAMPLE_REQUIRE(completed == call + 1 && result.query_count == call + 1);
+    static wl_err_t read_device_info(uint32_t now) {
+      wl_err_t error = info_client_call_get_info(&caller, &(info_request_t){0}, done);
+      if (error != WL_OK) return error;
+      error = info_client_step(&caller, now);
+      if (error != WL_OK) return error;
+      error = info_server_step(&callee, 0);
+      if (error != WL_OK) return error;
+      return info_client_step(&caller, now);
     }
-    EXAMPLE_REQUIRE(info_client_close(&caller) == WL_OK && info_server_close(&callee) == WL_OK);
-    EXAMPLE_REQUIRE(info_client_quiescent(&caller) && info_server_quiescent(&callee));
-    EXAMPLE_REQUIRE(result.name.length == 11 && memcmp(result.name.data, "workbench\0x", 11) == 0);
     ```
     {/* [/docs:device_info_client] */}
   </TabItem>

@@ -1,7 +1,7 @@
 # Four concurrent RPC calls
 
 Build `wirelink_calculator_demo` with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and WLC
-0.14.0. `calculator.wl` defines one RPC, an embedded `client` and an embedded
+0.0.99. `calculator.wl` defines one RPC, an embedded `client` and an embedded
 `server`. Implement the two packet-write hooks and `server_on_add`; no handler
 table or separate port allocation is needed. Four calls coexist, snapshot their
 requests during admission, and finish through typed callbacks. The blocking

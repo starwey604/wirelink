@@ -75,7 +75,7 @@ typedef struct add_response_s {
 /* 2. 节点类型与调用入口（已生成在 calculator.c 中） */
 wl_err_t server_init(server_node_t *self);
 wl_err_t server_rx_packet(server_node_t *self, const uint8_t *data, size_t length);
-wl_err_t server_step(server_node_t *self, uint32_t now_ms);
+wl_err_t server_step(server_node_t *self, uint32_t now);
 
 /* 3. 需要由应用层实现的两个回调函数 */
 extern int32_t server_on_add(
@@ -142,11 +142,13 @@ int main(void) {
      * }
      */
 
-    /* 传入当前毫秒时间戳，推进解包、回调派发与发送 */
-    server_step(&server, board_millis());
+    /* 推进解包、回调派发与响应发送。 */
+    server_step(&server, 0);
   }
 }
 ```
+
+`now` 用于计算出站 RPC 超时。这个节点只提供 RPC 服务，因此传 `0`。
 
 数据在主循环中的流转顺序如下：
 
@@ -158,7 +160,7 @@ sequenceDiagram
 
   Peer->>App: 收到请求数据包 (left=20, right=22)
   App->>Node: 1. server_rx_packet(&server, data, len)
-  App->>Node: 2. server_step(&server, now_ms)
+  App->>Node: 2. server_step(&server, 0)
   activate Node
   Node->>App: 3. 解码并调用 server_on_add(...)
   App-->>Node: 填写 sum = 42，返回 0
@@ -173,7 +175,7 @@ sequenceDiagram
 >
   不会。
 
-  `server_rx_packet` 只负责将收到的数据拷贝到节点内部缓冲区并立即返回；解码数据包、调用 `server_on_add` 以及通过 `server_tx_write` 发送响应，全部在主循环调用 `server_step(&server, now_ms)` 时顺序执行。这使得业务回调始终运行在主循环上下文中。
+  `server_rx_packet` 只负责将收到的数据拷贝到节点内部缓冲区并立即返回；解码数据包、调用 `server_on_add` 以及通过 `server_tx_write` 发送响应，全部在主循环调用 `server_step(&server, 0)` 时顺序执行。这使得业务回调始终运行在主循环上下文中。
 </Challenge>
 
 ---
@@ -233,7 +235,7 @@ four concurrent copied requests and business rejection passed
   items={[
     "能够使用 message、rpc 与 node 编写基础的 .wl 文件。",
     "能够运行 wlc compile --node <name> 生成单端 C 代码，并识别 <node>_node_t 与 <node>_on_<rpc> 等符号。",
-    "理解服务端回调返回 0 与非零值的区别，以及通过 step(now_ms) 驱动节点的流程。"
+    "理解服务端回调返回 0 与非零值的区别，以及通过 step(now) 驱动节点的流程。"
   ]}
 />
 

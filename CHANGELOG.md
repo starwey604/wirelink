@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.0.99
+
+- Rename the C core and CMake target to endpoint, expose the wire helpers in
+  `wirelink/wire.h`, and rename the Wirelink Zephyr adapters.
+- Use integer generated-code contract 1, independent of product versions.
+  Regenerate C and SDK artifacts for this contract.
+- Replace release pairing and wheel qualification with build, test, and SDK
+  smoke workflows.
+
 ## 0.14.0
 
 - Replace binding profiles with single-file RPC and node declarations, explicit
@@ -12,8 +21,6 @@
   contracts, deferred simple-call timeouts and explicit-time extended RPC calls.
 - Qualify embeddable C/C++ packet-port layouts and use exact codegen contract
   0.14. Regenerate all SDKs and migrate installed, host and Zephyr consumers.
-
-See [the migration notes](docs/release-v0.14.0-cn.md).
 
 ## 0.13.0
 

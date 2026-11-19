@@ -19,10 +19,10 @@ Start the server with the addresses/ports reversed relative to the client. The
 client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
 address/port across three new processes and verifies absent-peer timeout.
 
-C owns kernel/port/two RX units. The desktop C++ helper only owns packet UDP and
+C owns the endpoint, port and two RX units. The desktop C++ helper only owns packet UDP and
 wait resources: it initializes a fresh instance identity outside the core,
-services I/O and advances the same kernel on the calling owner, and merges
-kernel/I/O waiting without an RPC registry or thread. Admission encodes before
+services I/O and advances the same endpoint on the calling owner, and merges
+waiting for the endpoint and I/O without an RPC registry or thread. Admission encodes before
 return; completion copies the borrowed response. Close stops actual I/O, steps
 until physical quiescence, then frees socket resources.
 

@@ -55,10 +55,11 @@ wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
 <!-- [docs:telemetry_receive] -->
 ```c
 unsigned telemetry_received;
+telemetry_t latest_telemetry;
+
 void sub_on_telemetry(sub_node_t *self, const telemetry_t *message) {
   (void)self;
-  EXAMPLE_REQUIRE(message->sample == telemetry_received);
-  EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
+  latest_telemetry = *message;
   ++telemetry_received;
 }
 ```

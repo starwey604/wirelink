@@ -20,7 +20,7 @@ Wirelink 的 `src/` 核心不包含任何互斥锁、线程原语或系统时钟
 
 ### 1. 裸机前后台循环（Superloop）
 
-在无 RTOS 的 MCU 上，只需周期性传入当前单调毫秒时间戳 `now` 并推进步进预算；生成的 step 使用预算 16，直接调用 wl_endpoint_step 时预算范围为 `1 .. WL_ENDPOINT_BUDGET`：
+会发起 RPC 的节点在每次步进时传入同一单调毫秒时钟的当前值。下面的主循环用平台提供的 `board_millis()` 读取时钟。生成的 `step` 使用预算 16，直接调用 `wl_endpoint_step` 时可指定 `1 .. WL_ENDPOINT_BUDGET`。
 
 ```c
 for (;;) {
@@ -40,7 +40,7 @@ for (;;) {
 为了避免 RTOS 线程空转浪费电量，可以结合 `wl_packet_config_t.notify` 回调和 `wl_endpoint_ready` 实现按需唤醒与精确超时休眠：
 
 1. 在端口配置中注册 `notify` 回调，在其中释放信号量（例如 `k_sem_give`）或设置事件标志位（**锁存事件**）。
-2. 工作线程进入休眠前调用 `wl_endpoint_ready(&endpoint.core, now, &has_deadline, &deadline)`：
+2. 工作线程进入休眠前，从相同的单调时钟读取 `now`，再调用 `wl_endpoint_ready(&endpoint.core, now, &has_deadline, &deadline)`：
    - 若返回非零，说明当前已有待处理事件，跳过休眠直接调用 `step`。
    - 若返回 `0`，则根据 `has_deadline`（`1` 时剩余等待时间为 `(int32_t)(deadline - now)`，否则无限期等待）挂起信号量，被 `notify` 或超时唤醒后再调用 `step`。
 

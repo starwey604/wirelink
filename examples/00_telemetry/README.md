@@ -1,6 +1,6 @@
 # Send telemetry with two self-contained nodes
 
-Configure with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and WLC 0.14.0, then run
+Configure with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and WLC 0.0.99, then run
 `wirelink_telemetry_demo` or its CTest case. `telemetry.wl` declares the message,
 `pub` sender and `sub` receiver. CMake uses `ALL_NODES` because this program hosts
 both nodes; a firmware containing only the publisher uses `NODE pub`.

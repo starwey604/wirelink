@@ -58,7 +58,7 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
 
 ## 第二步：实现发送与接收
 
-在 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 中，为了无需硬件外设即可直接运行，发送端 `pub` 与接收端 `sub` 放在同一个 C 程序里，`pub_tx_write` 直接将输出帧交给 `sub_rx_packet`。示例中的 `EXAMPLE_REQUIRE(...)` 是用于验证返回值的断言宏。
+在 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 中，`pub` 和 `sub` 位于同一个 C 程序。`pub_tx_write` 将整帧交给 `sub_rx_packet`，在内存中模拟链路。
 
 <Tabs>
   <TabItem label="1. 连接收发 (publisher.c)">
@@ -75,34 +75,34 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
   </TabItem>
 
   <TabItem label="2. 接收回调 (subscriber.c)">
-    接收端实现 `sub_on_telemetry`，在收到并解码消息后读取字段。由于单向消息不需要回复，回调返回类型为 `void`：
+    `sub_on_telemetry` 在接收端解码消息后运行，并按值保存最新采样。单向消息的回调返回 `void`。
 
     {/* [docs:telemetry_receive] */}
     ```c
     unsigned telemetry_received;
+    telemetry_t latest_telemetry;
+
     void sub_on_telemetry(sub_node_t *self, const telemetry_t *message) {
       (void)self;
-      EXAMPLE_REQUIRE(message->sample == telemetry_received);
-      EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
+      latest_telemetry = *message;
       ++telemetry_received;
     }
     ```
     {/* [/docs:telemetry_receive] */}
   </TabItem>
 
-  <TabItem label="3. 发送循环 (publisher.c)">
-    初始化两端后，循环调用 `pub_send_telemetry` 提交采样，再通过 `pub_step` 与 `sub_step` 推进发送与接收：
+  <TabItem label="3. 发送采样 (publisher.c)">
+    初始化两端后，调用 `pub_send_telemetry` 提交采样，再用 `pub_step` 和 `sub_step` 分别推进发送与接收。两个节点都没有出站 RPC，`step` 的时间参数传 `0`。
 
     {/* [docs:telemetry_publish] */}
     ```c
-    EXAMPLE_REQUIRE(pub_init(&publisher) == WL_OK);
-    EXAMPLE_REQUIRE(sub_init(&subscriber) == WL_OK);
-    for (unsigned sample = 0; sample < 12; ++sample) {
-      EXAMPLE_REQUIRE(pub_send_telemetry(&publisher, &(telemetry_t){
-          .sample = sample, .temperature_centi_c = -1234}) == WL_OK);
-      EXAMPLE_REQUIRE(pub_step(&publisher, sample) == WL_OK);
-      EXAMPLE_REQUIRE(sub_step(&subscriber, sample) == WL_OK);
-      EXAMPLE_REQUIRE(telemetry_received == sample + 1);
+    static wl_err_t publish_sample(uint32_t sample) {
+      wl_err_t error = pub_send_telemetry(&publisher, &(telemetry_t){
+          .sample = sample, .temperature_centi_c = -1234});
+      if (error != WL_OK) return error;
+      error = pub_step(&publisher, 0);
+      if (error != WL_OK) return error;
+      return sub_step(&subscriber, 0);
     }
     ```
     {/* [/docs:telemetry_publish] */}
@@ -182,14 +182,15 @@ sequenceDiagram
 
     {/* [docs:device_job_poll] */}
     ```c
-    void self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
-      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return;
+    wl_err_t self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
+      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return WL_OK;
       self_test_progress_t progress = {.job_id = state->job_id,
         .observed = state->pattern ^ UINT32_C(0xa5a5)};
       const wl_err_t error = device_server_send_self_test_progress(endpoint, &progress);
-      if (error == WL_ERR_WOULD_BLOCK) return;
-      EXAMPLE_REQUIRE(error == WL_OK);
+      if (error == WL_ERR_WOULD_BLOCK) return WL_OK;
+      if (error != WL_OK) return error;
       state->job_pending = false;
+      return WL_OK;
     }
     ```
     {/* [/docs:device_job_poll] */}

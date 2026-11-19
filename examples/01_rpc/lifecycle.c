@@ -40,7 +40,6 @@ int main(void) {
       &handlers, NULL) == WL_OK);
   wl_call_handle_t handles[4], rejected;
   add_request_t request = {.left = 20, .right = 22};
-  /* [docs:calculator_cancel_timeout] */
   for (unsigned i = 0; i < 4; ++i)
     EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[0], &request, 0, 2,
       done, &completions[i], &handles[i]) == WL_OK);
@@ -50,9 +49,10 @@ int main(void) {
 
   /* Hold the transport: one request is leased, the other three stay queued. */
   EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 0) == WL_OK);
-  EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handles[0]) == WL_OK);
-  EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. */
+  /* [docs:calculator_cancel_timeout] */
+  if (wl_endpoint_cancel(&endpoints[0].core, handles[0]) != WL_OK) return 1;
   /* [/docs:calculator_cancel_timeout] */
+  EXAMPLE_REQUIRE(completed == 0); /* Completion runs during step. */
   EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 1) == WL_OK);
   EXAMPLE_REQUIRE(completions[0].result.outcome == WL_RPC_CANCELLED);
   EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handles[0]) == WL_ERR_NOT_FOUND);

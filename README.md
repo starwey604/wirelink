@@ -6,7 +6,7 @@
 
 只需写一份 `.wl` 协议文件定义消息（`message`）、远程调用（`rpc`）与通信两端角色（`node`），即可自动生成一对干净的 `.h/.c` 下位机固件节点代码，以及带完整类型提示的 **Python / C++20 上位机客户端 SDK**。
 
-- **纯粹的单线程 `step(now_ms)` 驱动模型**：C11 核心不依赖任何操作系统、线程、锁或系统时钟 API；主循环传入当前毫秒时间戳并步进，中断（ISR）与 DMA 仅操作无锁传输边界。
+- **单线程 `step(now)` 驱动**：主循环推进 C11 端点。出站 RPC 的超时使用调用方传入的单调毫秒时间，中断（ISR）与 DMA 操作传输边界。
 - **双向 RPC 与单向 Telemetry 协同**：同一份协议同时支持一问一答的双向 RPC（`call` / `serve`，自动管理会话、超时、取消与业务拒绝码）与高频单向遥测/事件推送（`send` / `recv`）。
 - **按角色精确裁剪的固定静态内存**：默认节点内嵌端口与定长收发缓冲（最多 4 路并发出站 RPC、3 个待发回复、1 个普通消息快照槽、8 项 TX 调度队列）。未声明的角色分配 **0 字节**；槽位暂满时显式返回 `WL_ERR_WOULD_BLOCK`。
 - **正交的线缆分帧**：一行 `framing = cobs_crc16;` 即可在 UART 串口字节流上自动完成 `0x00` 断包与 CRC-16/CCITT-FALSE 校验；UDP 等自带包边界通道使用默认的 `framing = native;`。
@@ -85,17 +85,19 @@ with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
 
 <!-- [docs:calculator_async_rpc] -->
 ```c
-void calculator_async_example(client_node_t *client) {
+wl_err_t calculator_async_example(client_node_t *client) {
   /* Four accepted calls coexist; request values are copied during admission. */
   for (int32_t i = 0; i < 4; ++i) {
-    EXAMPLE_REQUIRE(client_call_add(client, &(add_request_t){
-        .left = i, .right = 42 - i}, done) == WL_OK);
+    const wl_err_t error = client_call_add(client, &(add_request_t){
+        .left = i, .right = 42 - i}, done);
+    if (error != WL_OK) return error;
   }
+  return WL_OK;
 }
 ```
 <!-- [/docs:calculator_async_rpc] -->
 
-主循环（Single Owner）只需周期性调用 `<node>_step(&node, now_ms)` 即可统一驱动解包、回调、超时检查与发送。
+主循环调用 `<node>_step(&node, now)` 处理解包、回调、超时和发送。只接收消息或提供 RPC 服务的节点可以传 `0`。
 
 ---
 

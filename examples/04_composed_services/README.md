@@ -6,7 +6,7 @@ node. CMake selects `NODE product`; handlers are linked as `product_on_*` symbol
 The existing business message structures/IDs and upload phase/status numbers
 remain unchanged. The application messages do not define a standard bulk wire.
 
-Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching WLC 0.14.0, then run
+Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching WLC 0.0.99, then run
 `wirelink_composed_services` or `ctest -R 'composed_services|import_dependencies'`.
 The same source runs in the Zephyr composed_services sample. It transfers 4096
 bytes through packet loopback, without flash writes, actuators or a real reboot.
@@ -20,7 +20,7 @@ A repeated END confirms the committed object without committing twice. Query
 RPC and ordinary telemetry continue while the transfer progresses. Close aborts
 an incomplete application upload once and produces CLOSED for a pending Query.
 
-This is application-specific business logic. The kernel has no bulk sender,
+This is application-specific business logic. The endpoint has no bulk sender,
 receiver, reliable DATA/ACK engine, retained LATEST policy, replay cache, peer
 reset hook, response ACK observer or generic service scheduler. Both RPC roles
 remain available. Ordinary TX admission snapshots the message; a BUSY/WOULD_BLOCK

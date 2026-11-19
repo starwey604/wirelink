@@ -55,15 +55,15 @@ Wirelink 节点既能跑在最简单的裸机 `while (1)` 里，也能在 FreeRT
 
 <Tabs>
   <TabItem label="1. 裸机主循环 (Superloop)">
-    在裸机下，主循环只需不断把当前毫秒时间戳 `board_millis()` 传给 `<node>_step()`：
+    主循环通过 `<node>_step()` 推进端点。下面的设备节点只响应 RPC 和处理遥测，因此传 `0`。
 
     ```c
     for (;;) {
       /* 1. 从串口环形缓冲喂数据（若有） */
       poll_uart_rx_into_node(&device);
 
-      /* 2. 驱动节点状态机（单次最多处理 16 个内部事件，绝不饿死其他任务） */
-      device_step(&device, board_millis());
+      /* 2. 推进节点，单次预算为 16。 */
+      device_step(&device, 0);
 
       /* 3. 执行你的其他裸机任务 */
       app_task_poll();
