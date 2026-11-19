@@ -43,9 +43,9 @@ struct Session::Impl {
     }
     if (started) (void)executor.stop();
     else if (initialized) {
-      (void)wl_kernel_close(driver.core);
+      (void)wl_endpoint_close(driver.core);
       if (adapter) adapter->stop();
-      (void)wl_kernel_step(driver.core, environment.clock.now_ms(environment.clock.user_data), 16);
+      (void)wl_endpoint_step(driver.core, environment.clock.now_ms(environment.clock.user_data), 16);
     }
     adapter.reset();
   }
@@ -56,7 +56,7 @@ struct Session::Impl {
     call->endpoint = driver.context;
     call->keepalive = call;
     wl_err_t status = call->submit(now, timeout - elapsed,
-        [](void *context, wl_kernel_result_t result) {
+        [](void *context, wl_rpc_result_t result) {
           auto *task = static_cast<detail::AsyncCall *>(context);
           auto lifetime = std::move(task->keepalive);
           task->call = {};
@@ -172,7 +172,7 @@ wl_err_t Session::submit(std::shared_ptr<detail::AsyncCall> call, uint32_t timeo
       struct Leave { Impl *p; ~Leave() { p->leave(); } } leave{impl.get()};
       try {
         return impl->executor.post([self = impl.get(), task](uint32_t) {
-          if (task->call.instance) (void)wl_kernel_cancel(self->driver.core, task->call);
+          if (task->call.instance) (void)wl_endpoint_cancel(self->driver.core, task->call);
         }) == WL_OK;
       } catch (const std::bad_alloc &) { return false; }
     };

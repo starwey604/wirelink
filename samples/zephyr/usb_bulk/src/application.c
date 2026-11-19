@@ -11,7 +11,7 @@ static wl_err_t status(usb_sample_application_t *app, uint32_t id, int phase, in
     return WL_ERR_CORRUPT_PAYLOAD;
   app->pending_id = BULK_STATUS_MESSAGE_ID; app->output_pending = true; return WL_OK;
 }
-static wl_err_t begin(usb_sample_application_t *app, const wl_kernel_frame_t *frame) {
+static wl_err_t begin(usb_sample_application_t *app, const wl_wire_frame_t *frame) {
   bulk_begin_t value;
   if (bulk_begin_decode(frame->payload, frame->length, &value) != WL_CODEC_OK ||
       !value.has_transfer_id || !value.has_total_length || !value.has_requested_chunk_size ||
@@ -36,7 +36,7 @@ static wl_err_t begin(usb_sample_application_t *app, const wl_kernel_frame_t *fr
   }
   return status(app, value.transfer_id, CONTROL_BULK_PHASE_BEGIN, code);
 }
-static wl_err_t chunk(usb_sample_application_t *app, const wl_kernel_frame_t *frame) {
+static wl_err_t chunk(usb_sample_application_t *app, const wl_wire_frame_t *frame) {
   bulk_chunk_t value;
   if (bulk_chunk_decode(frame->payload, frame->length, &value) != WL_CODEC_OK ||
       !value.has_transfer_id || !value.has_offset || !value.has_data)
@@ -65,7 +65,7 @@ static wl_err_t chunk(usb_sample_application_t *app, const wl_kernel_frame_t *fr
   }
   return status(app, value.transfer_id, CONTROL_BULK_PHASE_CHUNK, code);
 }
-static wl_err_t end(usb_sample_application_t *app, const wl_kernel_frame_t *frame) {
+static wl_err_t end(usb_sample_application_t *app, const wl_wire_frame_t *frame) {
   bulk_end_t value;
   if (bulk_end_decode(frame->payload, frame->length, &value) != WL_CODEC_OK ||
       !value.has_transfer_id || !value.has_total_length || !value.has_object_crc32c)
@@ -89,7 +89,7 @@ static wl_err_t end(usb_sample_application_t *app, const wl_kernel_frame_t *fram
   }
   return status(app, value.transfer_id, CONTROL_BULK_PHASE_END, code);
 }
-wl_err_t usb_sample_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
+wl_err_t usb_sample_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   usb_sample_application_t *app = core->user;
   /* A fair kernel may grant RX a turn before submitting the previous echo.
    * Retain that input without decoding or applying any business side effect. */
@@ -114,20 +114,20 @@ wl_err_t usb_sample_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
       app->pending_id = frame->message_id; app->output_pending = true; return WL_OK;
   }
 }
-static wl_err_t flush(usb_sample_application_t *app, wl_kernel_t *core) {
+static wl_err_t flush(usb_sample_application_t *app, wl_endpoint_t *core) {
   if (!app->output_pending) return WL_OK;
   uint8_t *frame;
   size_t capacity = 0U;
-  wl_err_t error = wl_kernel_msg_claim(core, &frame, &capacity);
+  wl_err_t error = wl_endpoint_msg_claim(core, &frame, &capacity);
   if (error == WL_OK) {
-    if (capacity < WL_KERNEL_NATIVE_HEADER + app->pending_length)
+    if (capacity < WL_WIRE_NATIVE_HEADER + app->pending_length)
       return WL_ERR_BUF_TOO_SMALL;
     if (app->pending_length)
-      memcpy(frame + WL_KERNEL_NATIVE_HEADER, app->pending, app->pending_length);
+      memcpy(frame + WL_WIRE_NATIVE_HEADER, app->pending, app->pending_length);
     error = wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, app->pending_id,
                                app->pending_length);
     if (error == WL_OK)
-      error = wl_kernel_msg_commit(core, WL_KERNEL_NATIVE_HEADER + app->pending_length);
+      error = wl_endpoint_msg_commit(core, WL_WIRE_NATIVE_HEADER + app->pending_length);
   }
   if (error == WL_OK) {
     app->output_pending = false;
@@ -137,12 +137,12 @@ static wl_err_t flush(usb_sample_application_t *app, wl_kernel_t *core) {
   }
   return error == WL_ERR_WOULD_BLOCK ? WL_OK : error;
 }
-static int tx_progress(const usb_sample_application_t *app, const wl_kernel_t *core) {
+static int tx_progress(const usb_sample_application_t *app, const wl_endpoint_t *core) {
   (void)app;
   return wl_packet_tx_ready(core->port) || (!wl_packet_tx_active(core->port) &&
     wl_packet_activity_pending(core->port));
 }
-wl_err_t usb_sample_pass(usb_sample_application_t *app, wl_kernel_t *core, uint32_t now) {
+wl_err_t usb_sample_pass(usb_sample_application_t *app, wl_endpoint_t *core, uint32_t now) {
   app->now = now;
   if (!app->output_pending && app->active && now - app->touched_at >= 1000) {
     app->active = false; ++app->aborts;
@@ -157,15 +157,15 @@ wl_err_t usb_sample_pass(usb_sample_application_t *app, wl_kernel_t *core, uint3
    * consuming the only wake before the queued output can progress. No RPC is
    * registered, so this gate cannot suppress a client deadline. */
   if (!app->output_pending || tx_progress(app, core)) {
-    error = wl_kernel_step(core, now, 3U);
+    error = wl_endpoint_step(core, now, 3U);
     if (error != WL_OK) return error;
   }
   return flush(app, core);
 }
-int usb_sample_ready(const usb_sample_application_t *app, const wl_kernel_t *core, uint32_t now) {
+int usb_sample_ready(const usb_sample_application_t *app, const wl_endpoint_t *core, uint32_t now) {
   if (app->output_pending) return tx_progress(app, core);
   int has_deadline = 0; uint32_t deadline = 0;
-  return wl_kernel_ready(core, now, &has_deadline, &deadline);
+  return wl_endpoint_ready(core, now, &has_deadline, &deadline);
 }
 uint32_t usb_sample_deadline(const usb_sample_application_t *app, uint32_t now) {
   if (!app->active || app->output_pending) return UINT32_MAX;

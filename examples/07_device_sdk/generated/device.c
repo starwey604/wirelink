@@ -212,115 +212,115 @@ static const wl_codec_desc_t numbers_desc = {
 
 
 #include <limits.h>
-static void device_complete_configure(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+static void device_complete_configure(wl_endpoint_t *core, const wl_endpoint_call_t *call, wl_rpc_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   configure_response_t response;
   const configure_response_t *view = NULL;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     if (configure_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
-    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_configure_cb_t)call->callback)((device_node_t *)core, result, view);
 }
-static void device_complete_configure_ex(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+static void device_complete_configure_ex(wl_endpoint_t *core, const wl_endpoint_call_t *call, wl_rpc_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   configure_response_t response;
   const configure_response_t *view = NULL;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     if (configure_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
-    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_configure_ex_cb_t)call->callback)(call->user, result, view);
 }
-static wl_err_t device_call_configure_start(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout, uint8_t has_now, wl_kernel_complete_fn complete, void (*callback)(void), void *user, wl_kernel_call_handle_t *out) {
-  if (out != NULL) *out = (wl_kernel_call_handle_t){0};
+static wl_err_t device_call_configure_start(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout, uint8_t has_now, wl_endpoint_complete_fn complete, void (*callback)(void), void *user, wl_call_handle_t *out) {
+  if (out != NULL) *out = (wl_call_handle_t){0};
   if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
   if (timeout == 0U) timeout = 500U;
   uint8_t slot; uint8_t *payload; size_t capacity;
-  wl_err_t error = wl_kernel_call_claim(&self->core, &slot, &payload, &capacity);
+  wl_err_t error = wl_endpoint_call_claim(&self->core, &slot, &payload, &capacity);
   if (error != WL_OK) return error;
   size_t length = 0U;
   if (configure_request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-  return wl_kernel_call_commit(&self->core, slot, 5U, 6U, length, now, timeout, has_now, complete, callback, user, out);
+  return wl_endpoint_call_commit(&self->core, slot, 5U, 6U, length, now, timeout, has_now, complete, callback, user, out);
 }
 wl_err_t device_call_configure(device_node_t *self, const configure_request_t *request, device_configure_cb_t callback) {
   return device_call_configure_start(self, request, 0U, 0U, 0U, device_complete_configure, (void (*)(void))callback, self, NULL);
 }
-wl_err_t device_call_configure_ex(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout_ms, device_configure_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out) {
+wl_err_t device_call_configure_ex(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout_ms, device_configure_ex_cb_t callback, void *user, wl_call_handle_t *out) {
   return device_call_configure_start(self, request, now, timeout_ms, 1U, device_complete_configure_ex, (void (*)(void))callback, user, out);
 }
-static void device_complete_get_info(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+static void device_complete_get_info(wl_endpoint_t *core, const wl_endpoint_call_t *call, wl_rpc_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   info_response_t response;
   const info_response_t *view = NULL;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     if (info_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
-    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_get_info_cb_t)call->callback)((device_node_t *)core, result, view);
 }
-static void device_complete_get_info_ex(wl_kernel_t *core, const wl_kernel_call_t *call, wl_kernel_result_t result, const uint8_t *body, size_t length) {
+static void device_complete_get_info_ex(wl_endpoint_t *core, const wl_endpoint_call_t *call, wl_rpc_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   info_response_t response;
   const info_response_t *view = NULL;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     if (info_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
-    else result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+    else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_get_info_ex_cb_t)call->callback)(call->user, result, view);
 }
-static wl_err_t device_call_get_info_start(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout, uint8_t has_now, wl_kernel_complete_fn complete, void (*callback)(void), void *user, wl_kernel_call_handle_t *out) {
-  if (out != NULL) *out = (wl_kernel_call_handle_t){0};
+static wl_err_t device_call_get_info_start(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout, uint8_t has_now, wl_endpoint_complete_fn complete, void (*callback)(void), void *user, wl_call_handle_t *out) {
+  if (out != NULL) *out = (wl_call_handle_t){0};
   if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
   if (timeout == 0U) timeout = 500U;
   uint8_t slot; uint8_t *payload; size_t capacity;
-  wl_err_t error = wl_kernel_call_claim(&self->core, &slot, &payload, &capacity);
+  wl_err_t error = wl_endpoint_call_claim(&self->core, &slot, &payload, &capacity);
   if (error != WL_OK) return error;
   size_t length = 0U;
   if (info_request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-  return wl_kernel_call_commit(&self->core, slot, 2U, 4U, length, now, timeout, has_now, complete, callback, user, out);
+  return wl_endpoint_call_commit(&self->core, slot, 2U, 4U, length, now, timeout, has_now, complete, callback, user, out);
 }
 wl_err_t device_call_get_info(device_node_t *self, const info_request_t *request, device_get_info_cb_t callback) {
   return device_call_get_info_start(self, request, 0U, 0U, 0U, device_complete_get_info, (void (*)(void))callback, self, NULL);
 }
-wl_err_t device_call_get_info_ex(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout_ms, device_get_info_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out) {
+wl_err_t device_call_get_info_ex(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout_ms, device_get_info_ex_cb_t callback, void *user, wl_call_handle_t *out) {
   return device_call_get_info_start(self, request, now, timeout_ms, 1U, device_complete_get_info_ex, (void (*)(void))callback, user, out);
 }
 static void device_error(void *user, uint16_t id, wl_err_t error) {
   device_node_t *self = user;
   if (self->on_error != NULL) self->on_error(self->user, id, error);
 }
-static wl_err_t device_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
+static wl_err_t device_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   device_node_t *self = (device_node_t *)core;
   (void)self;
   switch (frame->message_id) {
-  case 6U: return wl_kernel_response(core, frame);
-  case 4U: return wl_kernel_response(core, frame);
+  case 6U: return wl_endpoint_response(core, frame);
+  case 4U: return wl_endpoint_response(core, frame);
   default: return WL_ERR_NOT_SUPPORTED;
   }
 }
 wl_err_t device_init(device_node_t *self, wl_packet_port_t *port) {
   if (self == NULL || port == NULL) return WL_ERR_INVALID_ARG;
   memset(self, 0, sizeof(*self));
-  wl_kernel_config_t config = {.port = port, .route = device_route, .on_error = device_error, .user = self,
+  wl_endpoint_config_t config = {.port = port, .route = device_route, .on_error = device_error, .user = self,
       .storage = {
           .requests = &self->requests[0][0], .request_stride = 222U,
           .replies = NULL, .reply_stride = 0U,
           .message = NULL, .message_capacity = 0U,
       }};
-  return wl_kernel_init(&self->core, &config);
+  return wl_endpoint_init(&self->core, &config);
 }
 wl_err_t device_step(device_node_t *self, uint32_t now) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_step(&self->core, now, WL_KERNEL_BUDGET);
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_step(&self->core, now, WL_ENDPOINT_BUDGET);
 }
 wl_err_t device_close(device_node_t *self) {
   if (self == NULL) return WL_ERR_INVALID_ARG;
-  wl_err_t error = wl_kernel_close(&self->core);
+  wl_err_t error = wl_endpoint_close(&self->core);
   return error;
 }
 int device_quiescent(const device_node_t *self) {
-  return self != NULL && wl_kernel_quiescent(&self->core);
+  return self != NULL && wl_endpoint_quiescent(&self->core);
 }
-wl_err_t device_cancel(device_node_t *self, wl_kernel_call_handle_t handle) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_cancel(&self->core, handle);
+wl_err_t device_cancel(device_node_t *self, wl_call_handle_t handle) {
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_cancel(&self->core, handle);
 }

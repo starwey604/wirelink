@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
     if (example_udp_step(udp, &client.core, example_now_ms()) != WL_OK ||
         example_udp_wait(udp, &client.core, 100) != WL_OK) break;
   }
-  if (state.completions && state.result.outcome == WL_KERNEL_SUCCESS) {
+  if (state.completions && state.result.outcome == WL_RPC_SUCCESS) {
     printf("20 + 22 = %ld\n", (long)state.response.sum);
     const uint32_t started = example_now_ms();
     while (example_running() && !state.samples && (uint32_t)(example_now_ms() - started) < 500) {

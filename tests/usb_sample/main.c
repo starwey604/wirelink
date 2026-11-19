@@ -5,9 +5,9 @@
 #include <string.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); abort(); } } while (0)
 static usb_sample_application_t app;
-static wl_kernel_t core;
+static wl_endpoint_t core;
 static wl_packet_port_t port;
-static uint8_t rx[2][USB_SAMPLE_FRAME_MAX + 1], snapshots[WL_KERNEL_TX_COUNT][USB_SAMPLE_FRAME_MAX];
+static uint8_t rx[2][USB_SAMPLE_FRAME_MAX + 1], snapshots[WL_ENDPOINT_TX_COUNT][USB_SAMPLE_FRAME_MAX];
 static const uint8_t *leased;
 static size_t lease_length;
 static wl_packet_token_t token;
@@ -29,8 +29,8 @@ static void complete(void) {
   /* The model driver consumes the source, then acknowledges actual drain. */
   memcpy(captured, leased, lease_length); captured_length = lease_length;
   CHECK(wl_packet_tx_publish(&port, token, WL_PACKET_CONSUMED) == WL_OK);
-  wl_kernel_frame_t frame;
-  CHECK(wl_kernel_native_none_read(captured, captured_length, &frame) == WL_OK);
+  wl_wire_frame_t frame;
+  CHECK(wl_wire_native_none_read(captured, captured_length, &frame) == WL_OK);
   CHECK(outputs < 64); output_ids[outputs++] = frame.message_id;
   leased = NULL;
   pass(); CHECK(wl_packet_tx_active(&port));
@@ -46,7 +46,7 @@ static wl_err_t input(uint16_t id, const uint8_t *body, size_t length) {
   wl_err_t error = wl_packet_rx_claim(&port, length + 4, &claim);
   if (error != WL_OK) return error;
   memcpy(claim.span.data + 4, body, length);
-  CHECK(wl_kernel_native_none_seal(claim.span.data, claim.span.length, id, length) == WL_OK);
+  CHECK(wl_wire_native_none_seal(claim.span.data, claim.span.length, id, length) == WL_OK);
   return wl_packet_rx_commit(&port, &claim, length + 4);
 }
 static uint8_t body[USB_SAMPLE_PAYLOAD_MAX];
@@ -74,9 +74,9 @@ static void end(uint32_t id, uint64_t total, uint32_t crc) {
   CHECK(input(BULK_END_MESSAGE_ID, body, length) == WL_OK); settle();
 }
 static void status(int code, uint64_t next) {
-  wl_kernel_frame_t frame;
+  wl_wire_frame_t frame;
   bulk_status_t value;
-  CHECK(wl_kernel_native_none_read(captured, captured_length, &frame) == WL_OK);
+  CHECK(wl_wire_native_none_read(captured, captured_length, &frame) == WL_OK);
   CHECK(frame.message_id == BULK_STATUS_MESSAGE_ID);
   CHECK(bulk_status_decode(frame.payload, frame.length, &value) == WL_CODEC_OK);
   CHECK(value.has_code && value.code == code && value.has_next_offset && value.next_offset == next);
@@ -85,10 +85,10 @@ int main(void) {
   wl_packet_config_t packet = {.instance = 1234, .rx_storage = &rx[0][0],
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = send};
   CHECK(wl_packet_init(&port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &port,
-    .storage = wl_kernel_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
+  wl_endpoint_config_t config = {.port = &port,
+    .storage = wl_endpoint_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
     .route = usb_sample_route, .user = &app};
-  CHECK(wl_kernel_init(&core, &config) == WL_OK);
+  CHECK(wl_endpoint_init(&core, &config) == WL_OK);
   /* Full-size opaque echo is independent of the unbounded/public schema. */
   memset(body, 0x7e, sizeof(body));
   CHECK(input(70, body, sizeof(body)) == WL_OK); memset(body, 0, sizeof(body)); settle();
@@ -136,7 +136,7 @@ int main(void) {
   chunk(4, 0, pattern, 256); status(CONTROL_BULK_STATUS_INTEGRITY_FAILED, 0);
   CHECK(app.writes == 0 && app.next == 0);
   usb_sample_close(&app); CHECK(app.aborts == 2 && !app.active);
-  CHECK(wl_kernel_close(&core) == WL_OK); pass(); CHECK(wl_kernel_quiescent(&core));
+  CHECK(wl_endpoint_close(&core) == WL_OK); pass(); CHECK(wl_endpoint_quiescent(&core));
   puts("USB application raw echo/pressure/no-spin/CRC/duplicates/commit/timeout/close PASS");
   return 0;
 }

@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "wirelink/zephyr/kernel_uart_poll.h"
+#include "wirelink/zephyr/uart_poll.h"
 #include <zephyr/drivers/uart.h>
 #include <zephyr/ztest.h>
 #include <string.h>
-static wl_kernel_uart_poll_t adapter;
+static wl_zephyr_uart_poll_t adapter;
 static wl_packet_port_t port;
 static wl_packet_stream_t stream;
 static wl_byte_fifo_t fifo;
@@ -39,7 +39,7 @@ DEVICE_DEFINE(packet_poll_uart, "packet_poll_uart", initialize, NULL, NULL, NULL
               CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &poll_api);
 ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
   zassert_ok(wl_byte_fifo_init(&fifo, (wl_span_t){staging, sizeof(staging)},
-                               wl_kernel_uart_poll_notify, &adapter));
+                               wl_zephyr_uart_poll_notify, &adapter));
   wl_packet_config_t pc = {.instance = 3001,
                            .rx_storage = &rx[0][0],
                            .rx_unit_size = 96,
@@ -51,11 +51,11 @@ ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
   wl_packet_stream_config_t sc = {.port = &port,
                                   .tx_storage = {wire, sizeof(wire)},
                                   .maximum_frame_size = 64,
-                                  .physical_submit = wl_kernel_uart_poll_submit,
-                                  .notify = wl_kernel_uart_poll_notify,
+                                  .physical_submit = wl_zephyr_uart_poll_submit,
+                                  .notify = wl_zephyr_uart_poll_notify,
                                   .user = &adapter};
   zassert_ok(wl_packet_stream_cobs_crc16_init(&stream, &sc));
-  wl_kernel_uart_poll_config_t config = {.uart = DEVICE_GET(packet_poll_uart),
+  wl_zephyr_uart_poll_config_t config = {.uart = DEVICE_GET(packet_poll_uart),
                                          .port = &port,
                                          .fifo = &fifo,
                                          .stream = &stream,
@@ -63,8 +63,8 @@ ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
                                          .stack_size = K_THREAD_STACK_SIZEOF(stack),
                                          .priority = -1,
                                          .tx_idle = line_idle};
-  zassert_ok(wl_kernel_uart_poll_init(&adapter, &config));
-  zassert_ok(wl_kernel_uart_poll_start(&adapter));
+  zassert_ok(wl_zephyr_uart_poll_init(&adapter, &config));
+  zassert_ok(wl_zephyr_uart_poll_start(&adapter));
   uint8_t packet[41] = {0x57, 0, 22, 0};
   memset(packet + 4, 77, 37);
   wl_packet_token_t token;
@@ -78,7 +78,7 @@ ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
   k_sleep(K_TICKS(2));
   zassert_false(wl_packet_rx_ready(&port));
   for (unsigned i = 0; i < 100 && !wl_packet_rx_ready(&port); ++i) {
-    zassert_ok(wl_kernel_uart_poll_service(&adapter, k_uptime_get_32()));
+    zassert_ok(wl_zephyr_uart_poll_service(&adapter, k_uptime_get_32()));
     k_sleep(K_TICKS(1));
   }
   wl_packet_borrow_t borrow;
@@ -86,13 +86,13 @@ ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
   zassert_equal(borrow.length, sizeof(packet));
   zassert_mem_equal(borrow.data, packet, sizeof(packet));
   zassert_ok(wl_packet_rx_release(&port, &borrow));
-  zassert_equal(wl_kernel_uart_poll_stop(&adapter), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_zephyr_uart_poll_stop(&adapter), WL_ERR_WOULD_BLOCK);
   zassert_false(adapter.worker_created);
   zassert_false(wl_packet_quiescent(&port));
   atomic_set(&idle, 1);
-  zassert_ok(wl_kernel_uart_poll_stop(&adapter));
+  zassert_ok(wl_zephyr_uart_poll_stop(&adapter));
   zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_DRAINED);
   zassert_true(wl_packet_quiescent(&port));
-  zassert_equal(wl_kernel_uart_poll_wait(&adapter, K_NO_WAIT), WL_ERR_CANCELLED);
+  zassert_equal(wl_zephyr_uart_poll_wait(&adapter, K_NO_WAIT), WL_ERR_CANCELLED);
 }
 ZTEST_SUITE(static_uart_poll, NULL, NULL, NULL, NULL, NULL);

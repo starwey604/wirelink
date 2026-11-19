@@ -13,9 +13,9 @@ wl_err_t info_server_tx_write(info_server_node_t *self, const uint8_t *data, siz
   (void)self; return info_client_rx_packet(&caller, data, length);
 }
 /* [docs:device_info_done] */
-static void done(info_client_node_t *self, wl_kernel_result_t outcome, const info_response_t *response) {
+static void done(info_client_node_t *self, wl_rpc_result_t outcome, const info_response_t *response) {
   (void)self;
-  EXAMPLE_REQUIRE(outcome.outcome == WL_KERNEL_SUCCESS && response);
+  EXAMPLE_REQUIRE(outcome.outcome == WL_RPC_SUCCESS && response);
   result = *response;
   ++completed;
 }

@@ -2,7 +2,7 @@
 #ifndef WIRELINK_EXAMPLE_PACKET_TOOL_OWNER_H
 #define WIRELINK_EXAMPLE_PACKET_TOOL_OWNER_H
 #include "wirelink/byte_fifo.h"
-#include "wirelink/kernel.h"
+#include "wirelink/endpoint.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

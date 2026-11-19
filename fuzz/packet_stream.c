@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/packet_stream.h"
-#include "wirelink/kernel_wire.h"
+#include "wirelink/wire.h"
 #include <stdlib.h>
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 static wl_packet_port_t port;
@@ -13,8 +13,8 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length, w
 static void drain(void) {
   wl_packet_borrow_t view;
   while (wl_packet_rx_borrow(&port, &view) == WL_OK) {
-    wl_kernel_frame_t frame;
-    CHECK(view.length <= 256 && wl_kernel_native_none_read(view.data, view.length, &frame) == WL_OK);
+    wl_wire_frame_t frame;
+    CHECK(view.length <= 256 && wl_wire_native_none_read(view.data, view.length, &frame) == WL_OK);
     CHECK(wl_packet_rx_release(&port, &view) == WL_OK);
   }
 }

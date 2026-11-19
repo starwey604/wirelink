@@ -37,18 +37,18 @@ public:
       while(!stopping_) {
         CHECK(adapter_->service()==WL_OK);
         const uint32_t now=clock.now_ms(clock.user_data);
-        CHECK(wl_kernel_step(descriptor_.core,now,16)==WL_OK);
+        CHECK(wl_endpoint_step(descriptor_.core,now,16)==WL_OK);
         int has_deadline=0;uint32_t deadline=0;
-        if(!wl_kernel_ready(descriptor_.core,now,&has_deadline,&deadline)) {
+        if(!wl_endpoint_ready(descriptor_.core,now,&has_deadline,&deadline)) {
           const auto remaining=has_deadline ? deadline-now : UINT32_MAX;
           const auto result=adapter_->wait_for_activity(std::chrono::milliseconds(std::min(remaining,100U)));
           CHECK(result==WL_OK || result==WL_ERR_NO_DATA);
         }
       }
-      CHECK(wl_kernel_close(descriptor_.core)==WL_OK);
+      CHECK(wl_endpoint_close(descriptor_.core)==WL_OK);
       adapter_->stop();
-      CHECK(wl_kernel_step(descriptor_.core,clock.now_ms(clock.user_data),16)==WL_OK);
-      CHECK(wl_kernel_quiescent(descriptor_.core));
+      CHECK(wl_endpoint_step(descriptor_.core,clock.now_ms(clock.user_data),16)==WL_OK);
+      CHECK(wl_endpoint_quiescent(descriptor_.core));
     });
   }
   ~Server() {unblock();stopping_=true;wirelink::asio::PacketUdpAdapter::notify(adapter_.get());owner_.join();}

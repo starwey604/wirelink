@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Optional section placement attribute for hot kernel/codec paths (e.g. IRAM). */
+/* Optional section placement attribute for hot endpoint/codec paths (e.g. IRAM). */
 #ifndef WL_HOT_ATTR
 #define WL_HOT_ATTR
 #endif

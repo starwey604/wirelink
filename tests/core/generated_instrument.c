@@ -49,7 +49,7 @@ int main(void) {
   for (unsigned i = 0; i < 17; ++i) value.note.data[i] = (uint8_t)i;
   uint8_t golden[128]; size_t n = 0;
   CHECK(reading_encode(&value, golden + 4, sizeof(golden) - 4, &n) == WL_CODEC_OK);
-  CHECK(wl_kernel_native_none_seal(golden, sizeof(golden), 201, n) == WL_OK);
+  CHECK(wl_wire_native_none_seal(golden, sizeof(golden), 201, n) == WL_OK);
   CHECK(instrument_send_reading(&a.endpoint, &value) == WL_OK);
   memset(&value, 0, sizeof(value));
   CHECK(instrument_step(&a.endpoint, 0) == WL_OK);
@@ -65,7 +65,7 @@ int main(void) {
   inject(&b, golden, n + 4); CHECK(instrument_step(&b.endpoint, 0) == WL_OK);
   inject(&a, golden, n + 4); CHECK(instrument_step(&a.endpoint, 0) == WL_OK);
   CHECK(b.received == 3 && a.received == 1 && INSTRUMENT_MESSAGE_FRAME_MAX == 54);
-  CHECK(wl_kernel_close(&a.endpoint.core) == WL_OK && instrument_step(&a.endpoint, 0) == WL_OK);
-  CHECK(wl_kernel_close(&b.endpoint.core) == WL_OK && instrument_step(&b.endpoint, 0) == WL_OK);
-  CHECK(wl_kernel_quiescent(&a.endpoint.core) && wl_kernel_quiescent(&b.endpoint.core));
+  CHECK(wl_endpoint_close(&a.endpoint.core) == WL_OK && instrument_step(&a.endpoint, 0) == WL_OK);
+  CHECK(wl_endpoint_close(&b.endpoint.core) == WL_OK && instrument_step(&b.endpoint, 0) == WL_OK);
+  CHECK(wl_endpoint_quiescent(&a.endpoint.core) && wl_endpoint_quiescent(&b.endpoint.core));
 }

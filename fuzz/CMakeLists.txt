@@ -3,7 +3,7 @@ set(WIRELINK_FUZZ_SANITIZERS -fsanitize=fuzzer,address,undefined -fno-omit-frame
 # Same production implementation, compiled with coverage/sanitizers for fuzzing.
 # No alternate execution semantics or installed library is introduced.
 add_library(wirelink_fuzz_core STATIC
-  ../src/kernel.c ../src/packet_port.c
+  ../src/endpoint.c ../src/packet_port.c
   ../src/packet_stream.c ../src/cobs_crc16_stream.c ../src/length16_none_stream.c
   ../src/cobs.c ../src/crc.c ../src/codec.c ../src/types.c)
 target_include_directories(wirelink_fuzz_core PUBLIC ../include)
@@ -21,7 +21,7 @@ function(wirelink_add_fuzzer target source)
   endif()
 endfunction()
 wirelink_add_fuzzer(wirelink_fuzz_cobs cobs_decode.c)
-wirelink_add_fuzzer(wirelink_fuzz_kernel kernel.c)
+wirelink_add_fuzzer(wirelink_fuzz_endpoint endpoint.c)
 wirelink_add_fuzzer(wirelink_fuzz_packet_stream packet_stream.c)
 # Fuzz current codecs generated from the conformance schema.
 wirelink_wlc_generate_codec(TARGET wirelink_fuzz_codec

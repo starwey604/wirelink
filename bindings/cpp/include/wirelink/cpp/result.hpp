@@ -2,7 +2,7 @@
 #ifndef WIRELINK_CPP_RESULT_HPP
 #define WIRELINK_CPP_RESULT_HPP
 
-#include <wirelink/kernel.h>
+#include <wirelink/endpoint.h>
 #include <system_error>
 #include <utility>
 #include <variant>
@@ -13,18 +13,18 @@ enum class ErrorKind {
 };
 struct Error {
   ErrorKind kind{ErrorKind::runtime};
-  wl_kernel_result_t completion{WL_KERNEL_LOCAL_ERROR, WL_ERR_INVALID_STATE};
+  wl_rpc_result_t completion{WL_RPC_LOCAL_ERROR, WL_ERR_INVALID_STATE};
   std::error_code system_error{};
-  static Error from_completion(wl_kernel_result_t result) noexcept {
+  static Error from_completion(wl_rpc_result_t result) noexcept {
     Error error; error.completion = result;
-    if (result.outcome == WL_KERNEL_REJECTED) error.kind = ErrorKind::rejected;
-    else if (result.outcome == WL_KERNEL_TIMED_OUT || result.status == WL_ERR_TIMEOUT)
+    if (result.outcome == WL_RPC_REJECTED) error.kind = ErrorKind::rejected;
+    else if (result.outcome == WL_RPC_TIMED_OUT || result.status == WL_ERR_TIMEOUT)
       error.kind = ErrorKind::timed_out;
-    else if (result.outcome == WL_KERNEL_CANCELLED || result.status == WL_ERR_CANCELLED)
+    else if (result.outcome == WL_RPC_CANCELLED || result.status == WL_ERR_CANCELLED)
       error.kind = ErrorKind::cancelled;
-    else if (result.outcome == WL_KERNEL_CLOSED || result.status == WL_ERR_NOT_INITIALIZED)
+    else if (result.outcome == WL_RPC_CLOSED || result.status == WL_ERR_NOT_INITIALIZED)
       error.kind = ErrorKind::closed;
-    else if (result.outcome == WL_KERNEL_LOCAL_ERROR) {
+    else if (result.outcome == WL_RPC_LOCAL_ERROR) {
       if (result.status == WL_ERR_INVALID_ARG) error.kind = ErrorKind::invalid_argument;
       else if (result.status == WL_ERR_QUEUE_FULL || result.status == WL_ERR_BUSY ||
                result.status == WL_ERR_WOULD_BLOCK)
@@ -39,7 +39,7 @@ struct Error {
     return error;
   }
   static Error local(wl_err_t code) noexcept {
-    return from_completion({WL_KERNEL_LOCAL_ERROR, code});
+    return from_completion({WL_RPC_LOCAL_ERROR, code});
   }
 };
 

@@ -19,7 +19,7 @@ typedef struct {
   unsigned callbacks;
 } cpp_test_call_t;
 wl_err_t cpp_test_submit(cpp_test_call_t *, uint32_t, uint32_t, wl_host_rpc_notify_fn,
-                         void *, wl_kernel_call_handle_t *);
+                         void *, wl_call_handle_t *);
 #ifdef __cplusplus
 }
 #endif

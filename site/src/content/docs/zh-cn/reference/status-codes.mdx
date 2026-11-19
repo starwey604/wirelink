@@ -1,24 +1,24 @@
 ---
 title: 状态码与错误语义参考
-description: Wirelink 运行时 wl_err_t 错误码、RPC 终态 wl_kernel_outcome_t 及适用处置策略。
+description: Wirelink 运行时 wl_err_t 错误码、RPC 终态 wl_rpc_outcome_t 及适用处置策略。
 sidebar:
   order: 3
 ---
 
-Wirelink 在 C11 核心中从不使用异常，所有 API 均通过确定性的 `wl_err_t` 与 `wl_kernel_outcome_t` 向上层汇报状态，同时可用 `wl_err_str(err)` 将整数错误码转为只读 ASCII 描述串。
+Wirelink 在 C11 核心中从不使用异常，所有 API 均通过确定性的 `wl_err_t` 与 `wl_rpc_outcome_t` 向上层汇报状态，同时可用 `wl_err_str(err)` 将整数错误码转为只读 ASCII 描述串。
 
-## RPC 终态枚举（`wl_kernel_outcome_t`）
+## RPC 终态枚举（`wl_rpc_outcome_t`）
 
 当异步 RPC 完成 callback（`done`）被调度触发时，首先应检查 `result.outcome` 以分辨「远端业务响应」还是「本地链路/契约结果」：
 
 | 枚举常量 | 含义 | `result.status` 内容 |
 | :--- | :--- | :--- |
-| `WL_KERNEL_SUCCESS` | 成功收到远端有效响应并完成解码 | `0`；响应结构体指针非空，有效至回调返回 |
-| `WL_KERNEL_REJECTED` | 远端业务 handler 返回了非零状态码主动拒绝 | 远端返回的非零 `int32_t` 业务状态码 |
-| `WL_KERNEL_LOCAL_ERROR` | 发送失败或响应包载荷损坏、解码失败 | 对应的本地 `wl_err_t` 错误码 |
-| `WL_KERNEL_TIMED_OUT` | 在预设 `timeout` 节拍到期前未收到应答 | `WL_ERR_TIMEOUT` |
-| `WL_KERNEL_CANCELLED` | 调用方提前成功发起了 `wl_kernel_cancel` | `WL_ERR_CANCELLED` |
-| `WL_KERNEL_CLOSED` | 本地执行 `wl_kernel_close` 停机排干期间收尾 | `WL_ERR_INVALID_STATE` |
+| `WL_RPC_SUCCESS` | 成功收到远端有效响应并完成解码 | `0`；响应结构体指针非空，有效至回调返回 |
+| `WL_RPC_REJECTED` | 远端业务 handler 返回了非零状态码主动拒绝 | 远端返回的非零 `int32_t` 业务状态码 |
+| `WL_RPC_LOCAL_ERROR` | 发送失败或响应包载荷损坏、解码失败 | 对应的本地 `wl_err_t` 错误码 |
+| `WL_RPC_TIMED_OUT` | 在预设 `timeout` 节拍到期前未收到应答 | `WL_ERR_TIMEOUT` |
+| `WL_RPC_CANCELLED` | 调用方提前成功发起了 `wl_endpoint_cancel` | `WL_ERR_CANCELLED` |
+| `WL_RPC_CLOSED` | 本地执行 `wl_endpoint_close` 停机排干期间收尾 | `WL_ERR_INVALID_STATE` |
 
 ## 核心错误码（`wl_err_t`）
 

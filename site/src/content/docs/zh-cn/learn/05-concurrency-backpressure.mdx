@@ -143,7 +143,7 @@ EXAMPLE_REQUIRE(completed == 0);
 
 /* Hold the transport: one request is leased, the other three stay queued. */
 EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 0) == WL_OK);
-EXAMPLE_REQUIRE(wl_kernel_cancel(&endpoints[0].core, handles[0]) == WL_OK);
+EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handles[0]) == WL_OK);
 EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. */
 ```
 {/* [/docs:calculator_cancel_timeout] */}
@@ -158,7 +158,7 @@ EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. *
 >
   **不会！**
 
-  `cancel` 是**本地会话取消**：它让客户端放弃等待回包，并在下一次 `step()` 中以 `WL_KERNEL_CANCELLED` 终态释放本端的请求槽（如果以后迟到的响应包才回来，会被安全丢弃）。但它不会在线缆上发送“撤销指令”，也无法回滚下位机可能已经执行的动作。
+  `cancel` 是**本地会话取消**：它让客户端放弃等待回包，并在下一次 `step()` 中以 `WL_RPC_CANCELLED` 终态释放本端的请求槽（如果以后迟到的响应包才回来，会被安全丢弃）。但它不会在线缆上发送“撤销指令”，也无法回滚下位机可能已经执行的动作。
 </Challenge>
 
 ---
@@ -186,7 +186,7 @@ EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. *
 
 <MultipleChoice
   id="lesson-05-cancel"
-  question="调用 cancel(&node, handle) 返回 WL_OK 后，对应的完成回调（outcome = WL_KERNEL_CANCELLED）会在何时触发？"
+  question="调用 cancel(&node, handle) 返回 WL_OK 后，对应的完成回调（outcome = WL_RPC_CANCELLED）会在何时触发？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[

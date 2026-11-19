@@ -205,10 +205,10 @@ size_t numbers_encoded_size(const numbers_t *value);
 wl_codec_status_t numbers_encode(const numbers_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t numbers_decode(const uint8_t *input, size_t input_length, numbers_t *out);
 
-#include <wirelink/kernel.h>
+#include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(0, 14)
-#error "WLC requires generated-code contract 0.14"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct device_node device_node_t;
@@ -220,27 +220,27 @@ typedef struct device_node device_node_t;
 #define DEVICE_RX_WIRE_MAX 228U
 #define DEVICE_TX_WIRE_MAX 222U
 struct device_node {
-  wl_kernel_t core;
+  wl_endpoint_t core;
   void *user;
-  wl_kernel_error_fn on_error;
-  uint8_t requests[WL_KERNEL_CALLS][222];
+  wl_endpoint_error_fn on_error;
+  uint8_t requests[WL_ENDPOINT_CALLS][222];
 };
 wl_err_t device_init(device_node_t *self, wl_packet_port_t *port);
 wl_err_t device_step(device_node_t *self, uint32_t now);
 /* Stop the RX producer before close, then step until quiescent. */
 wl_err_t device_close(device_node_t *self);
 int device_quiescent(const device_node_t *self);
-wl_err_t device_cancel(device_node_t *self, wl_kernel_call_handle_t handle);
-typedef void (*device_configure_cb_t)(device_node_t *, wl_kernel_result_t, const configure_response_t *);
-typedef void (*device_configure_ex_cb_t)(void *, wl_kernel_result_t, const configure_response_t *);
+wl_err_t device_cancel(device_node_t *self, wl_call_handle_t handle);
+typedef void (*device_configure_cb_t)(device_node_t *, wl_rpc_result_t, const configure_response_t *);
+typedef void (*device_configure_ex_cb_t)(void *, wl_rpc_result_t, const configure_response_t *);
 /* Simplified calls start their timeout on the next step(now). */
 wl_err_t device_call_configure(device_node_t *self, const configure_request_t *request, device_configure_cb_t callback);
-wl_err_t device_call_configure_ex(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout_ms, device_configure_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out);
-typedef void (*device_get_info_cb_t)(device_node_t *, wl_kernel_result_t, const info_response_t *);
-typedef void (*device_get_info_ex_cb_t)(void *, wl_kernel_result_t, const info_response_t *);
+wl_err_t device_call_configure_ex(device_node_t *self, const configure_request_t *request, uint32_t now, uint32_t timeout_ms, device_configure_ex_cb_t callback, void *user, wl_call_handle_t *out);
+typedef void (*device_get_info_cb_t)(device_node_t *, wl_rpc_result_t, const info_response_t *);
+typedef void (*device_get_info_ex_cb_t)(void *, wl_rpc_result_t, const info_response_t *);
 /* Simplified calls start their timeout on the next step(now). */
 wl_err_t device_call_get_info(device_node_t *self, const info_request_t *request, device_get_info_cb_t callback);
-wl_err_t device_call_get_info_ex(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout_ms, device_get_info_ex_cb_t callback, void *user, wl_kernel_call_handle_t *out);
+wl_err_t device_call_get_info_ex(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout_ms, device_get_info_ex_cb_t callback, void *user, wl_call_handle_t *out);
 #ifdef __cplusplus
 }
 #endif

@@ -102,8 +102,8 @@ python3 benchmarks/footprint/footprint.py --no-digests --json build/footprint.js
 
 | 修改目标 | 主要源码 | 必跑验收项 |
 | --- | --- | --- |
-| 内核状态机 / 队列 / 超时取消 | [`src/kernel.c`](../src/kernel.c)、[`kernel.h`](../include/wirelink/kernel.h) | `ctest --test-dir build/core`、`tests/zephyr/unit/static_packet_port`、`tests/zephyr/integration/mixed_traffic` |
-| Wire v2 帧头 / RPC 子头 | [`kernel_wire.h`](../include/wirelink/kernel_wire.h)、`wlc/src/codegen/wire.rs` | `cargo test`、`build/fuzz`、`tests/zephyr/unit/generated_codec` |
+| 内核状态机 / 队列 / 超时取消 | [`src/endpoint.c`](../src/endpoint.c)、[`endpoint.h`](../include/wirelink/endpoint.h) | `ctest --test-dir build/core`、`tests/zephyr/unit/static_packet_port`、`tests/zephyr/integration/mixed_traffic` |
+| Wire v2 帧头 / RPC 子头 | [`wire.h`](../include/wirelink/wire.h)、`wlc/src/codegen/wire.rs` | `cargo test`、`build/fuzz`、`tests/zephyr/unit/generated_codec` |
 | TLV / Positional 编解码运行时 | [`src/codec.c`](../src/codec.c)、[`codec.h`](../include/wirelink/codec.h) | `tests/zephyr/unit/generated_codec`、`cargo test`、`build/fuzz` |
 | `cobs_crc16` / `length16` 流连接器 | [`src/cobs_crc16_stream.c`](../src/cobs_crc16_stream.c)、[`src/length16_none_stream.c`](../src/length16_none_stream.c)、[`src/crc.c`](../src/crc.c) | `tests/zephyr/unit/{cobs,static_stream}`、`tests/packet_tools/`、`build/fuzz` |
 | `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |

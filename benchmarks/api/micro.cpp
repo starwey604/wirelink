@@ -19,7 +19,7 @@ static void run(benchmark::State &state, int mode) {
 int main(int argc, char **argv) {
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 2;
-  benchmark::AddCustomContext("workload", "wirelink-kernel-api-v1");
+  benchmark::AddCustomContext("workload", "wirelink-endpoint-api-v1");
   benchmark::AddCustomContext("clock", "caller_manual_tick");
   benchmark::RegisterBenchmark("kernel_idle_pair", run, 0);
   benchmark::RegisterBenchmark("kernel_rpc_4x2", run, 1);

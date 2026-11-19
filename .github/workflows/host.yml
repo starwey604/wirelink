@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   core:
-    name: Kernel, owner, tutorials and installed consumers (${{ matrix.os }})
+    name: Endpoint, owner, tutorials and installed consumers (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

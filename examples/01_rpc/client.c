@@ -5,7 +5,7 @@
 static client_node_t caller;
 static server_node_t callee;
 static unsigned completed;
-static wl_kernel_result_t result;
+static wl_rpc_result_t result;
 wl_err_t client_tx_write(client_node_t *self, const uint8_t *data, size_t length) {
   (void)self;
   return server_rx_packet(&callee, data, length);
@@ -22,7 +22,7 @@ static void advance(uint32_t now) {
   EXAMPLE_REQUIRE(server_step(&callee, now) == WL_OK);
 }
 /* [docs:calculator_rejected_callback] */
-static void rejected(client_node_t *self, wl_kernel_result_t outcome, const add_response_t *response) {
+static void rejected(client_node_t *self, wl_rpc_result_t outcome, const add_response_t *response) {
   (void)self;
   EXAMPLE_REQUIRE(response == NULL);
   result = outcome;
@@ -38,7 +38,7 @@ int main(void) {
   EXAMPLE_REQUIRE(client_call_add(&caller, &(add_request_t){
       .left = INT32_MAX, .right = 1}, rejected) == WL_OK);
   for (unsigned pass = 0; pass < 100 && !completed; ++pass) advance(100 + pass);
-  EXAMPLE_REQUIRE(completed == 1 && result.outcome == WL_KERNEL_REJECTED && result.status == 1);
+  EXAMPLE_REQUIRE(completed == 1 && result.outcome == WL_RPC_REJECTED && result.status == 1);
   /* [/docs:calculator_sync_rpc] */
   EXAMPLE_REQUIRE(client_close(&caller) == WL_OK && server_close(&callee) == WL_OK);
   advance(200);

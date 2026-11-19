@@ -26,7 +26,7 @@ typedef struct {
   const uint8_t *leased;
   size_t leased_length;
   wl_packet_token_t token;
-  wl_kernel_result_t results[8];
+  wl_rpc_result_t results[8];
   uint32_t values[8];
 } fixture_t;
 
@@ -120,7 +120,7 @@ static void init(fixture_t *f, uint32_t instance) {
 static int ready(fixture_t *f, uint32_t now) {
   int has_deadline;
   uint32_t deadline;
-  return wl_kernel_ready(&f->endpoint.core, now, &has_deadline, &deadline);
+  return wl_endpoint_ready(&f->endpoint.core, now, &has_deadline, &deadline);
 }
 
 static void run(fixture_t *f, uint32_t now) {
@@ -139,23 +139,23 @@ static void deliver(fixture_t *to, const fixture_t *from, unsigned frame) {
   CHECK(wl_packet_rx_commit(&to->port, &claim, from->lengths[frame]) == WL_OK);
 }
 
-static void setpoint_done(void *user, wl_kernel_result_t result,
+static void setpoint_done(void *user, wl_rpc_result_t result,
                            const setpoint_response_t *response) {
   context_t *c = user;
   fixture_t *f = c->fixture;
   ++f->callbacks;
   f->results[c->index] = result;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     CHECK(response != NULL && response->status == 0U);
     f->values[c->index] = response->applied_value;
   } else CHECK(response == NULL);
 }
 
-static void control_done(void *user, wl_kernel_result_t result,
+static void control_done(void *user, wl_rpc_result_t result,
                           const control_response_t *response) {
   fixture_t *f = user;
   ++f->callbacks;
-  CHECK(result.outcome == WL_KERNEL_SUCCESS && response != NULL);
+  CHECK(result.outcome == WL_RPC_SUCCESS && response != NULL);
   if (response->data.length != 0U) {
     CHECK(response->data.length == 512U);
     for (size_t i = 0U; i < response->data.length; ++i)
@@ -163,10 +163,10 @@ static void control_done(void *user, wl_kernel_result_t result,
   }
 }
 
-static void control_failed(void *user, wl_kernel_result_t result,
+static void control_failed(void *user, wl_rpc_result_t result,
                              const control_response_t *response) {
   fixture_t *f = user;
-  CHECK(response == NULL && result.outcome == WL_KERNEL_TIMED_OUT);
+  CHECK(response == NULL && result.outcome == WL_RPC_TIMED_OUT);
   f->results[7] = result;
   ++f->callbacks;
 }
@@ -180,7 +180,7 @@ static void test_four_calls_both_directions(void) {
   fixture_t a = {0}, b = {0};
   init(&a, 1000U); init(&b, 2000U);
   context_t context[5];
-  wl_kernel_call_handle_t calls[5];
+  wl_call_handle_t calls[5];
   for (unsigned i = 0U; i < 4U; ++i) {
     context[i] = (context_t){&a, i};
     setpoint_request_t value = request(UINT32_MAX - i);
@@ -214,7 +214,7 @@ static void test_backpressure_and_lease(void) {
   fixture_t a = {0}, b = {.sink_result = WL_PACKET_BUSY};
   init(&a, 3000U); init(&b, 4000U);
   context_t contexts[4];
-  wl_kernel_call_handle_t handles[4];
+  wl_call_handle_t handles[4];
   for (unsigned i = 0U; i < 4U; ++i) {
     contexts[i] = (context_t){&a, i};
     setpoint_request_t value = request(i);
@@ -222,20 +222,20 @@ static void test_backpressure_and_lease(void) {
         &contexts[i], &handles[i]) == WL_OK);
   }
   run(&a, 0U);
-  for (unsigned i = 0U; i < WL_KERNEL_REPLIES; ++i) { deliver(&b, &a, i); run(&b, 0U); }
-  CHECK(b.effects == WL_KERNEL_REPLIES && b.frames_count == 0U);
-  deliver(&b, &a, WL_KERNEL_REPLIES); run(&b, 0U);
-  CHECK(b.effects == WL_KERNEL_REPLIES && !ready(&b, 0U));
+  for (unsigned i = 0U; i < WL_ENDPOINT_REPLIES; ++i) { deliver(&b, &a, i); run(&b, 0U); }
+  CHECK(b.effects == WL_ENDPOINT_REPLIES && b.frames_count == 0U);
+  deliver(&b, &a, WL_ENDPOINT_REPLIES); run(&b, 0U);
+  CHECK(b.effects == WL_ENDPOINT_REPLIES && !ready(&b, 0U));
   b.sink_result = WL_PACKET_SENT;
   wl_packet_activity(&b.port);
   run(&b, 0U);
-  CHECK(b.effects == WL_KERNEL_REPLIES + 1U && b.frames_count == WL_KERNEL_REPLIES + 1U);
+  CHECK(b.effects == WL_ENDPOINT_REPLIES + 1U && b.frames_count == WL_ENDPOINT_REPLIES + 1U);
 
   fixture_t c = {.sink_result = WL_PACKET_STARTED}, d = {0};
   init(&c, 5000U); init(&d, 6000U);
   context_t callback = {&c, 0U};
   setpoint_request_t value = request(37U);
-  wl_kernel_call_handle_t call;
+  wl_call_handle_t call;
   CHECK(usb_call_setpoint_ex(&c.endpoint, &value, 0U, 100U, setpoint_done,
       &callback, &call) == WL_OK);
   run(&c, 0U);
@@ -259,7 +259,7 @@ static void test_control_and_all_messages(void) {
         .opcode = opcode, .arg0 = UINT32_MAX,
         .arg1 = UINT32_MAX, .arg2 = UINT32_MAX,
         .arg3 = UINT32_MAX};
-    wl_kernel_call_handle_t call;
+    wl_call_handle_t call;
     CHECK(usb_call_control_ex(&a.endpoint, &value, 0U, 100U, control_done, &a, &call) == WL_OK);
     run(&a, 0U); deliver(&b, &a, opcode - 1U); run(&b, 0U);
     CHECK(b.running == (opcode == 2U));
@@ -300,12 +300,12 @@ static void test_generated_failures(void) {
   context_t context = {&a, 0U};
   setpoint_request_t value = request(11U);
   value.channel = UINT32_MAX;
-  wl_kernel_call_handle_t call;
+  wl_call_handle_t call;
   CHECK(usb_call_setpoint_ex(&a.endpoint, &value, 0U, 10U, setpoint_done, &context, &call) == WL_OK);
   run(&a, 0U);
   /* Fixed32 managed business fields must retain all uint32 values. */
-  wl_kernel_frame_t frame;
-  wl_kernel_rpc_metadata_t metadata;
+  wl_wire_frame_t frame;
+  wl_rpc_metadata_t metadata;
   CHECK(wl_wire_frame_read(a.frames[0], a.lengths[0], &frame) == WL_OK);
   CHECK(frame.kind == WL_WIRE_RPC_REQ);
   CHECK(wl_wire_rpc_read(frame.kind, frame.payload, frame.length, &metadata) == WL_OK);
@@ -313,12 +313,12 @@ static void test_generated_failures(void) {
       0x15,0xff,0xff,0xff,0xff,0x1d,0x0b,0x00,0x00,0x00};
   CHECK(metadata.length == sizeof(business) && !memcmp(metadata.body, business, sizeof(business)));
   deliver(&b, &a, 0U); run(&b, 0U); deliver(&a, &b, 0U); run(&a, 0U);
-  CHECK(a.results[0].outcome == WL_KERNEL_REJECTED && a.results[0].status == -77);
+  CHECK(a.results[0].outcome == WL_RPC_REJECTED && a.results[0].status == -77);
   CHECK(usb_call_setpoint_ex(&a.endpoint, &value, 0U, 1U, setpoint_done, &context, &call) == WL_OK);
   run(&a, 0U);
   deliver(&b, &a, 1U); run(&b, 0U);
   run(&a, 1U);
-  CHECK(a.callbacks == 2U && a.results[0].outcome == WL_KERNEL_TIMED_OUT);
+  CHECK(a.callbacks == 2U && a.results[0].outcome == WL_RPC_TIMED_OUT);
   deliver(&a, &b, 1U); run(&a, 2U); CHECK(a.callbacks == 2U);
   CHECK(usb_call_control_ex(&a.endpoint, NULL, 0U, 1U, control_done, &a, &call) == WL_ERR_INVALID_ARG);
   /* Decoder failure before handler, followed by a valid next packet. */
@@ -332,7 +332,7 @@ static void test_generated_failures(void) {
   run(&a, 2U); deliver(&b, &a, 2U); run(&b, 2U);
   b.frames[3][b.lengths[3] - 5U] = 0x1fU; /* Malformed typed response. */
   deliver(&a, &b, 3U); run(&a, 2U);
-  CHECK(a.callbacks == 3U && a.results[0].outcome == WL_KERNEL_LOCAL_ERROR);
+  CHECK(a.callbacks == 3U && a.results[0].outcome == WL_RPC_LOCAL_ERROR);
   control_request_t bad_reply = {.request_id = 1U,
       .opcode = 4U};
   CHECK(usb_call_control_ex(&a.endpoint, &bad_reply, 2U, 5U, control_failed, &a, &call) == WL_OK);
@@ -340,7 +340,7 @@ static void test_generated_failures(void) {
   CHECK(usb_step(&b.endpoint, 2U) == WL_ERR_CORRUPT_PAYLOAD);
   CHECK(b.effects == 5U && b.frames_count == 4U && b.errors == 2U);
   run(&a, 7U);
-  CHECK(a.callbacks == 4U && a.results[7].outcome == WL_KERNEL_TIMED_OUT);
+  CHECK(a.callbacks == 4U && a.results[7].outcome == WL_RPC_TIMED_OUT);
 }
 
 int main(void) {

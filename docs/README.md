@@ -17,7 +17,7 @@
 
 仓库 [`examples/`](../examples/) 下的每一个示例都是真实参与编译和 CTest 测试的工程。文档中所有带 `<!-- [docs:...] -->` 标记的代码块均由 [`tests/tutorials/doc_sources.py`](../tests/tutorials/doc_sources.py) 自动校验，确保与源码逐字节同步：
 
-1. **上下位机 RPC 服务与并发/取消生命周期**：[`examples/01_rpc/`](../examples/01_rpc/) —— 演示请求/响应配对、业务拒绝（`WL_KERNEL_REJECTED`）、4 路并发调用与主动取消。
+1. **上下位机 RPC 服务与并发/取消生命周期**：[`examples/01_rpc/`](../examples/01_rpc/) —— 演示请求/响应配对、业务拒绝（`WL_RPC_REJECTED`）、4 路并发调用与主动取消。
 2. **单向遥测发布与订阅**：[`examples/00_telemetry/`](../examples/00_telemetry/) —— 演示单向 `send`/`recv` 节点、输入立即快照与单消息槽背压。
 3. **有状态设备服务（短 RPC + 异步进度遥测）**：[`examples/03_device_service/`](../examples/03_device_service/) —— 演示用“短 RPC 领 `job_id` + 主循环轮询发进度消息”解耦耗时硬件自检。
 4. **有界字符串与回调生命周期**：[`examples/02_device_info/`](../examples/02_device_info/) —— 演示零 `malloc` 的 `string<N>` 内联数组与跨回调按值拷贝（`result = *response`）。

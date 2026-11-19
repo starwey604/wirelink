@@ -23,10 +23,10 @@ static int32_t execute(void *user, const request_t *request, response_t *respons
   response->output = request->input;
   return 0;
 }
-static void completed(void *user, wl_kernel_result_t result, const response_t *response) {
+static void completed(void *user, wl_rpc_result_t result, const response_t *response) {
   (void)user;
   /* response is borrowed only until this callback returns. */
-  require(result.outcome == WL_KERNEL_SUCCESS && response && response->output == INT32_MIN);
+  require(result.outcome == WL_RPC_SUCCESS && response && response->output == INT32_MIN);
   ++completions;
 }
 static void received(void *user, const event_t *event) {
@@ -48,9 +48,9 @@ int main(void) {
     demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
     require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
     /* [/docs:loopback_setup] */
-    for (unsigned slot = 0; slot < WL_KERNEL_REPLIES; ++slot) {
+    for (unsigned slot = 0; slot < WL_ENDPOINT_REPLIES; ++slot) {
       request_t request = {.input = INT32_MIN};
-      wl_kernel_call_handle_t call;
+      wl_call_handle_t call;
       require(demo_call_execute_ex(&endpoints[side], &request, 0U, 500U,
           completed, NULL, &call) == WL_OK);
       /* Admission copied the request; this object is no longer borrowed. */
@@ -60,7 +60,7 @@ int main(void) {
     require(demo_send_event(&endpoints[side], &event) == WL_OK);
     memset(&event, 0, sizeof(event));
   }
-  const unsigned expected_rpcs = 2U * WL_KERNEL_REPLIES;
+  const unsigned expected_rpcs = 2U * WL_ENDPOINT_REPLIES;
   for (uint32_t now = 0; now < 500U && (completions != expected_rpcs || messages != 2U); ++now) {
     /* All endpoint operations/callbacks share this owner. No core clock/thread. */
     require(demo_step(&endpoints[0], now) == WL_OK);
@@ -69,11 +69,11 @@ int main(void) {
   }
   require(completions == expected_rpcs && executions == expected_rpcs && messages == 2U);
   for (unsigned side = 0; side < 2U; ++side)
-    require(wl_kernel_close(&endpoints[side].core) == WL_OK);
+    require(wl_endpoint_close(&endpoints[side].core) == WL_OK);
   wl_packet_loopback_stop(&transport);
   for (unsigned side = 0; side < 2U; ++side) {
     require(demo_step(&endpoints[side], 500U) == WL_OK);
-    require(wl_kernel_quiescent(&endpoints[side].core));
+    require(wl_endpoint_quiescent(&endpoints[side].core));
   }
   puts("6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent");
   return 0;

@@ -14,9 +14,9 @@ int main(void) {
   peer_client_t state = {0};
   error = udp_client_init(&client, &udp.port);
   client.user = &state;
-  if (error != WL_OK) { (void)wl_kernel_udp_close(&udp.adapter); return 1; }
+  if (error != WL_OK) { (void)wl_zephyr_udp_close(&udp.adapter); return 1; }
   add_request_t request = {.left = 20, .right = 22};
-  wl_kernel_call_handle_t call;
+  wl_call_handle_t call;
   error = udp_client_call_add_ex(&client, &request, k_uptime_get_32(), 1500, peer_completed, &state, &call);
   memset(&request, 0, sizeof(request));
   while (error == WL_OK && !state.completions) {
@@ -24,7 +24,7 @@ int main(void) {
     if (error == WL_OK) error = peer_z_wait(&udp.adapter, &client.core, 100);
   }
   int status = 1;
-  if (error == WL_OK && state.result.outcome == WL_KERNEL_SUCCESS) {
+  if (error == WL_OK && state.result.outcome == WL_RPC_SUCCESS) {
     printk("20 + 22 = %ld\n", (long)state.response.sum);
     uint32_t started = k_uptime_get_32();
     while (error == WL_OK && !state.samples && (uint32_t)(k_uptime_get_32() - started) < 500) {

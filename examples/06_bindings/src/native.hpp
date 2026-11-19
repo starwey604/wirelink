@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <wirelink/codec.h>
-#include <wirelink/kernel.h>
+#include <wirelink/endpoint.h>
 // Only passive values cross this namespace. Endpoint callbacks stay in C.
 namespace calculator::wlc_native {
 #include "calculator.h"

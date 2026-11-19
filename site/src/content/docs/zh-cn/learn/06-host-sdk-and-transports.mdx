@@ -17,7 +17,7 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
   examplePath="examples/bare_metal_loopback.c"
   goals={[
     '掌握安全停机与节点复用的标准流程：先停 RX ➔ 调用 close() ➔ 推进 step() 直到 quiescent() 返回 true',
-    '了解 RTOS 线程如何利用 wl_kernel_ready 实现零空转的精确休眠与事件唤醒',
+    '了解 RTOS 线程如何利用 wl_endpoint_ready 实现零空转的精确休眠与事件唤醒',
     '看懂何时需要从默认 io = embedded 切换到高级 io = external 模式以对接异步零拷贝 DMA 驱动',
   ]}
 />
@@ -39,7 +39,7 @@ Wirelink 提供了严谨的**两阶段安全停机**机制：
 ```mermaid
 flowchart LR
   S1["1. 先停 RX 源头<br/>关闭接收中断或停止调用 rx_feed / rx_packet"] --> S2["2. 调用 <node>_close(&node)<br/>拒绝新请求，把所有未决 RPC 标记为 CLOSED"]
-  S2 --> S3["3. 继续调用 <node>_step(&node, now)<br/>派发所有 WL_KERNEL_CLOSED 终态回调，等待底层归还缓冲区"]
+  S2 --> S3["3. 继续调用 <node>_step(&node, now)<br/>派发所有 WL_RPC_CLOSED 终态回调，等待底层归还缓冲区"]
   S3 --> S4{"<node>_quiescent(&node)<br/>返回 true 了吗？"}
   S4 -->|"false"| S3
   S4 -->|"true (完全静止)"| S5["4. 安全销毁或重新 init 节点"]
@@ -72,7 +72,7 @@ Wirelink 节点既能跑在最简单的裸机 `while (1)` 里，也能在 FreeRT
   </TabItem>
 
   <TabItem label="2. RTOS 信号量精确休眠唤醒">
-    在 RTOS 专属通信线程中，为了避免死循环空转耗电，可以利用 `wl_kernel_ready` 查询下一次最近的 RPC 超时时刻 `deadline`，然后让线程在信号量上精确挂起：
+    在 RTOS 专属通信线程中，为了避免死循环空转耗电，可以利用 `wl_endpoint_ready` 查询下一次最近的 RPC 超时时刻 `deadline`，然后让线程在信号量上精确挂起：
 
     ```c
     for (;;) {
@@ -83,7 +83,7 @@ Wirelink 节点既能跑在最简单的裸机 `while (1)` 里，也能在 FreeRT
       int has_deadline = 0;
       uint32_t deadline = 0;
       now = rtos_millis();
-      if (wl_kernel_ready(&device.core, now, &has_deadline, &deadline) != 0) {
+      if (wl_endpoint_ready(&device.core, now, &has_deadline, &deadline) != 0) {
         continue; /* 还有活没干完，跳过休眠继续 step */
       }
 
@@ -109,7 +109,7 @@ Wirelink 节点既能跑在最简单的裸机 `while (1)` 里，也能在 FreeRT
 
 ### 跑通内置的 `external` 内核级回环示例
 
-仓库根目录的 [`examples/bare_metal_loopback.c`](https://github.com/starwey604/wirelink/blob/main/examples/bare_metal_loopback.c)（对应 [`examples/kernel/demo.wl`](https://github.com/starwey604/wirelink/blob/main/examples/kernel/demo.wl)）正是演示 `io = external; handlers = dynamic;` 完整租约生命周期的基准程序。你可以直接编译并运行它：
+仓库根目录的 [`examples/bare_metal_loopback.c`](https://github.com/starwey604/wirelink/blob/main/examples/bare_metal_loopback.c)（对应 [`examples/endpoint/demo.wl`](https://github.com/starwey604/wirelink/blob/main/examples/endpoint/demo.wl)）正是演示 `io = external; handlers = dynamic;` 完整租约生命周期的基准程序。你可以直接编译并运行它：
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
@@ -183,7 +183,7 @@ require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
   progressTemplate="已完成 {done} / {total} 项"
   items={[
     "掌握停止 RX ➔ close() ➔ 循环 step() 直至 quiescent() 为真的安全停机四步曲。",
-    "理解 RTOS 任务如何通过 wl_kernel_ready 获取最近超时时间并配合信号量实现低功耗按需唤醒。",
+    "理解 RTOS 任务如何通过 wl_endpoint_ready 获取最近超时时间并配合信号量实现低功耗按需唤醒。",
     "清楚默认 io = embedded 与进阶 io = external（零拷贝异步 DMA 物理租约）的适用边界。"
   ]}
 />
@@ -198,4 +198,4 @@ require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
 
 - 📐 **[.wl 语法手册](/wirelink/zh-cn/concepts/schema-language/)**、**[节点配置指南](/wirelink/zh-cn/concepts/nodes/)** 与 **[WLC / CMake 集成](/wirelink/zh-cn/concepts/wlc-and-cmake/)**
 - 🔌 **[物理链路驱动移植指南](/wirelink/zh-cn/how-to/custom-drivers/)**、**[裸机 / RTOS 执行模型](/wirelink/zh-cn/how-to/execution-models/)** 与 **[Python / C++20 上位机 SDK](/wirelink/zh-cn/how-to/host-sdks/)**
-- 📖 **[C11 节点 API 速查表](/wirelink/zh-cn/reference/kernel-api/)**、**[状态码参考](/wirelink/zh-cn/reference/status-codes/)**、**[二进制线协议规范](/wirelink/zh-cn/reference/wire-format/)** 与 **[静态 Flash / RAM 体积账本](/wirelink/zh-cn/reference/footprint-and-benchmarks/)**
+- 📖 **[C11 节点 API 速查表](/wirelink/zh-cn/reference/endpoint-api/)**、**[状态码参考](/wirelink/zh-cn/reference/status-codes/)**、**[二进制线协议规范](/wirelink/zh-cn/reference/wire-format/)** 与 **[静态 Flash / RAM 体积账本](/wirelink/zh-cn/reference/footprint-and-benchmarks/)**

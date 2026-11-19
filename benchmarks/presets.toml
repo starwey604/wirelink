@@ -46,7 +46,7 @@ binary = "wirelink_mixed_traffic"
 requires = ["wlc"]
 run = ["{bin}/wirelink_mixed_traffic", "--report"]
 stdout = "mixed_traffic.jsonl"
-compare = ["{python}", "benchmarks/mixed_traffic/compare_kernel.py"]
+compare = ["{python}", "benchmarks/mixed_traffic/compare_endpoint.py"]
 gate_absolute_flag = "--max-regression-ms"
 
 [suites.footprint]
@@ -116,9 +116,9 @@ run = [
 ]
 stamp = [
   "benchmarks/api/micro.cpp", "benchmarks/api/fixture.c", "benchmarks/api/fixture.h",
-  "benchmarks/api/kernel_api.wl",
+  "benchmarks/api/endpoint_api.wl",
 ]
-compare = ["{python}", "benchmarks/api/compare_kernel.py"]
+compare = ["{python}", "benchmarks/api/compare_endpoint.py"]
 gate_absolute_flag = "--max-regression-ns"
 
 # Timing suites stay warn-only in quick until `bench.py calibrate` has seeded

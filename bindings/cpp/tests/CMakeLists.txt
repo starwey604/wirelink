@@ -3,7 +3,7 @@ if(NOT WIRELINK_WLC_EXECUTABLE)
   return()
 endif()
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/generated)
-set(_fixture ${PROJECT_SOURCE_DIR}/tests/package/static_kernel)
+set(_fixture ${PROJECT_SOURCE_DIR}/tests/package/static_endpoint)
 add_custom_command(OUTPUT ${_generated}/probe.c
     ${_generated}/probe.h
   COMMAND ${WIRELINK_WLC_EXECUTABLE} compile ${_fixture}/probe.wl

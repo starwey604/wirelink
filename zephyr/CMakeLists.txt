@@ -6,7 +6,7 @@ zephyr_include_directories(${_wl}/include ${_wl}/runtime/zephyr/include
   ${_wl}/adapters/zephyr/uart_poll/include ${_wl}/adapters/zephyr/usb_bulk/include
   ${_wl}/adapters/zephyr/udp/include)
 if(CONFIG_WIRELINK)
-  set(_core ${_wl}/src/kernel.c ${_wl}/src/packet_port.c ${_wl}/src/types.c ${_wl}/src/codec.c)
+  set(_core ${_wl}/src/endpoint.c ${_wl}/src/packet_port.c ${_wl}/src/types.c ${_wl}/src/codec.c)
   zephyr_library_sources(${_core})
   zephyr_library_compile_options(-std=c11)
   if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -22,15 +22,15 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK_BYTE_FIFO ${_wl}/src/byte_fifo.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_BYTE_FIFO_COBS ${_wl}/src/byte_fifo_cobs.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_PLATFORM ${_wl}/runtime/zephyr/src/environment.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_WAIT ${_wl}/runtime/zephyr/src/wait.c ${_wl}/runtime/zephyr/src/timeout.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_DMA ${_wl}/adapters/zephyr/uart_dma/src/kernel_uart_dma.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_IRQ ${_wl}/adapters/zephyr/uart_irq/src/kernel_uart_irq.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_POLL_EXPERIMENTAL ${_wl}/adapters/zephyr/uart_poll/src/kernel_uart_poll.c)
-zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_USB_BULK ${_wl}/adapters/zephyr/usb_bulk/src/kernel_usb_bulk.c)
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_DMA ${_wl}/adapters/zephyr/uart_dma/src/uart_dma.c)
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_IRQ ${_wl}/adapters/zephyr/uart_irq/src/uart_irq.c)
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_POLL_EXPERIMENTAL ${_wl}/adapters/zephyr/uart_poll/src/uart_poll.c)
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_USB_BULK ${_wl}/adapters/zephyr/usb_bulk/src/usb_bulk.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UDP
-  ${_wl}/adapters/zephyr/udp/src/kernel_udp.c ${_wl}/adapters/zephyr/udp/src/kernel_udp_socket.c)
+  ${_wl}/adapters/zephyr/udp/src/udp.c ${_wl}/adapters/zephyr/udp/src/udp_socket.c)
 # Preserve the existing platform IRQ callback mapping, without moving kernel,
 # framing, codecs or owner execution into IRAM.
 if(CONFIG_WIRELINK_ZEPHYR_UART_IRQ AND CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
-  set_property(SOURCE ${_wl}/adapters/zephyr/uart_irq/src/kernel_uart_irq.c APPEND PROPERTY
+  set_property(SOURCE ${_wl}/adapters/zephyr/uart_irq/src/uart_irq.c APPEND PROPERTY
     COMPILE_OPTIONS -include ${_wl}/adapters/zephyr/uart_irq/platform/esp32_attributes.h)
 endif()

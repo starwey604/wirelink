@@ -5,11 +5,11 @@ sidebar:
   order: 2
 ---
 
-Wirelink 的线缆层将「内核规范帧（Canonical Frame）」与「外层字节流连接器」彻底正交。完整协议规范及 C 语言常量定义详见 [docs/wire-format.md](https://github.com/starwey604/wirelink/blob/main/docs/wire-format.md) 与 [include/wirelink/kernel_wire.h](https://github.com/starwey604/wirelink/blob/main/include/wirelink/kernel_wire.h)。
+Wirelink 的线缆层将「内核规范帧（Canonical Frame）」与「外层字节流连接器」彻底正交。完整协议规范及 C 语言常量定义详见 [docs/wire-format.md](https://github.com/starwey604/wirelink/blob/main/docs/wire-format.md) 与 [include/wirelink/wire.h](https://github.com/starwey604/wirelink/blob/main/include/wirelink/wire.h)。
 
 ## 规范帧结构（4 B + Payload）
 
-每个规范帧固定由 **4 字节帧头**（`WL_KERNEL_NATIVE_HEADER = 4`）与 `0 .. 2048` 字节 Payload（`WL_WIRE_MAX_PAYLOAD = 2048`）组成，单帧最大 **2052 字节**：
+每个规范帧固定由 **4 字节帧头**（`WL_WIRE_NATIVE_HEADER = 4`）与 `0 .. 2048` 字节 Payload（`WL_WIRE_MAX_PAYLOAD = 2048`）组成，单帧最大 **2052 字节**：
 
 ```text
  0                   1                   2                   3

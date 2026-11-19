@@ -10,7 +10,7 @@
 #include <zephyr/usb/usbd.h>
 #include <zephyr/ztest.h>
 
-#include "wirelink/zephyr/kernel_usb_bulk.h"
+#include "wirelink/zephyr/usb_bulk.h"
 
 #define QUEUED_REQUESTS 5U
 

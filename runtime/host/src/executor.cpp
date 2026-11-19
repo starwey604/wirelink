@@ -9,7 +9,7 @@ namespace wirelink::host {
 Executor::~Executor() {
   if (stop() == WL_ERR_REENTRANT) std::terminate();
 }
-wl_err_t Executor::initialize(wl_kernel_t &core, ExecutorIo io, wl_clock_t clock) {
+wl_err_t Executor::initialize(wl_endpoint_t &core, ExecutorIo io, wl_clock_t clock) {
   std::lock_guard lock(gate_);
   if (state_ != State::uninitialized || !clock.now_ms ||
       ((io.wait == nullptr) != (io.notify == nullptr))) return WL_ERR_INVALID_ARG;
@@ -115,13 +115,13 @@ void Executor::run() noexcept {
     wl_err_t error = WL_OK;
     try { if (io_.service) error = io_.service(io_.user, sampled); }
     catch (...) { error = failure(); }
-    const auto core_error = wl_kernel_step(core_, sampled, WL_KERNEL_BUDGET);
+    const auto core_error = wl_endpoint_step(core_, sampled, WL_ENDPOINT_BUDGET);
     if (error != WL_OK) last_error_.store(error);
     if (core_error != WL_OK) last_error_.store(core_error);
     if (error == WL_ERR_IO || error == WL_ERR_NO_MEM || core_error == WL_ERR_IO) { request_stop(); continue; }
     sampled = now();
     int have_deadline = 0; uint32_t deadline = 0;
-    bool ready = wl_kernel_ready(core_, sampled, &have_deadline, &deadline) != 0;
+    bool ready = wl_endpoint_ready(core_, sampled, &have_deadline, &deadline) != 0;
     auto io = wl_io_readiness_idle();
     try { if (io_.readiness) io = io_.readiness(io_.user, sampled); }
     catch (...) { last_error_.store(failure()); request_stop(); continue; }
@@ -135,16 +135,16 @@ void Executor::run() noexcept {
     }
   }
   while (commands(true)) {}
-  (void)wl_kernel_close(core_);
+  (void)wl_endpoint_close(core_);
   if (io_.stop) io_.stop(io_.user);
   // Logical terminals and physical leases remain separate. Join cannot release
   // storage while any real completion or RX borrow is still outstanding.
   do {
-    const auto error = wl_kernel_step(core_, now(), WL_KERNEL_BUDGET);
+    const auto error = wl_endpoint_step(core_, now(), WL_ENDPOINT_BUDGET);
     if (error != WL_OK) last_error_.store(error);
-    if (wl_kernel_quiescent(core_)) break;
+    if (wl_endpoint_quiescent(core_)) break;
     int have_deadline = 0; uint32_t deadline = 0;
-    if (wl_kernel_ready(core_, now(), &have_deadline, &deadline)) continue;
+    if (wl_endpoint_ready(core_, now(), &have_deadline, &deadline)) continue;
     // A stopped I/O wait can reject further socket operations. Keep storage
     // alive and wait for a real producer notification rather than spinning.
     const auto waited = wait(UINT32_MAX);

@@ -13,8 +13,8 @@ from report import normalize
 
 
 def api_capture():
-    module = normalize._suite_module("api", "compare_kernel.py")
-    return {"context": {"workload": "wirelink-kernel-api-v1", "clock": "caller_manual_tick"},
+    module = normalize._suite_module("api", "compare_endpoint.py")
+    return {"context": {"workload": "wirelink-endpoint-api-v1", "clock": "caller_manual_tick"},
         "benchmarks": [{"name": name, "repetition_index": i,
             "cpu_time": 100 + i, "real_time": 120 + i, "time_unit": "ns",
             "calls_per_op": counts[0], "samples_per_op": counts[1],
@@ -23,7 +23,7 @@ def api_capture():
 
 
 def mixed_capture():
-    module = normalize._suite_module("mixed_traffic", "compare_kernel.py")
+    module = normalize._suite_module("mixed_traffic", "compare_endpoint.py")
     rows = []
     for name, envelope, receiver in sorted(module.EXPECTED):
         request = name in ("drop_request", "loss_backpressure", "saturated_wrap")

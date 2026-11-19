@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/packet_stream.h"
-#include "wirelink/kernel_wire.h"
+#include "wirelink/wire.h"
 #include "wirelink/cobs.h"
 #include "wirelink/crc.h"
 #include <stdlib.h>
@@ -17,7 +17,7 @@ static void encode_reference_stream_frame(int cobs, uint16_t message_id, const u
   uint8_t raw[2054];
   const size_t canonical_len = payload_len + 4U;
   CHECK(canonical_len + 2U <= sizeof(raw));
-  CHECK(wl_kernel_native_none_seal(raw, sizeof(raw), message_id, payload_len) == WL_OK);
+  CHECK(wl_wire_native_none_seal(raw, sizeof(raw), message_id, payload_len) == WL_OK);
   if (payload_len != 0U)
     memcpy(raw + 4U, payload, payload_len);
   if (cobs) {
@@ -64,7 +64,7 @@ void wl_test_packet_stream(int cobs) {
   uint8_t canonical[2052], expected[2200];
   for (size_t size = 0; size <= 2048; ++size) {
     for (size_t i = 0; i < size; ++i) canonical[4 + i] = (uint8_t)(i + size);
-    CHECK(wl_kernel_native_none_seal(canonical, sizeof(canonical), 123, size) == WL_OK);
+    CHECK(wl_wire_native_none_seal(canonical, sizeof(canonical), 123, size) == WL_OK);
     wl_packet_token_t token;
     CHECK(wl_packet_tx_submit(&f.port, canonical, size + 4, &token) == WL_OK);
     CHECK(wl_packet_tx_take(&f.port, &token) == (WL_PACKET_CONSUMED | WL_PACKET_DRAINED));

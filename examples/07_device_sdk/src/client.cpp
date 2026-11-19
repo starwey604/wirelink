@@ -39,7 +39,7 @@ wirelink::Result<wirelink::Operation<ConfigureResponse>> Client::configure_async
     configure_response_t response{};
     device_sdk_call_t bridge{};
     wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify, void* context,
-        wl_kernel_call_handle_t* call) noexcept override {
+        wl_call_handle_t* call) noexcept override {
       bridge.endpoint = this->endpoint;
       bridge.request = &request;
       bridge.response = &response;
@@ -72,7 +72,7 @@ wirelink::Result<wirelink::Operation<InfoResponse>> Client::get_info_async(const
     info_response_t response{};
     device_sdk_call_t bridge{};
     wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify, void* context,
-        wl_kernel_call_handle_t* call) noexcept override {
+        wl_call_handle_t* call) noexcept override {
       bridge.endpoint = this->endpoint;
       bridge.request = &request;
       bridge.response = &response;

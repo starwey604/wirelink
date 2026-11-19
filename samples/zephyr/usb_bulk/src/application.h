@@ -2,7 +2,7 @@
 #ifndef WIRELINK_USB_SAMPLE_APPLICATION_H
 #define WIRELINK_USB_SAMPLE_APPLICATION_H
 #include "control.h"
-#include "wirelink/kernel.h"
+#include "wirelink/endpoint.h"
 #include <stdbool.h>
 #define USB_SAMPLE_PAYLOAD_MAX 2048U
 #define USB_SAMPLE_FRAME_MAX (USB_SAMPLE_PAYLOAD_MAX + 4U)
@@ -20,9 +20,9 @@ typedef struct {
   uint32_t completed_id, completed_crc, completed_writes, elapsed, report_due;
   uint64_t completed_length;
 } usb_sample_application_t;
-wl_err_t usb_sample_route(wl_kernel_t *, const wl_kernel_frame_t *);
-wl_err_t usb_sample_pass(usb_sample_application_t *, wl_kernel_t *, uint32_t now);
-int usb_sample_ready(const usb_sample_application_t *, const wl_kernel_t *, uint32_t now);
+wl_err_t usb_sample_route(wl_endpoint_t *, const wl_wire_frame_t *);
+wl_err_t usb_sample_pass(usb_sample_application_t *, wl_endpoint_t *, uint32_t now);
+int usb_sample_ready(const usb_sample_application_t *, const wl_endpoint_t *, uint32_t now);
 uint32_t usb_sample_deadline(const usb_sample_application_t *, uint32_t now);
 void usb_sample_close(usb_sample_application_t *);
 static inline uint32_t usb_sample_crc32c_update(uint32_t state, const uint8_t *data,

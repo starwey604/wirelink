@@ -94,7 +94,7 @@ wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length
 当你需要重启通信端口或复用节点内存时，按以下顺序操作：
 1. **先停 RX 源头**：关闭接收中断或确认生产者不再调用 `rx_packet` / `rx_feed`。
 2. **发起关闭**：调用 `<node>_close(&node)`（会自动丢弃半帧拼包状态并拒绝新业务请求）。
-3. **排空状态**：继续调用 `<node>_step(&node, now_ms)`，直到 **`<node>_quiescent(&node)`** 返回 `true`（期间所有未决 RPC 都会收到 `WL_KERNEL_CLOSED` 完成回调）。
+3. **排空状态**：继续调用 `<node>_step(&node, now_ms)`，直到 **`<node>_quiescent(&node)`** 返回 `true`（期间所有未决 RPC 都会收到 `WL_RPC_CLOSED` 完成回调）。
 4. **安全复用**：此时方可销毁节点或调用 `<node>_init_with_instance(&node, new_id)` 重新初始化。
 
 ---
@@ -131,14 +131,14 @@ node dma_sensor {
 
 ### 2. 对接现有异步适配器（如 Host / Zephyr UDP）
 
-仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 目录已经提供了现成的 Zephyr（UART DMA/IRQ、USB Bulk）、Asio UDP、Astrial 串口/USB 适配器。在主循环中，通常只需将适配器的 `service()` 与内核 `wl_kernel_step()` 放在同一个 Owner 函数中推进（源自 [`examples/05_zephyr_udp/zephyr_owner.h`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/zephyr_owner.h)）：
+仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 目录已经提供了现成的 Zephyr（UART DMA/IRQ、USB Bulk）、Asio UDP、Astrial 串口/USB 适配器。在主循环中，通常只需将适配器的 `service()` 与内核 `wl_endpoint_step()` 放在同一个 Owner 函数中推进（源自 [`examples/05_zephyr_udp/zephyr_owner.h`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/zephyr_owner.h)）：
 
 {/* [docs:udp_host_step] */}
 ```cpp
-wl_err_t example_udp_step(example_udp_t *udp, wl_kernel_t *core, uint32_t now) {
+wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
   try {
     const auto error = udp->adapter->service();
-    const auto advanced = wl_kernel_step(core, now, 16);
+    const auto advanced = wl_endpoint_step(core, now, 16);
     return error == WL_OK ? advanced : error;
   } catch (...) { return WL_ERR_IO; }
 }

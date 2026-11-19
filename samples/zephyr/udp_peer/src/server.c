@@ -11,8 +11,8 @@ int main(void) {
   wl_err_t error = sample_udp_open(&udp);
   if (error != WL_OK) { printk("UDP open: %d\n", error); return 1; }
   error = udp_server_init(&server, &udp.port);
-  if (error != WL_OK) { (void)wl_kernel_udp_close(&udp.adapter); return 1; }
-  printk("UDP peer server ready on %s:%u\n", CONFIG_NET_CONFIG_MY_IPV4_ADDR, wl_kernel_udp_local_port(&udp.adapter));
+  if (error != WL_OK) { (void)wl_zephyr_udp_close(&udp.adapter); return 1; }
+  printk("UDP peer server ready on %s:%u\n", CONFIG_NET_CONFIG_MY_IPV4_ADDR, wl_zephyr_udp_local_port(&udp.adapter));
   uint32_t sequence = 0, due = k_uptime_get_32();
   for (;;) {
     uint32_t now = k_uptime_get_32();

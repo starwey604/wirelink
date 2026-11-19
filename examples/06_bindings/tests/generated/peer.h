@@ -42,10 +42,10 @@ void peer_add_response_clear(peer_add_response_t *value);
 size_t peer_add_response_encoded_size(const peer_add_response_t *value);
 wl_codec_status_t peer_add_response_encode(const peer_add_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 
-#include <wirelink/kernel.h>
+#include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(0, 14)
-#error "WLC requires generated-code contract 0.14"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct calculator_peer_node calculator_peer_node_t;
@@ -60,14 +60,14 @@ typedef struct {
   int32_t (*on_add)(void *, const peer_add_request_t *, peer_add_response_t *);
 } calculator_peer_handlers_t;
 struct calculator_peer_node {
-  wl_kernel_t core;
+  wl_endpoint_t core;
   void *user;
-  wl_kernel_error_fn on_error;
+  wl_endpoint_error_fn on_error;
   calculator_peer_handlers_t handlers;
   union {
     peer_add_response_t add;
   } reply;
-  uint8_t replies[WL_KERNEL_REPLIES][18];
+  uint8_t replies[WL_ENDPOINT_REPLIES][18];
 };
 wl_err_t calculator_peer_init(calculator_peer_node_t *self, wl_packet_port_t *port, const calculator_peer_handlers_t *handlers, void *user);
 wl_err_t calculator_peer_step(calculator_peer_node_t *self, uint32_t now);

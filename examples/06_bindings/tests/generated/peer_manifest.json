@@ -1,9 +1,9 @@
 {
-  "format": "wirelink-codegen-manifest-v1",
+  "format": "wirelink-codegen-manifest-v2",
   "compiler": {
     "name": "wlc",
-    "version": "0.14.0",
-    "codegen_contract": {"major": 0, "minor": 14}
+    "version": "0.0.99",
+    "codegen_contract": 1
   },
   "module": "peer",
   "identity": {
@@ -19,8 +19,8 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "peer.c", "size": 7950, "digest": "0xb8aac5fdb7d8f3cc"},
-    {"path": "peer.h", "size": 2722, "digest": "0x30195213b05ec79a"}
+    {"path": "peer.c", "size": 7965, "digest": "0xc874493671ea9a8e"},
+    {"path": "peer.h", "size": 2716, "digest": "0x259639c437bad828"}
   ]
 ,
   "nodes": [{"name":"calculator_peer","framing":"native","io":"external","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":18,"message_frame_capacity":0,"rx_frame_capacity":24,"tx_frame_capacity":18,"rx_wire_capacity":24,"tx_wire_capacity":18}]

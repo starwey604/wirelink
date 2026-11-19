@@ -4,7 +4,7 @@ libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
 includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
 
 Name: wirelink
-Description: Allocation-free C11 static endpoint kernel
+Description: Allocation-free C11 static endpoint library
 Version: @PROJECT_VERSION@
-Libs: -L${libdir} -lwirelink_kernel -lwirelink_packet_port -lwirelink_types
+Libs: -L${libdir} -lwirelink_endpoint -lwirelink_packet_port -lwirelink_types
 Cflags: -I${includedir}

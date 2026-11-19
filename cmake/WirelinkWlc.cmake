@@ -1,15 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 include_guard(GLOBAL)
-set(WIRELINK_WLC_VERSION "0.14.0" CACHE INTERNAL "Matching compiler" FORCE)
-set(WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR "0" CACHE INTERNAL "Current contract major" FORCE)
-set(WIRELINK_WLC_CODEGEN_CONTRACT_MINOR "14" CACHE INTERNAL "Current contract minor" FORCE)
-function(_wirelink_codegen_contract_accepts major minor result)
-  if(major STREQUAL "0" AND minor STREQUAL "14")
-    set(${result} TRUE PARENT_SCOPE)
-  else()
-    set(${result} FALSE PARENT_SCOPE)
-  endif()
-endfunction()
+set(WIRELINK_WLC_CODEGEN_CONTRACT "1" CACHE INTERNAL "Generated-code contract" FORCE)
+
 function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   if(NOT EXISTS "${executable}" OR IS_DIRECTORY "${executable}")
     set(${out_valid} FALSE PARENT_SCOPE)
@@ -18,55 +10,28 @@ function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   endif()
 
   execute_process(
-    COMMAND "${executable}" --version
-    RESULT_VARIABLE _result
-    OUTPUT_VARIABLE _stdout
-    ERROR_VARIABLE _stderr
+    COMMAND "${executable}" codegen-contract
+    RESULT_VARIABLE status
+    OUTPUT_VARIABLE contract
+    ERROR_VARIABLE error
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_STRIP_TRAILING_WHITESPACE
     TIMEOUT 10)
-  if(NOT _result STREQUAL "0")
+  if(NOT status STREQUAL "0")
+    set(${out_valid} FALSE PARENT_SCOPE)
+    set(${out_reason} "could not query codegen-contract (exit ${status}): ${error}" PARENT_SCOPE)
+  elseif(NOT contract MATCHES "^[0-9]+$")
+    set(${out_valid} FALSE PARENT_SCOPE)
+    set(${out_reason} "did not report an integer generated-code contract" PARENT_SCOPE)
+  elseif(NOT contract STREQUAL WIRELINK_WLC_CODEGEN_CONTRACT)
     set(${out_valid} FALSE PARENT_SCOPE)
     set(${out_reason}
-      "could not be executed (exit ${_result}): ${_stderr}" PARENT_SCOPE)
-    return()
-  endif()
-
-  set(_expected "wlc ${WIRELINK_WLC_VERSION}")
-  if(NOT _stdout STREQUAL _expected)
-    set(${out_valid} FALSE PARENT_SCOPE)
-    set(${out_reason}
-      "reported '${_stdout}', expected '${_expected}'" PARENT_SCOPE)
-    return()
-  endif()
-
-  execute_process(
-    COMMAND "${executable}" codegen-contract
-    RESULT_VARIABLE _contract_result
-    OUTPUT_VARIABLE _contract
-    ERROR_QUIET
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    TIMEOUT 10)
-  if(NOT _contract_result STREQUAL "0" OR
-      NOT _contract MATCHES "^([0-9]+)\\.([0-9]+)$")
-    set(${out_valid} FALSE PARENT_SCOPE)
-    set(${out_reason}
-      "did not report a MAJOR.MINOR generated-code contract; install the matching WLC build"
+      "provides generated-code contract ${contract}, expected ${WIRELINK_WLC_CODEGEN_CONTRACT}"
       PARENT_SCOPE)
-    return()
+  else()
+    set(${out_valid} TRUE PARENT_SCOPE)
+    set(${out_reason} "" PARENT_SCOPE)
   endif()
-  _wirelink_codegen_contract_accepts("${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}"
-    _contract_valid)
-  if(NOT _contract_valid)
-    set(${out_valid} FALSE PARENT_SCOPE)
-    set(${out_reason}
-      "provides generated-code contract ${_contract}, incompatible with ${WIRELINK_WLC_CODEGEN_CONTRACT_MAJOR}.${WIRELINK_WLC_CODEGEN_CONTRACT_MINOR}"
-      PARENT_SCOPE)
-    return()
-  endif()
-
-  set(${out_valid} TRUE PARENT_SCOPE)
-  set(${out_reason} "" PARENT_SCOPE)
 endfunction()
 
 # Rust canonicalize() returns verbatim paths on Windows. CMake/MSBuild dependency
@@ -113,7 +78,7 @@ function(_wirelink_wlc_resolve explicit result)
   endif()
   _wirelink_wlc_validate_executable("${compiler}" valid reason)
   if(NOT valid)
-    message(FATAL_ERROR "Supply matching WLC 0.14.0 with WIRELINK_WLC_EXECUTABLE: ${reason}")
+    message(FATAL_ERROR "Supply a compatible WLC with WIRELINK_WLC_EXECUTABLE: ${reason}")
   endif()
   set(${result} "${compiler}" PARENT_SCOPE)
 endfunction()
@@ -181,16 +146,15 @@ function(wirelink_wlc_generate)
   add_custom_command(OUTPUT ${generated}
     COMMAND ${command}
     COMMAND "${CMAKE_COMMAND}" "-DWIRELINK_WLC_MANIFEST=${manifest}"
-      "-DWIRELINK_WLC_EXPECTED_VERSION=${WIRELINK_WLC_VERSION}"
-      "-DWIRELINK_WLC_EXPECTED_CONTRACT_MAJOR=0" "-DWIRELINK_WLC_EXPECTED_CONTRACT_MINOR=14"
+      "-DWIRELINK_WLC_EXPECTED_CONTRACT=${WIRELINK_WLC_CODEGEN_CONTRACT}"
       -P "${verifier}"
     DEPENDS ${depends} "${verifier}" VERBATIM COMMAND_EXPAND_LISTS)
   add_library(${WLC_TARGET} STATIC "${output}/${module}.c")
   target_include_directories(${WLC_TARGET} PUBLIC "${output}")
   target_compile_features(${WLC_TARGET} PUBLIC c_std_11)
-  if(TARGET Wirelink::kernel)
+  if(TARGET Wirelink::endpoint)
     if(node_count GREATER 0)
-      target_link_libraries(${WLC_TARGET} PUBLIC Wirelink::kernel ${connectors})
+      target_link_libraries(${WLC_TARGET} PUBLIC Wirelink::endpoint ${connectors})
     else()
       target_link_libraries(${WLC_TARGET} PUBLIC Wirelink::types)
     endif()

@@ -1,15 +1,15 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "wirelink/zephyr/kernel_udp.h"
+#include "wirelink/zephyr/udp.h"
 #include "wirelink/packet_stream.h"
-#include "wirelink/kernel_wire.h"
+#include "wirelink/wire.h"
 #include "wirelink/cobs.h"
 #include "wirelink/crc.h"
-#include "kernel_udp_socket_contract.h"
+#include "udp_socket_contract.h"
 #include <zephyr/net/socket.h>
 #include <zephyr/ztest.h>
 #include <errno.h>
 #include <string.h>
-static wl_kernel_udp_t adapter;
+static wl_zephyr_udp_t adapter;
 static wl_packet_port_t port;
 static uint8_t rx[2][96];
 static int sender, foreign;
@@ -45,19 +45,19 @@ static void setup(bool cobs) {
                            .rx_storage = &rx[0][0],
                            .rx_unit_size = 96,
                            .rx_storage_size = sizeof(rx),
-                           .submit = wl_kernel_udp_submit,
-                           .notify = wl_kernel_udp_notify,
+                           .submit = wl_zephyr_udp_submit,
+                           .notify = wl_zephyr_udp_notify,
                            .user = &adapter};
   zassert_ok(wl_packet_init(&port, &pc));
-  wl_kernel_udp_config_t config = {.port = &port,
+  wl_zephyr_udp_config_t config = {.port = &port,
                                    .local = address(0),
                                    .peer = bound(sender),
                                    .maximum_datagram_size = 64,
                                    .service_budget = 4,
                                    .clock = {now, NULL},
                                    .decode = cobs ? wl_packet_cobs_crc16_decode : NULL};
-  zassert_ok(wl_kernel_udp_open(&adapter, &config));
-  destination = address(wl_kernel_udp_local_port(&adapter));
+  zassert_ok(wl_zephyr_udp_open(&adapter, &config));
+  destination = address(wl_zephyr_udp_local_port(&adapter));
   zassert_true(destination.sin_port != 0);
 }
 static void send_bytes(int fd, const uint8_t *data, size_t n) {
@@ -67,13 +67,13 @@ static void send_bytes(int fd, const uint8_t *data, size_t n) {
 }
 static void service_until(unsigned count) {
   for (unsigned i = 0; i < 100 && adapter.received < count; ++i) {
-    zassert_ok(wl_kernel_udp_wait(&adapter, 10));
-    zassert_ok(wl_kernel_udp_service(&adapter, now(NULL)));
+    zassert_ok(wl_zephyr_udp_wait(&adapter, 10));
+    zassert_ok(wl_zephyr_udp_service(&adapter, now(NULL)));
   }
   zassert_equal(adapter.received, count);
 }
 static void cleanup(void) {
-  zassert_ok(wl_kernel_udp_close(&adapter));
+  zassert_ok(wl_zephyr_udp_close(&adapter));
   zassert_ok(zsock_close(sender));
   zassert_ok(zsock_close(foreign));
   zassert_true(wl_packet_quiescent(&port));
@@ -85,7 +85,7 @@ static void notify_later(void *a, void *b, void *c) {
   (void)b;
   (void)c;
   k_sleep(K_MSEC(15));
-  wl_kernel_udp_notify(&adapter);
+  wl_zephyr_udp_notify(&adapter);
 }
 ZTEST(static_udp, test_guard_peer_slots_and_latched_wait) {
   setup(false);
@@ -101,15 +101,15 @@ ZTEST(static_udp, test_guard_peer_slots_and_latched_wait) {
   wl_packet_borrow_t borrow;
   zassert_ok(wl_packet_rx_borrow(&port, &borrow));
   zassert_mem_equal(borrow.data, packet, sizeof(packet));
-  zassert_false(wl_kernel_udp_readiness(&adapter, now(NULL)).runnable);
+  zassert_false(wl_zephyr_udp_readiness(&adapter, now(NULL)).runnable);
   // Full RX masks the socket, including a queued third packet. Wait for notify.
   k_thread_create(&producer, producer_stack, K_THREAD_STACK_SIZEOF(producer_stack), notify_later,
                   NULL, NULL, NULL, 5, 0, K_NO_WAIT);
   // Consume existing publications before checking the delayed notification.
-  while (wl_kernel_udp_wait(&adapter, 0) == WL_OK) {
+  while (wl_zephyr_udp_wait(&adapter, 0) == WL_OK) {
   }
   uint32_t begin = now(NULL);
-  zassert_ok(wl_kernel_udp_wait(&adapter, 100));
+  zassert_ok(wl_zephyr_udp_wait(&adapter, 100));
   zassert_true(now(NULL) - begin >= 5);
   zassert_ok(k_thread_join(&producer, K_SECONDS(1)));
   zassert_ok(wl_packet_rx_release(&port, &borrow));
@@ -130,24 +130,24 @@ ZTEST(static_udp, test_guard_peer_slots_and_latched_wait) {
   }
   zassert_equal(n, sizeof(packet));
   zassert_mem_equal(result, packet, sizeof(packet));
-  zassert_equal(wl_kernel_udp_socket_classify_send(-1, 7, EAGAIN), WL_PACKET_BUSY);
-  zassert_equal(wl_kernel_udp_socket_classify_send(6, 7, 0), WL_PACKET_FAILED);
-  zassert_ok(wl_kernel_udp_request_stop(&adapter));
-  zassert_equal(wl_kernel_udp_wait(&adapter, 0), WL_ERR_CANCELLED);
+  zassert_equal(wl_zephyr_udp_socket_classify_send(-1, 7, EAGAIN), WL_PACKET_BUSY);
+  zassert_equal(wl_zephyr_udp_socket_classify_send(6, 7, 0), WL_PACKET_FAILED);
+  zassert_ok(wl_zephyr_udp_request_stop(&adapter));
+  zassert_equal(wl_zephyr_udp_wait(&adapter, 0), WL_ERR_CANCELLED);
   cleanup();
 }
 ZTEST(static_udp, test_selected_cobs_decode_and_recovery) {
   setup(true);
   uint8_t payload[] = {0, 1, 2, 3};
-  uint8_t raw[WL_KERNEL_NATIVE_HEADER + sizeof(payload) + 2U];
+  uint8_t raw[WL_WIRE_NATIVE_HEADER + sizeof(payload) + 2U];
   uint8_t wire[64];
   size_t n = 0;
-  zassert_ok(wl_kernel_native_none_seal(raw, WL_KERNEL_NATIVE_HEADER + sizeof(payload), 22U,
+  zassert_ok(wl_wire_native_none_seal(raw, WL_WIRE_NATIVE_HEADER + sizeof(payload), 22U,
                                         sizeof(payload)));
-  memcpy(raw + WL_KERNEL_NATIVE_HEADER, payload, sizeof(payload));
-  const uint16_t crc = wl_crc16_ccitt_false(raw, WL_KERNEL_NATIVE_HEADER + sizeof(payload));
-  raw[WL_KERNEL_NATIVE_HEADER + sizeof(payload)] = (uint8_t)(crc >> 8U);
-  raw[WL_KERNEL_NATIVE_HEADER + sizeof(payload) + 1U] = (uint8_t)crc;
+  memcpy(raw + WL_WIRE_NATIVE_HEADER, payload, sizeof(payload));
+  const uint16_t crc = wl_crc16_ccitt_false(raw, WL_WIRE_NATIVE_HEADER + sizeof(payload));
+  raw[WL_WIRE_NATIVE_HEADER + sizeof(payload)] = (uint8_t)(crc >> 8U);
+  raw[WL_WIRE_NATIVE_HEADER + sizeof(payload) + 1U] = (uint8_t)crc;
   zassert_ok(wl_cobs_encode(raw, sizeof(raw), wire, sizeof(wire) - 1U, &n));
   wire[n++] = 0U;
   wire[2] ^= 1;

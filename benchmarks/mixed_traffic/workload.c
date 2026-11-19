@@ -69,8 +69,8 @@ static wl_packet_submit_t transmit(void *user, const uint8_t *data, size_t lengt
   size_t raw_length = length; const uint8_t *canonical = raw;
   if (s->envelope == 0) CHECK(wl_packet_cobs_crc16_decode(raw, length, &raw_length) == WL_OK);
   else if (s->envelope == 2) { CHECK(length > 2); canonical += 2; raw_length -= 2; }
-  wl_kernel_frame_t frame;
-  CHECK(wl_kernel_native_none_read(canonical, raw_length, &frame) == WL_OK);
+  wl_wire_frame_t frame;
+  CHECK(wl_wire_native_none_read(canonical, raw_length, &frame) == WL_OK);
   p->drop = false;
   if (frame.message_id == ECHO_REQUEST_MESSAGE_ID && s->scenario.drop_request && !p->dropped_requests) {
     ++p->dropped_requests; p->drop = true;
@@ -130,12 +130,12 @@ static void telemetry(void *user, const telemetry_t *value) {
   p->last_sequence = value->sequence; p->sampled_at = value->sampled_at;
   p->received_at = s->tick; ++p->received;
 }
-static void completed(void *user, wl_kernel_result_t result, const echo_response_t *response) {
+static void completed(void *user, wl_rpc_result_t result, const echo_response_t *response) {
   job_t *job = user; simulation_t *s = job->simulation;
-  if (result.outcome == WL_KERNEL_TIMED_OUT) {
+  if (result.outcome == WL_RPC_TIMED_OUT) {
     CHECK(job->attempts < 3); ++s->timed_out; job->retry = true; return;
   }
-  CHECK(result.outcome == WL_KERNEL_SUCCESS && response && response->sequence == job->sequence);
+  CHECK(result.outcome == WL_RPC_SUCCESS && response && response->sequence == job->sequence);
   CHECK(!job->done); job->done = true; ++s->completed;
   unsigned elapsed = s->tick - job->began;
   if (elapsed > s->max_rpc) s->max_rpc = elapsed;
@@ -143,7 +143,7 @@ static void completed(void *user, wl_kernel_result_t result, const echo_response
 static void start(job_t *job) {
   simulation_t *s = job->simulation;
   echo_request_t value = {.sequence = job->sequence};
-  wl_kernel_call_handle_t handle;
+  wl_call_handle_t handle;
   CHECK(mixed_call_echo_ex(&s->endpoints[job->side], &value, now(s), 80,
     completed, job, &handle) == WL_OK);
   memset(&value, 0, sizeof(value)); ++job->attempts; job->retry = false;
@@ -238,7 +238,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
       s->max_rpc, p->dropped_requests, p->dropped_responses, p->busy);
   }
   for (unsigned side = 0; side < 2; ++side) {
-    port_t *p = &s->ports[side]; CHECK(wl_kernel_close(&s->endpoints[side].core) == WL_OK);
+    port_t *p = &s->ports[side]; CHECK(wl_endpoint_close(&s->endpoints[side].core) == WL_OK);
     bool cancelled = p->active;
     if (p->active) {
       /* Model driver abandons its actual held source/copy before TX_ERROR. */
@@ -248,7 +248,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
     if (envelope != 1) CHECK(wl_packet_stream_abort_rx(&p->stream) == WL_OK);
     wl_err_t error = mixed_step(&s->endpoints[side], now(s));
     CHECK(error == WL_OK || (cancelled && error == WL_ERR_IO));
-    CHECK(wl_kernel_quiescent(&s->endpoints[side].core));
+    CHECK(wl_endpoint_quiescent(&s->endpoints[side].core));
   }
 }
 int mixed_traffic_run(bool check) {

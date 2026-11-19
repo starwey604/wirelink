@@ -37,7 +37,7 @@ class CompareTest(unittest.TestCase):
         return {(row.group, row.item): row for row in rows}
 
     def test_current_kernel_storage_rows(self):
-        before = report(schema=compare.SCHEMA, types={"wl_kernel_t": 1000}, storage=[
+        before = report(schema=compare.SCHEMA, types={"wl_endpoint_t": 1000}, storage=[
             {"deployment": "demo_usb_native_none", "endpoint": 1500, "packet_port": 160,
              "rx_units": 48, "stream_object": 0, "stream_tx": 0,
              "byte_fifo_object": 0, "byte_fifo_storage": 0}])
@@ -45,13 +45,13 @@ class CompareTest(unittest.TestCase):
         after["storage"][0]["rx_units"] += 16
         rows = self.rows_by_key(compare.compare(before, after))
         self.assertEqual(rows[("storage demo_usb_native_none", "rx_units")].after, 64)
-        self.assertEqual(rows[("type", "wl_kernel_t")].after, 1000)
+        self.assertEqual(rows[("type", "wl_endpoint_t")].after, 1000)
 
     def test_current_load_rejects_incomplete_negative_and_duplicate_budgets(self):
         storage = [{"deployment": name, **{key: 1 for key in compare.STORAGE_METRICS}}
                    for name in ("demo_usb_native_none", "demo_serial_cobs_crc16", "demo_length16_none")]
         current = report(schema=compare.SCHEMA, probe_enabled=True,
-                         types={"wl_kernel_t": 616}, storage=storage)
+                         types={"wl_endpoint_t": 616}, storage=storage)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "current.json"
             path.write_text(json.dumps(current))

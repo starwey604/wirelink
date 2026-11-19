@@ -7,7 +7,7 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-在评估嵌入式通信中间件的内存占用时，只看某一个核心结构体（比如 `sizeof(wl_kernel_t)`）往往不够全面——因为真正把通信跑起来，你还需要接收缓冲区（双 RX 槽）、出站请求/回复池以及串口流分帧器（COBS/FIFO）的内存。
+在评估嵌入式通信中间件的内存占用时，只看某一个核心结构体（比如 `sizeof(wl_endpoint_t)`）往往不够全面——因为真正把通信跑起来，你还需要接收缓冲区（双 RX 槽）、出站请求/回复池以及串口流分帧器（COBS/FIFO）的内存。
 
 因此，下面列出了**完整通信装配（Full Assembly）的实测静态内存账本**。数据基于 **GCC 16.2.1 (x86-64)**，编译选项 `-std=c11 -Os -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables`，由仓库脚本 `benchmarks/footprint/footprint.py` 实测生成。
 
@@ -20,7 +20,7 @@ import { Aside } from '@astrojs/starlight/components';
 | 核心编译单元 | 模块职责 | `.text` (Flash 代码) | `.rodata` (只读常量) | `.data` | `.bss` (全局静态 RAM) |
 | :--- | :--- | ---: | ---: | ---: | ---: |
 | `src/codec.c` | TLV / Positional / Varint / UTF-8 编解码基础原语 | 6,300 B | 232 B | 0 B | 0 B |
-| `src/kernel.c` | RPC 状态机、超时调度、消息路由与步进引擎 | 4,581 B | 0 B | 0 B | 0 B |
+| `src/endpoint.c` | RPC 状态机、超时调度、消息路由与步进引擎 | 4,581 B | 0 B | 0 B | 0 B |
 | `src/packet_port.c` | 双槽 RX 原子交换、异步 TX 租约与实例号分配 | 1,513 B | 0 B | 0 B | **4 B** |
 | `src/cobs_crc16_stream.c` | COBS + CRC16 流式封包与增量断包状态机 | 1,493 B | 0 B | 0 B | 0 B |
 | `src/length16_none_stream.c` | 2B 小端长度头流式封包与增量断包状态机 | 1,078 B | 0 B | 0 B | 0 B |
@@ -41,7 +41,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 ## 二、 完整双向节点装配的静态 RAM 账本
 
-对于同时启用双向 RPC（`call` + `serve`）与双向遥测（`send` + `recv`）的 `examples/kernel/demo.wl` 节点，将**节点结构体、端口、双 RX 接收缓冲以及流分帧/FIFO 缓冲区全部加在一起**的总 RAM 如下：
+对于同时启用双向 RPC（`call` + `serve`）与双向遥测（`send` + `recv`）的 `examples/endpoint/demo.wl` 节点，将**节点结构体、端口、双 RX 接收缓冲以及流分帧/FIFO 缓冲区全部加在一起**的总 RAM 如下：
 
 | 完整通信装配方案 | 实测总 RAM | 包含的静态存储组件明细 |
 | :--- | ---: | :--- |
@@ -51,7 +51,7 @@ import { Aside } from '@astrojs/starlight/components';
 
 ### 按角色裁剪如何节省 RAM？
 
-上面的 `demo_node_t`（624 B，其中 `wl_kernel_t` 440 B、`wl_packet_port_t` 128 B、`wl_packet_stream_t` 120 B，基于 64 位 x86-64 ABI 测量；在 32 位 ARM Cortex-M 上指针减半还会更小）是因为它**同时开启了所有 4 种方向角色**。
+上面的 `demo_node_t`（624 B，其中 `wl_endpoint_t` 440 B、`wl_packet_port_t` 128 B、`wl_packet_stream_t` 120 B，基于 64 位 x86-64 ABI 测量；在 32 位 ARM Cortex-M 上指针减半还会更小）是因为它**同时开启了所有 4 种方向角色**。
 
 在你的实际固件中，只要在 `node` 里只声明真正用到的方向，未使用的字节池就会直接裁剪为 0：
 - **纯传感器发布节点（仅 `send`）**：不分配 4 个 RPC 请求槽和 3 个 RPC 回复槽。

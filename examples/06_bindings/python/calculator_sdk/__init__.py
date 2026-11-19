@@ -10,7 +10,7 @@ from . import _native, _runtime
 from ._runtime import (Udp, WirelinkError, ClosedError, RpcTimeoutError, CancelledError,
     RejectedError, QueueFullError, TransportError, CodecError, InvalidArgumentError)
 
-__version__ = "0.14.0"
+__version__ = "0.0.99"
 core_version: str = _native.core_version
 codegen_contract: str = _native.codegen_contract
 binding_api: int = _native.binding_api

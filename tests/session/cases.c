@@ -19,7 +19,7 @@ static unsigned source_reads, executed, notifications;
 static uint32_t now;
 static int source_mode;
 static response_t owned;
-static wl_kernel_result_t result;
+static wl_rpc_result_t result;
 static wl_err_t next_identity(void *context, uint32_t *out) {
   (void)context; ++source_reads;
   if (source_mode == 1) return WL_ERR_IO;
@@ -50,12 +50,12 @@ static int32_t execute(void *user, const request_t *request, response_t *respons
   response->output = request->input + 1;
   return 0;
 }
-static void completed(void *user, wl_kernel_result_t value, const response_t *view) {
+static void completed(void *user, wl_rpc_result_t value, const response_t *view) {
   (void)user; result = value; ++notifications;
-  if (value.outcome == WL_KERNEL_SUCCESS) {
+  if (value.outcome == WL_RPC_SUCCESS) {
     /* No borrowed response survives this callback. */
     if (!view)
-      result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+      result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
     else
       owned = *view;
   }
@@ -75,11 +75,11 @@ static wl_err_t init(owner_t *owner, wl_session_source_t source, bool service) {
   return error;
 }
 static int close_owner(owner_t *owner) {
-  CHECK(wl_kernel_close(&owner->endpoint.core) == WL_OK);
+  CHECK(wl_endpoint_close(&owner->endpoint.core) == WL_OK);
   /* RAM submit never retains a physical source after returning. */
   wl_packet_stop(&owner->port);
   CHECK(session_step(&owner->endpoint, now) == WL_OK);
-  CHECK(wl_kernel_quiescent(&owner->endpoint.core)); return 0;
+  CHECK(wl_endpoint_quiescent(&owner->endpoint.core)); return 0;
 }
 static int drain(void) {
   for (unsigned i = 0; i < 8; ++i) {
@@ -91,14 +91,14 @@ static int drain(void) {
   }
   return 0;
 }
-static wl_err_t call(int value, wl_kernel_call_handle_t *handle) {
+static wl_err_t call(int value, wl_call_handle_t *handle) {
   request_t request = {.input = value};
   return session_call_execute_ex(&client.endpoint, &request, now, 100,
     completed, NULL, handle);
 }
 int session_run(wl_session_source_t native) {
   wl_session_source_t source = {next_identity, NULL};
-  wl_kernel_call_handle_t old, current;
+  wl_call_handle_t old, current;
   uint32_t sentinel = 42;
   source_mode = 1;
   CHECK(wl_session_next(source, 0, &sentinel) == WL_ERR_IO && sentinel == 42);
@@ -114,7 +114,7 @@ int session_run(wl_session_source_t native) {
   CHECK(client.previous != server.previous);
   unsigned reads = source_reads;
   CHECK(call(40, &old) == WL_OK && old.operation == 1 && drain() == 0);
-  CHECK(notifications == 1 && executed == 1 && result.outcome == WL_KERNEL_SUCCESS && owned.output == 41);
+  CHECK(notifications == 1 && executed == 1 && result.outcome == WL_RPC_SUCCESS && owned.output == 41);
   uint8_t stale_request[96], stale_success[96], stale_reject[96];
   size_t request_size = client.length, success_size = server.length, metadata_size = 0;
   memcpy(stale_request, client.captured, request_size);
@@ -128,7 +128,7 @@ int session_run(wl_session_source_t native) {
   source_mode = 0; identity += 100;
   CHECK(init(&client, source, false) == WL_OK);
   CHECK(call(50, &current) == WL_OK && current.operation == old.operation && current.instance != old.instance);
-  CHECK(wl_kernel_cancel(&client.endpoint.core, old) == WL_ERR_NOT_FOUND);
+  CHECK(wl_endpoint_cancel(&client.endpoint.core, old) == WL_ERR_NOT_FOUND);
   CHECK(inject(&client.port, stale_success, success_size) == WL_OK);
   CHECK(inject(&client.port, stale_reject, metadata_size + 4) == WL_OK);
   CHECK(session_step(&client.endpoint, now) == WL_OK && notifications == 1);
@@ -136,13 +136,13 @@ int session_run(wl_session_source_t native) {
    * its response cannot complete a call from the new instance. */
   CHECK(inject(&server.port, stale_request, request_size) == WL_OK);
   CHECK(drain() == 0 && notifications == 2 && executed == 3);
-  CHECK(result.outcome == WL_KERNEL_SUCCESS && owned.output == 51);
+  CHECK(result.outcome == WL_RPC_SUCCESS && owned.output == 51);
   reads = source_reads;
   CHECK(call(-1, &current) == WL_OK && drain() == 0);
-  CHECK(result.outcome == WL_KERNEL_REJECTED && result.status == 7);
+  CHECK(result.outcome == WL_RPC_REJECTED && result.status == 7);
   for (unsigned i = 0; i < 100; ++i) {
     CHECK(call((int)i, &current) == WL_OK && drain() == 0);
-    CHECK(result.outcome == WL_KERNEL_SUCCESS && owned.output == (int32_t)i + 1);
+    CHECK(result.outcome == WL_RPC_SUCCESS && owned.output == (int32_t)i + 1);
   }
   CHECK(source_reads == reads);
   /* Test-only private-state seed: production exposes no operation-ID knob. */
@@ -153,7 +153,7 @@ int session_run(wl_session_source_t native) {
   CHECK(close_owner(&client) == 0 && owned.output == 81);
   CHECK(init(&client, source, false) == WL_OK);
   CHECK(call(90, &current) == WL_OK && current.operation == 1 && current.instance != old.instance);
-  CHECK(wl_kernel_cancel(&client.endpoint.core, old) == WL_ERR_NOT_FOUND);
+  CHECK(wl_endpoint_cancel(&client.endpoint.core, old) == WL_ERR_NOT_FOUND);
   CHECK(drain() == 0 && notifications == count + 1 && owned.output == 91);
   CHECK(close_owner(&client) == 0 && close_owner(&server) == 0 && owned.output == 91);
   printf("SESSION fresh/old-success/old-reject/replayed-request/exhaustion hot_reads=0 endpoint_bytes=%u PASS\n",

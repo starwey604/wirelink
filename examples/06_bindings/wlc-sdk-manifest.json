@@ -1,9 +1,9 @@
 {
-  "format": "wirelink-codegen-manifest-v1",
+  "format": "wirelink-codegen-manifest-v2",
   "compiler": {
     "name": "wlc",
-    "version": "0.14.0",
-    "codegen_contract": {"major": 0, "minor": 14}
+    "version": "0.0.99",
+    "codegen_contract": 1
   },
   "module": "calculator",
   "identity": {
@@ -19,31 +19,31 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "CMakeLists.txt", "size": 4629, "digest": "0xe66cf4da23868c4e"},
+    {"path": "CMakeLists.txt", "size": 4450, "digest": "0xb47f262523e3cf00"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 7442, "digest": "0x25f08148464de866"},
-    {"path": "cmake/CalculatorSdkConfig.cmake.in", "size": 220, "digest": "0xf8c85d5134eafdb6"},
-    {"path": "generated/calculator.c", "size": 12690, "digest": "0x4663d683f8856eb2"},
-    {"path": "generated/calculator.h", "size": 3184, "digest": "0x55e72939be26b8ea"},
-    {"path": "generated/calculator_manifest.json", "size": 963, "digest": "0xd1c4cd800dcf0b7f"},
+    {"path": "README.md", "size": 7352, "digest": "0xeb899ab130704aae"},
+    {"path": "cmake/CalculatorSdkConfig.cmake.in", "size": 207, "digest": "0xb7330881e2c091c4"},
+    {"path": "generated/calculator.c", "size": 12668, "digest": "0xf21b746cbc678dda"},
+    {"path": "generated/calculator.h", "size": 3158, "digest": "0xcf8fad73f58ee282"},
+    {"path": "generated/calculator_manifest.json", "size": 939, "digest": "0x69847b45fab63056"},
     {"path": "include/calculator/client.hpp", "size": 1220, "digest": "0xad063e60a8c3885e"},
     {"path": "include/calculator/types.hpp", "size": 348, "digest": "0xa9b4f16645612248"},
     {"path": "licenses/asio.txt", "size": 1338, "digest": "0xcb7237a4720128f3"},
     {"path": "licenses/nanobind.txt", "size": 1521, "digest": "0x6c74387e9376966e"},
     {"path": "licenses/robin_map.txt", "size": 1103, "digest": "0xdef0f3a5dcec4200"},
     {"path": "licenses/wirelink.txt", "size": 728, "digest": "0x6ac63ae4ccdeb60b"},
-    {"path": "pyproject.toml", "size": 939, "digest": "0xb5cac857fa29e06f"},
-    {"path": "python/calculator_sdk/__init__.py", "size": 5930, "digest": "0x88f43c54c653ba49"},
+    {"path": "pyproject.toml", "size": 939, "digest": "0x22a0165b23d01dfc"},
+    {"path": "python/calculator_sdk/__init__.py", "size": 5930, "digest": "0xaa9dd14238c34b9c"},
     {"path": "python/calculator_sdk/_native.pyi", "size": 1181, "digest": "0xe87b2a6a0d4451b0"},
     {"path": "python/calculator_sdk/_runtime.py", "size": 10870, "digest": "0x3a9e2e9f562e9c14"},
     {"path": "python/calculator_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
-    {"path": "src/client.cpp", "size": 2739, "digest": "0x031ae4e151ac4ebc"},
-    {"path": "src/endpoint.c", "size": 2177, "digest": "0x2c7e4af61d029bc2"},
-    {"path": "src/endpoint.h", "size": 741, "digest": "0x74be8a8bda42aed6"},
-    {"path": "src/native.hpp", "size": 368, "digest": "0x022479d330113387"},
-    {"path": "src/python.cpp", "size": 5219, "digest": "0x85260c76ec2f74e6"},
+    {"path": "src/client.cpp", "size": 2732, "digest": "0xf7466181b89e4082"},
+    {"path": "src/endpoint.c", "size": 2160, "digest": "0xae662270a4fd4f20"},
+    {"path": "src/endpoint.h", "size": 734, "digest": "0xe73c20bbee100330"},
+    {"path": "src/native.hpp", "size": 370, "digest": "0xe6b43b99e0d2408b"},
+    {"path": "src/python.cpp", "size": 5216, "digest": "0x1fed4d275774f284"},
     {"path": "src/values.hpp", "size": 1091, "digest": "0x7101593a3d16092c"},
-    {"path": "wlc-sdk-info.json", "size": 189, "digest": "0x927fe38c013b24b0"},
+    {"path": "wlc-sdk-info.json", "size": 189, "digest": "0x857ffc43aa466d4b"},
     {"path": "wlc-sdk-name.txt", "size": 11, "digest": "0x4f9a68c7cc6306f5"}
   ]
 }

@@ -7,8 +7,8 @@ extern "C" wl_packet_port_t *cpp_test_port(uint32_t);
 static_assert(std::is_standard_layout_v<usb_node_t>);
 static_assert(std::is_standard_layout_v<wl_packet_port_t>);
 static unsigned completed;
-static void done(void *, wl_kernel_result_t result, const setpoint_response_t *reply) {
-  if (result.outcome != WL_KERNEL_CANCELLED || reply != nullptr) std::abort();
+static void done(void *, wl_rpc_result_t result, const setpoint_response_t *reply) {
+  if (result.outcome != WL_RPC_CANCELLED || reply != nullptr) std::abort();
   ++completed;
 }
 int main() {
@@ -21,14 +21,14 @@ int main() {
 
   value.request_id = UINT32_MAX;
   value.value = UINT32_MAX;
-  wl_kernel_call_handle_t handle{};
+  wl_call_handle_t handle{};
   if (usb_call_setpoint_ex(&endpoint, &value, 0, 100, done, nullptr, &handle)) return 3;
-  if (wl_kernel_cancel(&endpoint.core, handle) || completed) return 4;
+  if (wl_endpoint_cancel(&endpoint.core, handle) || completed) return 4;
   if (usb_step(&endpoint, 0) || completed != 1) return 5;
-  if (wl_kernel_close(&endpoint.core) || usb_step(&endpoint, 0) ||
-      !wl_kernel_quiescent(&endpoint.core)) return 6;
+  if (wl_endpoint_close(&endpoint.core) || usb_step(&endpoint, 0) ||
+      !wl_endpoint_quiescent(&endpoint.core)) return 6;
   // Reuse the same C storage with a new identity after quiescence.
   port = cpp_test_port(7702);
-  if (!port || wl_kernel_cancel(&endpoint.core, handle) != WL_ERR_NOT_FOUND) return 7;
+  if (!port || wl_endpoint_cancel(&endpoint.core, handle) != WL_ERR_NOT_FOUND) return 7;
   return 0;
 }

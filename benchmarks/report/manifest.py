@@ -90,20 +90,16 @@ def revision(repo=None):
 
 
 def wlc_version(repo=None):
-    """Pinned codegen contract from include/wirelink/version.h; None best effort."""
+    """Generated-code contract from the core header, if available."""
     header = ((REPO if repo is None else Path(repo))
               / "include" / "wirelink" / "version.h")
     try:
         text = header.read_text(encoding="utf-8")
     except OSError:
         return None
-    major = re.search(r"^#define WIRELINK_CODEGEN_CONTRACT_MAJOR\s+(\d+)$",
-                      text, re.M)
-    minor = re.search(r"^#define WIRELINK_CODEGEN_CONTRACT_MINOR\s+(\d+)$",
-                      text, re.M)
-    if not (major and minor):
-        return None
-    return f"contract {major.group(1)}.{minor.group(1)}"
+    contract = re.search(r"^#define WIRELINK_CODEGEN_CONTRACT[ \t]+(\d+)U?$",
+                         text, re.M)
+    return f"contract {contract.group(1)}" if contract else None
 
 
 def cpu_identity():

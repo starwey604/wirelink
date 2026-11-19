@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/byte_fifo.h"
-#include "wirelink/kernel_wire.h"
+#include "wirelink/wire.h"
 #include "threaded_fixture.h"
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +56,7 @@ void wl_test_thread_finish(void) {
   wl_packet_stream_config_t sc={.port=&port,.tx_storage={tx,sizeof(tx)},.physical_submit=sink,.maximum_frame_size=100};
   CHECK(wl_packet_stream_cobs_crc16_init(&stream,&sc)==WL_OK);
   uint8_t canonical[100];memset(canonical+4,33,96);
-  CHECK(wl_kernel_native_none_seal(canonical,sizeof(canonical),12,96)==WL_OK);
+  CHECK(wl_wire_native_none_seal(canonical,sizeof(canonical),12,96)==WL_OK);
   wl_packet_token_t token;CHECK(wl_packet_tx_submit(&port,canonical,100,&token)==WL_OK);
   (void)wl_packet_tx_take(&port,&token);
   CHECK(wl_byte_fifo_init(&fifo,(wl_span_t){staging,31},NULL,NULL)==WL_OK);

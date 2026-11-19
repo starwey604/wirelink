@@ -6,7 +6,7 @@ target_compile_features(wirelink_cpp INTERFACE cxx_std_20)
 target_include_directories(wirelink_cpp INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_link_libraries(wirelink_cpp INTERFACE wirelink_kernel wirelink_host)
+target_link_libraries(wirelink_cpp INTERFACE wirelink_endpoint wirelink_host)
 add_library(wirelink_cpp_host STATIC src/session.cpp)
 add_library(Wirelink::cpp_host ALIAS wirelink_cpp_host)
 set_target_properties(wirelink_cpp_host PROPERTIES EXPORT_NAME cpp_host POSITION_INDEPENDENT_CODE ON)

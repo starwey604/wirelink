@@ -21,10 +21,10 @@ static wl_packet_submit_t busy(void *, const uint8_t *, size_t, wl_packet_token_
   return WL_PACKET_BUSY;
 }
 static void notify(void *user) { static_cast<Context *>(user)->owner.notify(); }
-static void complete(wl_kernel_t *, const wl_kernel_call_t *call, wl_kernel_result_t result,
+static void complete(wl_endpoint_t *, const wl_endpoint_call_t *call, wl_rpc_result_t result,
                        const uint8_t *, size_t) {
   auto &context = *static_cast<Context *>(call->user);
-  require(context.owner.on_owner_thread() && result.outcome == WL_KERNEL_TIMED_OUT);
+  require(context.owner.on_owner_thread() && result.outcome == WL_RPC_TIMED_OUT);
   ++context.completed;
 }
 int main() {
@@ -96,7 +96,7 @@ int main() {
   closer.join();
   require(context.rejected == Executor::command_capacity);
   require(context.owner.post([](uint32_t) {}) == WL_ERR_NOT_INITIALIZED);
-  require(wl_kernel_quiescent(executor_test_core()));
+  require(wl_endpoint_quiescent(executor_test_core()));
   Context exceptional;
   require(executor_test_init(902, busy, notify, &exceptional) == WL_OK);
   wirelink::host::ExecutorIo failed_wait;
@@ -109,6 +109,6 @@ int main() {
          std::chrono::steady_clock::now() < until) std::this_thread::yield();
   require(exceptional.owner.state() == Executor::State::stopped);
   require(exceptional.owner.last_error() == WL_ERR_NO_MEM);
-  require(exceptional.owner.stop() == WL_OK && wl_kernel_quiescent(executor_test_core()));
+  require(exceptional.owner.stop() == WL_OK && wl_endpoint_quiescent(executor_test_core()));
 
 }

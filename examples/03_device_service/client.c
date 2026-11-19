@@ -21,9 +21,9 @@ EXAMPLE_COMPLETION(get_limits, get_limits_response)
 EXAMPLE_COMPLETION(set_limits, set_limits_response)
 EXAMPLE_COMPLETION(self_test, self_test_response)
 static unsigned starts;
-static wl_kernel_result_t start_results[2];
+static wl_rpc_result_t start_results[2];
 static uint32_t job_id;
-static void start_completed(void *user, wl_kernel_result_t result, const start_self_test_response_t *response) {
+static void start_completed(void *user, wl_rpc_result_t result, const start_self_test_response_t *response) {
   const unsigned slot = *(const unsigned *)user;
   EXAMPLE_REQUIRE(slot < 2);
   start_results[slot] = result;
@@ -53,7 +53,7 @@ static void await(const unsigned *count, unsigned target) {
     method##_completed, NULL, NULL) == WL_OK); \
   await(&method##_count, target); \
 } while (0)
-#define SUCCESS(method) EXAMPLE_REQUIRE(method##_result.outcome == WL_KERNEL_SUCCESS)
+#define SUCCESS(method) EXAMPLE_REQUIRE(method##_result.outcome == WL_RPC_SUCCESS)
 /* extension: completions */
 int main(void) {
   example_pair_init(&pair, &client.core, &server.core);
@@ -69,11 +69,11 @@ int main(void) {
   EXAMPLE_REQUIRE(get_info_value.name.length == 3 && memcmp(get_info_value.name.data, "a\0b", 3) == 0);
   write_register_request_t write = {.index = 4, .value = 7};
   CALL(write_register, write);
-  EXAMPLE_REQUIRE(write_register_result.outcome == WL_KERNEL_REJECTED && write_register_result.status == DEVICE_INVALID_ARGUMENT);
+  EXAMPLE_REQUIRE(write_register_result.outcome == WL_RPC_REJECTED && write_register_result.status == DEVICE_INVALID_ARGUMENT);
   set_limits_request_t limits = {.lower = -10, .upper = 10};
   CALL(set_limits, limits); SUCCESS(set_limits);
   write.index = 1; write.value = 100; CALL(write_register, write);
-  EXAMPLE_REQUIRE(write_register_result.outcome == WL_KERNEL_REJECTED && write_register_result.status == DEVICE_OUT_OF_RANGE);
+  EXAMPLE_REQUIRE(write_register_result.outcome == WL_RPC_REJECTED && write_register_result.status == DEVICE_OUT_OF_RANGE);
   write.value = 7; CALL(write_register, write); SUCCESS(write_register);
   read_register_request_t read = {.index = 1};
   CALL(read_register, read); SUCCESS(read_register); EXAMPLE_REQUIRE(read_register_value.value == 7);
@@ -97,8 +97,8 @@ int main(void) {
       start_completed, (void *)&slots[i], NULL) == WL_OK);
   }
   await(&starts, 2);
-  EXAMPLE_REQUIRE(start_results[0].outcome == WL_KERNEL_SUCCESS && job_id != 0);
-  EXAMPLE_REQUIRE(start_results[1].outcome == WL_KERNEL_REJECTED && start_results[1].status == DEVICE_BUSY);
+  EXAMPLE_REQUIRE(start_results[0].outcome == WL_RPC_SUCCESS && job_id != 0);
+  EXAMPLE_REQUIRE(start_results[1].outcome == WL_RPC_REJECTED && start_results[1].status == DEVICE_BUSY);
   await(&job_count, 1);
   EXAMPLE_REQUIRE(completed_job == job_id && observed == (123 ^ UINT32_C(0xa5a5)));
   device_telemetry_t message = {.sequence = 42};

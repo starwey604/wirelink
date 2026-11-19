@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_HOST_EXECUTOR_HPP
 #define WIRELINK_HOST_EXECUTOR_HPP
-#include "wirelink/kernel.h"
+#include "wirelink/endpoint.h"
 #include "wirelink/clock.h"
 #include "wirelink/io_readiness.h"
 #include "wirelink/host/clock.hpp"
@@ -24,7 +24,7 @@ struct ExecutorIo {
   // Never synthesize physical drain. Storage remains alive until owner join.
   void (*stop)(void *){};
 };
-// A thread/wait wrapper around the one C kernel. No RPC table, reply cache,
+// A thread/wait wrapper around the one C endpoint. No RPC table, reply cache,
 // application service scheduler, protocol timer or payload storage is mirrored.
 class Executor {
 public:
@@ -37,9 +37,9 @@ public:
   ~Executor();
   Executor(const Executor &) = delete;
   Executor &operator=(const Executor &) = delete;
-  // Binding alone does not transfer ownership: the caller owns the kernel
+  // Binding alone does not transfer ownership: the caller owns the endpoint
   // until start succeeds, and must keep all storage alive through stop/join.
-  wl_err_t initialize(wl_kernel_t &, ExecutorIo = {}, wl_clock_t = monotonic_clock());
+  wl_err_t initialize(wl_endpoint_t &, ExecutorIo = {}, wl_clock_t = monotonic_clock());
   wl_err_t start();
   // Success owns one command, whose work or shutdown rejection runs on owner.
   // Functions must not throw, block or call stop. Core admission is separate.
@@ -58,7 +58,7 @@ private:
   bool commands(bool reject);
   void run() noexcept;
   uint32_t now() const noexcept { return clock_.now_ms(clock_.user_data); }
-  wl_kernel_t *core_{};
+  wl_endpoint_t *core_{};
   ExecutorIo io_{};
   wl_clock_t clock_{};
   mutable std::mutex gate_;

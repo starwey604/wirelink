@@ -15,7 +15,7 @@ cmake -S benchmarks/mixed_traffic -B build/mixed \
 cmake --build build/mixed --parallel
 ctest --test-dir build/mixed --output-on-failure
 build/mixed/wirelink_mixed_traffic --report > after.jsonl
-python3 benchmarks/mixed_traffic/compare_kernel.py before.jsonl after.jsonl
+python3 benchmarks/mixed_traffic/compare_endpoint.py before.jsonl after.jsonl
 ```
 
 The seven cases are telemetry-only, clean RPC, one dropped request, one dropped
@@ -49,7 +49,7 @@ wrapper emits `mixed_kernel_fw_*_v1` records and one cycle group per case, with
 a 2400-tick IRQ-masked intrinsic diagnostic. Those cycles include the model's
 copying, loss inspection and application bookkeeping; they are not end-to-end
 active CPU and cannot be compared with old retry-engine groups. No board flash
-is needed for model correctness tests; the dedicated static-kernel USB workload
+is needed for model correctness tests; the dedicated static-endpoint USB workload
 supplies current RPC/Sample hardware evidence.
 
-Current firmware captures use `compare_kernel_firmware.py before.log after.log`. It requires all 42 traffic rows and 21 cycle groups, validates actual duplicate-execution counters and rejects resets, missing/end records, mixed old formats or changed clock/layout context. Simulated milliseconds and IRQ-masked model cycles remain distinct; no physical throughput or historical ARQ CPU comparison is implied.
+Current firmware captures use `compare_endpoint_firmware.py before.log after.log`. It requires all 42 traffic rows and 21 cycle groups, validates actual duplicate-execution counters and rejects resets, missing/end records, mixed old formats or changed clock/layout context. Simulated milliseconds and IRQ-masked model cycles remain distinct; no physical throughput or historical ARQ CPU comparison is implied.

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Historical ARQ report reader; current model uses compare_kernel.py.
+# Historical ARQ report reader; current model uses compare_endpoint.py.
 """Validate complete mixed-traffic firmware captures; do not confuse simulated age with CPU time."""
 import argparse
 import json

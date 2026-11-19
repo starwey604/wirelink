@@ -33,7 +33,7 @@ internal adapter thread exists. The shared example helper only advances/waits/
 closes these objects. Callbacks copy response views before returning.
 
 Restart requires stopping submissions/owner activity, closing the kernel,
-stopping/joining actual I/O and waiting for `wl_kernel_quiescent`, then obtaining
+stopping/joining actual I/O and waiting for `wl_endpoint_quiescent`, then obtaining
 a new nonzero instance identity before reusing storage. Pending calls terminate
 with CLOSED. Do not migrate in-flight handles or copy the old identity. Local
 cancel/timeout cannot roll back remote actions, and requests are not automatically

@@ -16,9 +16,9 @@ add_test(NAME mixed_traffic_freshness COMMAND wirelink_mixed_traffic --check)
 set_tests_properties(mixed_traffic_freshness PROPERTIES LABELS "integration;deterministic" TIMEOUT 30)
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
-  add_test(NAME mixed_kernel_reports COMMAND "${Python3_EXECUTABLE}"
-    "${CMAKE_CURRENT_LIST_DIR}/test_kernel_report.py" $<TARGET_FILE:wirelink_mixed_traffic>)
-  add_test(NAME mixed_kernel_firmware_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_kernel_firmware.py")
+  add_test(NAME mixed_endpoint_reports COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_LIST_DIR}/test_endpoint_report.py" $<TARGET_FILE:wirelink_mixed_traffic>)
+  add_test(NAME mixed_endpoint_firmware_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_endpoint_firmware.py")
   add_test(NAME mixed_traffic_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare.py")
   add_test(NAME mixed_traffic_firmware_reports COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/test_compare_firmware.py")
 endif()

@@ -176,53 +176,53 @@ static void device_peer_error(void *user, uint16_t id, wl_err_t error) {
   device_peer_node_t *self = user;
   if (self->on_error != NULL) self->on_error(self->user, id, error);
 }
-static wl_err_t device_peer_route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
+static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   device_peer_node_t *self = (device_peer_node_t *)core;
   (void)self;
   switch (frame->message_id) {
   case 5U: {
     if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
     if (self->handlers.on_configure == NULL) return WL_ERR_NOT_SUPPORTED;
-    wl_kernel_rpc_metadata_t metadata;
+    wl_rpc_metadata_t metadata;
     wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
     if (error != WL_OK) return error;
     uint8_t slot; uint8_t *payload; size_t capacity;
-    error = wl_kernel_reply_claim(core, 6U, &metadata, &slot, &payload, &capacity);
+    error = wl_endpoint_reply_claim(core, 6U, &metadata, &slot, &payload, &capacity);
     if (error != WL_OK) return error;
     peer_configure_request_t request;
     if (peer_configure_request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
-      wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
+      wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
     peer_configure_response_clear(&self->reply.configure);
     int32_t status = self->handlers.on_configure(self->user, &request, &self->reply.configure);
-    if (status != 0) return wl_kernel_reply_error(core, slot, status);
+    if (status != 0) return wl_endpoint_reply_error(core, slot, status);
     size_t length = 0U;
     if (peer_configure_response_encode(&self->reply.configure, payload, capacity, &length) != WL_CODEC_OK) {
-      wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
+      wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
-    return wl_kernel_reply_commit(core, slot, length);
+    return wl_endpoint_reply_commit(core, slot, length);
   }
   case 2U: {
     if (frame->kind != WL_WIRE_RPC_REQ) return WL_ERR_CORRUPT_PAYLOAD;
     if (self->handlers.on_get_info == NULL) return WL_ERR_NOT_SUPPORTED;
-    wl_kernel_rpc_metadata_t metadata;
+    wl_rpc_metadata_t metadata;
     wl_err_t error = wl_wire_rpc_read(frame->kind, frame->payload, frame->length, &metadata);
     if (error != WL_OK) return error;
     uint8_t slot; uint8_t *payload; size_t capacity;
-    error = wl_kernel_reply_claim(core, 4U, &metadata, &slot, &payload, &capacity);
+    error = wl_endpoint_reply_claim(core, 4U, &metadata, &slot, &payload, &capacity);
     if (error != WL_OK) return error;
     peer_info_request_t request;
     if (peer_info_request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
-      wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
+      wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
     peer_info_response_clear(&self->reply.get_info);
     int32_t status = self->handlers.on_get_info(self->user, &request, &self->reply.get_info);
-    if (status != 0) return wl_kernel_reply_error(core, slot, status);
+    if (status != 0) return wl_endpoint_reply_error(core, slot, status);
     size_t length = 0U;
     if (peer_info_response_encode(&self->reply.get_info, payload, capacity, &length) != WL_CODEC_OK) {
-      wl_kernel_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
+      wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
-    return wl_kernel_reply_commit(core, slot, length);
+    return wl_endpoint_reply_commit(core, slot, length);
   }
   default: return WL_ERR_NOT_SUPPORTED;
   }
@@ -233,22 +233,22 @@ wl_err_t device_peer_init(device_peer_node_t *self, wl_packet_port_t *port, cons
   const device_peer_handlers_t saved = *handlers;
   memset(self, 0, sizeof(*self));
   self->handlers = saved; self->user = user;
-  wl_kernel_config_t config = {.port = port, .route = device_peer_route, .on_error = device_peer_error, .user = self,
+  wl_endpoint_config_t config = {.port = port, .route = device_peer_route, .on_error = device_peer_error, .user = self,
       .storage = {
           .requests = NULL, .request_stride = 0U,
           .replies = &self->replies[0][0], .reply_stride = 228U,
           .message = NULL, .message_capacity = 0U,
       }};
-  return wl_kernel_init(&self->core, &config);
+  return wl_endpoint_init(&self->core, &config);
 }
 wl_err_t device_peer_step(device_peer_node_t *self, uint32_t now) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_kernel_step(&self->core, now, WL_KERNEL_BUDGET);
+  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_step(&self->core, now, WL_ENDPOINT_BUDGET);
 }
 wl_err_t device_peer_close(device_peer_node_t *self) {
   if (self == NULL) return WL_ERR_INVALID_ARG;
-  wl_err_t error = wl_kernel_close(&self->core);
+  wl_err_t error = wl_endpoint_close(&self->core);
   return error;
 }
 int device_peer_quiescent(const device_peer_node_t *self) {
-  return self != NULL && wl_kernel_quiescent(&self->core);
+  return self != NULL && wl_endpoint_quiescent(&self->core);
 }

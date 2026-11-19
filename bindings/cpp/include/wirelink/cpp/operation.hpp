@@ -51,7 +51,7 @@ public:
   std::function<bool()> request_cancel;
   std::atomic<bool> submitted{false};
   // Owner-only lifetime/handle; no response matching or timeout table.
-  wl_kernel_call_handle_t call{};
+  wl_call_handle_t call{};
   std::shared_ptr<AsyncCall> keepalive;
 };
 
@@ -59,9 +59,9 @@ template<class T> class OperationState : public AsyncCall {
 public:
   virtual T decode_response() = 0;
 
-  void finish(wl_kernel_result_t completion) noexcept final {
+  void finish(wl_rpc_result_t completion) noexcept final {
     auto result = [&]() -> Result<T> {
-      if (completion.outcome != WL_KERNEL_SUCCESS) return Error::from_completion(completion);
+      if (completion.outcome != WL_RPC_SUCCESS) return Error::from_completion(completion);
       try { return decode_response(); }
       catch (const std::bad_alloc&) { return Error::local(WL_ERR_NO_MEM); }
     }();

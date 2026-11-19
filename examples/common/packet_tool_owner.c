@@ -3,9 +3,9 @@
 #include <stdbool.h>
 #include <string.h>
 static struct {
-  wl_kernel_t core; wl_packet_port_t port;
+  wl_endpoint_t core; wl_packet_port_t port;
   wl_packet_stream_t stream; wl_byte_fifo_t fifo;
-  uint8_t rx[2][2112], tx[WL_KERNEL_TX_COUNT][EXAMPLE_PACKET_TOOL_FRAME], wire[2112], bytes[1024];
+  uint8_t rx[2][2112], tx[WL_ENDPOINT_TX_COUNT][EXAMPLE_PACKET_TOOL_FRAME], wire[2112], bytes[1024];
   uint8_t reply[EXAMPLE_PACKET_TOOL_PAYLOAD];
   size_t reply_length; uint16_t reply_id;
   wl_packet_sink_fn physical_submit; wl_packet_notify_fn notify; void *user;
@@ -22,7 +22,7 @@ static wl_packet_submit_t submit(void *user, const uint8_t *data, size_t length,
   if (result == WL_PACKET_SENT || result == WL_PACKET_STARTED) owner.accepted = true;
   return result;
 }
-static wl_err_t route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
+static wl_err_t route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   (void)core;
   if (frame->length > sizeof(owner.reply)) return WL_ERR_PAYLOAD_TOO_LONG;
   memcpy(owner.reply, frame->payload, frame->length);
@@ -32,7 +32,7 @@ static wl_err_t route(wl_kernel_t *core, const wl_kernel_frame_t *frame) {
 wl_err_t example_packet_tool_prepare(uint32_t instance, int serial,
   wl_packet_sink_fn physical, wl_packet_notify_fn wake, void *user) {
   if (!instance || !physical || instance == owner.previous) return WL_ERR_INVALID_ARG;
-  if (owner.prepared && !wl_kernel_quiescent(&owner.core)) return WL_ERR_INVALID_STATE;
+  if (owner.prepared && !wl_endpoint_quiescent(&owner.core)) return WL_ERR_INVALID_STATE;
   const uint32_t previous = owner.previous;
   memset(&owner, 0, sizeof(owner)); owner.previous = previous;
   owner.physical_submit = physical; owner.notify = wake; owner.user = user;
@@ -51,10 +51,10 @@ wl_err_t example_packet_tool_prepare(uint32_t instance, int serial,
     error = wl_byte_fifo_init(&owner.fifo, (wl_span_t){owner.bytes, sizeof(owner.bytes)}, notify, NULL);
     if (error != WL_OK) return error;
   }
-  wl_kernel_config_t kernel = {.port = &owner.port,
-    .storage = wl_kernel_storage_uniform(&owner.tx[0][0], sizeof(owner.tx[0])),
+  wl_endpoint_config_t kernel = {.port = &owner.port,
+    .storage = wl_endpoint_storage_uniform(&owner.tx[0][0], sizeof(owner.tx[0])),
     .route = route};
-  error = wl_kernel_init(&owner.core, &kernel);
+  error = wl_endpoint_init(&owner.core, &kernel);
   if (error == WL_OK) { owner.previous = instance; owner.prepared = true; }
   return error;
 }
@@ -69,13 +69,13 @@ wl_err_t example_packet_tool_send(uint16_t id, const uint8_t *data, size_t lengt
    * reliability service. Admission snapshots the borrowed bytes immediately. */
   uint8_t *frame;
   size_t capacity = 0U;
-  wl_err_t error = wl_kernel_msg_claim(&owner.core, &frame, &capacity);
+  wl_err_t error = wl_endpoint_msg_claim(&owner.core, &frame, &capacity);
   if (error == WL_OK) {
-    if (capacity < WL_KERNEL_NATIVE_HEADER + length) return WL_ERR_BUF_TOO_SMALL;
-    if (length) memcpy(frame + WL_KERNEL_NATIVE_HEADER, data, length);
+    if (capacity < WL_WIRE_NATIVE_HEADER + length) return WL_ERR_BUF_TOO_SMALL;
+    if (length) memcpy(frame + WL_WIRE_NATIVE_HEADER, data, length);
     error = wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, id, length);
     if (error == WL_OK)
-      error = wl_kernel_msg_commit(&owner.core, WL_KERNEL_NATIVE_HEADER + length);
+      error = wl_endpoint_msg_commit(&owner.core, WL_WIRE_NATIVE_HEADER + length);
   }
   if (error == WL_OK) { owner.has_command = true; owner.accepted = false; owner.error = WL_OK; }
   return error;
@@ -84,14 +84,14 @@ wl_err_t example_packet_tool_step(uint32_t now) {
   if (!owner.prepared || owner.closed) return WL_ERR_INVALID_STATE;
   /* One RX per outer pass: the caller consumes the owned reply before the
    * next pass, so late application Status messages cannot overwrite a match. */
-  wl_err_t error = wl_kernel_step(&owner.core, now, 1);
+  wl_err_t error = wl_endpoint_step(&owner.core, now, 1);
   if (error != WL_OK) owner.error = error;
   return error;
 }
 int example_packet_tool_ready(uint32_t now) {
   if (!owner.prepared) return 0;
   int have_deadline = 0; uint32_t deadline = 0;
-  return wl_kernel_ready(&owner.core, now, &have_deadline, &deadline);
+  return wl_endpoint_ready(&owner.core, now, &have_deadline, &deadline);
 }
 int example_packet_tool_sent(void) {
   return owner.prepared && !owner.closed && owner.accepted && owner.error == WL_OK &&
@@ -107,14 +107,14 @@ wl_err_t example_packet_tool_reply(uint16_t *id, uint8_t *data, size_t capacity,
 wl_err_t example_packet_tool_close_begin(void) {
   if (!owner.prepared || owner.closed) return WL_OK;
   owner.cancel_expected = wl_packet_tx_active(&owner.port) != 0;
-  wl_err_t error = wl_kernel_close(&owner.core);
+  wl_err_t error = wl_endpoint_close(&owner.core);
   if (error == WL_OK) owner.closed = true;
   return error;
 }
 wl_err_t example_packet_tool_close_finish(uint32_t now) {
   if (!owner.prepared) return WL_OK;
   if (!owner.closed) return WL_ERR_INVALID_STATE;
-  const wl_err_t error = wl_kernel_step(&owner.core, now, 16);
+  const wl_err_t error = wl_endpoint_step(&owner.core, now, 16);
   if (error != WL_OK && !(owner.cancel_expected && error == WL_ERR_IO)) return error;
-  return wl_kernel_quiescent(&owner.core) ? WL_OK : WL_ERR_WOULD_BLOCK;
+  return wl_endpoint_quiescent(&owner.core) ? WL_OK : WL_ERR_WOULD_BLOCK;
 }

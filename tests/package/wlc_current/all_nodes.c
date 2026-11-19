@@ -17,9 +17,9 @@ int32_t server_on_execute(server_node_t *self, const input_t *request, output_t 
   reply->value = request->value + 1;
   return 0;
 }
-static void done(client_node_t *self, wl_kernel_result_t result, const output_t *reply) {
+static void done(client_node_t *self, wl_rpc_result_t result, const output_t *reply) {
   (void)self;
-  if (result.outcome != WL_KERNEL_SUCCESS || reply == NULL || reply->value != 42) abort();
+  if (result.outcome != WL_RPC_SUCCESS || reply == NULL || reply->value != 42) abort();
   ++completed;
 }
 int main(void) {

@@ -269,7 +269,7 @@ class Manifest(unittest.TestCase):
             self.assertRegex(revision, r"^[0-9a-f]{40}(-dirty)?$")
         contract = manifest.wlc_version()
         self.assertIsNotNone(contract)
-        self.assertRegex(contract, r"^contract \d+\.\d+$")
+        self.assertRegex(contract, r"^contract \d+$")
 
     def test_cpu_identity_shape(self):
         identity = manifest.cpu_identity()

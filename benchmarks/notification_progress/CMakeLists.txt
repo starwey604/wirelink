@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 wirelink_wlc_generate(TARGET notification_protocol
-  SCHEMA "${PROJECT_SOURCE_DIR}/tests/fixtures/static_kernel/usb.wl")
+  SCHEMA "${PROJECT_SOURCE_DIR}/tests/fixtures/static_endpoint/usb.wl")
 add_executable(wirelink_notification_census census.c)
 target_link_libraries(wirelink_notification_census PRIVATE notification_protocol)
 wl_warnings(wirelink_notification_census PRIVATE -Wall -Wextra -Wpedantic -Werror)

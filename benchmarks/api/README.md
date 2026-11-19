@@ -19,8 +19,8 @@ build/api/benchmarks/api/wirelink_api_benchmark \
   --benchmark_min_time=0.01s --benchmark_repetitions=5 \
   --benchmark_out=after.json --benchmark_out_format=json
 python benchmarks/stamp.py after.json benchmarks/api/fixture.c benchmarks/api/fixture.h \
-  benchmarks/api/micro.cpp benchmarks/api/kernel_api.wl
-python benchmarks/api/compare_kernel.py before.json after.json
+  benchmarks/api/micro.cpp benchmarks/api/endpoint_api.wl
+python benchmarks/api/compare_endpoint.py before.json after.json
 ```
 
 The seven cases are two idle kernel steps, eight successful RPCs (four per
@@ -31,7 +31,7 @@ validation. Sample callbacks validate every payload byte. This is not merely
 API submit time, the owning C++ Session workload or physical USB/UART latency.
 The C fixture aborts on incorrect results, missing callbacks or ownership errors.
 
-`wirelink-kernel-api-v1` records call/sample counts, generated endpoint bytes and
+`wirelink-endpoint-api-v1` records call/sample counts, generated endpoint bytes and
 total fixture bytes (including the diagnostic's own storage). The current
 comparator rejects failed work, changed counts, inconsistent layouts, missing
 repetitions and workload/machine/source-hash mismatches. CPU thresholds are

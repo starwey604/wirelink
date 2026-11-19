@@ -10,7 +10,7 @@ intrinsic diagnostics, not USB latency or whole-system active CPU.
 | --- | --- |
 | `codec_plan` | `codec_plan_*_v1`; `codec_plan/compare.py`; frozen pure codec directory |
 | `framing` | `framing_cpu_*_v3`; `framing/compare.py`; independent framing tools |
-| `mixed_traffic` | `mixed_kernel_fw_*_v1`, 42 traffic/21 cycle groups; `mixed_traffic/compare_kernel_firmware.py` |
+| `mixed_traffic` | `mixed_kernel_fw_*_v1`, 42 traffic/21 cycle groups; `mixed_traffic/compare_endpoint_firmware.py` |
 | `rpc_validation` | `rpc_validation_*_v3`; `rpc_validation/compare.py`; public codec operations |
 
 From an initialized matching Zephyr workspace, build into a fresh directory:
@@ -36,7 +36,7 @@ The ESP32-S3 apps select the USB Serial/JTAG console and wait two seconds before
 printing. Discover the actual board/flash bridge/console paths; device names
 are not stable. Flash only the selected workload intentionally, keep the
 flash bridge and console ownership separate and close both processes afterward.
-An unrelated diagnostic image does not satisfy the static-kernel plan's final
+An unrelated diagnostic image does not satisfy the static-endpoint plan's final
 good-B handoff.
 
 `capture_serial.py` creates a new output exclusively and fails if its expected

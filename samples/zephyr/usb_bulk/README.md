@@ -52,5 +52,5 @@ Twister builds both ESP32-S3 observer configurations with matching local WLC.
 physical driver, including full-size echo, retained-source completion/drain,
 ordered backpressure, no-spin BUSY, chunk duplicates, CRC, once-only commit,
 wrapped idle timeout and close. Builds and RAM-model tests do not qualify a
-physical USB connection. The dedicated static-kernel hardware benchmark remains
+physical USB connection. The dedicated static-endpoint hardware benchmark remains
 the source for RPC/Sample performance and final-image handoff evidence.

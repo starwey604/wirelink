@@ -23,13 +23,13 @@ find_package(Wirelink CONFIG REQUIRED)
     cases = [
         ('legacy_profile', 'wirelink_wlc_generate(TARGET probe SCHEMA test.wl PROFILE test.bind.wl)', a.wlc, 'unknown arguments: PROFILE'),
         ('legacy_runtime', 'wirelink_wlc_generate_runtime(TARGET probe)', a.wlc, 'Unknown CMake command'),
-        ('missing_compiler', 'wirelink_wlc_generate_codec(TARGET probe SCHEMA test.wl)', str(root / 'absent'), 'Supply matching WLC 0.14.0'),
+        ('missing_compiler', 'wirelink_wlc_generate_codec(TARGET probe SCHEMA test.wl)', str(root / 'absent'), 'does not name a file'),
     ]
     if os.name == 'posix':
-        fake = root / 'old-wlc'
-        fake.write_text('#!/bin/sh\nprintf "wlc 0.12.0\\n"\n')
+        fake = root / 'incompatible-wlc'
+        fake.write_text('#!/bin/sh\n[ "$1" = codegen-contract ] || exit 1\nprintf "2\\n"\n')
         fake.chmod(0o755)
-        cases.append(('old_compiler', 'wirelink_wlc_generate_codec(TARGET probe SCHEMA test.wl)', str(fake), "expected 'wlc 0.14.0'"))
+        cases.append(('incompatible_compiler', 'wirelink_wlc_generate_codec(TARGET probe SCHEMA test.wl)', str(fake), 'provides generated-code contract 2, expected 1'))
     for name, invocation, compiler, diagnostic in cases:
         (project / 'CMakeLists.txt').write_text(common + invocation + '\n')
         result = subprocess.run([a.cmake, '-S', str(project), '-B', str(root / name),

@@ -15,5 +15,5 @@ wlc compile tests/fixtures/wlc/previous/control.wl --out-dir tests/fixtures/wlc/
 Tests preserve IEEE bits, packed lengths, unknown fields, optional defaults and
 the 4096-byte Chunk schema bound. Bounded strings/bytes are inline; unbounded
 strings/bytes remain borrowed views. Node routes require finite packet bounds.
-Current typed execution fixtures live in `tests/fixtures/static_kernel`, with
+Current typed execution fixtures live in `tests/fixtures/static_endpoint`, with
 explicit external I/O and dynamic handlers to exercise asynchronous ownership.

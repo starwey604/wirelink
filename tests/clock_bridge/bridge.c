@@ -9,7 +9,7 @@ wl_clock_t clock_bridge_native_clock(void);
 typedef struct {
   calculator_node_t client, server;
   example_pair_t pair;
-  wl_kernel_result_t result;
+  wl_rpc_result_t result;
   add_response_t response;
   wl_clock_t native;
   uint32_t time, reads, handled;
@@ -25,9 +25,9 @@ static int32_t add(void *user, const add_request_t *request, add_response_t *res
   if (sum < INT32_MIN || sum > INT32_MAX) return 1;
   response->sum = (int32_t)sum; return 0;
 }
-static void completed(void *user, wl_kernel_result_t result, const add_response_t *response) {
+static void completed(void *user, wl_rpc_result_t result, const add_response_t *response) {
   bridge_t *bridge = user; bridge->result = result;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     EXAMPLE_REQUIRE(response != NULL);
     bridge->response = *response;
   }
@@ -55,7 +55,7 @@ int clock_bridge_start(void *value, int32_t left, int32_t right, uint32_t timeou
   bridge_t *bridge = value;
   if (!bridge || !bridge->ready || (bridge->active && !bridge->done)) return -1;
   add_request_t request = {.left = left, .right = right};
-  bridge->pair.now = read_clock(bridge); wl_kernel_call_handle_t handle;
+  bridge->pair.now = read_clock(bridge); wl_call_handle_t handle;
   if (calculator_call_add_ex(&bridge->client, &request, bridge->pair.now, timeout_ms,
       completed, bridge, &handle) != WL_OK) return -1;
   /* Test transport/owner stall replaces the removed deferred reply capability. */
@@ -83,9 +83,9 @@ int clock_bridge_result(void *value, int32_t *sum) {
   if (!bridge || !bridge->active || !sum) return -1;
   if (!bridge->done) return 0;
   switch (bridge->result.outcome) {
-    case WL_KERNEL_SUCCESS: *sum = bridge->response.sum; return 1;
-    case WL_KERNEL_REJECTED: return 2;
-    case WL_KERNEL_TIMED_OUT: return 3;
+    case WL_RPC_SUCCESS: *sum = bridge->response.sum; return 1;
+    case WL_RPC_REJECTED: return 2;
+    case WL_RPC_TIMED_OUT: return 3;
     default: return -1;
   }
 }

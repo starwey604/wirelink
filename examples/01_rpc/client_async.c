@@ -2,9 +2,9 @@
 #include "service.h"
 #include "example_check.h"
 static unsigned completed;
-static void done(client_node_t *self, wl_kernel_result_t result, const add_response_t *response) {
+static void done(client_node_t *self, wl_rpc_result_t result, const add_response_t *response) {
   (void)self;
-  EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response && response->sum == 42);
+  EXAMPLE_REQUIRE(result.outcome == WL_RPC_SUCCESS && response && response->sum == 42);
   ++completed;
 }
 /* [docs:calculator_async_rpc] */

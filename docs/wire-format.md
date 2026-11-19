@@ -1,6 +1,6 @@
 # Wire v2 与二进制编码规范
 
-[返回文档总览](README.md) · [传输层移植指南](porting-adapters.md) · 头文件对照：[`kernel_wire.h`](../include/wirelink/kernel_wire.h) · [`codec.h`](../include/wirelink/codec.h)
+[返回文档总览](README.md) · [传输层移植指南](porting-adapters.md) · 头文件对照：[`wire.h`](../include/wirelink/wire.h) · [`codec.h`](../include/wirelink/codec.h)
 
 Wirelink 的线协议分层清晰：**规范帧（Canonical Frame）**面向包边界直接解析；字节流传输（UART/串行总线）只需在规范帧外侧包裹一层轻量化连接器（`COBS+CRC16` 或 `Length16`），内层帧头与 Payload 格式完全不变。
 
@@ -8,7 +8,7 @@ Wirelink 的线协议分层清晰：**规范帧（Canonical Frame）**面向包�
 
 ## 一、全局小端 Wire v2 帧结构
 
-每个规范帧固定由 **4 字节小端帧头**（`WL_KERNEL_NATIVE_HEADER = 4`）和 **Payload**（`0..2048` 字节，`WL_WIRE_MAX_PAYLOAD = 2048`）组成，最大规范帧长度为 **2052 字节**：
+每个规范帧固定由 **4 字节小端帧头**（`WL_WIRE_NATIVE_HEADER = 4`）和 **Payload**（`0..2048` 字节，`WL_WIRE_MAX_PAYLOAD = 2048`）组成，最大规范帧长度为 **2052 字节**：
 
 ```text
  0                   1                   2                   3
@@ -63,11 +63,11 @@ Wire v2 取消了旧版变长 `uint64` 会话编码，所有 RPC 字段均为 **
 ```
 
 - `session` 与 `operation` 必须均 **非零**（`0` 返回 `WL_ERR_CORRUPT_PAYLOAD`）。
-- 当服务端 Handler 返回非零 `int32_t` 业务状态码时，内核发送 `WL_WIRE_RPC_ERR`，Payload 总长严格等于 `WL_KERNEL_RPC_HEADER_ERR = 12` 字节，无额外消息体；`status == 0` 视为畸形包。
-- 请求方回调通过 `wl_kernel_result_t` 精确区分协议层结果：
-  - `WL_KERNEL_SUCCESS`：收到成功响应（`status == 0`），解码后的响应体有效至回调返回前。
-  - `WL_KERNEL_REJECTED`：收到对端业务拒绝（`result.status` 即对端返回的非零 `int32_t`）。
-  - `WL_KERNEL_TIMED_OUT` / `WL_KERNEL_CANCELLED` / `WL_KERNEL_LOCAL_ERROR` / `WL_KERNEL_CLOSED`：本地超时、取消、I/O 失败或端点关闭（`result.status` 为本地 `wl_err_t`）。
+- 当服务端 Handler 返回非零 `int32_t` 业务状态码时，内核发送 `WL_WIRE_RPC_ERR`，Payload 总长严格等于 `WL_WIRE_RPC_HEADER_ERR = 12` 字节，无额外消息体；`status == 0` 视为畸形包。
+- 请求方回调通过 `wl_rpc_result_t` 精确区分协议层结果：
+  - `WL_RPC_SUCCESS`：收到成功响应（`status == 0`），解码后的响应体有效至回调返回前。
+  - `WL_RPC_REJECTED`：收到对端业务拒绝（`result.status` 即对端返回的非零 `int32_t`）。
+  - `WL_RPC_TIMED_OUT` / `WL_RPC_CANCELLED` / `WL_RPC_LOCAL_ERROR` / `WL_RPC_CLOSED`：本地超时、取消、I/O 失败或端点关闭（`result.status` 为本地 `wl_err_t`）。
 
 ---
 
@@ -113,7 +113,7 @@ tag = varint( (field_number << 3) | wire_type )
 
 ## 四、流式连接器外层分帧
 
-针对无天然包边界的流式物理链路（如 UART / RS-485 / SPI 字节流），在 [`packet_stream.h`](../include/wirelink/packet_stream.h) 中提供两种独立连接器，**所有校验与分帧与内层 `wl_kernel_t` 完全正交**：
+针对无天然包边界的流式物理链路（如 UART / RS-485 / SPI 字节流），在 [`packet_stream.h`](../include/wirelink/packet_stream.h) 中提供两种独立连接器，**所有校验与分帧与内层 `wl_endpoint_t` 完全正交**：
 
 ### 1. `framing = cobs_crc16`（COBS + CRC-16/CCITT-FALSE，UART 推荐）
 

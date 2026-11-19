@@ -101,7 +101,7 @@ void calculator_async_example(client_node_t *client) {
 
 ## 附：30 秒免安装 WLC 验证本地 C 工具链
 
-仓库已附带一份预生成的 C11 节点代码（[`examples/kernel/generated/`](examples/kernel/generated/)）。只要有 CMake 3.21+ 与 C11/C++20 编译器，即可直接编译并运行双端内存回环测试：
+仓库已附带一份预生成的 C11 节点代码（[`examples/endpoint/generated/`](examples/endpoint/generated/)）。只要有 CMake 3.21+ 与 C11/C++20 编译器，即可直接编译并运行双端内存回环测试：
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
@@ -122,7 +122,7 @@ ctest --test-dir build/core --output-on-failure
 
 基于 GCC 16.2.1（`-std=c11 -Os -ffunction-sections -fdata-sections`）：
 - **核心库代码体积**：`src/*.c` 全部 12 个目标文件未裁剪总和为 `.text = 17,474 B`、`.rodata = 1,524 B`、`.data = 0 B`、`.bss = 4 B`（实际链接固件开启 `--gc-sections` 后会自动剔除未使用的流分帧器与辅助模块）。
-- **完整双向节点装配总 RAM**：将节点结构体（双向 `demo_node_t` 624 B，其中 `wl_kernel_t` 440 B、`wl_packet_port_t` 128 B）、双 RX 接收缓冲以及流连接器/FIFO 全部计入后：
+- **完整双向节点装配总 RAM**：将节点结构体（双向 `demo_node_t` 624 B，其中 `wl_endpoint_t` 440 B、`wl_packet_port_t` 128 B）、双 RX 接收缓冲以及流连接器/FIFO 全部计入后：
 
 | 完整通信装配方案 | 实测总 RAM | 包含的静态组件 |
 | :--- | ---: | :--- |

@@ -32,7 +32,7 @@ struct Call : wirelink::detail::OperationState<int32_t> {
   cpp_test_call_t bridge{};
   explicit Call(int32_t input) { request.input = input; }
   wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify,
-                  void *user, wl_kernel_call_handle_t *handle) noexcept override {
+                  void *user, wl_call_handle_t *handle) noexcept override {
     bridge.endpoint = endpoint; bridge.request = &request; bridge.response = &response;
     return cpp_test_submit(&bridge, now, timeout, notify, user, handle);
   }
@@ -72,7 +72,7 @@ public:
   }
   ~Server() {
     require(owner.stop() == WL_OK); adapter->stop(); adapter.reset();
-    require(wl_kernel_quiescent(driver.core)); destroy(storage);
+    require(wl_endpoint_quiescent(driver.core)); destroy(storage);
   }
 };
 static wirelink::Session connect(Server &server) {

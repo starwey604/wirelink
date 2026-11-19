@@ -5,7 +5,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Stream transport outside the native packet kernel. Selected entry points
+/* Stream transport outside the native packet endpoint. Selected entry points
  * contain only COBS/CRC16 or length16/NONE. No ARQ or execution engine.
  * RX feed is single producer; TX submit is single owner. Stop producer before
  * abort_rx/reinit. Physical completion publishes the original port token;

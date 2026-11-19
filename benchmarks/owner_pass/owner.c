@@ -1,28 +1,28 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "wirelink/kernel.h"
+#include "wirelink/endpoint.h"
 #include <stdlib.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
-static wl_kernel_t core;
+static wl_endpoint_t core;
 static wl_packet_port_t port;
-static uint8_t rx[2][64], tx[WL_KERNEL_TX_COUNT][32];
+static uint8_t rx[2][64], tx[WL_ENDPOINT_TX_COUNT][32];
 static uint32_t instance = 100;
 static unsigned received;
 static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
   (void)user; (void)data; (void)length; (void)token; return WL_PACKET_SENT;
 }
-static wl_err_t route(wl_kernel_t *owner, const wl_kernel_frame_t *frame) {
+static wl_err_t route(wl_endpoint_t *owner, const wl_wire_frame_t *frame) {
   (void)owner; CHECK(frame->message_id == 23 && frame->length == 4); ++received; return WL_OK;
 }
-wl_kernel_t *owner_pass_prepare(wl_packet_notify_fn notify, void *user) {
+wl_endpoint_t *owner_pass_prepare(wl_packet_notify_fn notify, void *user) {
   received = 0;
   wl_packet_config_t packet = {.instance = ++instance, .rx_storage = &rx[0][0],
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = sink,
     .notify = notify, .user = user};
   CHECK(wl_packet_init(&port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &port,
-    .storage = wl_kernel_storage_uniform(&tx[0][0], sizeof(tx[0])), .route = route};
-  CHECK(wl_kernel_init(&core, &config) == WL_OK); return &core;
+  wl_endpoint_config_t config = {.port = &port,
+    .storage = wl_endpoint_storage_uniform(&tx[0][0], sizeof(tx[0])), .route = route};
+  CHECK(wl_endpoint_init(&core, &config) == WL_OK); return &core;
 }
 void owner_pass_inject(void) {
   const uint8_t packet[] = {0x57, 0, 23, 0, 1, 2, 3, 4};

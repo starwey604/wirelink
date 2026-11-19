@@ -16,6 +16,6 @@ west build -s /path/to/wirelink/samples/zephyr/udp_peer -b YOUR_OTHER_BOARD \
 
 C 持有 core、port、两份含 guard 的完整 RX unit。I/O、typed callback 都在应用 owner；等待合并 kernel deadline、UDP readiness／retry 和业务动作期限，不另建 RPC timer／adapter 线程。例程 helper 只包装 step／wait／close。借用 response 在 callback 返回前复制。
 
-重启连接需停止新提交／owner，close core，停止／join 真实 I/O，推进到 `wl_kernel_quiescent`，再用新的非零 instance identity 重用存储。未完成调用为 CLOSED；不迁移旧 handle 或复用旧身份。timeout／cancel 不回滚远端动作；请求不自动重试／去重，普通消息的新鲜度和业务幂等由应用定义。身份／完整性校验都不等于认证。
+重启连接需停止新提交／owner，close core，停止／join 真实 I/O，推进到 `wl_endpoint_quiescent`，再用新的非零 instance identity 重用存储。未完成调用为 CLOSED；不迁移旧 handle 或复用旧身份。timeout／cancel 不回滚远端动作；请求不自动重试／去重，普通消息的新鲜度和业务幂等由应用定义。身份／完整性校验都不等于认证。
 
 peer 的 native32/64 client/server 四配置是 build-only。真实生成 RPC／telemetry、四并发与第五次拒绝、迟到响应、取消、回绕 timeout、有限等待在 `samples/zephyr/udp_validation` 的真实 Zephyr UDP loopback 运行，desktop 双进程也真实互通。尚不据此声称具体硬件板卡／PHY 互通或吞吐合格；该验收需要实际网络硬件与配置。

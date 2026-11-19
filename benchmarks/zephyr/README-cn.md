@@ -8,7 +8,7 @@
 | --- | --- |
 | codec_plan | `codec_plan_*_v1`，codec_plan/compare.py，独立冻结纯 codec |
 | framing | `framing_cpu_*_v3`，framing/compare.py，独立 framing 工具 |
-| mixed_traffic | `mixed_kernel_fw_*_v1`，42 traffic/21 cycle；compare_kernel_firmware.py |
+| mixed_traffic | `mixed_kernel_fw_*_v1`，42 traffic/21 cycle；compare_endpoint_firmware.py |
 | rpc_validation | `rpc_validation_*_v3`，rpc_validation/compare.py，公开 codec 操作 |
 
 从匹配的 Zephyr workspace 使用新构建目录：

@@ -7,7 +7,7 @@
 /* Real generated RPCs over two real Zephyr UDP sockets. */
 static udp_validation_node_t endpoints[2];
 static wl_packet_port_t ports[2];
-static wl_kernel_udp_t adapters[2];
+static wl_zephyr_udp_t adapters[2];
 static uint8_t rx[2][2][2053];
 static peer_client_t states[2];
 static uint32_t tick;
@@ -29,12 +29,12 @@ static void setup(void) {
     memset(&adapters[side], 0, sizeof(adapters[side]));
     wl_packet_config_t pc = {.instance = ++incarnation, .rx_storage = &rx[side][0][0],
       .rx_storage_size = sizeof(rx[side]), .rx_unit_size = sizeof(rx[side][0]),
-      .submit = wl_kernel_udp_submit, .notify = wl_kernel_udp_notify, .user = &adapters[side]};
+      .submit = wl_zephyr_udp_submit, .notify = wl_zephyr_udp_notify, .user = &adapters[side]};
     zassert_ok(wl_packet_init(&ports[side], &pc));
-    wl_kernel_udp_config_t config = {.port = &ports[side], .local = address(base + side),
+    wl_zephyr_udp_config_t config = {.port = &ports[side], .local = address(base + side),
       .peer = address(base + 1U - side), .maximum_datagram_size = 2052, .service_budget = 8,
       .clock = {clock_read, NULL}};
-    zassert_ok(wl_kernel_udp_open(&adapters[side], &config));
+    zassert_ok(wl_zephyr_udp_open(&adapters[side], &config));
     const udp_validation_handlers_t handlers = {.on_add = add, .on_telemetry = peer_sample};
     zassert_ok(udp_validation_init(&endpoints[side], &ports[side], &handlers, &states[side]));
   }
@@ -46,7 +46,7 @@ static void pass(void) {
 static void close_pair(void) {
   for (unsigned side = 0; side < 2; ++side) {
     zassert_ok(peer_z_close(&adapters[side], &endpoints[side].core));
-    zassert_true(wl_kernel_quiescent(&endpoints[side].core));
+    zassert_true(wl_endpoint_quiescent(&endpoints[side].core));
   }
 }
 static add_request_t request(int32_t left, int32_t right) {
@@ -56,12 +56,12 @@ ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
   setup();
   for (unsigned side = 0; side < 2; ++side) {
     for (unsigned slot = 0; slot < 4; ++slot) {
-      add_request_t value = request(slot, 42 - slot); wl_kernel_call_handle_t handle;
+      add_request_t value = request(slot, 42 - slot); wl_call_handle_t handle;
       zassert_ok(udp_validation_call_add_ex(&endpoints[side], &value, tick, 500,
         peer_completed, &states[side], &handle));
       memset(&value, 0, sizeof(value));
     }
-    add_request_t extra = request(1, 2); wl_kernel_call_handle_t handle;
+    add_request_t extra = request(1, 2); wl_call_handle_t handle;
     zassert_equal(udp_validation_call_add_ex(&endpoints[side], &extra, tick, 500,
       peer_completed, &states[side], &handle), WL_ERR_WOULD_BLOCK);
     telemetry_t sample = {.sample = 1234};
@@ -71,7 +71,7 @@ ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
   for (unsigned i = 0; i < 500 && (states[0].completions != 4 || states[1].completions != 4 ||
       !states[0].samples || !states[1].samples); ++i) pass();
   for (unsigned side = 0; side < 2; ++side) {
-    zassert_equal(states[side].completions, 4); zassert_equal(states[side].result.outcome, WL_KERNEL_SUCCESS);
+    zassert_equal(states[side].completions, 4); zassert_equal(states[side].result.outcome, WL_RPC_SUCCESS);
     zassert_equal(states[side].response.sum, 42); zassert_equal(states[side].sample, 1234);
   }
   zassert_equal(executed, 8);
@@ -80,39 +80,39 @@ ZTEST(udp_validation, test_four_calls_each_direction_and_ordinary_telemetry) {
 }
 ZTEST(udp_validation, test_business_rejection_cancel_timeout_wrap_and_close) {
   setup();
-  add_request_t value = request(INT32_MAX, 1); wl_kernel_call_handle_t handle;
+  add_request_t value = request(INT32_MAX, 1); wl_call_handle_t handle;
   zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
   for (unsigned i = 0; i < 500 && !states[0].completions; ++i) pass();
-  zassert_equal(states[0].result.outcome, WL_KERNEL_REJECTED); zassert_equal(states[0].result.status, 1);
+  zassert_equal(states[0].result.outcome, WL_RPC_REJECTED); zassert_equal(states[0].result.status, 1);
   value = request(20, 22); tick = UINT32_MAX - 2;
-  wl_kernel_call_handle_t timed, cancelled;
+  wl_call_handle_t timed, cancelled;
   zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 5, peer_completed, &states[0], &timed));
   zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &cancelled));
-  zassert_ok(wl_kernel_cancel(&endpoints[0].core, cancelled));
+  zassert_ok(wl_endpoint_cancel(&endpoints[0].core, cancelled));
   zassert_ok(peer_z_step(&adapters[0], &endpoints[0].core, tick));
-  zassert_equal(states[0].completions, 2); zassert_equal(states[0].result.outcome, WL_KERNEL_CANCELLED);
+  zassert_equal(states[0].completions, 2); zassert_equal(states[0].result.outcome, WL_RPC_CANCELLED);
   tick += 5;
   zassert_ok(peer_z_step(&adapters[0], &endpoints[0].core, tick));
-  zassert_equal(states[0].completions, 3); zassert_equal(states[0].result.outcome, WL_KERNEL_TIMED_OUT);
+  zassert_equal(states[0].completions, 3); zassert_equal(states[0].result.outcome, WL_RPC_TIMED_OUT);
   /* The timed-out request may still execute remotely; its late response cannot
    * create a second local completion. The kernel does not roll back side effects. */
   for (unsigned i = 0; i < 20; ++i) pass();
   zassert_true(executed >= 2); zassert_equal(states[0].completions, 3);
   zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &handle));
   close_pair();
-  zassert_equal(states[0].completions, 4); zassert_equal(states[0].result.outcome, WL_KERNEL_CLOSED);
+  zassert_equal(states[0].completions, 4); zassert_equal(states[0].result.outcome, WL_RPC_CLOSED);
   setup();
-  zassert_not_equal(wl_kernel_cancel(&endpoints[0].core, handle), WL_OK);
+  zassert_not_equal(wl_endpoint_cancel(&endpoints[0].core, handle), WL_OK);
   close_pair();
 }
 ZTEST(udp_validation, test_finite_idle_wait_then_progress_after_notification) {
   setup();
   /* Drain initialization's latched publications. */
-  while (wl_kernel_udp_wait(&adapters[0], 0) == WL_OK) { }
+  while (wl_zephyr_udp_wait(&adapters[0], 0) == WL_OK) { }
   uint32_t began = k_uptime_get_32();
   zassert_ok(peer_z_wait(&adapters[0], &endpoints[0].core, 15));
   zassert_true(k_uptime_get_32() - began >= 10);
-  wl_kernel_udp_notify(&adapters[0]);
+  wl_zephyr_udp_notify(&adapters[0]);
   began = k_uptime_get_32();
   zassert_ok(peer_z_wait(&adapters[0], &endpoints[0].core, 500));
   zassert_true(k_uptime_get_32() - began < 250);

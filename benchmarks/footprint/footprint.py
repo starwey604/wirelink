@@ -267,7 +267,7 @@ def parse_args(argv):
         base.extend(shlex.split(group))
     args.cflags = base + ["-I", str(args.root / "include"), "-I",
                           str(args.root / "src"), "-I",
-                          str(args.root / "examples/kernel/generated")]
+                          str(args.root / "examples/endpoint/generated")]
     if args.size_tool is None:
         args.size_tool = size_tool_for(args.cc)
     return args

@@ -109,9 +109,9 @@ static int32_t handle(void *user, const setpoint_request_t *request,
     .applied_value = request->value + 1U};
   return 0;
 }
-static void done(void *user, wl_kernel_result_t result, const setpoint_response_t *response) {
+static void done(void *user, wl_rpc_result_t result, const setpoint_response_t *response) {
   (void)user;
-  CHECK(result.outcome == WL_KERNEL_SUCCESS && response != NULL);
+  CHECK(result.outcome == WL_RPC_SUCCESS && response != NULL);
   CHECK(response->request_id == expected && response->applied_value == expected + 101U);
   ++completed;
 }
@@ -124,7 +124,7 @@ static int ready(side_t *side) {
   int has;
   uint32_t deadline;
   ++queries;
-  return wl_kernel_ready(&side->endpoint.core, 0U, &has, &deadline);
+  return wl_endpoint_ready(&side->endpoint.core, 0U, &has, &deadline);
 }
 static void drive(unsigned target) {
   for (unsigned pass = 0; pass < 256U; ++pass) {
@@ -137,7 +137,7 @@ static void drive(unsigned target) {
         /* An explicit software latch model, not an OS wait/wakeup count. */
         side->latched = 0;
         phase = OWNER_STEP;
-        CHECK(wl_kernel_step(&side->endpoint.core, 0U, budget) == WL_OK);
+        CHECK(wl_endpoint_step(&side->endpoint.core, 0U, budget) == WL_OK);
         ++steps;
       }
     }
@@ -169,7 +169,7 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
     phase = ADMISSION;
     setpoint_request_t request = {.request_id = expected,
       .channel = 1U, .value = expected + 100U};
-    wl_kernel_call_handle_t call;
+    wl_call_handle_t call;
     CHECK(usb_call_setpoint_ex(&sides[expected & 1U].endpoint, &request,
           0U, 1000U, done, NULL, &call) == WL_OK);
     memset(&request, 0xa5, sizeof(request));
@@ -197,15 +197,15 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
     notices[ADMISSION], notices[OWNER_STEP], notices[IO_COMPLETION], notices[CAPACITY_SIGNAL], outer_exit_wakes,
     merged, steps, queries, signalled_only_steps);
   for (unsigned i = 0; i < 2U; ++i) {
-    CHECK(wl_kernel_close(&sides[i].endpoint.core) == WL_OK);
-    CHECK(wl_kernel_step(&sides[i].endpoint.core, 0U, WL_KERNEL_BUDGET) == WL_OK);
-    CHECK(wl_kernel_quiescent(&sides[i].endpoint.core));
+    CHECK(wl_endpoint_close(&sides[i].endpoint.core) == WL_OK);
+    CHECK(wl_endpoint_step(&sides[i].endpoint.core, 0U, WL_ENDPOINT_BUDGET) == WL_OK);
+    CHECK(wl_endpoint_quiescent(&sides[i].endpoint.core));
   }
 }
 int main(void) {
   for (unsigned m = INLINE; m <= USB_TAIL; ++m) {
     run(m, 1U);
-    run(m, WL_KERNEL_BUDGET);
+    run(m, WL_ENDPOINT_BUDGET);
   }
   return 0;
 }

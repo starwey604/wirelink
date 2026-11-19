@@ -20,9 +20,9 @@ static int32_t handle(void *user, const setpoint_request_t *request,
                                           .applied_value = request->value + 1};
   return 0;
 }
-static void done(void *user, wl_kernel_result_t result, const setpoint_response_t *response) {
+static void done(void *user, wl_rpc_result_t result, const setpoint_response_t *response) {
   (void)user;
-  CHECK(result.outcome == WL_KERNEL_SUCCESS && response != NULL && response->applied_value == 42);
+  CHECK(result.outcome == WL_RPC_SUCCESS && response != NULL && response->applied_value == 42);
   ++callbacks;
 }
 int main(void) {
@@ -41,29 +41,29 @@ int main(void) {
     for (unsigned n = 0; n < 4; ++n) {
       setpoint_request_t value = {.request_id = n,
                                         .value = 41};
-      wl_kernel_call_handle_t call;
+      wl_call_handle_t call;
       CHECK(usb_call_setpoint_ex(&endpoints[i], &value, 0, 100, done, NULL, &call) == WL_OK);
     }
   }
   for (unsigned n = 0; n < 100 && callbacks < 8; ++n) {
     // Budget 1 forces pending work to survive across owner passes.
-    CHECK(wl_kernel_step(&endpoints[0].core, 0, 1) == WL_OK);
-    CHECK(wl_kernel_step(&endpoints[1].core, 0, 1) == WL_OK);
+    CHECK(wl_endpoint_step(&endpoints[0].core, 0, 1) == WL_OK);
+    CHECK(wl_endpoint_step(&endpoints[1].core, 0, 1) == WL_OK);
     CHECK(wl_packet_loopback_service(&pair, 2) == WL_OK);
     if (callbacks < 8U) {
       int has; uint32_t deadline;
-      CHECK(wl_kernel_ready(&endpoints[0].core, 0U, &has, &deadline) ||
-            wl_kernel_ready(&endpoints[1].core, 0U, &has, &deadline) ||
+      CHECK(wl_endpoint_ready(&endpoints[0].core, 0U, &has, &deadline) ||
+            wl_endpoint_ready(&endpoints[1].core, 0U, &has, &deadline) ||
             wl_packet_loopback_ready(&pair));
     }
   }
   CHECK(callbacks == 8 && effects == 8);
   CHECK(pair.directions[0].delivered == 8 && pair.directions[1].delivered == 8);
   for (unsigned i = 0; i < 2; ++i)
-    CHECK(wl_kernel_close(&endpoints[i].core) == WL_OK);
+    CHECK(wl_endpoint_close(&endpoints[i].core) == WL_OK);
   wl_packet_loopback_stop(&pair);
   for (unsigned i = 0; i < 2; ++i) {
     CHECK(usb_step(&endpoints[i], 0) == WL_OK);
-    CHECK(wl_kernel_quiescent(&endpoints[i].core));
+    CHECK(wl_endpoint_quiescent(&endpoints[i].core));
   }
 }

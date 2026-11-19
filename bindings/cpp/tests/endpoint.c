@@ -34,18 +34,18 @@ wl_err_t cpp_test_initialize(void *storage, uint32_t instance, wl_packet_sink_fn
   probe_handlers_t handlers = {.on_execute = owner->echo ? execute : NULL};
   return probe_init(&owner->endpoint, &owner->port, &handlers, owner);
 }
-static void done(void *user, wl_kernel_result_t result, const response_t *response) {
+static void done(void *user, wl_rpc_result_t result, const response_t *response) {
   cpp_test_call_t *call = user;
   ++call->callbacks;
-  if (result.outcome == WL_KERNEL_SUCCESS && response == NULL) {
-    result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
-  } else if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS && response == NULL) {
+    result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  } else if (result.outcome == WL_RPC_SUCCESS) {
     *call->response = *response;
   }
   call->notify(call->user, result);
 }
 wl_err_t cpp_test_submit(cpp_test_call_t *call, uint32_t now, uint32_t timeout,
-                         wl_host_rpc_notify_fn notify, void *user, wl_kernel_call_handle_t *handle) {
+                         wl_host_rpc_notify_fn notify, void *user, wl_call_handle_t *handle) {
   owner_t *owner = call->endpoint;
   call->notify = notify; call->user = user;
   return probe_call_execute_ex(&owner->endpoint, call->request, now, timeout, done, call, handle);

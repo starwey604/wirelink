@@ -20,8 +20,8 @@ pair workload. ARQ/replay/framework-Bulk and old executor executables are
 retired. Historical readers are retained outside the current registry.
 
 Native comparators are selected from each registry entry, including
-`compare_kernel.py` for API and mixed traffic. Current raw identities are
-`wirelink-kernel-api-v1`, mixed `format: 2`, `wirelink-owner-kernel-v1`,
+`compare_endpoint.py` for API and mixed traffic. Current raw identities are
+`wirelink-endpoint-api-v1`, mixed `format: 2`, `wirelink-owner-kernel-v1`,
 `wirelink-codec-plan-v1`, `wirelink-codec-validation-v3` and
 `wirelink-footprint-v2`. Normalized current validation cases carry `v3/`,
 mixed cases `kernel-v2/`, and footprint cases `v2/`; this prevents historical

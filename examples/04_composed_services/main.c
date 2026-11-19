@@ -86,12 +86,12 @@ void product_on_telemetry(product_node_t *self, const telemetry_t *message) {
 int32_t product_on_query(product_node_t *self, const query_request_t *request, query_response_t *response) {
   (void)self; (void)request; response->received = upload.offset; return 0;
 }
-static void queried(void *user, wl_kernel_result_t result, const query_response_t *response) {
+static void queried(void *user, wl_rpc_result_t result, const query_response_t *response) {
   (void)user;
-  if (result.outcome != WL_KERNEL_SUCCESS) {
+  if (result.outcome != WL_RPC_SUCCESS) {
     fprintf(stderr, "query terminal outcome=%d status=%d tick=%u closing=%u\n",
       (int)result.outcome, result.status, pair.now, closing ? 1U : 0U);
-    EXAMPLE_REQUIRE(closing && result.outcome == WL_KERNEL_CLOSED);
+    EXAMPLE_REQUIRE(closing && result.outcome == WL_RPC_CLOSED);
     ++closed_queries; query_pending = false; return;
   }
   EXAMPLE_REQUIRE(response && response->received <= sizeof(destination));
@@ -101,9 +101,9 @@ int32_t product_on_reboot(product_node_t *self, const reboot_request_t *request,
   (void)self; (void)request; (void)response;
   return upload.committed ? 0 : STATUS_BUSY; /* Short business confirmation only. */
 }
-static void rebooted(void *user, wl_kernel_result_t result, const reboot_response_t *response) {
+static void rebooted(void *user, wl_rpc_result_t result, const reboot_response_t *response) {
   (void)user;
-  EXAMPLE_REQUIRE(result.outcome == WL_KERNEL_SUCCESS && response); ++reboot_responses;
+  EXAMPLE_REQUIRE(result.outcome == WL_RPC_SUCCESS && response); ++reboot_responses;
 }
 static void advance(void) {
   /* Business work is explicit here, outside any borrowed callback. */

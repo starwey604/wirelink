@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/asio/packet_udp.hpp"
-#include "wirelink/kernel_wire.h"
+#include "wirelink/wire.h"
 #include <asio.hpp>
 #include <atomic>
 #include <optional>
@@ -151,8 +151,8 @@ wl_err_t PacketUdpAdapter::service() {
         ++p.stats.rejected;
         continue;
       }
-      wl_kernel_frame_t frame{};
-      if (wl_kernel_native_none_read(claim.span.data, received, &frame) != WL_OK) {
+      wl_wire_frame_t frame{};
+      if (wl_wire_native_none_read(claim.span.data, received, &frame) != WL_OK) {
         (void)wl_packet_rx_abort(&p.port, &claim);
         p.rx_claimed = false;
         ++p.stats.rejected;

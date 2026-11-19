@@ -18,9 +18,9 @@ static void assembly(const char *name, size_t unit, size_t stream_tx, size_t byt
 }
 int main(void) {
   printf(PREFIX ",probe,2\n");
-  type("wl_kernel_t", sizeof(wl_kernel_t)); type("wl_packet_port_t", sizeof(wl_packet_port_t));
+  type("wl_endpoint_t", sizeof(wl_endpoint_t)); type("wl_packet_port_t", sizeof(wl_packet_port_t));
   type("wl_packet_stream_t", sizeof(wl_packet_stream_t)); type("wl_byte_fifo_t", sizeof(wl_byte_fifo_t));
-  type("demo_node_t", sizeof(demo_node_t)); type("wl_kernel_call_handle_t", sizeof(wl_kernel_call_handle_t));
+  type("demo_node_t", sizeof(demo_node_t)); type("wl_call_handle_t", sizeof(wl_call_handle_t));
   type("wl_packet_loopback_t", sizeof(wl_packet_loopback_t));
   const size_t cobs_rx = wl_packet_stream_cobs_crc16_bound(DEMO_RX_FRAME_MAX);
   const size_t cobs_tx = wl_packet_stream_cobs_crc16_bound(DEMO_TX_FRAME_MAX);

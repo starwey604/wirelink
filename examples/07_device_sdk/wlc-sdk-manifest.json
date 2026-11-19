@@ -1,9 +1,9 @@
 {
-  "format": "wirelink-codegen-manifest-v1",
+  "format": "wirelink-codegen-manifest-v2",
   "compiler": {
     "name": "wlc",
-    "version": "0.14.0",
-    "codegen_contract": {"major": 0, "minor": 14}
+    "version": "0.0.99",
+    "codegen_contract": 1
   },
   "module": "device",
   "identity": {
@@ -30,31 +30,31 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "CMakeLists.txt", "size": 4477, "digest": "0x64d542e4bd5d4912"},
+    {"path": "CMakeLists.txt", "size": 4298, "digest": "0x83bbf6bf12608f98"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 7402, "digest": "0x69419c179e0fca3a"},
-    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 212, "digest": "0x44e753e98d9d012e"},
-    {"path": "generated/device.c", "size": 33420, "digest": "0xf903b8e38c2e5bb8"},
-    {"path": "generated/device.h", "size": 9891, "digest": "0x1f1d9a14d1754d9d"},
-    {"path": "generated/device_manifest.json", "size": 1986, "digest": "0xa00565029e790d53"},
+    {"path": "README.md", "size": 7312, "digest": "0x382bc45d851afe9a"},
+    {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 199, "digest": "0x948906da5d77756c"},
+    {"path": "generated/device.c", "size": 33369, "digest": "0x614f73701f13472c"},
+    {"path": "generated/device.h", "size": 9852, "digest": "0xf31f3165d1424e31"},
+    {"path": "generated/device_manifest.json", "size": 1962, "digest": "0x7a9bc8a73df29a70"},
     {"path": "include/device/client.hpp", "size": 1547, "digest": "0x0745001751bd0cf7"},
     {"path": "include/device/types.hpp", "size": 2289, "digest": "0xbee0065f78a4a94a"},
     {"path": "licenses/asio.txt", "size": 1338, "digest": "0xcb7237a4720128f3"},
     {"path": "licenses/nanobind.txt", "size": 1521, "digest": "0x6c74387e9376966e"},
     {"path": "licenses/robin_map.txt", "size": 1103, "digest": "0xdef0f3a5dcec4200"},
     {"path": "licenses/wirelink.txt", "size": 728, "digest": "0x6ac63ae4ccdeb60b"},
-    {"path": "pyproject.toml", "size": 923, "digest": "0x88c9b01a43a80a0b"},
-    {"path": "python/device_sdk/__init__.py", "size": 16239, "digest": "0x9429b0bb107aeb64"},
+    {"path": "pyproject.toml", "size": 923, "digest": "0xaea2ddf6f2b91474"},
+    {"path": "python/device_sdk/__init__.py", "size": 16239, "digest": "0xa075b60b4dd14ecb"},
     {"path": "python/device_sdk/_native.pyi", "size": 1710, "digest": "0x84c9cef89674d2c9"},
     {"path": "python/device_sdk/_runtime.py", "size": 10870, "digest": "0x3a9e2e9f562e9c14"},
     {"path": "python/device_sdk/py.typed", "size": 0, "digest": "0xa1f8421f6c314f15"},
-    {"path": "src/client.cpp", "size": 4453, "digest": "0xc8a0209b599114b3"},
-    {"path": "src/endpoint.c", "size": 2977, "digest": "0xa7c01190938ed3f5"},
-    {"path": "src/endpoint.h", "size": 852, "digest": "0x253e2037232675c5"},
-    {"path": "src/native.hpp", "size": 396, "digest": "0x11c634324c77d269"},
-    {"path": "src/python.cpp", "size": 13315, "digest": "0xdfd00237f42b3a2e"},
+    {"path": "src/client.cpp", "size": 4439, "digest": "0xc667a015d60fc9ad"},
+    {"path": "src/endpoint.c", "size": 2941, "digest": "0x3ff07846f7f46ad5"},
+    {"path": "src/endpoint.h", "size": 838, "digest": "0x9143aa2dbbaf5a65"},
+    {"path": "src/native.hpp", "size": 398, "digest": "0x8c252446ab41278d"},
+    {"path": "src/python.cpp", "size": 13312, "digest": "0x11b8c98960a85dd2"},
     {"path": "src/values.hpp", "size": 9046, "digest": "0x2e61f9891b0d9d9f"},
-    {"path": "wlc-sdk-info.json", "size": 177, "digest": "0x6d6e124354962bea"},
+    {"path": "wlc-sdk-info.json", "size": 177, "digest": "0x89f1dd586d431555"},
     {"path": "wlc-sdk-name.txt", "size": 7, "digest": "0xb2a4fa33b5d9710b"}
   ]
 }

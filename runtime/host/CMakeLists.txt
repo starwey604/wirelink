@@ -7,7 +7,7 @@ target_compile_features(wirelink_host PUBLIC cxx_std_20)
 target_include_directories(wirelink_host PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_link_libraries(wirelink_host PUBLIC wirelink_kernel Threads::Threads)
+target_link_libraries(wirelink_host PUBLIC wirelink_endpoint Threads::Threads)
 wl_warnings(wirelink_host PRIVATE -Wall -Wextra -Wpedantic -Werror)
 if(WIRELINK_INSTALL)
   install(TARGETS wirelink_host EXPORT Wirelink_hostTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})

@@ -3,11 +3,11 @@
 #include <zephyr/sys/printk.h>
 #include "calculator_fixture.h"
 #include "loopback_owner.h"
-#include "wirelink/zephyr/kernel_timeout.h"
+#include "wirelink/zephyr/detail/timeout.h"
 static calculator_node_t endpoints[2];
 static example_pair_t pair;
 static unsigned reads, completed, handled;
-static wl_kernel_result_t result;
+static wl_rpc_result_t result;
 static int mode;
 static uint32_t read_clock(void) { ++reads; return k_uptime_get_32(); }
 static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
@@ -15,9 +15,9 @@ static int32_t add(void *user, const add_request_t *request, add_response_t *res
   if (mode == 1) return 7;
   response->sum = request->left + request->right; return 0;
 }
-static void done(void *user, wl_kernel_result_t value, const add_response_t *response) {
+static void done(void *user, wl_rpc_result_t value, const add_response_t *response) {
   (void)user; result = value;
-  if (value.outcome == WL_KERNEL_SUCCESS) EXAMPLE_REQUIRE(response && response->sum == 42);
+  if (value.outcome == WL_RPC_SUCCESS) EXAMPLE_REQUIRE(response && response->sum == 42);
   ++completed;
 }
 static void transaction(int selected, unsigned idle_ms) {
@@ -29,7 +29,7 @@ static void transaction(int selected, unsigned idle_ms) {
   k_sleep(K_MSEC(idle_ms)); /* No step before submit: owner supplies fresh now. */
   const uint32_t began = read_clock();
   add_request_t request = {.left = 20, .right = 22};
-  wl_kernel_call_handle_t call; unsigned before = reads;
+  wl_call_handle_t call; unsigned before = reads;
   EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[0], &request, began, 50, done, NULL, &call) == WL_OK);
   EXAMPLE_REQUIRE(reads == before);
   while (!completed) {
@@ -46,13 +46,13 @@ static void transaction(int selected, unsigned idle_ms) {
     bool runnable = false; uint32_t maximum = 10;
     for (unsigned side = 0; side < 2; ++side) {
       int has_deadline = 0; uint32_t deadline = 0;
-      runnable |= wl_kernel_ready(&endpoints[side].core, now, &has_deadline, &deadline) != 0;
+      runnable |= wl_endpoint_ready(&endpoints[side].core, now, &has_deadline, &deadline) != 0;
       if (has_deadline && deadline - now < maximum) maximum = deadline - now;
     }
     uint32_t elapsed = read_clock() - now;
-    if (!runnable && maximum > elapsed) k_sleep(wl_kernel_timeout_ms(maximum - elapsed));
+    if (!runnable && maximum > elapsed) k_sleep(wl_zephyr_timeout_ms(maximum - elapsed));
   }
-  EXAMPLE_REQUIRE(result.outcome == (selected == 0 ? WL_KERNEL_SUCCESS : selected == 1 ? WL_KERNEL_REJECTED : WL_KERNEL_TIMED_OUT));
+  EXAMPLE_REQUIRE(result.outcome == (selected == 0 ? WL_RPC_SUCCESS : selected == 1 ? WL_RPC_REJECTED : WL_RPC_TIMED_OUT));
   if (selected == 1) EXAMPLE_REQUIRE(result.status == 7);
   if (selected == 2) EXAMPLE_REQUIRE(!handled && unsupported == 1 && k_uptime_get_32() - began >= 50);
   example_pair_close(&pair);

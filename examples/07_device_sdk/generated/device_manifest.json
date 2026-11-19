@@ -1,9 +1,9 @@
 {
-  "format": "wirelink-codegen-manifest-v1",
+  "format": "wirelink-codegen-manifest-v2",
   "compiler": {
     "name": "wlc",
-    "version": "0.14.0",
-    "codegen_contract": {"major": 0, "minor": 14}
+    "version": "0.0.99",
+    "codegen_contract": 1
   },
   "module": "device",
   "identity": {
@@ -30,8 +30,8 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 33420, "digest": "0xf903b8e38c2e5bb8"},
-    {"path": "device.h", "size": 9891, "digest": "0x1f1d9a14d1754d9d"}
+    {"path": "device.c", "size": 33369, "digest": "0x614f73701f13472c"},
+    {"path": "device.h", "size": 9852, "digest": "0xf31f3165d1424e31"}
   ]
 ,
   "nodes": [{"name":"device","framing":"native","io":"external","handlers":"static","timeout_ms":500,"request_frame_capacity":222,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":228,"tx_frame_capacity":222,"rx_wire_capacity":228,"tx_wire_capacity":222}]

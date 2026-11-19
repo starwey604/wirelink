@@ -11,7 +11,7 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
 
-#include "wirelink/zephyr/kernel_uart_dma.h"
+#include "wirelink/zephyr/uart_dma.h"
 
 #define TEST_MAX_PAYLOAD 64U
 #define TEST_STORAGE_SIZE 128U
@@ -147,7 +147,7 @@ static struct device fake_uart = {
     .state = &fake_state,
 };
 
-static wl_kernel_uart_dma_t adapter;
+static wl_zephyr_uart_dma_t adapter;
 static wl_packet_port_t port;
 static wl_packet_stream_t stream;
 static wl_byte_fifo_t fifo;
@@ -158,7 +158,7 @@ static void emit(struct uart_event *event) {
 static uint32_t instance = 1000U;
 static void setup(void) {
   memset(&fake_data, 0, sizeof(fake_data));
-  zassert_ok(wl_byte_fifo_init(&fifo, (wl_span_t){bytes, sizeof(bytes)}, wl_kernel_uart_dma_notify,
+  zassert_ok(wl_byte_fifo_init(&fifo, (wl_span_t){bytes, sizeof(bytes)}, wl_zephyr_uart_dma_notify,
                                &adapter));
   wl_packet_config_t pc = {.instance = ++instance,
                            .rx_storage = &rx[0][0],
@@ -171,11 +171,11 @@ static void setup(void) {
   wl_packet_stream_config_t sc = {.port = &port,
                                   .tx_storage = {tx, sizeof(tx)},
                                   .maximum_frame_size = 64,
-                                  .physical_submit = wl_kernel_uart_dma_submit,
-                                  .notify = wl_kernel_uart_dma_notify,
+                                  .physical_submit = wl_zephyr_uart_dma_submit,
+                                  .notify = wl_zephyr_uart_dma_notify,
                                   .user = &adapter};
   zassert_ok(wl_packet_stream_cobs_crc16_init(&stream, &sc));
-  wl_kernel_uart_dma_config_t config = {.uart = &fake_uart,
+  wl_zephyr_uart_dma_config_t config = {.uart = &fake_uart,
                                         .port = &port,
                                         .fifo = &fifo,
                                         .stream = &stream,
@@ -183,8 +183,8 @@ static void setup(void) {
                                         .timeout_us = 100,
                                         .tx_timeout_us = SYS_FOREVER_US,
                                         .wait_for_tx_idle = true};
-  zassert_ok(wl_kernel_uart_dma_init(&adapter, &config));
-  zassert_ok(wl_kernel_uart_dma_start(&adapter));
+  zassert_ok(wl_zephyr_uart_dma_init(&adapter, &config));
+  zassert_ok(wl_zephyr_uart_dma_start(&adapter));
 }
 ZTEST(static_uart_dma, test_callbacks_stage_and_stop_requires_real_returns) {
   setup();
@@ -197,7 +197,7 @@ ZTEST(static_uart_dma, test_callbacks_stage_and_stop_requires_real_returns) {
                              .data.rx = {.buf = fake_data.rx_buf, .offset = 0, .len = length}};
   emit(&ready);
   zassert_false(wl_packet_rx_ready(&port));
-  zassert_ok(wl_kernel_uart_dma_service(&adapter, 0));
+  zassert_ok(wl_zephyr_uart_dma_service(&adapter, 0));
   wl_packet_borrow_t borrow;
   zassert_ok(wl_packet_rx_borrow(&port, &borrow));
   zassert_equal(borrow.length, sizeof(packet));
@@ -207,34 +207,34 @@ ZTEST(static_uart_dma, test_callbacks_stage_and_stop_requires_real_returns) {
                             .data.tx = {.buf = fake_data.tx_buf, .len = fake_data.tx_len}};
   fake_data.tx_active = false;
   emit(&done);
-  zassert_ok(wl_kernel_uart_dma_service(&adapter, 0));
+  zassert_ok(wl_zephyr_uart_dma_service(&adapter, 0));
   zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_CONSUMED);
   zassert_true(wl_packet_tx_active(&port));
   fake_data.tx_idle = true;
-  zassert_ok(wl_kernel_uart_dma_service(&adapter, 1));
+  zassert_ok(wl_zephyr_uart_dma_service(&adapter, 1));
   zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_DRAINED);
   zassert_ok(wl_packet_tx_submit(&port, packet, sizeof(packet), &token));
-  zassert_ok(wl_kernel_uart_dma_stop(&adapter));
-  zassert_equal(wl_kernel_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
+  zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
   // RX disable acknowledgement alone does not return the two DMA buffers.
   struct uart_event disabled = {.type = UART_RX_DISABLED};
   fake_data.rx_enabled = false;
   emit(&disabled);
-  zassert_equal(wl_kernel_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
   for (unsigned i = 0; i < 2; ++i) {
     struct uart_event released = {.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}};
     emit(&released);
   }
-  zassert_equal(wl_kernel_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
   struct uart_event aborted = {.type = UART_TX_ABORTED,
                                .data.tx = {.buf = fake_data.tx_buf, .len = 0}};
   fake_data.tx_active = false;
   emit(&aborted);
-  zassert_ok(wl_kernel_uart_dma_service(&adapter, 2));
+  zassert_ok(wl_zephyr_uart_dma_service(&adapter, 2));
   zassert_true(wl_packet_tx_take(&port, &token) & WL_PACKET_TX_ERROR);
   uart_callback_t old = fake_data.callback;
   void *old_user = fake_data.callback_data;
-  wl_kernel_uart_dma_quiesce(&adapter);
+  wl_zephyr_uart_dma_quiesce(&adapter);
   zassert_true(wl_packet_quiescent(&port));
   old(&fake_uart, &ready, old_user);
   zassert_false(wl_byte_fifo_readable(&fifo));
@@ -259,7 +259,7 @@ static void close_adapter(void *a, void *b, void *c) {
   (void)a;
   (void)b;
   (void)c;
-  wl_kernel_uart_dma_quiesce(&adapter);
+  wl_zephyr_uart_dma_quiesce(&adapter);
   k_sem_give(&quiesce_done);
 }
 ZTEST(static_uart_dma, test_quiesce_joins_entered_callback_with_full_fifo) {
@@ -269,7 +269,7 @@ ZTEST(static_uart_dma, test_quiesce_joins_entered_callback_with_full_fifo) {
                              .data.rx = {.buf = dma[0], .offset = 0, .len = sizeof(dma[0])}};
   emit(&ready);
   zassert_false(wl_byte_fifo_has_space(&fifo));
-  zassert_ok(wl_kernel_uart_dma_stop(&adapter));
+  zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
   for (unsigned i = 0; i < 2; ++i) {
     struct uart_event released = {.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}};
     emit(&released);

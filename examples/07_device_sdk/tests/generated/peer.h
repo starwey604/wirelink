@@ -196,10 +196,10 @@ wl_codec_status_t peer_configure_response_encode(const peer_configure_response_t
 #define PEER_NUMBERS_MAX_ENCODED_SIZE UINT64_C(144)
 void peer_numbers_clear(peer_numbers_t *value);
 
-#include <wirelink/kernel.h>
+#include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if !WIRELINK_CODEGEN_CONTRACT_ACCEPTS(0, 14)
-#error "WLC requires generated-code contract 0.14"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct device_peer_node device_peer_node_t;
@@ -215,15 +215,15 @@ typedef struct {
   int32_t (*on_get_info)(void *, const peer_info_request_t *, peer_info_response_t *);
 } device_peer_handlers_t;
 struct device_peer_node {
-  wl_kernel_t core;
+  wl_endpoint_t core;
   void *user;
-  wl_kernel_error_fn on_error;
+  wl_endpoint_error_fn on_error;
   device_peer_handlers_t handlers;
   union {
     peer_configure_response_t configure;
     peer_info_response_t get_info;
   } reply;
-  uint8_t replies[WL_KERNEL_REPLIES][228];
+  uint8_t replies[WL_ENDPOINT_REPLIES][228];
 };
 wl_err_t device_peer_init(device_peer_node_t *self, wl_packet_port_t *port, const device_peer_handlers_t *handlers, void *user);
 wl_err_t device_peer_step(device_peer_node_t *self, uint32_t now);

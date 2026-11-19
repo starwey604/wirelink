@@ -12,15 +12,15 @@ static inline int32_t peer_add(void *user, const add_request_t *request, add_res
 }
 typedef struct {
   unsigned completions, samples;
-  wl_kernel_result_t result;
+  wl_rpc_result_t result;
   add_response_t response;
   uint32_t sample;
 } peer_client_t;
-static inline void peer_completed(void *user, wl_kernel_result_t result, const add_response_t *response) {
+static inline void peer_completed(void *user, wl_rpc_result_t result, const add_response_t *response) {
   peer_client_t *state = user;
-  if (result.outcome == WL_KERNEL_SUCCESS && !response)
-    result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
-  else if (result.outcome == WL_KERNEL_SUCCESS)
+  if (result.outcome == WL_RPC_SUCCESS && !response)
+    result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+  else if (result.outcome == WL_RPC_SUCCESS)
     state->response = *response;
   state->result = result; ++state->completions;
 }

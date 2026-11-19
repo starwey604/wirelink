@@ -1,9 +1,9 @@
 {
-  "format": "wirelink-codegen-manifest-v1",
+  "format": "wirelink-codegen-manifest-v2",
   "compiler": {
     "name": "wlc",
-    "version": "0.14.0",
-    "codegen_contract": {"major": 0, "minor": 14}
+    "version": "0.0.99",
+    "codegen_contract": 1
   },
   "module": "control",
   "identity": {
@@ -29,7 +29,7 @@
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
     {"path": "control.c", "size": 48787, "digest": "0x47948a883d688cc9"},
-    {"path": "control.h", "size": 9788, "digest": "0xacd0a7e5886a8605"}
+    {"path": "control.h", "size": 9774, "digest": "0x62a3ffa2dd6928a3"}
   ]
 ,
   "nodes": []

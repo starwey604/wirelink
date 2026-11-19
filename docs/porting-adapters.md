@@ -114,7 +114,7 @@ UART 等流式链路使用 `wl_packet_stream_t`，再按需增加 `wl_byte_fifo_
 external 关闭按以下顺序完成：
 
 1. 停止 RX 生产者并等待其退出；若外部 stream 持有半帧 claim，此时调用 `wl_packet_stream_abort_rx()`。
-2. owner 调用节点 `close()`，停止新业务提交并安排 `WL_KERNEL_CLOSED` 完成回调。
+2. owner 调用节点 `close()`，停止新业务提交并安排 `WL_RPC_CLOSED` 完成回调。
 3. 停止/排空物理驱动，让所有异步 TX 发布最终状态；继续 owner `step(now)`，直至节点 quiescent 且驱动确认不再访问存储。
 4. 才能释放端口、stream、FIFO、节点及驱动缓冲，或用新实例号重新初始化。
 
@@ -124,10 +124,10 @@ external 关闭按以下顺序完成：
 
 <!-- [docs:udp_host_step] -->
 ```cpp
-wl_err_t example_udp_step(example_udp_t *udp, wl_kernel_t *core, uint32_t now) {
+wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
   try {
     const auto error = udp->adapter->service();
-    const auto advanced = wl_kernel_step(core, now, 16);
+    const auto advanced = wl_endpoint_step(core, now, 16);
     return error == WL_OK ? advanced : error;
   } catch (...) { return WL_ERR_IO; }
 }

@@ -7,12 +7,12 @@
 using wirelink::host::Executor;
 using namespace std::chrono_literals;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "%d: %s\n", __LINE__, #x); std::abort(); } } while (0)
-extern "C" wl_kernel_t *owner_pass_prepare(wl_packet_notify_fn, void *);
+extern "C" wl_endpoint_t *owner_pass_prepare(wl_packet_notify_fn, void *);
 extern "C" void owner_pass_inject(void);
 extern "C" unsigned owner_pass_received(void);
 struct Fixture {
   Executor executor;
-  wl_kernel_t *core{};
+  wl_endpoint_t *core{};
   std::mutex gate;
   std::condition_variable wake;
   bool entered{}, released{};
@@ -57,11 +57,11 @@ static void available_burst() {
   { std::unique_lock lock(f.gate); complete = f.wake.wait_for(lock, 5s,
       [&f] { return f.done.load() == Executor::command_capacity; }); }
   CHECK(f.executor.stop() == WL_OK); CHECK(complete);
-  CHECK(f.executor.last_error() == WL_OK && wl_kernel_quiescent(f.core));
+  CHECK(f.executor.last_error() == WL_OK && wl_endpoint_quiescent(f.core));
   CHECK(f.rejected == 0 && f.stop_calls == 1 && f.maximum == Executor::command_budget);
   for (unsigned i = 0; i < Executor::command_budget - 1; ++i) CHECK(f.observed[i] == 0);
   for (unsigned i = Executor::command_budget - 1; i < Executor::command_capacity; ++i) CHECK(f.observed[i] == 1);
-  std::printf("{\"format\":\"wirelink-owner-kernel-v1\",\"case\":\"kernel_command_burst\",\"budget\":%u,"
+  std::printf("{\"format\":\"wirelink-owner-endpoint-v1\",\"case\":\"kernel_command_burst\",\"budget\":%u,"
     "\"delivered\":%u,\"received\":%u,\"queue_full\":1,\"maximum_command_batch\":%u,\"services\":%u}\n",
     Executor::command_budget, f.done.load(), owner_pass_received(), f.maximum, f.services);
 }
@@ -75,8 +75,8 @@ static void stop_rejects_queued() {
   CHECK(f.executor.post([](uint32_t) {}) == WL_ERR_NOT_INITIALIZED);
   f.release(); CHECK(f.executor.stop() == WL_OK);
   CHECK(f.done == 0 && f.rejected == Executor::command_capacity && f.stop_calls == 1);
-  CHECK(f.executor.last_error() == WL_OK && wl_kernel_quiescent(f.core));
-  std::printf("{\"format\":\"wirelink-owner-kernel-v1\",\"case\":\"kernel_stop_reject\",\"budget\":%u,"
+  CHECK(f.executor.last_error() == WL_OK && wl_endpoint_quiescent(f.core));
+  std::printf("{\"format\":\"wirelink-owner-endpoint-v1\",\"case\":\"kernel_stop_reject\",\"budget\":%u,"
     "\"delivered\":0,\"received\":0,\"rejected\":%u,\"stop_calls\":%u}\n",
     Executor::command_budget, f.rejected, f.stop_calls);
 }

@@ -8,7 +8,7 @@ static example_pair_t pair;
 static unsigned completed, effects;
 static struct completion {
   unsigned count;
-  wl_kernel_result_t result;
+  wl_rpc_result_t result;
 } completions[6];
 
 static int32_t add(void *user, const add_request_t *request, add_response_t *response) {
@@ -20,13 +20,13 @@ static int32_t add(void *user, const add_request_t *request, add_response_t *res
   return 0;
 }
 
-static void done(void *user, wl_kernel_result_t result, const add_response_t *response) {
+static void done(void *user, wl_rpc_result_t result, const add_response_t *response) {
   struct completion *completion = user;
   EXAMPLE_REQUIRE(completion->count == 0);
   completion->result = result;
   ++completion->count;
   ++completed;
-  if (result.outcome == WL_KERNEL_SUCCESS)
+  if (result.outcome == WL_RPC_SUCCESS)
     EXAMPLE_REQUIRE(response && response->sum == 42);
   else
     EXAMPLE_REQUIRE(response == NULL);
@@ -38,7 +38,7 @@ int main(void) {
   for (unsigned side = 0; side < 2; ++side)
     EXAMPLE_REQUIRE(calculator_init(&endpoints[side], &pair.ports[side],
       &handlers, NULL) == WL_OK);
-  wl_kernel_call_handle_t handles[4], rejected;
+  wl_call_handle_t handles[4], rejected;
   add_request_t request = {.left = 20, .right = 22};
   /* [docs:calculator_cancel_timeout] */
   for (unsigned i = 0; i < 4; ++i)
@@ -50,16 +50,16 @@ int main(void) {
 
   /* Hold the transport: one request is leased, the other three stay queued. */
   EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 0) == WL_OK);
-  EXAMPLE_REQUIRE(wl_kernel_cancel(&endpoints[0].core, handles[0]) == WL_OK);
+  EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handles[0]) == WL_OK);
   EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. */
   /* [/docs:calculator_cancel_timeout] */
   EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 1) == WL_OK);
-  EXAMPLE_REQUIRE(completions[0].result.outcome == WL_KERNEL_CANCELLED);
-  EXAMPLE_REQUIRE(wl_kernel_cancel(&endpoints[0].core, handles[0]) == WL_ERR_NOT_FOUND);
+  EXAMPLE_REQUIRE(completions[0].result.outcome == WL_RPC_CANCELLED);
+  EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handles[0]) == WL_ERR_NOT_FOUND);
   EXAMPLE_REQUIRE(calculator_step(&endpoints[0], 2) == WL_OK);
   EXAMPLE_REQUIRE(completed == 4 && completions[4].count == 0);
   for (unsigned i = 1; i < 4; ++i)
-    EXAMPLE_REQUIRE(completions[i].result.outcome == WL_KERNEL_TIMED_OUT);
+    EXAMPLE_REQUIRE(completions[i].result.outcome == WL_RPC_TIMED_OUT);
   EXAMPLE_REQUIRE(wl_packet_tx_active(&pair.ports[0]) && effects == 0);
 
   /* Resume real copying. Local cancellation did not retract the leased request. */
@@ -67,12 +67,12 @@ int main(void) {
   EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[0], &request, pair.now, 500,
     done, &completions[4], &rejected) == WL_OK);
   example_pair_wait(&pair, &completed, 5);
-  EXAMPLE_REQUIRE(completions[4].result.outcome == WL_KERNEL_SUCCESS && effects == 2);
+  EXAMPLE_REQUIRE(completions[4].result.outcome == WL_RPC_SUCCESS && effects == 2);
   add_request_t overflow = {.left = INT32_MAX, .right = 1};
   EXAMPLE_REQUIRE(calculator_call_add_ex(&endpoints[1], &overflow, pair.now, 500,
       done, &completions[5], NULL) == WL_OK);
   example_pair_wait(&pair, &completed, 6);
-  EXAMPLE_REQUIRE(completions[5].result.outcome == WL_KERNEL_REJECTED &&
+  EXAMPLE_REQUIRE(completions[5].result.outcome == WL_RPC_REJECTED &&
       completions[5].result.status == 1);
   example_pair_close(&pair);
   for (unsigned i = 0; i < 6; ++i) EXAMPLE_REQUIRE(completions[i].count == 1);

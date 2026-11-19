@@ -4,10 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
-static wl_kernel_t core;
+static wl_endpoint_t core;
 static wl_packet_port_t port;
 static usb_sample_application_t app;
-static uint8_t rx[2][2053], tx[WL_KERNEL_TX_COUNT][2052], output[2052], last[2052];
+static uint8_t rx[2][2053], tx[WL_ENDPOINT_TX_COUNT][2052], output[2052], last[2052];
 static size_t output_length, last_length;
 static int drop, stale;
 static wl_packet_submit_t peer_send(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
@@ -40,15 +40,15 @@ void object_peer_prepare(void) {
   wl_packet_config_t packet = {.instance = 9090, .rx_storage = &rx[0][0],
     .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = peer_send};
   CHECK(wl_packet_init(&port, &packet) == WL_OK);
-  wl_kernel_config_t config = {.port = &port,
-    .storage = wl_kernel_storage_uniform(&tx[0][0], sizeof(tx[0])),
+  wl_endpoint_config_t config = {.port = &port,
+    .storage = wl_endpoint_storage_uniform(&tx[0][0], sizeof(tx[0])),
     .route = usb_sample_route, .user = &app};
-  CHECK(wl_kernel_init(&core, &config) == WL_OK);
+  CHECK(wl_endpoint_init(&core, &config) == WL_OK);
 }
 void object_peer_faults(int count, int old) { drop = count; stale = old; }
 unsigned object_peer_commits(void) { return app.commits; }
 unsigned object_peer_writes(void) { return app.writes; }
 void object_peer_close(void) {
-  usb_sample_close(&app); CHECK(wl_kernel_close(&core) == WL_OK);
-  CHECK(wl_kernel_quiescent(&core));
+  usb_sample_close(&app); CHECK(wl_endpoint_close(&core) == WL_OK);
+  CHECK(wl_endpoint_quiescent(&core));
 }

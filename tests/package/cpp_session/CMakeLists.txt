@@ -11,7 +11,7 @@ if(NOT EXISTS "${WIRELINK_WLC_EXECUTABLE}")
   message(FATAL_ERROR "Set WIRELINK_WLC_EXECUTABLE")
 endif()
 get_filename_component(_root "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
-set(_fixture ${_root}/tests/package/static_kernel)
+set(_fixture ${_root}/tests/package/static_endpoint)
 set(_generated ${CMAKE_CURRENT_BINARY_DIR}/generated)
 add_custom_command(OUTPUT ${_generated}/probe.c
     ${_generated}/probe.h

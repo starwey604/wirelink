@@ -16,7 +16,7 @@ typedef struct {
   wl_host_rpc_notify_fn notify;
   void* notify_context;
 } calculator_sdk_call_t;
-wl_err_t calculator_sdk_add_submit(calculator_sdk_call_t*, uint32_t, uint32_t, wl_host_rpc_notify_fn, void*, wl_kernel_call_handle_t*);
+wl_err_t calculator_sdk_add_submit(calculator_sdk_call_t*, uint32_t, uint32_t, wl_host_rpc_notify_fn, void*, wl_call_handle_t*);
 #ifdef __cplusplus
 }
 #endif

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* C owns atomic port storage and all kernel callback types. */
+/* C owns atomic port storage and all endpoint callback types. */
 #include "endpoint.h"
 #include "device.h"
 #include <string.h>
@@ -26,18 +26,18 @@ wl_err_t device_sdk_endpoint_initialize(void* storage, uint32_t instance,
   if (error != WL_OK) return error;
   return device_init(&owner->endpoint, &owner->port);
 }
-static void device_sdk_configure_done(void* context, wl_kernel_result_t result, const configure_response_t* response) {
+static void device_sdk_configure_done(void* context, wl_rpc_result_t result, const configure_response_t* response) {
   device_sdk_call_t* state = context;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     if (response == NULL)
-      result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+      result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
     else
       memcpy(state->response, response, sizeof(*response));
   }
   state->notify(state->notify_context, result);
 }
 wl_err_t device_sdk_configure_submit(device_sdk_call_t* state, uint32_t now, uint32_t timeout,
-    wl_host_rpc_notify_fn notify, void* context, wl_kernel_call_handle_t* call) {
+    wl_host_rpc_notify_fn notify, void* context, wl_call_handle_t* call) {
   device_sdk_owner_t* owner = state->endpoint;
   state->notify = notify;
   state->notify_context = context;
@@ -45,18 +45,18 @@ wl_err_t device_sdk_configure_submit(device_sdk_call_t* state, uint32_t now, uin
       device_sdk_configure_done, state, call);
 }
 
-static void device_sdk_get_info_done(void* context, wl_kernel_result_t result, const info_response_t* response) {
+static void device_sdk_get_info_done(void* context, wl_rpc_result_t result, const info_response_t* response) {
   device_sdk_call_t* state = context;
-  if (result.outcome == WL_KERNEL_SUCCESS) {
+  if (result.outcome == WL_RPC_SUCCESS) {
     if (response == NULL)
-      result = (wl_kernel_result_t){WL_KERNEL_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
+      result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
     else
       memcpy(state->response, response, sizeof(*response));
   }
   state->notify(state->notify_context, result);
 }
 wl_err_t device_sdk_get_info_submit(device_sdk_call_t* state, uint32_t now, uint32_t timeout,
-    wl_host_rpc_notify_fn notify, void* context, wl_kernel_call_handle_t* call) {
+    wl_host_rpc_notify_fn notify, void* context, wl_call_handle_t* call) {
   device_sdk_owner_t* owner = state->endpoint;
   state->notify = notify;
   state->notify_context = context;

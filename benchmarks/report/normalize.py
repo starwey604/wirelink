@@ -22,7 +22,7 @@ OWNER_PASS_METRICS = ("budget", "delivered", "received")
 
 def _suite_module(name, filename="compare.py"):
     """Load benchmarks/<name>/compare.py under a unique module name."""
-    if filename not in ("compare.py", "compare_kernel.py"):
+    if filename not in ("compare.py", "compare_endpoint.py"):
         raise ValueError("unsupported comparator entry")
     path = BENCH / name / filename
     spec = importlib.util.spec_from_file_location(f"wirelink_bench_{name}_{Path(filename).stem}",
@@ -60,8 +60,8 @@ def _api(raw_dir):
     module = _suite_module("api")
     paths = _reports(raw_dir, ".json")
     report = json.loads(paths[0].read_text(encoding="utf-8"))
-    if report.get("context", {}).get("workload") == "wirelink-kernel-api-v1":
-        current = _suite_module("api", "compare_kernel.py")
+    if report.get("context", {}).get("workload") == "wirelink-endpoint-api-v1":
+        current = _suite_module("api", "compare_endpoint.py")
         rows = []
         for path in paths:
             _context, groups = current.load(path)
@@ -143,7 +143,7 @@ def _mixed_traffic(raw_dir):
     for path in _reports(raw_dir, ".jsonl"):
         raw = [json.loads(line) for line in path.read_text().splitlines()]
         current = bool(raw and raw[0].get("format") == 2)
-        module = _suite_module("mixed_traffic", "compare_kernel.py" if current else "compare.py")
+        module = _suite_module("mixed_traffic", "compare_endpoint.py" if current else "compare.py")
         capture = module.validate(raw)
         for scenario in module.SCENARIOS:
             for metric in module.SUMMARY_METRICS:

@@ -48,18 +48,18 @@ example_udp_t *example_udp_open_at(wl_packet_port_t *port, wl_span_t rx, size_t 
   } catch (const std::exception& error) { std::fprintf(stderr, "UDP open: %s\n", error.what()); return nullptr; }
 }
 /* [docs:udp_host_step] */
-wl_err_t example_udp_step(example_udp_t *udp, wl_kernel_t *core, uint32_t now) {
+wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
   try {
     const auto error = udp->adapter->service();
-    const auto advanced = wl_kernel_step(core, now, 16);
+    const auto advanced = wl_endpoint_step(core, now, 16);
     return error == WL_OK ? advanced : error;
   } catch (...) { return WL_ERR_IO; }
 }
 /* [/docs:udp_host_step] */
-wl_err_t example_udp_wait(example_udp_t *udp, wl_kernel_t *core, uint32_t maximum_ms) {
+wl_err_t example_udp_wait(example_udp_t *udp, wl_endpoint_t *core, uint32_t maximum_ms) {
   const uint32_t sampled = example_now_ms();
   int has_deadline = 0; uint32_t deadline = 0;
-  if (wl_kernel_ready(core, sampled, &has_deadline, &deadline) || !example_running()) return WL_OK;
+  if (wl_endpoint_ready(core, sampled, &has_deadline, &deadline) || !example_running()) return WL_OK;
   uint32_t limit = maximum_ms;
   if (has_deadline) limit = std::min(limit, deadline - sampled);
   const uint32_t elapsed = example_now_ms() - sampled;
@@ -69,12 +69,12 @@ wl_err_t example_udp_wait(example_udp_t *udp, wl_kernel_t *core, uint32_t maximu
     return error == WL_ERR_NO_DATA ? WL_OK : error;
   } catch (...) { return WL_ERR_IO; }
 }
-wl_err_t example_udp_close(example_udp_t *udp, wl_kernel_t *core) {
-  const auto error = wl_kernel_close(core);
+wl_err_t example_udp_close(example_udp_t *udp, wl_endpoint_t *core) {
+  const auto error = wl_endpoint_close(core);
   if (error != WL_OK) return error;
   udp->adapter->stop();
-  const auto advanced = wl_kernel_step(core, example_now_ms(), 16);
+  const auto advanced = wl_endpoint_step(core, example_now_ms(), 16);
   if (advanced != WL_OK) return advanced;
-  if (!wl_kernel_quiescent(core)) return WL_ERR_BUSY;
+  if (!wl_endpoint_quiescent(core)) return WL_ERR_BUSY;
   delete udp; return WL_OK;
 }

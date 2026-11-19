@@ -16,7 +16,7 @@ CONSUMED 前真实保留源数据，之后持有自己的传输副本，到 peer
 才发布 DRAINED。BUSY 等待有限资源通知，close 真正放弃未完成传输再发布 TX_ERROR，
 不会伪造成功 drain。模型不分配堆、不开线程或 socket，也不 sleep。
 
-新 format 2 共 42 条完整记录，使用 `compare_kernel.py`。解析器检查缺行、重复行、
+新 format 2 共 42 条完整记录，使用 `compare_endpoint.py`。解析器检查缺行、重复行、
 非法计数、缺少故障注入，以及丢响应时谎称只执行业务一次的记录。age／gap 覆盖接收方
 最后应用值与静默尾部；RPC 耗时包括应用重试。`--check` 额外检查场景明确给出的
 串行化与背压界限。比较前必须核对工作负载源码、编译器、flags 和二进制 hash。
@@ -26,4 +26,4 @@ Zephyr 集成测试复用同一模型。固件 wrapper 的 `mixed_kernel_fw_*_v1
 不能与旧 retry 引擎数字比较。当前 RPC／Sample 实板证据由独立静态内核 USB workload
 提供；模型测试本身不需刷板。
 
-当前固件采集使用 `compare_kernel_firmware.py before.log after.log`，必须含完整 42 条 traffic 与 21 组 cycle，核对重复执行计数，拒绝复位、缺失、混用旧格式和 clock/layout 上下文变化。模拟毫秒和 IRQ-masked 模型 cycle 分开，不代表物理吞吐或旧 ARQ CPU 对照。
+当前固件采集使用 `compare_endpoint_firmware.py before.log after.log`，必须含完整 42 条 traffic 与 21 组 cycle，核对重复执行计数，拒绝复位、缺失、混用旧格式和 clock/layout 上下文变化。模拟毫秒和 IRQ-masked 模型 cycle 分开，不代表物理吞吐或旧 ARQ CPU 对照。
