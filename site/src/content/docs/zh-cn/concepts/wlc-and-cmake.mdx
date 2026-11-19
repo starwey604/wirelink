@@ -1,42 +1,37 @@
 ---
 title: WLC 编译器与 CMake 集成
-description: 掌握 wlc 0.14 命令行工具、--node 角色选择规则以及 CMake 自动依赖追踪。
+description: 掌握 wlc 命令行工具、--node 角色选择规则以及 CMake 自动依赖追踪与代码生成。
 sidebar:
   order: 3
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-Wirelink 的模式编译器 **`wlc`**（用 Rust 编写，位于仓库 `wlc/` 目录）负责校验 `.wl` 协议文件，并生成 100% 确定性的 C11 节点代码与上位机 Python/C++20 SDK。
-
-<Aside type="note" title="版本配对提示">
-当前本地候选版本配对为：**Wirelink 0.14.0 / WLC 0.14.0 / Codegen Contract 0.14 / SDK Binding API 3**。构建示例或项目时，请使用从当前工作区 `wlc/` 编译出的本地二进制，不要混用旧版 0.13 的预编译编译器。
-</Aside>
+Wirelink 的模式编译器 **`wlc`**（位于仓库 `wlc/` 目录）负责校验 `.wl` 协议文件，并生成确定性的 C11 节点代码与上位机 Python / C++20 客户端 SDK。
 
 ---
 
-## 一、 WLC 核心命令速查
+## 一、 WLC 常用命令速查
 
-在仓库根目录通过 `cargo build --release --locked --manifest-path wlc/Cargo.toml` 构建后，即可使用 `wlc`：
+在仓库根目录执行 `cargo build --release --locked --manifest-path wlc/Cargo.toml` 构建后，即可使用 `wlc`：
 
 | 命令与常用参数 | 作用说明 |
 | :--- | :--- |
 | **`wlc compile app.wl --node <name> --out-dir <dir>`** | 为指定的单个节点角色生成 `<stem>.h`、`<stem>.c` 和 `<stem>_manifest.json` |
 | **`wlc compile app.wl --all-nodes --out-dir <dir>`** | 将 `.wl` 中的所有节点同时生成到同一对 `.h/.c` 中（常用于同进程双端回环测试） |
 | **`wlc sdk app.wl --node <client> --name <pkg> --out-dir <dir>`** | 为含 `call` 的客户端节点生成完整的 C++20 与 Python UDP 客户端 SDK 工程 |
-| **`wlc validate app.wl [--previous old.wl]`** | 仅校验语法、ID 冲突及（可选）与上一版 `.wl` 的协议演进兼容性，不生成文件 |
+| **`wlc validate app.wl [--previous old.wl]`** | 校验语法、编号冲突及（可选）与上一版 `.wl` 的协议升级兼容性，不生成文件 |
 | **`wlc plan app.wl [--node <name> \| --all-nodes]`** | 在终端打印详细的编码布局规划、各节点路由方向与计算出的帧长上限字节数 |
-| **`wlc dependencies app.wl`** | 列出该 `.wl` 及其传递 `import` 的所有依赖文件路径（供构建系统追踪重编） |
-| **`wlc identity app.wl`** / **`wlc codegen-contract`** | 输出确定性的 Schema 摘要信息 / 输出当前代码生成契约版本号（`0.14`） |
+| **`wlc dependencies app.wl`** | 列出该 `.wl` 及其传递 `import` 的所有依赖文件路径（供构建系统自动追踪重编） |
 
-### 节点选择规则（什么时候必须传 `--node`？）
+### 什么时候需要传 `--node`？
 
-`wlc compile` 根据 `.wl` 文件中 `node` 的数量，遵循非常直观的选择逻辑：
+`wlc compile` 根据 `.wl` 文件中 `node` 的数量遵循如下选择规则：
 
 1. **0 个 `node`**：自动生成**纯编解码器（Codec-only）**，只包含消息结构体与 `encode/decode` 函数。
 2. **恰好 1 个 `node`**：自动选中该节点，无需传 `--node`。
 3. **2 个及以上 `node`**（例如同时写了 `node client` 和 `node server`）：**必须显式指定 `--node <name>` 或 `--all-nodes`**（两者互斥）。
-   - 这样设计是为了保护单端固件：当你为 MCU 编译服务端固件时，传 `--node server`，生成的代码里就不会包含客户端的静态钩子声明，避免链接器报“未定义的客户端符号”错误。
+   - 这样设计是为了保护单端固件：当你为下位机 MCU 编译服务端固件时，传入 `--node server`，生成的代码里就只会包含 `server` 的结构体与函数，不会混入客户端的静态回调声明。
 
 *(注：生成的 `.h/.c` 文件名始终取自输入的 `.wl` 文件名 `<stem>`，而生成的 C 函数与结构体前缀则取自 `node` 的名字 `<node>_`。)*
 
@@ -44,23 +39,23 @@ Wirelink 的模式编译器 **`wlc`**（用 Rust 编写，位于仓库 `wlc/` �
 
 ## 二、 在 CMake 工程中自动生成与链接
 
-在实际固件或宿主 CMake 工程中，你不需要手动敲命令行运行 `wlc` 并把生成的 `.c` 拷来拷去。Wirelink 提供了开箱即用的 `wirelink_wlc_generate` CMake 函数，它会自动：
-- 调用 `wlc` 生成 `.h/.c` 并校验契约版本；
-- 自动扫描并追踪所有传递 `import` 的 `.wl` 文件（修改任意子模块 `.wl` 都会自动触发重新生成）；
-- 根据节点的 `framing`（如 `cobs_crc16` 或 `length16`）自动把所需的底层流连接器静态库链接到目标上。
+在实际固件或上位机 C++ 工程中，你不需要手动运行 `wlc` 并把生成的 `.c` 拷进源码树。Wirelink 提供了 `wirelink_wlc_generate` CMake 函数，它会在构建时自动：
+- 调用 `wlc` 生成 `.h/.c`；
+- 自动扫描并追踪所有通过 `import` 引入的子 `.wl` 文件（修改任意子文件都会自动触发重新生成）；
+- 根据节点的 `framing`（如 `cobs_crc16` 或 `length16`）自动把所需的底层流分帧模块链接到你的目标上。
 
 <Tabs>
   <TabItem label="1. 单角色固件目标 (NODE)">
-    在 MCU 固件或单端程序的 `CMakeLists.txt` 中，使用 `NODE <name>` 指定本端角色：
+    在下位机固件或单端程序的 `CMakeLists.txt` 中，使用 `NODE <name>` 指定本端角色：
 
     ```cmake
-    find_package(Wirelink 0.14.0 EXACT CONFIG REQUIRED)
+    find_package(Wirelink CONFIG REQUIRED)
 
     wirelink_wlc_generate(
       TARGET device_protocol
       SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/app.wl"
       NODE device
-      # 可选：开启协议演进兼容性门禁
+      # 可选：开启与旧版协议的兼容性检查
       # PREVIOUS "${CMAKE_CURRENT_SOURCE_DIR}/app_v1.wl"
     )
 
@@ -69,7 +64,7 @@ Wirelink 的模式编译器 **`wlc`**（用 Rust 编写，位于仓库 `wlc/` �
   </TabItem>
 
   <TabItem label="2. 同进程双端回环目标 (ALL_NODES)">
-    在单元测试或本地回环 demo 中，如果一个可执行文件同时扮演 `client` 和 `server`，使用 `ALL_NODES`：
+    在单元测试或本地回环程序中，如果同一个可执行文件同时包含 `client` 和 `server`，使用 `ALL_NODES`：
 
     ```cmake
     wirelink_wlc_generate(
@@ -94,9 +89,9 @@ Wirelink 的模式编译器 **`wlc`**（用 Rust 编写，位于仓库 `wlc/` �
   </TabItem>
 </Tabs>
 
-### 配置 CMake 时指定本地 `wlc` 路径
+### 配置 CMake 时指定 `wlc` 路径
 
-在配置 CMake 时，通过 `-DWIRELINK_WLC_EXECUTABLE` 传入你编译好的 `wlc` 二进制绝对路径：
+在配置 CMake 时，通过 `-DWIRELINK_WLC_EXECUTABLE` 传入 `wlc` 可执行文件的路径：
 
 ```sh
 cmake -S . -B build/host \
@@ -104,4 +99,4 @@ cmake -S . -B build/host \
   -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
 ```
 
-如果是 **Zephyr RTOS** 工程，在 `prj.conf` 中开启 `CONFIG_WIRELINK=y`（若使用串口流分帧则同时开启对应的 stream Kconfig 项），即可在应用 `CMakeLists.txt` 中直接使用相同的 `wirelink_wlc_generate` 宏。完整工程模板请参考仓库中的 [`samples/zephyr/`](https://github.com/starwey604/wirelink/tree/main/samples/zephyr)。
+如果是 **Zephyr RTOS** 工程，在 `prj.conf` 中开启 `CONFIG_WIRELINK=y`（若使用串口流分帧则同时开启对应的 stream Kconfig 项），即可在应用 `CMakeLists.txt` 中直接使用相同的 `wirelink_wlc_generate` 函数。完整工程模板请参考仓库中的 [`samples/zephyr/`](https://github.com/starwey604/wirelink/tree/main/samples/zephyr)。

@@ -1,6 +1,6 @@
 ---
-title: 02 定义与收发设备遥测消息
-description: 编写第一份单向遥测协议，透视 WLC 生成的 C11 头文件，掌握快照发送与单消息槽背压。
+title: 02 单向遥测（Telemetry）与双向 RPC 的协同
+description: 厘清 send/recv 单向遥测与 call/serve 双向 RPC 的设计分工，掌握“短 RPC 启动 + 异步消息推送”的设备架构模式。
 sidebar:
   order: 2
 ---
@@ -13,29 +13,59 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 <LessonHeader
   unit={2}
-  duration="7 分钟"
+  duration="8 分钟"
   examplePath="examples/00_telemetry"
   goals={[
-    '编写带 pub（发布端）和 sub（订阅端）两个角色的 telemetry.wl',
-    '透视 WLC 生成的 C11 头文件，理解为什么默认必选字段没有 has_*',
-    '实现 2 个静态钩子函数完成收发，并掌握“输入快照”与“单槽背压 (WOULD_BLOCK)”',
+    '理解单向消息 (send / recv) 与双向调用 (call / serve) 的本质区别与选型原则',
+    '编写单向遥测节点，掌握 send 的“输入立即快照”特性与 C 客户端调用 RPC 的回调处理',
+    '学会将两者结合：用“短 RPC 立即领任务号 + 主循环推送单向进度消息”解决耗时硬件任务',
   ]}
 />
 
-很多嵌入式场景（比如传感器周期上报温度、电机上报当前转速）只需要**单向高频推送**，不需要对端每次都回复确认（ACK）。
+在上一课中，我们用 `rpc`（`call` / `serve`）实现了一问一答的加法调用。但在设计一套完整的上下位机协议时，你很快会遇到这样一个架构问题：
 
-在 Wirelink 中，这类单向消息通过节点里的 `send <Message>;`（发送端）和 `recv <Message>;`（接收端）来声明。这一课我们以 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 为例，手把手看清从 `.wl` 到 C 代码的每一个细节。
+> **“哪些数据应该定义成单向消息（Telemetry / Event，用 `send`/`recv`），哪些操作应该定义成双向 RPC（用 `call`/`serve`）？它们俩在一个设备里怎么配合？”**
+
+这一课我们就把这个问题彻底讲透。
 
 ---
 
-## 第一步：编写 `telemetry.wl` 并透视生成的 C 头文件
+## 第一部分：一张表看懂 Telemetry 与 RPC 的分工
 
-假设我们要发送一条编号为 `@id(10)` 的 `Telemetry` 消息，包含采样序号 `sample` 和以 0.01°C 为单位的温度值 `temperature_centi_c`。
+在 Wirelink 中，单向消息和双向 RPC 共享同一套二进制类型系统和线缆通道，但它们的**交互生命周期**完全不同：
 
-请点击下方标签页，对比 **你写的 `.wl`** 与 **WLC 自动生成的 `telemetry.h` 核心内容**：
+```mermaid
+flowchart TB
+  subgraph Telemetry["📡 单向消息 (Telemetry / Event)：send ➔ recv"]
+    direction LR
+    P["发送端 (send)"] -->|"只发不等：编码进 1 个快照槽即完成"| S["接收端 (recv)<br/>触发 on_<msg> 回调"]
+  end
+
+  subgraph RPC["🔄 双向调用 (RPC)：call ⇄ serve"]
+    direction LR
+    C["调用方 (call)<br/>占用 1 个并发请求槽 + 挂表计时"] -->|"1. 发送请求 (RPC_REQ)"| V["服务方 (serve)<br/>触发 on_<rpc> 处理函数"]
+    V -->|"2. 返回成功 (RPC_RESP) 或 拒绝码 (RPC_ERR)"| C
+  end
+```
+
+| 对比维度 | 单向消息（`send` / `recv`） | 双向 RPC（`call` / `serve`） |
+| :--- | :--- | :--- |
+| **有没有回包确认？** | **没有**。发出去就释放槽位，不等待对端回复 | **必有终态**：成功响应（`SUCCESS`）、业务拒绝（`REJECTED`）或超时（`TIMED_OUT`） |
+| **线缆帧头开销** | 仅 **4 字节**帧头 + 消息体 | **12 字节**（4B 帧头 + 8B 会话/操作子头）+ 消息体 |
+| **适用场景** | • 传感器周期上报（温度、电机转速、姿态）<br/>• 异步事件通知（按键触发、后台任务完成进度） | • 下发控制指令（必须知道设备有没有收下并执行）<br/>• 查询设备参数、触发自检并获取任务 ID |
+
+---
+
+## 第二部分：单向遥测（`send` / `recv`）怎么写？
+
+当传感器每 10ms 向上位机推一次温度采样时，如果每次都要等上位机回一个 ACK，不仅带宽浪费一倍，一旦上位机稍微卡顿还会把 MCU 的请求槽堵满。这时候就该用 `send` 和 `recv`。
+
+来看看 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 的完整实现：
 
 <Tabs>
-  <TabItem label="1. 你写的协议 (telemetry.wl)">
+  <TabItem label="1. 协议定义 (telemetry.wl)">
+    发布端 `pub` 声明 `send Telemetry;`，接收端 `sub` 声明 `recv Telemetry;`：
+
     {/* [docs:telemetry_schema] */}
     ```wl
     message Telemetry @id(10) {
@@ -46,210 +76,180 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
     node sub { recv Telemetry; }
     ```
     {/* [/docs:telemetry_schema] */}
-
-    **两个关键细节**：
-    1. **字段默认必选（Required by default）**：你不需要写 `required uint32 sample`（虽然写了也完全等价）。只有当某个字段在协议升级时可能不传，你才需要写 `optional int32 ...`。
-    2. **角色职责分明**：`pub` 节点只声明了 `send Telemetry;`，`sub` 节点只声明了 `recv Telemetry;`。
   </TabItem>
 
-  <TabItem label="2. 生成的 C11 头文件透视 (telemetry.h)">
-    当你运行 `wlc compile telemetry.wl --all-nodes` 后，生成的 `telemetry.h` 里与你打交道的核心声明只有下面这几行（已简化排版便于阅读）：
+  <TabItem label="2. 发送与接收钩子">
+    在内存回环示例 [`examples/00_telemetry/publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c) 与 [`subscriber.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c) 中，发送端的 `pub_tx_write` 把打包好的帧交给接收端，接收端在 `sub_on_telemetry` 中直接拿到解码好的结构体：
 
+    {/* [docs:telemetry_tx_write] */}
     ```c
-    /* 1. 干净的业务结构体：必选字段直接读写，没有 bool has_sample! */
-    typedef struct telemetry_s {
-      uint32_t sample;
-      int32_t temperature_centi_c;
-    } telemetry_t;
-
-    /* 2. 发布端 (pub) 节点 API —— 只有发送和步进，没有接收回调！ */
-    wl_err_t pub_init(pub_node_t *self);
-    wl_err_t pub_step(pub_node_t *self, uint32_t now_ms);
-    wl_err_t pub_send_telemetry(pub_node_t *self, const telemetry_t *value);
-    /* 纯标量必选字段还会额外附赠一个按值传参的快捷函数： */
-    wl_err_t pub_send_telemetry_val(pub_node_t *self, uint32_t sample, int32_t temperature_centi_c);
-    /* 需要你实现的物理发送钩子： */
-    extern wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length);
-
-    /* 3. 订阅端 (sub) 节点 API —— 只有喂包和步进，没有发送存储池！ */
-    wl_err_t sub_init(sub_node_t *self);
-    wl_err_t sub_step(sub_node_t *self, uint32_t now_ms);
-    wl_err_t sub_rx_packet(sub_node_t *self, const uint8_t *data, size_t length);
-    /* 需要你实现的业务接收函数： */
-    extern void sub_on_telemetry(sub_node_t *self, const telemetry_t *message);
+    wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
+      (void)self;
+      return sub_rx_packet(&subscriber, data, length);
+    }
     ```
+    {/* [/docs:telemetry_tx_write] */}
+
+    {/* [docs:telemetry_receive] */}
+    ```c
+    unsigned telemetry_received;
+    void sub_on_telemetry(sub_node_t *self, const telemetry_t *message) {
+      (void)self;
+      EXAMPLE_REQUIRE(message->sample == telemetry_received);
+      EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
+      ++telemetry_received;
+    }
+    ```
+    {/* [/docs:telemetry_receive] */}
   </TabItem>
 
-  <TabItem label="3. 生成命令 (--node vs --all-nodes)">
-    在实际项目中，如果传感器和接收板是两份独立的 MCU 固件，你应该用 `--node` **只生成各自的角色**；如果像本课示例一样在同一个进程里做双端测试，则用 `--all-nodes`：
+  <TabItem label="3. 主循环连发 12 条遥测">
+    初始化两端后，每次调用 `pub_send_telemetry` 放入一条采样，接着推进两端的 `step`：
 
-    ```sh
-    # 场景 A：分别为两块板子的固件生成（各自只包含本端的函数和缓冲区）
-    wlc compile examples/00_telemetry/telemetry.wl --node pub --out-dir generated/pub
-    wlc compile examples/00_telemetry/telemetry.wl --node sub --out-dir generated/sub
-
-    # 场景 B：同进程回环测试，一次生成 pub 和 sub 两个节点
-    wlc compile examples/00_telemetry/telemetry.wl --all-nodes --out-dir generated/loopback
+    {/* [docs:telemetry_publish] */}
+    ```c
+    EXAMPLE_REQUIRE(pub_init(&publisher) == WL_OK);
+    EXAMPLE_REQUIRE(sub_init(&subscriber) == WL_OK);
+    for (unsigned sample = 0; sample < 12; ++sample) {
+      EXAMPLE_REQUIRE(pub_send_telemetry(&publisher, &(telemetry_t){
+          .sample = sample, .temperature_centi_c = -1234}) == WL_OK);
+      EXAMPLE_REQUIRE(pub_step(&publisher, sample) == WL_OK);
+      EXAMPLE_REQUIRE(sub_step(&subscriber, sample) == WL_OK);
+      EXAMPLE_REQUIRE(telemetry_received == sample + 1);
+    }
     ```
-    无论哪种方式，输出目录里都只有清爽的一对 `telemetry.h`、`telemetry.c` 和一份 `telemetry_manifest.json`。
+    {/* [/docs:telemetry_publish] */}
   </TabItem>
 </Tabs>
 
----
-
-## 第二步：实现 2 个静态钩子函数（物理发送 + 业务接收）
-
-因为默认节点采用 `io = embedded; handlers = static;`，我们不需要初始化任何端口结构体，也不用注册回调函数指针。只需要把 `telemetry.h` 里声明的两个 `extern` 函数写出来，链接器就会把一切接好：
-
-<Steps>
-
-1. **在发送端实现物理发包钩子 `pub_tx_write`**
-
-   当 `pub_step()` 准备把编码好的协议帧发出去时，它会调用你实现的 `pub_tx_write`。在我们的内存回环示例（[`examples/00_telemetry/publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)）里，我们直接把这帧字节塞进订阅端的接收口 `sub_rx_packet`：
-
-   {/* [docs:telemetry_tx_write] */}
-   ```c
-   wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
-     (void)self;
-     return sub_rx_packet(&subscriber, data, length);
-   }
-   ```
-   {/* [/docs:telemetry_tx_write] */}
-
-   <Aside type="caution" title="物理发送钩子的铁律：整帧接受或整帧拒绝">
-   `pub_tx_write` 必须**在返回前把整帧字节全部发完（或复制进你自己的驱动队列）并返回 `WL_OK`**，返回后不能再继续保留 `data` 指针！如果硬件此刻忙（或对端接收槽满了），必须**一个字节都不收**，直接返回 `WL_ERR_WOULD_BLOCK`；等硬件恢复可写时调用 `pub_tx_ready(&publisher)` 通知节点重试。
-   </Aside>
-
-2. **在接收端实现业务回调 `sub_on_telemetry`**
-
-   当 `sub_step()` 解码出一帧完整的 `Telemetry` 消息时，会自动调用你写的 `sub_on_telemetry`（位于 [`examples/00_telemetry/subscriber.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c)）：
-
-   {/* [docs:telemetry_receive] */}
-   ```c
-   unsigned telemetry_received;
-   void sub_on_telemetry(sub_node_t *self, const telemetry_t *message) {
-     (void)self;
-     EXAMPLE_REQUIRE(message->sample == telemetry_received);
-     EXAMPLE_REQUIRE(message->temperature_centi_c == -1234);
-     ++telemetry_received;
-   }
-   ```
-   {/* [/docs:telemetry_receive] */}
-
-</Steps>
+<Aside type="note" title="为什么 pub_send_telemetry 可以直接传栈上的临时复合字面量？">
+因为 `pub_send_telemetry`（以及 RPC 的 `client_call_xxx`）采用**输入立即快照（Input Snapshot）**机制：**在函数返回 `WL_OK` 之前，它就已经把你的 C 结构体编码成二进制字节、复制进节点内部的发送槽里了**！函数一旦返回 `WL_OK`，你传入的局部变量就可以立刻销毁或复用。
+</Aside>
 
 ---
 
-## 第三步：在主循环里初始化、发送并推进 `step`
+## 第三部分：C 语言客户端怎么接收 RPC 结果？
 
-现在万事俱备！看看 `main()` 函数里是如何连发 12 条遥测消息的：
+在第一课里我们看了 Python 客户端调 RPC，那如果调用方也是用 C 语言写的（比如主控 MCU 调从控 MCU，见 [`examples/01_rpc/client.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c)），它是怎么拿到响应或拒绝码的？
 
-{/* [docs:telemetry_publish] */}
+因为 C11 节点是**单线程非阻塞**的，`client_call_add` 不会卡住主循环死等回包，而是接收一个完成回调函数（如这里的 `rejected`）：
+
+{/* [docs:calculator_sync_rpc] */}
 ```c
-EXAMPLE_REQUIRE(pub_init(&publisher) == WL_OK);
-EXAMPLE_REQUIRE(sub_init(&subscriber) == WL_OK);
-for (unsigned sample = 0; sample < 12; ++sample) {
-  EXAMPLE_REQUIRE(pub_send_telemetry(&publisher, &(telemetry_t){
-      .sample = sample, .temperature_centi_c = -1234}) == WL_OK);
-  EXAMPLE_REQUIRE(pub_step(&publisher, sample) == WL_OK);
-  EXAMPLE_REQUIRE(sub_step(&subscriber, sample) == WL_OK);
-  EXAMPLE_REQUIRE(telemetry_received == sample + 1);
+EXAMPLE_REQUIRE(client_call_add(&caller, &(add_request_t){
+    .left = INT32_MAX, .right = 1}, rejected) == WL_OK);
+for (unsigned pass = 0; pass < 100 && !completed; ++pass) advance(100 + pass);
+EXAMPLE_REQUIRE(completed == 1 && result.outcome == WL_KERNEL_REJECTED && result.status == 1);
+```
+{/* [/docs:calculator_sync_rpc] */}
+
+当服务端返回响应（或超时到期）时，`client_step` 会调用你传入的完成回调：
+
+{/* [docs:calculator_rejected_callback] */}
+```c
+static void rejected(client_node_t *self, wl_kernel_result_t outcome, const add_response_t *response) {
+  (void)self;
+  EXAMPLE_REQUIRE(response == NULL);
+  result = outcome;
+  ++completed;
 }
 ```
-{/* [/docs:telemetry_publish] */}
+{/* [/docs:calculator_rejected_callback] */}
 
-结合下面这张时序图，仔细体会 `send` 和 `step` 之间的分工：
+- **成功时**：`outcome.outcome == WL_KERNEL_SUCCESS`，此时 `response` 指针非空，可以直接读取 `response->sum`。
+- **被拒绝、超时或取消时**：`outcome.outcome` 为 `WL_KERNEL_REJECTED`（`outcome.status` 即服务端返回的非零错误码 `1`）、`WL_KERNEL_TIMED_OUT` 或 `WL_KERNEL_CANCELLED`，此时 **`response` 一律为 `NULL`**！
+
+---
+
+## 第四部分：强强联手——“短 RPC 启动 + 单向消息推进度”
+
+现在，假设上位机要让 MCU 执行一次**硬件自检（Self-Test）**、**电机归零**或 **Flash 擦写**，这个动作在硬件上需要耗时 **20 毫秒甚至几秒钟**。
+
+如果你只用 RPC，或者只用单向消息，都会很难受：
+- ❌ **如果只用单向消息启动**：上位机发了 `StartSelfTest` 消息过去，如果此刻 MCU 正忙着做上一次自检，上位机根本不知道这次请求被忽略了！
+- ❌ **如果在 RPC 服务函数里死等 20ms 做完再返回**：因为在单线程主循环里，`on_start_self_test` 卡住 20ms，这 20ms 内你的整个固件主循环和其他串口收发就全都卡死了！
+
+**Wirelink 的标准工程模式是把 RPC 和单向消息组合起来**（源自 [`examples/03_device_service/`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service)）：
 
 ```mermaid
 sequenceDiagram
-  participant App as 应用主循环 (main)
-  participant Pub as pub_node_t (发送端)
-  participant Sub as sub_node_t (接收端)
+  participant Client as 💻 上位机 / 客户端
+  participant Server as 📟 下位机 MCU (device_server)
 
-  App->>Pub: 1. pub_send_telemetry(&pub, &msg)
-  Note over Pub: 立即把结构体编码进内部快照槽<br/>(返回 WL_OK 后，msg 局部变量即可销毁)
-  Pub-->>App: 返回 WL_OK
-
-  App->>Pub: 2. pub_step(&pub, now)
-  Pub->>Sub: 调用 pub_tx_write → sub_rx_packet
-  Note over Pub,Sub: 帧字节复制到 Sub 的 RX 槽，Pub 的消息快照槽恢复空闲
-
-  App->>Sub: 3. sub_step(&sub, now)
-  Note over Sub: 从 RX 槽取出帧并解码为 telemetry_t
-  Sub->>App: 触发业务回调 sub_on_telemetry(&sub, &decoded_msg)
+  Client->>Server: 1. 调短 RPC：call StartSelfTest(pattern)
+  Note over Server: 微秒级检查：若正忙则立刻返回 DEVICE_BUSY 拒绝；<br/>若空闲则登记定时任务，分配 job_id 并立即返回 0！
+  Server-->>Client: 2. 立即收到 RPC 响应：已受理 (job_id = 1)
+  Note over Server: 主循环继续顺畅运转 20ms，完全不阻塞其他收发...
+  Server->>Client: 3. 20ms 到期后，主动 send SelfTestProgress(job_id = 1, observed)
 ```
 
-### 两个必须记住的工程特性
+看看 [`examples/03_device_service/self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c) 里的 `device_server_on_start_self_test` 是多么干净利落：
 
-1. **输入立即快照（Input Snapshot）**：
-   注意看代码里我们直接传了一个C99 复合字面量 `&(telemetry_t){.sample = sample, ...}`。为什么不怕函数返回后栈变量失效？因为 `pub_send_telemetry` **在返回 `WL_OK` 之前，就已经把结构体编码成二进制字节、复制进节点内部的缓冲区了**。调用一返回，你的输入结构体就可以立刻复用或销毁。
-2. **普通消息只有 1 个快照槽（显式背压）**：
-   为了严控 MCU 的 RAM 占用，节点内部虽然有 8 项 TX 调度队列（用来排 RPC 请求、RPC 回复和普通消息），但专门留给**出站普通消息的编码存储槽只有 1 个**！
+{/* [docs:device_job_start] */}
+```c
+int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
+                     start_self_test_response_t *response) {
+  device_service_t *state = self->user;
+  if (state->job_pending || state->next_job == UINT32_MAX) return DEVICE_BUSY;
+  state->job_id = ++state->next_job;
+  state->pattern = request->pattern;
+  state->due = state->now + 20U;
+  state->job_pending = true;
+  response->job_id = state->job_id;
+  return 0;
+}
+```
+{/* [/docs:device_job_start] */}
+
+1. **短 RPC 负责“准入确认”**：如果已经有任务在进行（`state->job_pending`），当场返回非零拒绝码 `DEVICE_BUSY`；如果空闲，登记到期时间 `state->due = state->now + 20U`，把分配好的 `job_id` 填进 `response` 并立刻 `return 0`，耗时不到 1 微秒！
+2. **单向消息负责“异步结果交付”**：主循环照常跑，等 20ms 到期后，通过 `device_server_send_self_test_progress` 把带有 `job_id` 的结果单向推给客户端（我们将在第 05 课进一步看到轮询发送时如何处理队列背压）。
 
 <Challenge
-  title="动手微挑战：如果连发两条消息却不调 step 会怎样？"
-  prompt="假设你在主循环里连续调用两次 pub_send_telemetry(&publisher, &msg)，中间没有调用 pub_step(&publisher, now)，第二次调用会返回什么？数据会丢吗？"
+  title="架构设计思考"
+  prompt="当客户端调用某次 RPC 后收到了 WL_KERNEL_REJECTED (status = DEVICE_BUSY) vs 收到了 WL_KERNEL_TIMED_OUT，这两种失败在业务层有什么本质区别？"
 >
-  **第二次调用会立即返回 `WL_ERR_WOULD_BLOCK`，并且第二次传入的数据不会被节点保存！**
-
-  原因很简单：
-  - 第一次 `pub_send_telemetry` 占用了唯一的**普通消息快照槽**，此时帧还没通过 `pub_step()` 里的 `pub_tx_write` 发出去，槽位还处于占用状态。
-  - 第二次调用时，节点发现快照槽已满，直接返回 `WL_ERR_WOULD_BLOCK`（背压）。
-  - **正确做法**：始终检查 `send` 的返回值。对于高频周期传感器采样，如果遇到 `WOULD_BLOCK`，可以跳过旧采样、等下一周期发最新值；对于不能丢的状态通知（如任务完成报告），则保留应用层的 `pending` 标志，等 `step` 推进槽位释放后再重试（我们在第 05 课会看到实战代码）。
+  - **`WL_KERNEL_REJECTED`（业务拒绝）**：代表请求**100% 已经到达了下位机**，且下位机明确告诉你“我没执行这个操作，原因码是 `DEVICE_BUSY`”。
+  - **`WL_KERNEL_TIMED_OUT`（等待超时）**：代表客户端在规定时间内没收到回包。但**超时无法证明下位机没有执行过该请求**——有可能是去程的请求包丢了（下位机没收到），也有可能是下位机其实已经执行了、但回程的响应包在路上丢了！因此，对于非幂等的控制动作，携带 `job_id` 或提供状态查询 RPC 是非常好的工程习惯。
 </Challenge>
-
----
-
-## 本地运行本课示例
-
-如果你想在本地亲自编译并运行 `examples/00_telemetry`，只需开启 `WIRELINK_BUILD_WLC_EXAMPLES=ON` 并指向刚才构建的 `wlc`：
-
-```sh
-cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
-cmake --build build/examples --target wirelink_telemetry_demo
-ctest --test-dir build/examples -R wirelink_telemetry_demo --output-on-failure
-```
 
 ---
 
 ## 本课小测验
 
 <MultipleChoice
-  id="lesson-02-snapshot"
-  question="当 pub_send_telemetry(&publisher, &msg) 返回 WL_OK 后，下列哪项判断是正确的？"
+  id="lesson-02-pattern"
+  question="在单线程主循环驱动的 MCU 上，当上位机请求执行一个耗时 500ms 的电机校准动作时，最合理的协议设计是什么？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "你可以立即修改或销毁传入的 msg 结构体；但 WL_OK 只代表本端节点接纳了编码快照，不代表对端已经收到。",
+    "label": "用短 RPC 检查设备状态并立即返回 job_id（若忙则返回非零码拒绝），再由主循环在校准完成后通过 send 单向消息推送校准结果。",
     "correct": true,
-    "feedback": "完全正确！send 返回 WL_OK 说明数据已安全编码进本端快照槽；真正的物理发送和对端接收要等后续 step 推进，且普通消息没有内置 ACK。"
+    "feedback": "完全正确！这样既能让上位机立刻获知指令是否被受理，又不会阻塞 MCU 的单线程主循环。"
   },
   {
-    "label": "必须等对端收到并回复 ACK 后，才能修改传入的 msg 结构体。",
+    "label": "在 RPC 处理函数 on_calibrate 里直接调用 delay_ms(500) 等电机走完再 return 0。",
     "correct": false,
-    "feedback": "不对。普通单向消息没有内置 ACK，而且输入结构体在 send 返回 WL_OK 前就已经完成了编码复制。"
+    "feedback": "不对。在 on_<rpc> 中长时间阻塞会导致整个单线程主循环停摆，期间无法处理任何其他收发和心跳。"
   }
 ]}
 />
 
 <MultipleChoice
-  id="lesson-02-capacity"
-  question="连续发送两条普通遥测消息，第二条返回了 WL_ERR_WOULD_BLOCK，应该如何处理？"
+  id="lesson-02-snapshot"
+  question="当调用 pub_send_telemetry(&publisher, &msg) 返回 WL_OK 后，关于传入的 msg 结构体，下列说法正确的是？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "说明唯一的普通消息快照槽还没发空；应保留待发业务数据（或等待下一采样周期），推进 step 后再重试。",
+    "label": "msg 的数据在函数返回 WL_OK 前已经编码复制进节点内部的快照槽，调用方可以立即修改或销毁 msg。",
     "correct": true,
-    "feedback": "正确！普通消息只有 1 个快照槽，返回 WOULD_BLOCK 时节点没有接纳你的数据，推进 step 把上一条发出去后即可再次发送。"
+    "feedback": "正确！所有 send 和 call 接口在返回 WL_OK 时都已完成输入编码快照，不会在返回后继续引用调用方的输入结构体指针。"
   },
   {
-    "label": "直接忽略返回值即可，因为节点有 8 个普通消息缓冲区会自动帮你排队。",
+    "label": "必须把 msg 声明为全局变量并一直保持不变，直到对端收到为止。",
     "correct": false,
-    "feedback": "不对。8 是内核 TX 调度队列的总项数（供 4 个 RPC 请求 + 3 个 RPC 回复 + 1 个普通消息共享），普通消息本身只有 1 个字节存储槽。"
+    "feedback": "不需要。输入结构体在 send 返回 WL_OK 前就已经完成了编码复制。"
   }
 ]}
 />
@@ -259,10 +259,12 @@ ctest --test-dir build/examples -R wirelink_telemetry_demo --output-on-failure
   title="本课掌握清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "知道 .wl 字段默认必选，生成的 C 结构体没有繁琐的 has_* 布尔位。",
-    "掌握默认 embedded/static 节点只需实现 <node>_tx_write 与 <node>_on_<msg> 两个函数。",
-    "理解 send 返回 WL_OK 代表已完成输入快照，以及单消息槽满时返回 WL_ERR_WOULD_BLOCK 的背压机制。"
+    "能根据业务需求选择单向消息（send/recv，高频状态与异步通知）或双向 RPC（call/serve，需确认执行结果或拒绝码）。",
+    "理解 send 与 call 返回 WL_OK 代表已完成输入快照，以及在 C 客户端完成回调中先检查 outcome 再访问 response。",
+    "掌握“短 RPC 立即领 job_id + 主循环推送单向进度消息”的长耗时任务协同模式。"
   ]}
 />
 
-单向广播已经拿下了！如果我们需要下发控制指令，并且**必须知道对端是执行成功、拒绝还是超时**呢？下一课：[03 请求与响应：实现第一个 RPC 服务 →](/wirelink/zh-cn/learn/03-rpc-basics/)
+前两课里，我们的消息字段都是简单的 `int32` 和 `uint32`。但在真实产品里，你一定需要传**设备名称字符串（`string`）**、**原始采样字节块（`bytes`）**、**可选扩展字段（`optional`）**，甚至把大项目拆成多个 `.wl` 文件！在零 `malloc` 的 C11 里，变长字符串存在哪？回调结束后怎么安全保存数据？
+
+下一课：[03 打造真实协议：字符串、可选字段与内存生命周期 →](/wirelink/zh-cn/learn/03-rpc-basics/)

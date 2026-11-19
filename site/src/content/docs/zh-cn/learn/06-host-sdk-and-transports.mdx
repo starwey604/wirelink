@@ -1,11 +1,11 @@
 ---
-title: 06 上位机 SDK 与多传输接入
-description: 为 UART 串口或 UDP 选择正确的 node framing，掌握字节流 consumed 留尾规则，并用 wlc sdk 生成 Python / C++20 客户端。
+title: 06 进阶内核机制：安全停机、RTOS 唤醒与零拷贝 DMA
+description: 掌握 close 到 quiescent 的安全停机排空流程、RTOS 信号量按需唤醒，以及 io = external 零拷贝异步 DMA 租约模式。
 sidebar:
   order: 6
 ---
 
-import { Aside, Steps, Tabs, TabItem, FileTree } from '@astrojs/starlight/components';
+import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
 import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
 import Challenge from '../../../../components/tutorial/Challenge.astro';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
@@ -14,159 +14,144 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 <LessonHeader
   unit={6}
   duration="8 分钟"
-  examplePath="examples/06_bindings"
+  examplePath="examples/bare_metal_loopback.c"
   goals={[
-    '根据物理链路特性，在 node 中正确选择 native、cobs_crc16 或 length16 分帧',
-    '掌握串口字节流 rx_feed(..., &consumed) 的黄金法则：按 consumed 移走已消费前缀，保留未消费尾部',
-    '使用 wlc sdk 一键生成可安装的 Python / C++20 UDP 客户端 SDK 并与服务端联调',
+    '掌握安全停机与节点复用的标准流程：先停 RX ➔ 调用 close() ➔ 推进 step() 直到 quiescent() 返回 true',
+    '了解 RTOS 线程如何利用 wl_kernel_ready 实现零空转的精确休眠与事件唤醒',
+    '看懂何时需要从默认 io = embedded 切换到高级 io = external 模式以对接异步零拷贝 DMA 驱动',
   ]}
 />
 
-在前五课中，我们的节点都在内存回环里跑，每次 `tx_write` 传过去的天然就是一帧完整的数据包。但当你走到真实硬件世界时，你会面临两个核心问题：
+在前五课中，我们一直使用最省心的默认节点配置（`io = embedded; handlers = static;`），它已经能覆盖 90% 以上的裸机与 RTOS 应用开发。
 
-1. **物理链路的边界不一样**：UDP 报文天然是一包一帧；但 **UART 串口（或 USB CDC 虚拟串口）只是一条没有边界的连续字节流**——一次中断可能只收到半帧，也可能一口气粘着收到两帧半，而且路上还可能受电磁干扰翻转比特！
-2. **上位机不想手写 C 和解析器**：PC 端的测试脚本、上位机 UI（Python）或机器人主控（C++20）希望能直接调 `client.add(left=20, right=22)`。
-
-这一课，我们就来解决这两个收官问题！
+作为系列教程的压轴课，我们将深入底层系统工程的三个进阶主题：**安全停机排空（`quiescent`）**、**RTOS 低功耗休眠唤醒**，以及专门为**异步零拷贝 DMA 驱动**准备的 **`io = external`** 模式。
 
 ---
 
-## 第一步：在 `node` 里为你的硬件选对 `framing`
+## 第一部分：安全停机与内存复用（`close` $\rightarrow$ `quiescent`）
 
-在 `.wl` 的 `node` 块里，你只需要写一行 `framing = ...;`，编译器就会自动为你接入对应的分帧器、校验器，并切换接收入口函数：
+在嵌入式设备中，当你需要切换波特率、关闭通信端口进入深度休眠、或者重新初始化节点结构体时，**绝对不能直接用 `memset(&node, 0, sizeof(node))` 暴力清零！**
 
-| `framing` 配置 | 适用物理链路 | 线上封装格式 | 默认 embedded 节点的接收入口 |
-| :--- | :--- | :--- | :--- |
-| **`native`**（默认） | **UDP 数据报**、RTOS 消息队列、已由适配器做好包边界的 USB Bulk | 直接就是 4B 帧头 + Payload（4 ~ 2052 B） | `<node>_rx_packet(&node, data, len)`<br/>*(每次必须传入完整的一帧)* |
-| **`cobs_crc16`** | **UART 串口**、RS-485、USB CDC ACM 虚拟串口等不可靠连续字节流 | `COBS(规范帧 + CRC16_BE) + 0x00`<br/>*(自动以 `0x00` 定界断包并校验 CRC-16/CCITT-FALSE)* | `<node>_rx_feed(&node, bytes, len, &consumed)`<br/>*(可传入任意长度的字节流片段)* |
-| **`length16`** | 板内受控高速通道、SPI/IPC 等自带完整性保障的字节流 | `2B 小端长度头 + 规范帧`（无额外 CRC 开销） | `<node>_rx_feed(&node, bytes, len, &consumed)`<br/>*(可传入任意长度的字节流片段)* |
+为什么？因为此刻可能还有 2 个在途的 RPC 请求正在等回调通知上层业务释放资源，或者底层的 DMA 控制器还在直接读取节点内部的发送缓冲区！
 
-### 串口字节流（`cobs_crc16` / `length16`）接入模板
+Wirelink 提供了严谨的**两阶段安全停机**机制：
 
-当你给串口节点写上 `framing = cobs_crc16;` 时，喂数据入口变成了 `<node>_rx_feed`。为什么它多了一个输出参数 `size_t *consumed`？
-
-**想象一下**：你的串口缓冲里攒了 **100 个字节**，里面恰好包含了 **3 个完整帧**。而每个节点的接收缓冲固定只有 **2 个 RX 槽**！当你把 100 字节喂给 `rx_feed` 时，它会吃掉前两帧（比如前 68 个字节，填满 2 个 RX 槽），然后停下来返回 `WL_ERR_WOULD_BLOCK`，并把 `consumed` 设为 `68`。
-
-因此，接入 `rx_feed` 只需遵守一条黄金法则——**“永远移走前 `consumed` 个字节，保留剩下的尾巴等 `step` 后再喂”**：
-
-```c
-/* 假设 rx_buf 里有 rx_len 个从 UART FIFO 读出来的字节 */
-size_t consumed = 0;
-wl_err_t err = sensor_rx_feed(&sensor, rx_buf, rx_len, &consumed);
-
-/* 1. 无论返回 WL_OK、WOULD_BLOCK 还是 CRC 坏帧，前 consumed 个字节都已经处理完了，移走它们！ */
-if (consumed > 0) {
-  ring_buffer_drop(&uart_rx_ring, consumed);
-}
-
-/* 2. 紧接着推进 step，让节点消费掉 RX 槽里的完整帧，腾出空位给剩下的尾巴 */
-sensor_step(&sensor, board_millis());
+```mermaid
+flowchart LR
+  S1["1. 先停 RX 源头<br/>关闭接收中断或停止调用 rx_feed / rx_packet"] --> S2["2. 调用 <node>_close(&node)<br/>拒绝新请求，把所有未决 RPC 标记为 CLOSED"]
+  S2 --> S3["3. 继续调用 <node>_step(&node, now)<br/>派发所有 WL_KERNEL_CLOSED 终态回调，等待底层归还缓冲区"]
+  S3 --> S4{"<node>_quiescent(&node)<br/>返回 true 了吗？"}
+  S4 -->|"false"| S3
+  S4 -->|"true (完全静止)"| S5["4. 安全销毁或重新 init 节点"]
 ```
+
+当 `<node>_quiescent(&node)` 返回 `true` 时，代表**所有在途 RPC 的终态回调都已派发完毕、所有底层缓冲区借用都已彻底归还**，此时你可以 100% 安全地复用或销毁这块内存。
 
 ---
 
-## 第二步：用 `wlc sdk` 一键生成上位机 Python / C++20 客户端
+## 第二部分：裸机主循环 vs RTOS 低功耗休眠唤醒
 
-当设备端跑起来后，上位机怎么连上去？使用 `wlc sdk` 命令，编译器会针对 `.wl` 中带有 `call` 路由的客户端节点，直接生成一套完整的 **UDP C++20 与 Python 3.10+ 扩展包工程**：
-
-```sh
-wlc sdk examples/01_rpc/calculator.wl \
-  --node client --name calculator --out-dir build/calculator-sdk
-```
-
-<Aside type="note" title="关于生成 SDK 的传输方式说明">
-当前 `wlc sdk` 生成的宿主 SDK 是**专用于 UDP 传输的 RPC 客户端**（底层自带独立的高性能异步 I/O 会话线程，不会阻塞 Python 的主线程或 `asyncio` 循环）。如果你的设备走的是串口，可以在网关/边缘侧做串口转 UDP，或者在宿主 C/C++ 程序中直接编译 `wlc compile` 生成的 `cobs_crc16` 节点对接串口驱动。
-</Aside>
-
-来看看生成的 SDK 工程目录（参考 [`examples/06_bindings/`](https://github.com/starwey604/wirelink/tree/main/examples/06_bindings)）以及调用方式：
+Wirelink 节点既能跑在最简单的裸机 `while (1)` 里，也能在 FreeRTOS / Zephyr 任务中实现**平时挂起省电、有包或超时到期才唤醒**。
 
 <Tabs>
-  <TabItem label="1. Python 同步与异常捕获">
-    构建并安装生成的 Python 包（例如 `pip install ./build/calculator-sdk`）后，不仅拥有完整的 `.pyi` 自动补全，而且第 03 课里服务端的业务拒绝（返回 `1`）和超时都会自动变成强类型 Python 异常：
+  <TabItem label="1. 裸机主循环 (Superloop)">
+    在裸机下，主循环只需不断把当前毫秒时间戳 `board_millis()` 传给 `<node>_step()`：
 
-    {/* [docs:python_sdk_client] */}
-    ```python
-    with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
-        saved = client.add(left=20, right=22)
-        assert saved.sum == 42
-        try:
-            client.add(left=2**31 - 1, right=1)
-        except RejectedError as error:
-            assert error.status == 1
-    ```
-    {/* [/docs:python_sdk_client] */}
+    ```c
+    for (;;) {
+      /* 1. 从串口环形缓冲喂数据（若有） */
+      poll_uart_rx_into_node(&device);
 
-    *(如果需要配合 Python `asyncio` 并发调用，直接使用同包内的 `AsyncClient.connect(...)` 并 `await client.add(...)` 即可！)*
-  </TabItem>
+      /* 2. 驱动节点状态机（单次最多处理 16 个内部事件，绝不饿死其他任务） */
+      device_step(&device, board_millis());
 
-  <TabItem label="2. C++20 强类型客户端">
-    对于上位机 C++ 服务、Qt 界面或 ROS 2 节点，生成的 SDK 提供了无异常的 `wirelink::Result<T>` 同步调用与 `wirelink::Operation<T>` 异步句柄：
-
-    ```cpp
-    #include <calculator/client.hpp>
-
-    auto client = calculator::Client::connect(wirelink::cpp::host::UdpOptions{
-        .peer_address = "127.0.0.1", .peer_port = port}).value();
-
-    // 1. 同步调用
-    auto res = client.add({.left = 20, .right = 22});
-    if (res.has_value()) {
-      int32_t sum = res->sum; // 42
+      /* 3. 执行你的其他裸机任务 */
+      app_task_poll();
     }
-
-    // 2. 异步调用并支持主动 cancel()
-    auto op = client.add_async({.left = 10, .right = 32}).value();
-    auto async_res = op.wait();
     ```
   </TabItem>
 
-  <TabItem label="3. 生成的 SDK 工程结构">
-    <FileTree>
-    - calculator-sdk/
-      - CMakeLists.txt C++20 静态库与 nanobind 扩展构建脚本
-      - pyproject.toml 标准 Python 打包配置（支持 pip wheel 分发）
-      - include/calculator/
-        - **client.hpp** C++20 Client 与 Async Operation API
-        - **types.hpp** C++20 强类型结构体定义
-      - python/calculator_sdk/
-        - **__init__.py** 导出 Client, AsyncClient, Udp 与异常体系
-        - **_native.pyi** 完整的 IDE 类型提示存根
-    </FileTree>
-    编译好的 `.whl` 安装包分发给测试同事时，他们的电脑上**不需要安装 Rust、`wlc` 或 C++ 编译器**，装上 Python 就能直接跑！
+  <TabItem label="2. RTOS 信号量精确休眠唤醒">
+    在 RTOS 专属通信线程中，为了避免死循环空转耗电，可以利用 `wl_kernel_ready` 查询下一次最近的 RPC 超时时刻 `deadline`，然后让线程在信号量上精确挂起：
+
+    ```c
+    for (;;) {
+      uint32_t now = rtos_millis();
+      device_step(&device, now);
+
+      /* 查询当前是否还有待处理事件，或下一次 RPC 超时的到期时刻 deadline */
+      int has_deadline = 0;
+      uint32_t deadline = 0;
+      now = rtos_millis();
+      if (wl_kernel_ready(&device.core, now, &has_deadline, &deadline) != 0) {
+        continue; /* 还有活没干完，跳过休眠继续 step */
+      }
+
+      /* 计算最多可以睡多少毫秒（若没有在途 RPC，则可无限期等待新数据包唤醒） */
+      uint32_t sleep_ms = has_deadline
+          ? ((int32_t)(deadline - now) > 0 ? (deadline - now) : 0)
+          : RTOS_WAIT_FOREVER;
+
+      /* 在信号量上挂起休眠；当 UART/网络中断收到新包或发送完成时 give 信号量即可立刻唤醒！ */
+      rtos_sem_take(&io_wake_sem, sleep_ms);
+    }
+    ```
   </TabItem>
 </Tabs>
 
 ---
 
-## 第三步：看一个真实的 UDP 服务端事件循环
+## 第三部分：什么时候才需要 `io = external`？（零拷贝异步 DMA）
 
-在实际的设备端（如 Zephyr RTOS 或 Linux 边缘网关，见 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)），服务端一面响应上位机 SDK 发来的 `Add` RPC，一面每 20ms 定时往外推一条 `Telemetry` 遥测消息，并且在没活干的时候进入休眠等待（`wait`）省电：
+回顾前五课使用的默认 `io = embedded` 模式：当节点调用你的 `<node>_tx_write(self, data, len)` 时，要求你在函数返回 `WL_OK` 前把这帧字节同步发完，或者 `memcpy` 进你自己的驱动环形缓冲区。
 
-{/* [docs:udp_server_loop] */}
-```c
-while (example_running()) {
-  uint32_t now = example_now_ms();
-  if (example_udp_step(udp, &server.core, now) != WL_OK) { status = 1; break; }
-  if ((int32_t)(now - due) >= 0) {
-    telemetry_t sample = {.sample = ++sequence};
-    const wl_err_t error = udp_server_send_telemetry(&server, &sample);
-    if (error != WL_OK && error != WL_ERR_WOULD_BLOCK) { status = 1; break; }
-    due = now + 20;
-  }
-  now = example_now_ms();
-  uint32_t wait = (int32_t)(due - now) > 0 ? due - now : 0;
-  if (example_udp_wait(udp, &server.core, wait) != WL_OK) { status = 1; break; }
-}
+但如果你在写一个追求极致性能的 **零拷贝异步 UART/SPI DMA 驱动**——你不想再额外分配一块驱动发送缓冲区做 `memcpy`，而是希望 **直接把 Wirelink 节点内部缓冲区的指针 `data` 交给硬件 DMA 控制器去慢慢发，等几毫秒后 DMA 发送完成中断触发时，再通知 Wirelink 释放那块内存**——这时候就该用 `io = external;` 了！
+
+### 跑通内置的 `external` 内核级回环示例
+
+仓库根目录的 [`examples/bare_metal_loopback.c`](https://github.com/starwey604/wirelink/blob/main/examples/bare_metal_loopback.c)（对应 [`examples/kernel/demo.wl`](https://github.com/starwey604/wirelink/blob/main/examples/kernel/demo.wl)）正是演示 `io = external; handlers = dynamic;` 完整租约生命周期的基准程序。你可以直接编译并运行它：
+
+```sh
+cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
+cmake --build build/core --parallel
+./build/core/examples/wirelink_bare_metal_loopback
 ```
-{/* [/docs:udp_server_loop] */}
+
+输出：
+
+```text
+6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
+```
+
+来看看在 `io = external; handlers = dynamic;` 模式下，应用是如何手动初始化外部端口 `wl_packet_port_t` 与回调表 `demo_handlers_t` 的：
+
+{/* [docs:loopback_setup] */}
+```c
+wl_packet_config_t config = {.instance = 1001U + side,
+    .rx_storage = &receive_storage[side][0][0], .rx_unit_size = 256U,
+    .rx_storage_size = sizeof(receive_storage[side]),
+    .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
+    .user = &transport.directions[side]};
+require(wl_packet_init(&ports[side], &config) == WL_OK);
+demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
+require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
+```
+{/* [/docs:loopback_setup] */}
+
+### `external` 模式的物理租约（Token Lease）是如何保护 DMA 的？
+
+在 `external` 模式下，当节点要发包时，会调用 `wl_packet_config_t.submit(user, data, size, token)` 并传入一个唯一租约令牌 **`token`**：
+1. 你的 DMA 驱动直接把 `data` 指针配置给 DMA 寄存器启动异步发送，然后立刻返回 **`WL_PACKET_STARTED`**。
+2. 只要你返回了 `WL_PACKET_STARTED`，**哪怕这个 RPC 请求在上层已经超时或被取消了，Wirelink 内核也绝不会覆盖或复用这块物理缓冲区**！
+3. 直到你的 DMA 发送完成中断调用 **`wl_packet_tx_publish(port, token, WL_PACKET_DRAINED)`** 归还该 `token` 后，这块物理槽位才真正回到空闲池。这从根本上杜绝了异步 DMA 读到半新半旧脏数据的恶性 Bug！（完整驱动编写细节详见[驱动移植指南](/wirelink/zh-cn/how-to/custom-drivers/)。）
 
 <Challenge
-  title="对比思考：第 05 课与第 06 课面对 WOULD_BLOCK 的不同策略"
-  prompt="仔细看上面第 6~8 行：当定时遥测 udp_server_send_telemetry 返回 WL_ERR_WOULD_BLOCK 时，代码并没有像第 05 课的自检任务那样保留 pending 立即重试，而是直接把 due = now + 20 推进到了下一个周期。为什么这里可以跳过？"
+  title="选型自测：embedded 还是 external？"
+  prompt="如果你正在给一块 STM32 或 ESP32 写串口通信，你的串口驱动已经有了一个 512 字节的软件发送 RingBuffer（或者使用阻塞/FIFO 写入），你应该选默认的 io = embedded 还是 io = external？"
 >
-  这就是**按业务语义决定背压策略**的最佳体现：
-  - **第 05 课的 `SelfTestProgress` 是“状态迁移/任务结果事件”**：只发生一次，丢了客户端就不知道自检做完了，所以遇到 `WOULD_BLOCK` 必须保留 `job_pending = true`，等槽位空出后第一时间补发。
-  - **第 06 课的 `Telemetry` 是“高频周期状态采样”**：每隔 20ms 就会产生一个更新、更准的采样值。如果当前发送槽还塞着上一帧没发出去，最好的做法就是**直接跳过当前这帧，等 20ms 后发最新的采样值**，而不是把过时的旧采样积压在队列里增加延迟！
+  **直接用默认的 `io = embedded` 就够了！**
+
+  只要你的 `tx_write` 函数能把整帧字节一次性拷进你自己的驱动 RingBuffer（或者塞进外设 FIFO）并立刻返回 `WL_OK`，不在返回后继续抓着 `data` 指针不放，`io = embedded` 就是代码量最少、最不容易出错的选择。只有当你想省掉那次向驱动队列的 `memcpy`、让硬件 DMA 直接长时间借用节点内部缓冲区指针时，才需要上 `io = external`。
 </Challenge>
 
 ---
@@ -174,20 +159,20 @@ while (example_running()) {
 ## 本课小测验
 
 <MultipleChoice
-  id="lesson-06-framing"
-  question="当你的 MCU 通过裸 UART 串口与对端通信（物理层只提供连续字节流，没有天然数据包边界）时，node 应该选择哪种 framing？"
+  id="lesson-06-shutdown"
+  question="在关闭通信端口或销毁/重置节点内存之前，正确的安全停机步骤是什么？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "framing = cobs_crc16; 并通过 <node>_rx_feed(..., &consumed) 喂入字节、保留未消费尾部。",
+    "label": "先停止 RX 数据源，再调用 <node>_close(&node)，并继续调用 <node>_step(&node, now) 直到 <node>_quiescent(&node) 返回 true。",
     "correct": true,
-    "feedback": "完全正确！cobs_crc16 会自动用 0x00 定界断包并校验 CRC-16/CCITT-FALSE；应用只需按 consumed 移走已消费前缀并保留剩余尾部。"
+    "feedback": "完全正确！只有当 quiescent() 返回 true 时，所有在途 RPC 的终态回调和底层缓冲区租约才全部安全收尾。"
   },
   {
-    "label": "framing = native; 把每次 UART 接收中断拿到的字节切片直接当成一帧传给 <node>_rx_packet。",
+    "label": "直接调用 memset(&node, 0, sizeof(node)) 清零结构体即可。",
     "correct": false,
-    "feedback": "不对！UART 中断触发的字节批次可能把一帧拆成两半，或者把两帧粘在一起，绝对不能把中断批次当成协议帧边界。"
+    "feedback": "危险！直接清零会导致在途 RPC 永远收不到完成回调，且若底层异步 DMA 仍在读取缓冲区会导致内存损坏。"
   }
 ]}
 />
@@ -197,21 +182,20 @@ while (example_running()) {
   title="本课掌握清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "能根据链路特性为 UDP/包通道选 native，为 UART 串口选 cobs_crc16，为受控字节流选 length16。",
-    "掌握 rx_feed 的 consumed 留尾规则：始终移走前 consumed 个字节，保留未消费尾部。",
-    "会用 wlc sdk 生成 Python / C++20 UDP 客户端 SDK，并能根据业务区分“保留重试”与“跳过旧采样”两种背压策略。"
+    "掌握停止 RX ➔ close() ➔ 循环 step() 直至 quiescent() 为真的安全停机四步曲。",
+    "理解 RTOS 任务如何通过 wl_kernel_ready 获取最近超时时间并配合信号量实现低功耗按需唤醒。",
+    "清楚默认 io = embedded 与进阶 io = external（零拷贝异步 DMA 物理租约）的适用边界。"
   ]}
 />
 
 ---
 
-## 🎉 恭喜你完成了全部 6 节交互式教程！
+## 🎉 恭喜你通关全部 6 节实战教程！
 
-到这里，你已经完整走过了从 **编写 `.wl` 协议** $\rightarrow$ **生成纯 C11 节点** $\rightarrow$ **收发单向遥测与双向 RPC** $\rightarrow$ **管理有界字符串与并发背压** $\rightarrow$ **对接物理链路与上位机 Python/C++ SDK** 的全流程！
+你已经从零走完了 **编写 `.wl` 打通上下位机** $\rightarrow$ **设计 Telemetry 与 RPC 协同架构** $\rightarrow$ **使用有界字符串与安全生命周期** $\rightarrow$ **接入 UART 串口与 UDP 上位机 SDK** $\rightarrow$ **掌控并发与背压** $\rightarrow$ **深入安全停机与底层 DMA** 的完整进阶之路！
 
-接下来，你可以把以下专题手册当作日常开发时的速查字典：
+在接下来的实际项目开发中，你可以随时查阅右侧的专题参考手册：
 
-- 📐 **[Schema 语法手册](/wirelink/zh-cn/concepts/schema-language/)** 与 **[节点配置速查](/wirelink/zh-cn/concepts/nodes/)**
-- 🛠️ **[WLC 命令行与 CMake 集成指南](/wirelink/zh-cn/concepts/wlc-and-cmake/)**
-- 🔌 **[接入物理驱动（embedded 与 external DMA 模板）](/wirelink/zh-cn/how-to/custom-drivers/)** 与 **[裸机 / RTOS 执行模型](/wirelink/zh-cn/how-to/execution-models/)**
-- 📖 **[C11 节点 API 速查表](/wirelink/zh-cn/reference/kernel-api/)**、**[状态码参考](/wirelink/zh-cn/reference/status-codes/)** 与 **[Wire v2 二进制字节规范](/wirelink/zh-cn/reference/wire-format/)**
+- 📐 **[.wl 语法手册](/wirelink/zh-cn/concepts/schema-language/)**、**[节点配置指南](/wirelink/zh-cn/concepts/nodes/)** 与 **[WLC / CMake 集成](/wirelink/zh-cn/concepts/wlc-and-cmake/)**
+- 🔌 **[物理链路驱动移植指南](/wirelink/zh-cn/how-to/custom-drivers/)**、**[裸机 / RTOS 执行模型](/wirelink/zh-cn/how-to/execution-models/)** 与 **[Python / C++20 上位机 SDK](/wirelink/zh-cn/how-to/host-sdks/)**
+- 📖 **[C11 节点 API 速查表](/wirelink/zh-cn/reference/kernel-api/)**、**[状态码参考](/wirelink/zh-cn/reference/status-codes/)**、**[二进制线协议规范](/wirelink/zh-cn/reference/wire-format/)** 与 **[静态 Flash / RAM 体积账本](/wirelink/zh-cn/reference/footprint-and-benchmarks/)**

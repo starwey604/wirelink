@@ -1,6 +1,6 @@
 ---
-title: 03 请求与响应：实现第一个 RPC 服务
-description: 用 call 和 serve 声明客户端与服务端，处理成功响应、业务拒绝 (REJECTED) 与免时钟超时计时。
+title: 03 打造真实协议：字符串、可选字段与内存生命周期
+description: 零 malloc 传输变长字符串 string<N> 与字节块 bytes<N>，用 import 组织多模块协议，并掌握回调中结构体按值复制的生命周期规则。
 sidebar:
   order: 3
 ---
@@ -13,145 +13,189 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 <LessonHeader
   unit={3}
-  duration="8 分钟"
-  examplePath="examples/01_rpc"
+  duration="7 分钟"
+  examplePath="examples/02_device_info"
   goals={[
-    '在 .wl 中用 rpc 配对请求与响应，并在 node 中显式区分 call 与 serve',
-    '编写服务端处理函数：返回 0 发送响应，返回非 0 触发业务拒绝 (WL_KERNEL_REJECTED)',
-    '分清简化调用 client_call_add 与显式调用 client_call_add_ex 的超时起算时机',
+    '使用有界 string<N> 与 bytes<N> 在零动态内存分配 (0 malloc) 下传输变长字符串和字节数组',
+    '掌握接收回调中 const response_t * 指针的生命周期：按值赋值结构体 (*saved = *response)，绝不保存临时指针',
+    '学会用 optional 声明可选字段，并用 import 将多个子模块的 .wl 组合成完整产品协议',
   ]}
 />
 
-在上一课中，单向消息（`send`/`recv`）发出去就不管了。但在修改设备参数、请求计算结果或触发动作时，调用方必须得到一个确切的结果：**对方算完了吗？参数是不是越界被拒绝了？还是线断了超时没回？**
+在 C 语言嵌入式开发里，只要协议里出现**变长字符串**（比如设备序列号、固件版本号）或**变长字节块**（比如一段传感器波形或加密签名），开发者往往会头疼两件事：
+1. **不敢用 `malloc/free`**：跑了几天后堆内存碎片化，或者在某个错误分支漏了 `free` 导致内存耗尽死机。
+2. **悬空野指针（Dangling Pointer）**：在接收回调函数里顺手把 `response->name.data` 指针存到了全局变量里，结果回调一返回，底层缓冲区被复用，读出来的全成了乱码！
 
-这就是 **RPC（远程过程调用）** 的用武之地。本课我们基于 [`examples/01_rpc/`](https://github.com/starwey604/wirelink/tree/main/examples/01_rpc)，实现一个能自动检测 32 位有符号整数溢出的远程加法服务。
-
----
-
-## 第一步：在 `.wl` 中配对 `rpc` 并分配 `call` / `serve` 角色
-
-先看 [`examples/01_rpc/calculator.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.wl)：
-
-{/* [docs:calculator_schema] */}
-```wl
-message AddRequest @id(20) {
-  int32 left @id(1);
-  int32 right @id(2);
-}
-message AddResponse @id(21) { int32 sum @id(1); }
-rpc Add(AddRequest) -> AddResponse;
-node client { call Add; }
-node server { serve Add; }
-```
-{/* [/docs:calculator_schema] */}
-
-注意看 `node` 里的关键字：
-- **`call Add;`（客户端能力）**：只生成发起调用的函数 `client_call_add` / `client_call_add_ex` 和 4 个出站请求槽。
-- **`serve Add;`（服务端能力）**：只生成服务端处理钩子 `server_on_add` 和 3 个待发回复槽。
-- **方向绝不隐式对称**：如果你单独为客户端编译（`wlc compile calculator.wl --node client`），生成的代码里根本不会出现 `server_on_add`，你完全不需要写空的桩函数去应付链接器！
+这一课我们结合 [`examples/02_device_info/`](https://github.com/starwey604/wirelink/tree/main/examples/02_device_info) 和 [`examples/04_composed_services/`](https://github.com/starwey604/wirelink/tree/main/examples/04_composed_services)，看看 Wirelink 是如何用**有界内联存储**彻底消灭这两个隐患的。
 
 ---
 
-## 第二步：服务端视角 vs 客户端视角
+## 第一步：用 `string<N>` 与 `bytes<N>` 实现零 `malloc` 变长传输
 
-当一次 RPC 发生时，在线缆上其实有三种可能的走向：**成功响应（`RPC_RESP`）**、**业务拒绝（`RPC_ERR`）** 或 **迟迟收不到回复导致本地超时（`TIMED_OUT`）**。
+在供节点（`node`）使用的消息中，所有字符串和字节数组都使用 `<N>` 声明最大字节上限（例如 `string<31>`、`bytes<64>`）。这样编译器不仅能在编译期精确算出整条消息的最大帧长，还能直接把数组**内联（Inline）嵌进生成的 C 结构体内部**！
 
-```mermaid
-sequenceDiagram
-  participant C as client_node_t (调用方)
-  participant S as server_node_t (服务方)
-
-  C->>S: 1. 发送请求帧 RPC_REQ (携带 AddRequest)
-  S->>S: 2. 触发 server_on_add(self, req, resp)
-  alt 返回 0 (计算成功)
-    S-->>C: 3a. 发送成功帧 RPC_RESP (携带 AddResponse)
-    C->>C: step 中触发回调：outcome = WL_KERNEL_SUCCESS, response 非空
-  else 返回非零 int32 (例如整数溢出返回 1)
-    S-->>C: 3b. 发送 16B 拒绝帧 RPC_ERR (仅携带 status = 1，无消息体)
-    C->>C: step 中触发回调：outcome = WL_KERNEL_REJECTED, status = 1, response == NULL
-  else 链路丢包或对端死机
-    C->>C: 3c. 到期后 step 触发回调：outcome = WL_KERNEL_TIMED_OUT, response == NULL
-  end
-```
-
-让我们通过下方标签页，分别看看**服务端**和**客户端**的 C 代码怎么写：
+点击下方标签页，对比 [`examples/02_device_info/device_info.wl`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/device_info.wl) 与它生成的 C11 结构体：
 
 <Tabs>
-  <TabItem label="1. 服务端实现 (server.c)">
-    在 [`examples/01_rpc/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c) 中，服务端只需实现 `server_on_add`：
+  <TabItem label="1. 协议定义 (device_info.wl)">
+    {/* [docs:device_info_schema] */}
+    ```wl
+    version 1;
 
-    {/* [docs:calculator_server] */}
-    ```c
-    int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
-      (void)self;
-      const int64_t sum = (int64_t)request->left + request->right;
-      if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-      response->sum = (int32_t)sum;
-      return 0;
+    message InfoRequest @id(30) {}
+
+    message InfoResponse @id(31) {
+      string<31> name @id(1);
+      string<15> firmware @id(2);
+      uint32 query_count @id(3);
     }
-    ```
-    {/* [/docs:calculator_server] */}
 
-    **返回值契约一目了然**：
-    - **返回 `0`**：代表业务执行成功。Wirelink 会把你填好的 `response->sum` 编码成 `RPC_RESP` 帧发回给客户端。
-    - **返回非零 `int32_t`（例如 `1` 或自定义错误码）**：代表**业务层主动拒绝**。此时 Wirelink **不会编码 `response` 结构体**，而是直接发回一个固定 16 字节（4B 帧头 + 12B RPC 错误子头）的紧凑 `RPC_ERR` 帧，把你的非零返回值原封不动带给客户端！
+    rpc GetInfo(InfoRequest) -> InfoResponse;
+    node info_client { call GetInfo; }
+    node info_server { serve GetInfo; }
+    ```
+    {/* [/docs:device_info_schema] */}
   </TabItem>
 
-  <TabItem label="2. 客户端发起调用 (client.c)">
-    在 [`examples/01_rpc/client.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c) 中，我们故意传入 `INT32_MAX + 1` 来测试服务端的溢出拒绝：
+  <TabItem label="2. 生成的 C11 结构体与安全 Setter (device_info.h)">
+    看生成的 `info_response_t`，里面没有任何指向外部堆内存的 `char *` 指针，全部是定长内联数组：
 
-    {/* [docs:calculator_sync_rpc] */}
     ```c
-    EXAMPLE_REQUIRE(client_call_add(&caller, &(add_request_t){
-        .left = INT32_MAX, .right = 1}, rejected) == WL_OK);
-    for (unsigned pass = 0; pass < 100 && !completed; ++pass) advance(100 + pass);
-    EXAMPLE_REQUIRE(completed == 1 && result.outcome == WL_KERNEL_REJECTED && result.status == 1);
+    typedef struct info_response_s {
+      struct {
+        size_t length;
+        char data[32]; /* string<31> 自动分配 31 + 1 = 32 字节，末尾始终补 '\0' */
+      } name;
+      struct {
+        size_t length;
+        char data[16]; /* string<15> 自动分配 15 + 1 = 16 字节 */
+      } firmware;
+      uint32_t query_count;
+    } info_response_t;
+
+    /* 自动生成的安全 setter：检查长度 <= N、复制内容并补 '\0'，超长返回 false */
+    bool info_response_set_name(info_response_t *self, const char *value);
+    bool info_response_set_firmware(info_response_t *self, const char *value);
     ```
-    {/* [/docs:calculator_sync_rpc] */}
-
-    当请求完成（无论成功、被拒还是超时）时，`client_step` 都会调用我们传入的完成回调 `rejected`：
-
-    {/* [docs:calculator_rejected_callback] */}
-    ```c
-    static void rejected(client_node_t *self, wl_kernel_result_t outcome, const add_response_t *response) {
-      (void)self;
-      EXAMPLE_REQUIRE(response == NULL);
-      result = outcome;
-      ++completed;
-    }
-    ```
-    {/* [/docs:calculator_rejected_callback] */}
-
-    <Aside type="caution" title="先查 outcome，再解引用 response 指针！">
-    只有在 `outcome.outcome == WL_KERNEL_SUCCESS` 时，`response` 指针才是非空的！当结果是 `WL_KERNEL_REJECTED`、`WL_KERNEL_TIMED_OUT` 或 `WL_KERNEL_CANCELLED` 时，`response` 一律为 `NULL`。
-    </Aside>
   </TabItem>
 </Tabs>
 
+### 常用丰富数据类型速览
+
+除了整数和 `string<N>`，你在写 `.wl` 时还可以自由搭配以下类型：
+
+| 你想表达的数据 | `.wl` 写法示例 | 生成的 C11 结构体成员 |
+| :--- | :--- | :--- |
+| **有界 UTF-8 字符串** | `string<31> name @id(1);` | `struct { size_t length; char data[32]; } name;`（在线缆上只传实际 `length` 个字节，解码后自动在 `data[length]` 补 `'\0'`） |
+| **有界原始字节块** | `bytes<64> payload @id(2);` | `struct { size_t length; uint8_t data[64]; } payload;`（可存放任意二进制数据） |
+| **定长紧凑数组** | `packed float32 accel[3] @id(3);` | `float accel[3];`（如三轴传感器数据、RGB 通道） |
+| **枚举类型** | `enum Mode @id(1) { IDLE = 0; RUN = 1; }` | 强类型 C `enum`，解码时自动拦截未定义的非法枚举值 |
+| **可选字段** | `optional int32 temp @id(4);` | `bool has_temp;` + `int32_t temp;`（允许对端不传该字段，适合协议后续升级加新字段） |
+
 ---
 
-## 第三步：深挖一个精妙设计——简化调用 vs `_ex` 显式调用
+## 第二步：掌握回调中的内存生命周期（按值拷贝结构体！）
 
-你可能注意到了，上面调用 `client_call_add(&caller, &req, callback)` 时，**我们根本没有传当前时间 `now_ms`，也没有传超时时间 `timeout_ms`！**
+既然 `info_response_t` 里的字符串是内联数组，这给我们带来了一个巨大的工程便利：**在 C 语言里直接写一句 `result = *response;`，就能把整个结构体连同里面的所有字符串完完整整地深拷贝下来！**
 
-既然 Wirelink 核心从不自己读取系统时钟，那它是怎么知道什么时候超时的？
+让我们看看 [`examples/02_device_info/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/server.c) 与 [`client.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/client.c) 的配合：
 
-| 调用方式 | 函数签名与参数 | 超时时间从哪来？何时开始倒计时？ | 适用场景 |
-| :--- | :--- | :--- | :--- |
-| **简化调用**（默认推荐） | `client_call_add(self, &req, cb)`<br/>*(回调首参为 `client_node_t *self`)* | 使用节点默认 `timeout_ms`（默认 500ms），从**下一次 `client_step(self, now)`** 传入的 `now` 开始挂表计时！ | 绝大多数常规业务调用，代码最简 |
-| **显式扩展调用 (`_ex`)** | `client_call_add_ex(self, &req, now, timeout, cb, user, &handle)`<br/>*(回调首参为独立的 `void *user`)* | 从你调用时显式传入的 **`now`** 立即开始计时（排队等待 step 的时间也算进超时预算），并可拿到取消句柄 `handle` | 需要自定义单次超时、传入独立上下文 `user` 或后续主动取消 (`cancel`) |
+<Tabs>
+  <TabItem label="1. 服务端填充字符串 (server.c)">
+    在服务端，我们可以通过 `self->user` 挂载自己的业务状态（如查询计数器 `queries`），并填充 `name` 和 `firmware`：
 
-<Aside type="tip" title="为什么简化调用要从“下一次 step(now)”开始计时？">
-想象一下：你的设备在休眠了 10 分钟后被某个按键触发，调用了 `client_call_add()`。如果节点傻傻地拿 10 分钟前最后一次 `step` 的旧时间戳来算超时，这个请求刚放进去就会在第一次 `step` 时被误判为“已超时 10 分钟”！
-因此，Wirelink 的简化调用会把请求标记为“待挂表”，等到主循环下一次执行 `client_step(&caller, now)` 拿到新鲜的 `now` 时才正式启动倒计时。
-</Aside>
+    {/* [docs:device_info_server] */}
+    ```c
+    int32_t info_server_on_get_info(info_server_node_t *self, const info_request_t *request, info_response_t *response) {
+      (void)request;
+      unsigned *queries = self->user;
+      response->name.length = 11; memcpy(response->name.data, "workbench\0x", 11);
+      response->firmware.length = 6; memcpy(response->firmware.data, "0.14.0", 6);
+      response->query_count = ++*queries;
+      return 0;
+    }
+    ```
+    {/* [/docs:device_info_server] */}
+
+    *(注：普通 C 字符串直接调生成的 `info_response_set_firmware(response, "0.14.0")` 即可；这里示例故意在 `"workbench\0x"` 中间塞了一个零字节 `\0`，用来证明 Wirelink 在线缆上是严格按 `length = 11` 完整传输全部字节的，不会被中间的 `\0` 截断！)*
+  </TabItem>
+
+  <TabItem label="2. 客户端回调按值保存 (client.c)">
+    看客户端的完成回调 `done` 第 4 行：
+
+    {/* [docs:device_info_done] */}
+    ```c
+    static void done(info_client_node_t *self, wl_kernel_result_t outcome, const info_response_t *response) {
+      (void)self;
+      EXAMPLE_REQUIRE(outcome.outcome == WL_KERNEL_SUCCESS && response);
+      result = *response;
+      ++completed;
+    }
+    ```
+    {/* [/docs:device_info_done] */}
+
+    **为什么必须写 `result = *response;`，而不能把 `response` 指针存起来？**
+    因为回调参数 `const info_response_t *response` 指向的是 `info_client_step()` 栈帧上的**临时解码变量**！一旦 `done()` 回调函数返回，那个栈上临时变量就销毁了。而通过 `result = *response;` 按值复制后，哪怕后面把两个节点彻底关闭，保存在 `result` 里的字符串依然完好无损：
+
+    {/* [docs:device_info_client] */}
+    ```c
+    for (unsigned call = 0; call < 8; ++call) {
+      EXAMPLE_REQUIRE(info_client_call_get_info(&caller, &(info_request_t){0}, done) == WL_OK);
+      EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
+      EXAMPLE_REQUIRE(info_server_step(&callee, call) == WL_OK);
+      EXAMPLE_REQUIRE(info_client_step(&caller, call) == WL_OK);
+      EXAMPLE_REQUIRE(completed == call + 1 && result.query_count == call + 1);
+    }
+    EXAMPLE_REQUIRE(info_client_close(&caller) == WL_OK && info_server_close(&callee) == WL_OK);
+    EXAMPLE_REQUIRE(info_client_quiescent(&caller) && info_server_quiescent(&callee));
+    EXAMPLE_REQUIRE(result.name.length == 11 && memcmp(result.name.data, "workbench\0x", 11) == 0);
+    ```
+    {/* [/docs:device_info_client] */}
+  </TabItem>
+</Tabs>
+
+```mermaid
+flowchart LR
+  subgraph Step["在 <node>_step() 触发回调期间"]
+    Temp["step() 栈上的临时解码对象<br/>info_response_t temp"] -->|"传参 const info_response_t *response"| CB["你的回调函数 (done / on_<msg>)"]
+    CB -->|"✅ 正确：result = *response;"| Copy["按值复制整个结构体<br/>(内联 char data[32] 被完整深拷贝)"]
+    CB -.->|"❌ 错误：saved_ptr = response;"| Bad["回调返回后 temp 栈帧销毁<br/>saved_ptr 变成悬空野指针！"]
+  end
+```
+
+---
+
+## 第三步：用 `import` 组合多模块大型产品协议
+
+当你的设备越来越复杂——比如既有底盘/机械臂控制模块（`arm.wl`），又有固件升级与系统管理模块（`upgrade.wl`）——你不需要把几百行定义全塞进同一个文件里。
+
+你可以按功能拆分成多个子 `.wl` 文件，然后在顶层产品协议（如 [`examples/04_composed_services/product.wl`](https://github.com/starwey604/wirelink/blob/main/examples/04_composed_services/product.wl)）中用 `import` 将它们组装到同一个节点上：
+
+{/* [docs:composed_product_schema] */}
+```wl
+version 1;
+import "arm.wl";
+import "upgrade.wl";
+
+node product {
+  io = external;
+  send Telemetry; recv Telemetry;
+  send BulkCommand; recv BulkCommand;
+  send BulkStatus; recv BulkStatus;
+  call Query; serve Query;
+  call Reboot; serve Reboot;
+}
+```
+{/* [/docs:composed_product_schema] */}
+
+编译器 `wlc` 会自动解析整个 `import` 依赖树，并确保所有模块之间的消息 `@id(N)` 没有冲突！
 
 <Challenge
-  title="工程思考：收到 REJECTED 和收到 TIMED_OUT，重试策略有什么本质不同？"
-  prompt="当客户端回调收到 WL_KERNEL_REJECTED (status = 1) vs 收到 WL_KERNEL_TIMED_OUT 时，客户端能不能无脑自动重发一次相同的请求？"
+  title="生命周期双向上手自测"
+  prompt="请用一句话总结 Wirelink 中“发数据（send / call）”和“收数据回调（on_xxx / done）”两个方向的结构体指针生命周期规则。"
 >
-  - **`WL_KERNEL_REJECTED`（业务拒绝）**：说明请求**100% 已经到达了服务端**，并且服务端明确告诉你“这个请求不合法或当前不接受（比如参数溢出、设备正忙）”。如果你用完全相同的参数立刻无脑重发，只会再被拒绝一次。
-  - **`WL_KERNEL_TIMED_OUT`（等待超时）**：说明本端在规定时间内没收到回包。但**超时无法证明服务端没执行过该请求**——有可能是请求包丢了（服务端没执行），也有可能是服务端已经执行完了、但回来的响应包在半路丢了！因此，只有当该 RPC 是**业务幂等**的（如读取状态、查询计算、或者携带了业务 `job_id`），超时后才可以安全重试。
+  - **发数据时（`send_xxx` / `call_xxx`）**：**输入即快照**——只要函数返回了 `WL_OK`，数据已经编码进节点内部缓冲区，你传入的请求结构体在下一行就可以立刻销毁或复用。
+  - **收数据回调时（`on_xxx` / `done`）**：**指针仅在回调内有效**——参数里的 `const <msg>_t *` 指向 `step()` 的栈上临时对象，若想在回调返回后继续使用，只需在回调内写 `*saved = *msg;` 按值复制整个结构体。
 </Challenge>
 
 ---
@@ -159,39 +203,25 @@ sequenceDiagram
 ## 本课小测验
 
 <MultipleChoice
-  id="lesson-03-result"
-  question="在 RPC 完成回调中，业务拒绝 (WL_KERNEL_REJECTED) 与超时 (WL_KERNEL_TIMED_OUT) 有什么本质区别？"
+  id="lesson-03-lifetime"
+  question="在 RPC 完成回调 done(self, outcome, response) 或消息接收回调 on_<msg>(self, msg) 中，如果想把含 string<31> 的数据保存下来供主循环后续使用，应该怎么做？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "REJECTED 证明服务端已收到并明确返回了非零拒绝码 (result.status)；而 TIMED_OUT 无法确定远端是否已经执行过该请求。",
+    "label": "在回调函数内部直接按值复制结构体（例如 my_saved_info = *response;）。",
     "correct": true,
-    "feedback": "完全正确！超时后能否安全重试取决于你的业务操作是否具有幂等性。"
+    "feedback": "完全正确！因为 string<31> 在结构体内部是内联定长数组 char data[32]，按值赋值结构体就会把字符串内容一并深拷贝过来。"
   },
   {
-    "label": "两者都代表服务端没有收到请求，客户端都可以放心重发。",
+    "label": "把 response 指针赋值给一个全局指针变量 global_ptr = response，等回调结束后再通过 global_ptr->name.data 读取。",
     "correct": false,
-    "feedback": "不对。REJECTED 是服务端主动发回的拒绝响应；而 TIMED_OUT 也可能是回程响应包丢失，服务端其实已经执行过了。"
-  }
-]}
-/>
-
-<MultipleChoice
-  id="lesson-03-timeout"
-  question="不传时间戳的简化调用 client_call_add(&caller, &req, done) 是从什么时候开始计算超时的？"
-  checkLabel="检查答案"
-  emptyFeedback="请先选择一个选项。"
-  choices={[
-  {
-    "label": "从下一次主循环调用 client_step(&caller, now) 时传入的 now 开始计时。",
-    "correct": true,
-    "feedback": "正确！这样即使节点在长期休眠或空闲后发起首个调用，也不会被陈旧的时间戳误判超时。"
+    "feedback": "错误！response 指向的是 step() 栈上的临时解码对象，回调函数一旦返回，该指针立即失效。"
   },
   {
-    "label": "从节点上一次执行 step 时保存的旧时间戳开始计时。",
+    "label": "用完之后必须手动调用 free(response->name.data) 释放内存。",
     "correct": false,
-    "feedback": "不对。节点不会用上一次 step 的陈旧时间来推断新调用的发起时刻。"
+    "feedback": "不需要也不能 free！Wirelink 是零堆分配的，data 是结构体内部的内联数组，不是 malloc 出来的。"
   }
 ]}
 />
@@ -201,12 +231,12 @@ sequenceDiagram
   title="本课掌握清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "在 .wl 中为客户端声明 call，为服务端声明 serve，按角色生成独立代码。",
-    "在服务端 on_<rpc> 中返回 0 发送响应，返回非零 int32_t 发送 16 字节紧凑拒绝帧。",
-    "在客户端完成回调中先检查 result.outcome，并理解简化调用与 _ex 调用的计时差异。"
+    "会用 string<N> 和 bytes<N> 定义有界变长字段，理解它们在 C 结构体中是零 malloc 的内联定长数组。",
+    "牢记回调参数中的消息结构体指针只在回调返回前有效，跨回调保存数据只需按值赋值结构体（result = *response）。",
+    "知道如何用 optional 声明可选字段，并用 import 组合多模块 .wl 协议。"
   ]}
 />
 
-到目前为止，我们传的都是 `int32`、`uint32` 这样的定长数字。如果要传**设备名称字符串（`string`）**或**变长采样字节块（`bytes`）**，在零 `malloc` 的 C11 里它是怎么存储的？回调结束后指针还能用吗？
+学会了写丰富的 `.wl` 协议和处理数据生命周期，接下来就是最激动人心的一步：**告别内存回环，把节点真正接到 UART 串口字节流和 UDP 网络上，与上位机 Python / C++20 SDK 实机联调！**
 
-下一课：[04 字符串、字节数组与生命周期 →](/wirelink/zh-cn/learn/04-strings-and-lifetime/)
+下一课：[04 接上真实物理链路：UART 串口与 UDP 上位机联调 →](/wirelink/zh-cn/learn/04-strings-and-lifetime/)

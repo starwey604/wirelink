@@ -1,16 +1,16 @@
 ---
-title: 旧绑定配置迁移到 node
-description: 原绑定配置入口：用单一 .wl 中的 node 替代旧配置。
+title: 节点配置速览
+description: 用单一 .wl 文件中的 node 声明角色、分帧与 I/O 模式。
 sidebar:
   order: 4
   hidden: true
 ---
 
-当前 0.14 把消息、RPC 与节点配置统一放在 `.wl` 中。原绑定配置的职责由 `node` 接管。
+在 Wirelink 中，消息数据结构、RPC 配对与节点配置统一声明在 `.wl` 文件中：
 
 - 用顶层 `rpc Add(AddRequest) -> AddResponse;` 配对请求与响应。
-- 在节点内用 `call` / `serve` 明确两端角色，用 `recv` 接收普通消息。
-- 用 `framing = native | cobs_crc16 | length16` 选择分帧。
-- 用 `import` 组合业务模块，用 `--node` 选择固件角色。
+- 在 `node` 内用 `call` / `serve` 明确双向调用角色，用 `send` / `recv` 声明单向消息。
+- 用 `framing = native | cobs_crc16 | length16` 选择物理链路分帧。
+- 用 `import` 组合多业务模块，用 `--node` 选择要生成的固件角色。
 
-请使用[节点声明指南](/wirelink/zh-cn/concepts/nodes/)与[当前 CLI / CMake 用法](/wirelink/zh-cn/concepts/wlc-and-cmake/)。
+详细用法请查阅[节点声明指南](/wirelink/zh-cn/concepts/nodes/)与[WLC / CMake 集成指南](/wirelink/zh-cn/concepts/wlc-and-cmake/)。

@@ -1,6 +1,6 @@
 ---
-title: 05 并发调用、背压与长任务
-description: 摸清 4 路并发 RPC 的容量边界，使用 _ex 句柄主动取消请求，并学会用“短 RPC 启动 + 异步进度消息”解耦耗时硬件任务。
+title: 05 并发调用、超时取消与发送背压控制
+description: 摸清节点的静态槽位上限，区分“跳过旧采样”与“保留重试”两种 WOULD_BLOCK 背压策略，并掌握 _ex 显式超时与主动取消。
 sidebar:
   order: 5
 ---
@@ -16,19 +16,21 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
   duration="8 分钟"
   examplePath="examples/03_device_service"
   goals={[
-    '记清节点的静态容量账本：4 个并发调用槽、3 个回复槽、1 个普通消息槽',
-    '掌握第 5 次并发调用触发 WL_ERR_WOULD_BLOCK 时的处理方式，以及 wl_kernel_cancel 的延迟派发机制',
-    '学会嵌入式长耗时任务（如 Flash 擦写、硬件自检）的标准设计模式：短 RPC 领任务号 + 主循环轮询发进度',
+    '摸清节点的静态容量账本：4 个并发调用槽、3 个待发回复槽、1 个普通消息槽',
+    '掌握遇到 WL_ERR_WOULD_BLOCK 背压时的两种工程策略：高频周期采样“跳过旧值” vs 关键状态事件“保留 pending 重试”',
+    '分清简化调用与 _ex 显式调用的超时起算时机，并理解 cancel() 的防重入延迟派发机制',
   ]}
 />
 
-在零动态分配（0 `malloc`）的嵌入式系统中，**“内存容量上限”就是通信协议契约的一部分**。既然不能无限 `malloc` 排队，我们就必须清楚节点的槽位上限是多少、满了怎么办，以及遇到耗时几百毫秒的硬件操作时如何避免堵死队列。
+在零动态分配（0 `malloc`）的嵌入式系统中，节点不可能在发送变慢时无限申请堆内存来排队。因此，**“固定槽位上限 + 显式背压（`WL_ERR_WOULD_BLOCK`）”** 是保证 MCU 永远不会内存溢出的核心防线。
+
+这一课我们就来摸清节点的容量边界、两种背压处理套路，以及并发 RPC 的超时与取消。
 
 ---
 
 ## 第一步：看清节点的静态容量账本
 
-每一个生成的 Wirelink 节点，都会根据它在 `.wl` 里声明的角色（`call` / `serve` / `send` / `recv`）分配固定数量的槽位（没声明的角色分配 **0 字节**）：
+每个生成的 Wirelink 节点，都会根据它在 `.wl` 里声明的角色（`call` / `serve` / `send` / `recv`）在编译期分配固定数量的静态槽位（没声明的角色分配 **0 字节**）：
 
 ```mermaid
 flowchart LR
@@ -41,9 +43,9 @@ flowchart LR
   C & R & M --> Q["共享 8 项 TX 发送调度队列<br/>(4 + 3 + 1 = 8，恰好永不溢出)"]
 ```
 
-### 4 次并发调用与第 5 次背压（`WOULD_BLOCK`）
+### 4 路并发 RPC 调用与第 5 次背压
 
-因为有 **4 个并发出站 RPC 请求槽**，客户端无需等上一个请求返回，就可以连续发起最多 4 个在途调用（出自 [`examples/01_rpc/client_async.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client_async.c)）：
+因为客户端拥有 **4 个并发出站 RPC 请求槽**，你不需要等上一个请求返回，就可以连续发起最多 4 个在途调用（源自 [`examples/01_rpc/client_async.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client_async.c)）：
 
 {/* [docs:calculator_async_rpc] */}
 ```c
@@ -57,18 +59,78 @@ void calculator_async_example(client_node_t *client) {
 ```
 {/* [/docs:calculator_async_rpc] */}
 
-**如果这 4 个请求还没收到响应，你立刻发起第 5 个请求会发生什么？**
-1. 第 5 次调用会立即返回 **`WL_ERR_WOULD_BLOCK`**。
-2. 因为没有被节点接纳，这第 5 次调用**不会产生任何后续的 `done` 完成回调**。
-3. **千万不要在主循环里写 `while (call(...) == WL_ERR_WOULD_BLOCK) {}` 原地死等！** 因为你是单线程 Owner，你不继续往下走去调 `client_step()`，前 4 个请求就永远收不到回包、槽位就永远释放不出来！正确做法是记下待发请求，先推进 `step`，等槽位空出来再发。
+**如果这 4 个请求都还没收到响应，你立刻发起第 5 个请求会发生什么？**
+1. 第 5 次调用会立即返回 **`WL_ERR_WOULD_BLOCK`**，并且节点不会保存你传入的数据，后续也不会为这第 5 次调用触发任何 `done` 回调。
+2. **千万不要写 `while (client_call_add(...) == WL_ERR_WOULD_BLOCK) {}` 原地死循环等待！** 因为在单线程模型中，如果你不继续往下走去调用 `client_step()`，前 4 个请求就永远收不到回包、槽位就永远释放不出来！
 
 ---
 
-## 第二步：显式时间、取消句柄与防重入保证
+## 第二步：遇到 `WL_ERR_WOULD_BLOCK` 时，到底该丢弃还是重试？
 
-当你需要**主动取消一个还没完成的 RPC 请求**，或者需要**为某次调用单独指定超时和上下文 `user`** 时，使用带 `_ex` 后缀的扩展接口。
+同样，普通单向消息（`send`）只有 **1 个快照槽**：如果上一条消息还没通过 `step()` 发出去，你紧接着调第二次 `send`，就会收到 `WL_ERR_WOULD_BLOCK`。
 
-在高级生命周期测试 [`examples/01_rpc/lifecycle.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/lifecycle.c) 中，我们演示了填满 4 个槽、第 5 个被拒、然后用句柄 `handles[0]` 取消第 1 个请求的全过程：
+收到 `WL_ERR_WOULD_BLOCK` 时该怎么写代码？答案取决于**你发的是什么业务数据**。让我们对比第 02 课的自检完成通知与第 04 课的 20ms 周期遥测：
+
+<Tabs>
+  <TabItem label="策略 A：关键状态/进度通知 ➔ 保留标志，下次重试">
+    在第 02 课的耗时自检服务（[`examples/03_device_service/self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c)）中，`SelfTestProgress` 是通知上位机“自检做完了”的关键事件，**绝对不能因为发送槽恰巧正忙就被静默吞掉**！
+
+    看 `self_test_poll` 的第 6~8 行是怎么处理的：
+
+    {/* [docs:device_job_poll] */}
+    ```c
+    void self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
+      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return;
+      self_test_progress_t progress = {.job_id = state->job_id,
+        .observed = state->pattern ^ UINT32_C(0xa5a5)};
+      const wl_err_t error = device_server_send_self_test_progress(endpoint, &progress);
+      if (error == WL_ERR_WOULD_BLOCK) return;
+      EXAMPLE_REQUIRE(error == WL_OK);
+      state->job_pending = false;
+    }
+    ```
+    {/* [/docs:device_job_poll] */}
+
+    - 当 `send` 返回 `WL_ERR_WOULD_BLOCK` 时，**直接 `return`，故意不把 `state->job_pending` 置为 `false`**！
+    - 等主循环推进 `step()` 把槽位腾空后，下一轮 `self_test_poll` 会自动再次进场，用最新状态把这条完成消息补发出去！
+  </TabItem>
+
+  <TabItem label="策略 B：高频周期传感器采样 ➔ 跳过旧值，下周期发最新值">
+    反过来，回顾第 04 课 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c) 里每 20ms 推一次的周期传感器采样：
+
+    ```c
+    if ((int32_t)(now - due) >= 0) {
+      telemetry_t sample = {.sample = ++sequence};
+      const wl_err_t error = udp_server_send_telemetry(&server, &sample);
+      if (error != WL_OK && error != WL_ERR_WOULD_BLOCK) { status = 1; break; }
+      due = now + 20; /* 即使遇到 WOULD_BLOCK，也直接推进到下一个 20ms 周期！ */
+    }
+    ```
+
+    - 为什么这里遇到 `WOULD_BLOCK` 直接忽略并把 `due` 推到下一个 20ms？
+    - 因为对于高频实时传感器（如温度、电机电流），如果此刻链路拥塞导致上一帧还没发出去，**把过时的旧采样积压下来毫无意义**——直接跳过当前这帧，等 20ms 后发送最新鲜的采样值，反而能保证零排队延迟！
+  </TabItem>
+</Tabs>
+
+---
+
+## 第三步：简化调用 vs `_ex` 显式超时与主动取消（`cancel`）
+
+在发起 RPC 时，生成的节点为你准备了两个版本的调用函数：**简化调用**（默认最常用）和带 **`_ex`** 后缀的显式扩展调用：
+
+| 对比项 | 简化调用 `<node>_call_<rpc>(self, &req, cb)` | 显式扩展调用 `<node>_call_<rpc>_ex(self, &req, now, timeout, cb, user, &handle)` |
+| :--- | :--- | :--- |
+| **超时怎么算？** | 使用节点默认 `timeout_ms`（默认 500ms），从**下一次 `<node>_step(self, now)`** 传入的 `now` 开始挂表倒计时 | 从你调用时显式传入的 **`now`** 立即开始倒计时（排队等待 `step` 的时间也计入超时预算） |
+| **回调首参是什么？** | 强类型的节点指针 `<node>_node_t *self` | 你本次调用单独传入的 `void *user` 上下文指针 |
+| **能否主动取消？** | 不返回句柄，等待自然完成或超时 | 可通过输出参数 `&handle` 拿到句柄，随时调用 `<node>_cancel(self, handle)` 主动取消 |
+
+<Aside type="tip" title="为什么简化调用要从“下一次 step(now)”才开始计时？">
+因为 Wirelink 核心不自己读取系统时钟！如果你的设备休眠了 10 分钟后被按键唤醒并调用了简化版 `client_call_add()`，假如节点拿 10 分钟前最后一次 `step` 的旧时间戳来算超时，这个请求刚放进去就会被误判为“已超时 10 分钟”。等到下一次 `step(now)` 拿到新鲜时间戳时再启动倒计时，就彻底避免了陈旧时间戳误判！
+</Aside>
+
+### 主动取消（`cancel`）与防重入铁律
+
+在 [`examples/01_rpc/lifecycle.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/lifecycle.c) 中，展示了填满 4 个并发槽、第 5 个返回 `WL_ERR_WOULD_BLOCK`、然后用 `handles[0]` 主动取消第 1 个请求的过程：
 
 {/* [docs:calculator_cancel_timeout] */}
 ```c
@@ -86,110 +148,57 @@ EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. *
 ```
 {/* [/docs:calculator_cancel_timeout] */}
 
-注意看最后两行的精妙设计：
-- 调用 `wl_kernel_cancel`（或节点封装的 `<node>_cancel(&node, handle)`）返回 `WL_OK` 时，**`completed` 依然是 `0`！**
-- **为什么不在 `cancel()` 函数内部立刻调用你的 `done()` 回调？** 为了**严格防止回调重入（Anti-Reentrancy）**！如果 `cancel()` 当场在栈上调 `done()`，而你在 `done()` 里又调了别的节点函数，状态机很容易死锁或栈溢出。
-- 因此，在 Wirelink 中，**所有的完成回调（成功、拒绝、超时、取消、关闭）100% 只在 `<node>_step()` 内部统一派发**。
+注意看最后两行：调用 `cancel` 返回 `WL_OK` 时，**为什么 `completed` 仍然是 `0`，没有在 `cancel` 内部当场调用 `done` 回调？**
+- 这是 Wirelink 的**防重入保证（Anti-Reentrancy）**：如果 `cancel()` 在当前栈帧上直接调 `done()`，而你的 `done()` 回调里又发起了新的调用或操作了同一个状态机，极易引发重入死锁或 MCU 栈溢出。
+- 因此，**所有的完成回调（成功、拒绝、超时、取消、关闭）100% 统一在 `<node>_step()` 内部派发**。
 
----
+<Challenge
+  title="思考：本地取消 (cancel) 能撤回已经发上线的请求吗？"
+  prompt="如果第 1 个请求已经通过串口发给下位机了，这时候你在客户端调用了 cancel(handle)，下位机会停止执行该请求吗？"
+>
+  **不会！**
 
-## 第三步：长耗时任务设计模式（短 RPC 启动 + 异步消息通知）
-
-假设上位机让 MCU 执行一次**硬件自检（Self-Test）**或 **Flash 固件校验**，这个操作在硬件上需要 **20 毫秒甚至 2 秒**。
-
-- ❌ **错误做法**：在 `device_server_on_self_test()` 函数里写 `delay_ms(20)` 死等硬件做完再 return。这会直接卡死你的单线程主循环，导致这期间所有的串口收包和别的心跳全部瘫痪！
-- ✅ **Wirelink 标准工程模式**（源自 [`examples/03_device_service/`](https://github.com/starwey604/wirelink/tree/main/examples/03_device_service)）：
-  1. **用短 RPC 启动任务**：客户端调 `StartSelfTest`，服务端在微秒级内检查自己忙不忙，分配一个 `job_id` 并记下到期时间 `due`，立刻返回 `job_id`（如果正忙就返回非零拒绝码 `DEVICE_BUSY`）。
-  2. **在主循环里轮询进度**：主循环每次看时间到了没；到了就通过普通消息 `send_self_test_progress` 把结果发出去。
-
-点击下方标签页查看 [`examples/03_device_service/self_test.c`](https://github.com/starwey604/wirelink/blob/main/examples/03_device_service/self_test.c) 的真实源码：
-
-<Tabs>
-  <TabItem label="1. 短 RPC 立即受理 (device_server_on_start_self_test)">
-    {/* [docs:device_job_start] */}
-    ```c
-    int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
-                         start_self_test_response_t *response) {
-      device_service_t *state = self->user;
-      if (state->job_pending || state->next_job == UINT32_MAX) return DEVICE_BUSY;
-      state->job_id = ++state->next_job;
-      state->pattern = request->pattern;
-      state->due = state->now + 20U;
-      state->job_pending = true;
-      response->job_id = state->job_id;
-      return 0;
-    }
-    ```
-    {/* [/docs:device_job_start] */}
-
-    你看，这个 RPC handler 不做任何耗时等待：如果已经有任务在做（`state->job_pending`），立刻返回非零错误码 `DEVICE_BUSY` 拒绝；否则登记任务并立刻返回 `0` 和 `job_id`。
-  </TabItem>
-
-  <TabItem label="2. 主循环轮询并优雅处理背压 (self_test_poll)">
-    当 20ms 到期后，主循环调用 `self_test_poll` 发送完成进度消息：
-
-    {/* [docs:device_job_poll] */}
-    ```c
-    void self_test_poll(device_service_t *state, device_server_node_t *endpoint) {
-      if (!state->job_pending || (int32_t)(state->now - state->due) < 0) return;
-      self_test_progress_t progress = {.job_id = state->job_id,
-        .observed = state->pattern ^ UINT32_C(0xa5a5)};
-      const wl_err_t error = device_server_send_self_test_progress(endpoint, &progress);
-      if (error == WL_ERR_WOULD_BLOCK) return;
-      EXAMPLE_REQUIRE(error == WL_OK);
-      state->job_pending = false;
-    }
-    ```
-    {/* [/docs:device_job_poll] */}
-
-    **注意看第 6~8 行的背压处理范式**：
-    - 如果此刻普通消息槽正好被上一条遥测占着（返回 `WL_ERR_WOULD_BLOCK`），我们**直接 `return`，不把 `state->job_pending` 清为 `false`**！
-    - 这样在下一次主循环 `step` 把旧消息发走后，`self_test_poll` 会自动再次尝试发送这条自检结果，绝不会因为本地队列暂满而把关键的任务完成通知弄丢！
-  </TabItem>
-</Tabs>
-
-<Aside type="note" title="本地背压不丢 != 物理掉线不丢">
-上面保留 `job_pending` 的做法解决了**本端发送槽暂满（本地背压）**的问题。但如果你的物理线缆（如无线 UDP 或受干扰串口）在路上把这帧 `SelfTestProgress` 丢了，由于普通消息没有内置重传，对于需要 100% 确认最终结果的业务，你还可以额外提供一个 `QueryJobResult(job_id)` 的查询 RPC 作为兜底。
-</Aside>
+  `cancel` 是**本地会话取消**：它让客户端放弃等待回包，并在下一次 `step()` 中以 `WL_KERNEL_CANCELLED` 终态释放本端的请求槽（如果以后迟到的响应包才回来，会被安全丢弃）。但它不会在线缆上发送“撤销指令”，也无法回滚下位机可能已经执行的动作。
+</Challenge>
 
 ---
 
 ## 本课小测验
 
 <MultipleChoice
-  id="lesson-05-cancel"
-  question="当你调用 cancel(&node, handle) 并返回 WL_OK 后，对应的 RPC 完成回调（outcome = WL_KERNEL_CANCELLED）会在什么时候执行？"
+  id="lesson-05-backpressure"
+  question="在轮询发送“固件自检已完成”这类只发生一次的关键状态消息时，如果 send 返回了 WL_ERR_WOULD_BLOCK，应该怎么处理？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "不会在 cancel() 内部立即重入执行，而是等到下一次主循环调用 step(now) 时统一派发。",
+    "label": "保留待发送状态标志（如 job_pending = true），等主循环推进 step 腾出消息槽后，在下一轮循环重试发送。",
     "correct": true,
-    "feedback": "完全正确！Wirelink 严格保证防重入，所有终态通知都由 owner 在 step() 中统一派发。同时要注意：本地取消不能撤销远端可能已经执行的业务副作用。"
+    "feedback": "完全正确！返回 WOULD_BLOCK 说明唯一的普通消息槽正忙，节点尚未接纳该数据；保留 pending 标志即可在槽位释放后无损补发。"
   },
   {
-    "label": "在 cancel() 函数返回之前立即在当前调用栈上执行。",
+    "label": "直接把 job_pending 清为 false，因为节点内部会自动申请新内存帮你排队。",
     "correct": false,
-    "feedback": "不对。为了避免回调重入导致的状态机混乱，cancel 只标记取消状态，真正的回调由后续 step 派发。"
+    "feedback": "错误！Wirelink 是零动态分配的，返回 WOULD_BLOCK 时节点没有保存你的数据，直接清除标志会导致该通知丢失。"
   }
 ]}
 />
 
 <MultipleChoice
-  id="lesson-05-backpressure"
-  question="在轮询发送长任务进度通知时，如果 send 返回了 WL_ERR_WOULD_BLOCK，应该怎么处理？"
+  id="lesson-05-cancel"
+  question="调用 cancel(&node, handle) 返回 WL_OK 后，对应的完成回调（outcome = WL_KERNEL_CANCELLED）会在何时触发？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "保留任务待发送标志（如 job_pending = true），等推进 step 释放消息槽后再重试发送。",
+    "label": "不会在 cancel() 函数内同步重入触发，而是在下一次主循环执行 step(now) 时统一派发。",
     "correct": true,
-    "feedback": "正确！WOULD_BLOCK 说明本端唯一的普通消息槽正忙，节点尚未接纳该消息；保留 pending 标志即可在下次循环无损重试。"
+    "feedback": "正确！所有终态回调都严格在 step() 中统一派发，杜绝回调重入隐患。"
   },
   {
-    "label": "直接把 job_pending 置为 false，因为内核已经帮你把这条消息缓存进队列了。",
+    "label": "在 cancel() 返回之前立刻在当前调用栈上触发。",
     "correct": false,
-    "feedback": "不对。返回 WOULD_BLOCK 时节点没有保存你的输入数据，直接清除标志会导致该通知彻底丢失。"
+    "feedback": "不对。cancel 只标记取消状态，真正的回调由下一次 step() 派发。"
   }
 ]}
 />
@@ -199,12 +208,12 @@ EXAMPLE_REQUIRE(completed == 0); /* cancel schedules, not invokes, completion. *
   title="本课掌握清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "清楚节点的固定容量：4 个并发调用槽、3 个待发回复槽与 1 个普通消息快照槽。",
-    "知道 cancel 只标记状态并由下一次 step 派发回调，且取消或超时不代表远端没有执行。",
-    "掌握“短 RPC 分配 job_id + 轮询发送进度（遇 WOULD_BLOCK 保留 pending 重试）”的长任务模式。"
+    "记清节点的静态容量：4 个并发调用槽、3 个待发回复槽与 1 个普通消息快照槽。",
+    "能根据业务语义区分 WOULD_BLOCK 背压策略：周期高频采样“跳过旧值”，关键状态迁移“保留 pending 重试”。",
+    "理解简化调用与 _ex 调用的计时差异，以及 cancel 延迟到下一次 step 派发回调的防重入机制。"
   ]}
 />
 
-恭喜你，C11 节点的核心内功你已经全部掌握了！最后一课，我们要把节点真正接到**串口字节流（UART `cobs_crc16`）**和**UDP 网络**上，并用 `wlc sdk` 一键生成上位机 **Python / C++20 客户端**。
+到这里，日常业务开发 95% 的知识你都已经融会贯通了！最后一课是面向深度嵌入式系统集成的进阶课：**当设备要休眠或重启端口时，怎么安全排空所有状态（`quiescent`）？怎么在 FreeRTOS / Zephyr 里低功耗休眠唤醒？什么时候才需要切换到 `io = external` 对接零拷贝异步 DMA？**
 
-下一课：[06 上位机 SDK 与多传输接入 →](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)
+下一课：[06 进阶内核机制：安全停机、RTOS 唤醒与零拷贝 DMA →](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)

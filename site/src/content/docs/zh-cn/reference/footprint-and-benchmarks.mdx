@@ -7,15 +7,15 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-在评估嵌入式通信中间件的体积时，只看某一个核心结构体（比如 `sizeof(wl_kernel_t)`）是具有欺骗性的——因为真正把通信跑起来，你还必须为接收缓冲区（双 RX 槽）、出站请求/回复池以及串口流转换器（COBS/FIFO）分配内存。
+在评估嵌入式通信中间件的内存占用时，只看某一个核心结构体（比如 `sizeof(wl_kernel_t)`）往往不够全面——因为真正把通信跑起来，你还需要接收缓冲区（双 RX 槽）、出站请求/回复池以及串口流分帧器（COBS/FIFO）的内存。
 
-因此，Wirelink 坚持**“测量并报告完整通信装配（Full Assembly）的真实静态内存”**。以下数据基于 **GCC 16.2.1 (x86-64)**，编译选项 `-std=c11 -Os -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables`，由仓库脚本 `benchmarks/footprint/footprint.py` 实测生成。
+因此，下面列出了**完整通信装配（Full Assembly）的实测静态内存账本**。数据基于 **GCC 16.2.1 (x86-64)**，编译选项 `-std=c11 -Os -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables`，由仓库脚本 `benchmarks/footprint/footprint.py` 实测生成。
 
 ---
 
 ## 一、 核心库各编译单元体积（`.text` / `.rodata` / `.bss`）
 
-下表将 `src/*.c` 的 12 个核心源文件单独编译后列出（包含所有可选流连接器与辅助模块，不含生成的业务消息编解码器）。在实际固件链接时，开启 `--gc-sections` 会自动裁剪掉你未使用的模块（例如用 `native` 时不会链接 COBS 和 CRC）：
+下表将 `src/*.c` 的 12 个核心源文件单独编译后列出（包含所有可选流连接器与辅助模块，不含生成的业务消息编解码器）。在实际固件链接时，开启 `--gc-sections` 会自动裁剪掉未使用的模块（例如用 `native` 时不会链接 COBS 和 CRC）：
 
 | 核心编译单元 | 模块职责 | `.text` (Flash 代码) | `.rodata` (只读常量) | `.data` | `.bss` (全局静态 RAM) |
 | :--- | :--- | ---: | ---: | ---: | ---: |
@@ -41,19 +41,19 @@ import { Aside } from '@astrojs/starlight/components';
 
 ## 二、 完整双向节点装配的静态 RAM 账本
 
-对于仓库中同时启用双向 RPC（`call` + `serve`）与双向遥测（`send` + `recv`）的 `examples/kernel/demo.wl` 节点，将**节点结构体、端口、双 RX 接收缓冲以及流分帧/FIFO 缓冲区全部加在一起**的总 RAM 如下：
+对于同时启用双向 RPC（`call` + `serve`）与双向遥测（`send` + `recv`）的 `examples/kernel/demo.wl` 节点，将**节点结构体、端口、双 RX 接收缓冲以及流分帧/FIFO 缓冲区全部加在一起**的总 RAM 如下：
 
-| 完整通信装配方案 | 0.13 基线总 RAM | 当前 0.14 总 RAM | 变化 | 包含的静态存储组件明细 |
-| :--- | ---: | ---: | ---: | :--- |
-| **`native` 分帧装配** | 782 B | **790 B** | +8 B | 节点结构体 (`624 B`) + 端口 + 双 RX 接收槽（每槽保留最大帧 + 1B） |
-| **`length16` 分帧装配** | 924 B | **932 B** | +8 B | 上述基础装配 + `length16` 流连接器对象与拼包缓冲 |
-| **`cobs_crc16` 串口装配** | 1,046 B | **1,054 B** | +8 B | 上述基础装配 + COBS/CRC16 流连接器 + ISR 隔离字节 FIFO 缓冲 |
+| 完整通信装配方案 | 实测总 RAM | 包含的静态存储组件明细 |
+| :--- | ---: | :--- |
+| **`native` 分帧装配** | **790 B** | 节点结构体 (`624 B`) + 端口 + 双 RX 接收槽（每槽保留最大帧 + 1B） |
+| **`length16` 分帧装配** | **932 B** | 上述基础装配 + `length16` 流连接器对象与拼包缓冲 |
+| **`cobs_crc16` 串口装配** | **1,054 B** | 上述基础装配 + COBS/CRC16 流连接器 + ISR 隔离字节 FIFO 缓冲 |
 
-### 按角色裁剪能省多少 RAM？
+### 按角色裁剪如何节省 RAM？
 
 上面的 `demo_node_t`（624 B，其中 `wl_kernel_t` 440 B、`wl_packet_port_t` 128 B、`wl_packet_stream_t` 120 B，基于 64 位 x86-64 ABI 测量；在 32 位 ARM Cortex-M 上指针减半还会更小）是因为它**同时开启了所有 4 种方向角色**。
 
-在你的实际固件中，只要在 `node` 里只声明真正用到的方向，未使用的字节池就会直接降为 0：
+在你的实际固件中，只要在 `node` 里只声明真正用到的方向，未使用的字节池就会直接裁剪为 0：
 - **纯传感器发布节点（仅 `send`）**：不分配 4 个 RPC 请求槽和 3 个 RPC 回复槽。
 - **纯执行器服务节点（仅 `serve`）**：不分配 4 个出站 RPC 请求槽和普通消息发送槽。
 

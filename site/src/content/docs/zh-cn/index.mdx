@@ -3,13 +3,13 @@ title: Wirelink
 description: 面向嵌入式 MCU（裸机 / RTOS / Zephyr）与上位机的纯 C11 零动态分配通信中间件。
 template: splash
 hero:
-  tagline: 告别手写串口拆包、字节序转换与 RPC 超时状态机。写一份 .wl 协议，自动生成零 malloc 的 C11 固件节点与上位机 Python / C++20 SDK。
+  tagline: 写一份 .wl 协议，自动生成零 malloc 的 MCU C11 固件节点与上位机 Python / C++20 SDK，在串口或网络上跑通双向 RPC 与单向遥测。
   actions:
     - text: 5 分钟快速上手
       link: /wirelink/zh-cn/overview/quick-start/
       icon: right-arrow
       variant: primary
-    - text: 开始交互式课程 (01~06)
+    - text: 开始实战教程 (01~06)
       link: /wirelink/zh-cn/learn/01-loopback-endpoint/
       icon: open-book
       variant: secondary
@@ -27,20 +27,20 @@ import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 
 <div class="hero-metrics">
   <span>纯 ISO C11 · 核心零堆分配 (0 malloc)</span>
-  <span>单文件声明 message + rpc + node</span>
-  <span>默认内嵌端口 · 按角色精确裁剪 RAM</span>
-  <span>自动生成 Python / C++20 上位机 SDK</span>
+  <span>单文件定义 message + rpc + node</span>
+  <span>原生支持双向 RPC 与单向 Telemetry</span>
+  <span>一键生成 Python / C++20 上位机 SDK</span>
 </div>
 
-在 MCU 与上位机之间传遥测、下发配置或调 RPC 时，你是否还在手写 `switch-case` 解析字节流、到处填 `has_field = true`、或者为了等待响应而把主循环卡死？
+在做嵌入式开发时，让下位机（MCU 固件）和上位机（PC 测试脚本、桌面 UI 或边缘主机）稳定通信，往往要自己手写串口粘包断包、CRC 校验、字节序转换以及 RPC 超时重试状态机。
 
-**Wirelink 把“类型安全的二进制编解码”与“确定性容量的 RPC 微内核”合二为一**。它的 C11 核心不依赖任何操作系统、线程、系统时钟或硬件驱动——你只需在主循环里喂入字节并调用 `<node>_step(now_ms)`，就能在 UART、USB Bulk、UDP 或 SPI 上跑通强类型的双向通信。
+**Wirelink 把“类型安全的二进制编解码”、“串口/数据包分帧器”与“确定性容量的 RPC 微内核”合二为一**。它的 C11 核心不依赖任何操作系统、线程、系统时钟或硬件驱动——你只需在主循环里喂入收到的字节并调用 `<node>_step(now_ms)`，就能在 UART 串口、USB、UDP 或 SPI 上跑通强类型的上下位机通信。
 
-## 直观感受：从一份 `.wl` 到双端通话
+## 三步看懂：从一份 `.wl` 到上下位机通话
 
 <Tabs>
-  <TabItem label="1. 写一份协议 (calculator.wl)">
-    在同一份文件里定义数据结构、RPC 配对以及两端各自扮演的角色（`node`）：
+  <TabItem label="1. 定义协议与两端角色 (calculator.wl)">
+    在同一份 `.wl` 文件里定义消息字段、RPC 请求/响应配对，以及上位机（`client`）与下位机（`server`）各自扮演的角色：
 
     {/* [docs:calculator_schema] */}
     ```wl
@@ -56,8 +56,8 @@ import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
     {/* [/docs:calculator_schema] */}
   </TabItem>
 
-  <TabItem label="2. MCU 固件实现服务 (server.c)">
-    运行 `wlc compile calculator.wl --node server` 生成一对 `.h/.c`。你不需要注册回调表，直接实现同名 C 函数即可：
+  <TabItem label="2. 下位机 MCU 实现服务 (server.c)">
+    运行 `wlc compile calculator.wl --node server` 生成一对干净的 `.h/.c`。你只需直接实现同名 C 函数：返回 `0` 发送计算结果，返回非零值（如整数溢出时返回 `1`）主动拒绝请求：
 
     {/* [docs:calculator_server] */}
     ```c
@@ -73,7 +73,7 @@ import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
   </TabItem>
 
   <TabItem label="3. 上位机 Python 直接调用">
-    运行 `wlc sdk calculator.wl --node client` 生成带完整类型提示的 Python 客户端包，连业务拒绝码（如整数溢出返回 `1`）都会自动映射为异常：
+    运行 `wlc sdk calculator.wl --node client` 生成带完整类型提示的 Python 客户端包。下位机返回的非零业务拒绝码会自动映射为 `RejectedError` 异常：
 
     {/* [docs:python_sdk_client] */}
     ```python
@@ -89,29 +89,29 @@ import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
   </TabItem>
 </Tabs>
 
-## 端到端工作流架构
+## 上下位机端到端工作流
 
 ```mermaid
 flowchart LR
-  Schema["📄 schema.wl<br/>message + rpc + node"] --> WLC["⚙️ wlc 编译器"]
-  WLC -->|"wlc compile --node server"| MCU["📟 MCU 纯 C11 节点<br/>内嵌缓冲区 + 静态业务钩子"]
-  WLC -->|"wlc sdk --node client"| SDK["💻 上位机 Python / C++20 SDK<br/>强类型同步 / 异步客户端"]
-  MCU <-->|"UART (COBS+CRC16) / USB / UDP / SPI"| SDK
+  Schema["📄 协议文件 (.wl)<br/>message + rpc + node"] --> WLC["⚙️ wlc 编译器"]
+  WLC -->|"wlc compile --node server"| MCU["📟 下位机 MCU (纯 C11)<br/>内嵌静态缓冲区 + 业务处理函数"]
+  WLC -->|"wlc sdk --node client"| SDK["💻 上位机 SDK (Python / C++20)<br/>强类型同步 / 异步客户端"]
+  MCU <-->|"UART 串口 (COBS+CRC16) / USB / UDP"| SDK
 ```
 
 ## 选择你的学习路径
 
 <CardGrid>
   <Card title="🚀 5 分钟快速上手" icon="rocket">
-    无需任何硬件，30 秒在本地跑通内置 C11 双端回环；再花 3 分钟走完从 `.wl` 到 Python 联调的完整闭环。[立即开始 →](/wirelink/zh-cn/overview/quick-start/)
+    从编写第一份 `.wl` 协议开始，3 步生成下位机 C11 节点与上位机客户端，并附带免安装编译器的 30 秒本地验证。[立即开始 →](/wirelink/zh-cn/overview/quick-start/)
   </Card>
-  <Card title="🎓 渐进式互动教程（第 01 ~ 06 课）" icon="open-book">
-    参照 Astro 交互式教程设计。每课带你攻克一个真实工程场景，包含源码透视、动手微挑战、思考题与进度检查单。[进入第 01 课 →](/wirelink/zh-cn/learn/01-loopback-endpoint/)
+  <Card title="🎓 渐进式实战教程（第 01 ~ 06 课）" icon="open-book">
+    按真实开发顺序编排：先打通上下位机通信，再深入 Telemetry 与 RPC 的协同模式、字符串内存生命周期、串口/UDP 接入与并发背压。[进入第 01 课 →](/wirelink/zh-cn/learn/01-loopback-endpoint/)
   </Card>
-  <Card title="📐 Schema 语法与节点手册" icon="setting">
-    为什么字段默认必选没有 `has_*`？`string<31>` 在内存里怎么存？怎么给串口选 `cobs_crc16`？[查看语法与节点指南 →](/wirelink/zh-cn/concepts/schema-language/)
+  <Card title="📐 .wl 语法与节点配置手册" icon="setting">
+    查阅标量类型、有界字符串 `string<N>`、可选字段 `optional`、多模块 `import` 以及串口 `cobs_crc16` 分帧配置。[查看语法与节点指南 →](/wirelink/zh-cn/concepts/schema-language/)
   </Card>
-  <Card title="🔌 硬件驱动移植与协议参考" icon="list-format">
-    把生成的节点接到你板子上的 UART ISR、DMA 或 FreeRTOS/Zephyr 任务中，或查阅 Wire v2 字节规范与实测 RAM 账本。[查阅驱动与 API 手册 →](/wirelink/zh-cn/how-to/custom-drivers/)
+  <Card title="🔌 硬件驱动移植与 API 参考" icon="list-format">
+    把生成的节点接到你板子上的 UART 中断、DMA 或 FreeRTOS/Zephyr 任务中，或查阅 C11 API 速查表与二进制帧规范。[查阅驱动与 API 手册 →](/wirelink/zh-cn/how-to/custom-drivers/)
   </Card>
 </CardGrid>

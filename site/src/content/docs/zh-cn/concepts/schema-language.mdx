@@ -1,15 +1,15 @@
 ---
-title: Schema 语言：默认必选与有界存储
-description: 一份 .wl 文件搞定消息、枚举、RPC、节点与协议平滑演进规则。
+title: .wl 协议语法手册
+description: 一份 .wl 文件搞定消息数据结构、有界字符串、枚举、可选字段、RPC 配对与协议平滑演进。
 sidebar:
   order: 1
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-在 Wirelink 中，`.wl` 文件是消息数据结构、RPC 请求/响应配对以及节点角色的**唯一事实来源（Single Source of Truth）**。文件顶部的 `version 1;` 可以省略（默认为 1）；跨模块共享类型时使用 `import "common.wl";`。
+在 Wirelink 中，`.wl` 文件是消息数据结构、RPC 请求/响应配对以及通信节点角色的**唯一定义入口**。文件顶部的 `version 1;` 可以省略（默认为 1）；跨模块共享类型时使用 `import "common.wl";`。
 
-先看一个包含常见特性的完整 `.wl` 速览：
+先看一个包含常用特性的完整 `.wl` 示例：
 
 ```wl
 enum DeviceMode @id(1) {
@@ -18,11 +18,11 @@ enum DeviceMode @id(1) {
 }
 
 message Telemetry @id(10) {
-  uint32 sample @id(1);                              // 默认必选，C 结构体无 has_sample
-  optional int32 temperature @id(2) [default = 2500]; // 显式可选，带 bool has_temperature
-  DeviceMode mode @id(5);                            // 必选枚举字段
+  uint32 sample @id(1);                              // 必选字段，对应 uint32_t sample;
+  optional int32 temperature @id(2) [default = 2500]; // 可选字段，附带 bool has_temperature;
+  DeviceMode mode @id(5);                            // 枚举字段
   string<31> tag @id(4);                             // 有界内联字符串：char data[32]
-  reserved 3;                                        // 已废弃的字段 ID 放入 reserved 防误用
+  reserved 3;                                        // 已废弃的字段编号放入 reserved 防误用
 }
 
 node sensor {
@@ -33,49 +33,28 @@ node sensor {
 
 ---
 
-## 一、 字段存在性：为什么默认必选（Required by default）？
+## 一、 基本数据类型与 C11 结构体映射
 
-在很多嵌入式协议里，95% 的字段（如采样序号、电压、坐标轴）在每一帧里都是固定出现的。如果在 C 结构体里给每个字段都塞一个 `bool has_xxx`，不仅每次发包前要写一长串 `msg.has_a = true; msg.has_b = true;`，还会白白浪费结构体内存。
+一条 `message` 最多支持 256 个字段。消息路由编号和字段编号 `@id(N)`（也可简写为 `= N`）使用非零的 `uint16` 整数（`1 .. 65535`）：
 
-因此，Wirelink 0.14 采用**默认必选**规则：
-
-| `.wl` 字段写法 | 是否生成 `bool has_<field>`？ | 解码时如果线上缺失该字段会怎样？ | 适用场景 |
-| :--- | :---: | :--- | :--- |
-| `uint32 value @id(1);` | ❌ **无** | 解码失败，返回 `WL_ERR_CORRUPT_PAYLOAD` | 绝大多数常规业务字段（最清爽） |
-| `required uint32 value @id(1);` | ❌ **无** | 同上（`required` 是默认必选的显式同义词） | 需要显式强调必选语义时 |
-| `optional uint32 value @id(1);` | ✅ **有 (`has_value`)** | 允许缺失：`has_value = false`，值初始化为 `0` 或 `[default = ...]` | 按需携带的扩展字段、协议升级新增字段 |
-| `packed float32 axes[3] @id(1);` | ❌ **无** | 必选定长数组；缺失或元素个数不为 3 时解码失败 | 固定长度数组（如三轴加速度、RGB、通道组） |
-| `optional packed float32 axes[3] @id(1);` | ✅ **有 (`has_axes`)** | 可选定长数组；若出现则元素个数必须恰好为 3 | 有时不传的整组定长数组 |
-| `repeated uint32 items @id(1);` | ❌ **无**（用 `count` 表示） | 无界重复序列，仅用于**独立纯 Codec**（节点路由需有界帧） | 纯编解码场景下的自定义动态列表 |
-
-<Aside type="caution" title="关于 [default = ...] 的重要提醒">
-给 `optional` 字段加上 `[default = 2500]` 后，当对端没有发送该字段时，解码出来的结构体里 `has_temperature` 为 **`false`**，同时 `temperature` 会被预填为默认值 `2500`；默认值**不会**把一个线上缺失的字段变成 `has_temperature = true`。
-</Aside>
-
----
-
-## 二、 类型系统、线缆编码与 C11 内存映射
-
-一条消息最多支持 256 个字段。`@id(N)`（或简写为 `= N`）使用非零的 `uint16` 整数（`1 .. 65535`）：
-
-| `.wl` 类型 | Schema-v1 (TLV) 线缆编码 | 生成的 C11 字段类型 | 特点与使用建议 |
+| `.wl` 类型 | 线缆编码方式 (Schema-v1 TLV) | 生成的 C11 字段类型 | 特点与使用建议 |
 | :--- | :--- | :--- | :--- |
 | `bool` | Varint (`0` 或 `1`) | `bool` | 1 字节布尔值 |
-| `uint8`, `uint16`, `uint32`, `uint64` | LEB128 Varint | `uint8_t .. uint64_t` | 数值越小数占字节越少（0~127 仅占 1 字节） |
-| `int8`, `int16`, `int32`, `int64` | ZigZag + Varint | `int8_t .. int64_t` | 负数（如 `-1`）经 ZigZag 映射后也只需 1 字节，不会膨胀成 10 字节！ |
+| `uint8`, `uint16`, `uint32`, `uint64` | LEB128 Varint | `uint8_t .. uint64_t` | 数值越小占用的线缆字节越少（`0 .. 127` 仅占 1 字节） |
+| `int8`, `int16`, `int32`, `int64` | ZigZag + Varint | `int8_t .. int64_t` | 负数（如 `-1`）经 ZigZag 映射后也只需 1 字节 |
 | `enum` | ZigZag + Varint | 对应的 C `enum` 类型 | 解码时自动校验枚举值是否在声明集合内 |
-| `fixed32`, `fixed64` | 固定 4B / 8B 小端 | `uint32_t`, `uint64_t` | 当数值经常很大（$> 2^{28}$）、写死定长比 Varint 更省时使用 |
+| `fixed32`, `fixed64` | 固定 4B / 8B 小端 | `uint32_t`, `uint64_t` | 当数值经常很大（$> 2^{28}$）、定长比 Varint 更省时使用 |
 | `float32`, `float64` | 固定 4B / 8B IEEE-754 小端 | `float`, `double` | 标准单精度 / 双精度浮点数 |
 | `string<N>` | 长度 Varint + UTF-8 字节 | `struct { size_t length; char data[N+1]; }` | **有界内联字符串**：解码强制校验 UTF-8，且末尾自动补 `'\0'`（不在线上传输） |
-| `bytes<N>` | 长度 Varint + 原始字节 | `struct { size_t length; uint8_t data[N]; }` | **有界内联字节块**：任意二进制数据 |
-| 嵌套 `message` | 长度 Varint + 子消息内容 | 直接内嵌子消息 C 结构体 | 支持模块化组合复杂数据结构 |
+| `bytes<N>` | 长度 Varint + 原始字节 | `struct { size_t length; uint8_t data[N]; }` | **有界内联字节数组**：存放任意二进制数据块 |
+| 嵌套 `message` | 长度 Varint + 子消息内容 | 直接内嵌子消息 C 结构体 | 组合复杂层次化数据 |
 
-### 字符串与字节数组的便捷 Setter
+### 字符串与字节数组的安全 Setter
 
-对于有界 `string<N>` 和 `bytes<N>`，生成器会自动提供带容量检查的辅助函数：
+对于有界 `string<N>` 和 `bytes<N>`，生成的头文件会自动提供带容量检查的辅助函数：
 
 ```c
-/* 1. 有界 string<N>：自动计算 strlen、检查 <= N、复制内容并补 '\0' */
+/* 1. 有界 string<N>：自动计算 strlen、检查长度 <= N、复制内容并补 '\0' */
 bool ok = telemetry_set_tag(&msg, "motor-front-left");
 
 /* 2. 有界 bytes<N>：显式传入字节长度，检查 <= N 并 memcpy */
@@ -84,9 +63,27 @@ bool ok_bytes = packet_set_payload(&pkt, raw_adc_bytes, sizeof(raw_adc_bytes));
 
 ---
 
+## 二、 必选字段、可选字段（`optional`）与定长数组（`packed`）
+
+在 `message` 中，字段默认是**必选**的；如果某个字段只在特定条件下才携带，或者是在协议升级时新增的扩展字段，可以在类型前加上 `optional`：
+
+| `.wl` 字段写法 | 生成的 C 结构体成员 | 解码时如果对端未发送该字段 | 适用场景 |
+| :--- | :--- | :--- | :--- |
+| `uint32 value @id(1);` | `uint32_t value;` | 解码失败，返回 `WL_ERR_CORRUPT_PAYLOAD` | 常规核心业务字段（也可显式写 `required uint32 ...`） |
+| `optional uint32 value @id(1);` | `bool has_value;`<br/>`uint32_t value;` | 允许缺失：`has_value = false`，值初始化为 `0` 或 `[default = ...]` | 按需携带的扩展字段、协议后续升级新增字段 |
+| `packed float32 axes[3] @id(1);` | `float axes[3];` | 必选定长数组；缺失或元素个数不为 3 时解码失败 | 固定长度数组（如三轴传感器数据、RGB、多通道采样） |
+| `optional packed float32 axes[3] @id(1);` | `bool has_axes;`<br/>`float axes[3];` | 可选定长数组；若出现则元素个数必须恰好为 3 | 按需携带的一组定长数组 |
+| `repeated uint32 items @id(1);` | 指针 + `count` 视图 | 无界重复序列，仅用于不含 `node` 的**独立纯编解码器（Codec-only）** | 纯编解码场景下的自定义动态列表 |
+
+<Aside type="note" title="关于 [default = ...] 默认值的行为">
+给 `optional` 字段加上 `[default = 2500]` 后，当对端没有发送该字段时，解码出的结构体中 `has_temperature` 为 **`false`**，同时 `temperature` 会被预填为默认值 `2500`。这样你既能直接读取含默认回退的值，又能通过 `has_temperature` 判断对端是否显式传输了该字段。
+</Aside>
+
+---
+
 ## 三、 RPC 与 Node 角色声明
 
-在同一个 `.wl` 文件底部，你可以直接用 `rpc` 配对请求与响应，并用 `node` 定义参与通信的各个端点：
+在同一份 `.wl` 文件中，你可以用 `rpc` 配对请求与响应消息，并用 `node` 定义通信两端的具体角色：
 
 {/* [docs:calculator_schema] */}
 ```wl
@@ -101,20 +98,20 @@ node server { serve Add; }
 ```
 {/* [/docs:calculator_schema] */}
 
-关于 `node` 的 5 项配置（`framing`、`codec`、`io`、`handlers`、`timeout_ms`）与多文件 `import` 组合用法，请阅读下一篇：**[节点声明：角色、分帧与 I/O](/wirelink/zh-cn/concepts/nodes/)**。
+关于 `node` 的 5 项配置（`framing`、`codec`、`io`、`handlers`、`timeout_ms`）与多文件 `import` 组合用法，请继续阅读下一篇：**[节点声明：角色、分帧与 I/O](/wirelink/zh-cn/concepts/nodes/)**。
 
 ---
 
-## 四、 协议平滑演进与兼容性检查（`wlc validate --previous`）
+## 四、 协议平滑升级与兼容性检查（`wlc validate --previous`）
 
-当你的产品已经出货、需要升级 `.wl` 协议时，如何确保新固件不会把老上位机搞崩？
+当你的设备已经量产出货、需要升级 `.wl` 协议时，如何确保新固件与旧版上位机能正常互通？
 
 1. **用 `wlc validate` 自动拦截破坏性修改**：
    ```sh
    wlc validate new_app.wl --previous old_app.wl
    ```
-2. **遵守四条演进铁律（Schema-v1 TLV 模式）**：
-   - **永远不要修改已有字段的 `@id(N)` 或类型**。
-   - **删除旧字段后，把它的 ID 和名字放进 `reserved`**（如 `reserved 3;`、`reserved "old_temp";`），防止同事以后不小心复用该 ID 导致老设备解析错乱。
-   - **新增字段一律声明为 `optional`**，不要随便往已有消息里加必选（`required`）字段，否则旧设备发来的包会因为缺少新必选字段而被新设备拒收。
-   - **`positional_v1` 紧凑编码没有字段 Tag**：它按字段顺序直接拼字节，省去了每个字段 1~2 字节的 Tag 开销，适合高频定型遥测；一旦使用 `positional_v1`，通信双方的字段布局必须严格同步升级。
+2. **遵守四条协议演进原则（默认 `schema_v1` TLV 编码）**：
+   - **不要修改已有字段的 `@id(N)` 编号或数据类型**。
+   - **删除旧字段后，把它的编号或名字放进 `reserved`**（如 `reserved 3;` 或 `reserved "old_temp";`），防止后续开发不小心复用该编号导致旧设备解析错乱。
+   - **向已有消息新增字段时，声明为 `optional`**，这样旧设备发来的数据包（不含新字段）依然能被新固件正常解码。
+   - **`positional_v1` 紧凑编码适用于双方同步升级的定型遥测**：它按字段顺序直接拼字节，省去了每个字段 1~2 字节的 Tag 开销，要求收发双方的字段定义严格一致。
