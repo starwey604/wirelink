@@ -1,0 +1,112 @@
+---
+interface Props {
+  unit: number;
+  totalUnits?: number;
+  duration?: string;
+  examplePath?: string;
+  goals: string[];
+}
+
+const {
+  unit,
+  totalUnits = 6,
+  duration = '5 ~ 8 分钟',
+  examplePath,
+  goals,
+} = Astro.props;
+
+const githubUrl = examplePath
+  ? `https://github.com/starwey604/wirelink/tree/main/${examplePath}`
+  : undefined;
+---
+
+<aside class="lesson-header not-content" aria-label="本课导览">
+  <div class="lesson-meta">
+    <span class="lesson-badge">第 {String(unit).padStart(2, '0')} 课 / 共 {totalUnits} 课</span>
+    <span class="lesson-duration">⏱ 预计阅读与实操：{duration}</span>
+    {githubUrl && (
+      <a class="lesson-source" href={githubUrl} target="_blank" rel="noopener noreferrer">
+        📂 配套源码：<code>{examplePath}</code> ↗
+      </a>
+    )}
+  </div>
+  <div class="lesson-goals">
+    <p class="goals-title">🎯 完成本课后，你将掌握：</p>
+    <ul>
+      {goals.map((goal) => (
+        <li>{goal}</li>
+      ))}
+    </ul>
+  </div>
+</aside>
+
+<style>
+  .lesson-header {
+    margin-block: 1rem 2rem;
+    padding: 1.15rem 1.35rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-top: 3px solid var(--sl-color-accent);
+    border-radius: 0.45rem;
+    background: color-mix(in srgb, var(--sl-color-gray-6) 45%, transparent);
+  }
+
+  .lesson-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem 1.1rem;
+    align-items: center;
+    padding-bottom: 0.85rem;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid var(--sl-color-gray-5);
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+  }
+
+  .lesson-badge {
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+    font-weight: 650;
+    font-size: var(--sl-text-xs);
+    letter-spacing: 0.02em;
+  }
+
+  .lesson-source {
+    margin-left: auto;
+    color: var(--sl-color-accent-high);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .lesson-source:hover {
+    text-decoration: underline;
+  }
+
+  .lesson-source code {
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.2rem;
+    background: var(--sl-color-gray-6);
+    font-size: 0.82em;
+  }
+
+  .goals-title {
+    margin: 0 0 0.5rem;
+    font-weight: 650;
+    font-size: var(--sl-text-base);
+    color: var(--sl-color-white);
+  }
+
+  .lesson-goals ul {
+    display: grid;
+    gap: 0.4rem;
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-sm);
+  }
+
+  .lesson-goals li::marker {
+    color: var(--sl-color-accent);
+  }
+</style>

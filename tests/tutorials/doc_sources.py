@@ -12,25 +12,32 @@ MARKER_RE = re.compile(
     r"^\s*(?:/\*\s*|//\s*|#\s*)\[(/?)docs:([a-zA-Z0-9_.-]+)\]\s*(?:\*/)?\s*$"
 )
 DOC_TAG_RE = re.compile(
-    r"^(?:<!--|\{/\*)\s*\[docs:([a-zA-Z0-9_.-]+)\]\s*(?:-->|\*/\})\s*$",
+    r"^[ \t]*(?:<!--|\{/\*)\s*\[docs:([a-zA-Z0-9_.-]+)\]\s*(?:-->|\*/\})\s*$",
     re.M,
 )
 DOC_BLOCK_RE = re.compile(
-    r"^(?:<!--|\{/\*)\s*\[docs:([a-zA-Z0-9_.-]+)\]\s*(?:-->|\*/\})\s*\n+"
-    r"```[^\n]*\n(.*?)\n```",
+    r"^[ \t]*(?:<!--|\{/\*)\s*\[docs:([a-zA-Z0-9_.-]+)\]\s*(?:-->|\*/\})\s*\n+"
+    r"[ \t]*```[^\n]*\n(.*?)\n[ \t]*```",
     re.S | re.M,
 )
 REQUIRED_SNIPPETS = {
     "telemetry_schema",
+    "telemetry_tx_write",
     "telemetry_publish",
     "telemetry_receive",
     "calculator_schema",
     "calculator_server",
     "calculator_sync_rpc",
+    "calculator_rejected_callback",
     "calculator_async_rpc",
     "calculator_cancel_timeout",
+    "device_info_schema",
+    "device_info_server",
+    "device_info_done",
     "device_info_client",
+    "device_job_start",
     "device_job_poll",
+    "composed_product_schema",
     "udp_server_loop",
     "udp_host_step",
     "python_sdk_client",
@@ -80,7 +87,7 @@ def verify_documents(
     for document in documents:
         text = document.read_text(encoding="utf-8")
         for match in DOC_BLOCK_RE.finditer(text):
-            name, actual = match.group(1), match.group(2).strip()
+            name, actual = match.group(1), textwrap.dedent(match.group(2)).strip()
             if name not in snippets:
                 raise RuntimeError(f"{document.relative_to(root)} references unknown [docs:{name}]")
             source_path, expected = snippets[name]

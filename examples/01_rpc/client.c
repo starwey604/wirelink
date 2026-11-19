@@ -21,12 +21,14 @@ static void advance(uint32_t now) {
   EXAMPLE_REQUIRE(client_step(&caller, now) == WL_OK);
   EXAMPLE_REQUIRE(server_step(&callee, now) == WL_OK);
 }
+/* [docs:calculator_rejected_callback] */
 static void rejected(client_node_t *self, wl_kernel_result_t outcome, const add_response_t *response) {
   (void)self;
   EXAMPLE_REQUIRE(response == NULL);
   result = outcome;
   ++completed;
 }
+/* [/docs:calculator_rejected_callback] */
 int main(void) {
   EXAMPLE_REQUIRE(client_init(&caller) == WL_OK && server_init(&callee) == WL_OK);
   calculator_async_example(&caller);

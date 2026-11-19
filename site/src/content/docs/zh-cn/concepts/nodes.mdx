@@ -1,11 +1,13 @@
 ---
 title: 节点声明：角色、分帧与 I/O
-description: 在同一份 .wl 中显式声明 call、serve、send、recv，按角色生成代码与存储。
+description: 在同一份 .wl 中显式声明 call、serve、send、recv，按角色裁剪代码与 RAM，并组合多模块产品。
 sidebar:
   order: 2
 ---
 
-`message` 和顶层 `rpc` 定义共享协议；`node` 选择一个固件或客户端使用哪些能力。每条路由都显式声明方向，不会自动为另一端启用对称路由。
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+在 `.wl` 文件中，`message` 和 `rpc` 定义了“两端共享的通信语言”；而 **`node` 则定义了“某一个具体固件或客户端到底扮演什么角色、走什么物理线”**。
 
 ```wl
 message Request @id(1) { uint32 value @id(1); }
@@ -13,46 +15,116 @@ message Response @id(2) { uint32 value @id(1); }
 message Event @id(3) { uint32 sequence @id(1); }
 rpc Execute(Request) -> Response;
 
-node controller { call Execute; recv Event; }
-node device { serve Execute; send Event; }
-```
+// 上位机或主控节点：主动发起 Execute 调用，并接收 Event 消息
+node controller {
+  call Execute;
+  recv Event;
+}
 
-## 五项配置及默认值
-
-| 配置 | 默认值 | 可选值与含义 |
-| --- | --- | --- |
-| `framing` | `native` | `native`、`cobs_crc16`、`length16` |
-| `codec` | `schema_v1` | 普通消息可选 `positional_v1`；RPC 固定 schema_v1 |
-| `io` | `embedded` | 内嵌 port/双 RX/流缓冲；`external` 挂载已有 port |
-| `handlers` | `static` | 业务函数直接链接；`dynamic` 显式使用回调表与 user |
-| `timeout_ms` | `500` | `1..2147483647`；用于简化 RPC 调用 |
-
-```wl
-node serial_device {
-  framing = cobs_crc16;
-  timeout_ms = 1000;
+// 设备固件节点：响应 Execute 服务，并主动上报 Event 消息
+node device {
   serve Execute;
   send Event;
 }
 ```
 
-只改动需要覆盖的配置，其余省略。一个 `.wl` 没有节点时只生成 codecs；一个节点时自动选择；多个节点使用 `--node <name>` 或 `--all-nodes`。
+<Aside type="tip" title="方向显式声明，绝不隐式浪费">
+每条路由都必须显式写明是 `send`、`recv`、`call` 还是 `serve`。如果 `device` 只写了 `send Event;`，编译器就绝不会为它生成 `Event` 的接收解码路径，更不会因为没写 `call` 而分配哪怕 1 字节的出站 RPC 请求池。
+</Aside>
 
-## 路由与静态函数
+---
 
-| 声明 | 生成接口 |
-| --- | --- |
-| `send Event;` | `<node>_send_event(self, value)` |
-| `recv Event;` | `void <node>_on_event(self, const event_t *)` |
-| `call Execute;` | `<node>_call_execute` 和 `_ex` |
-| `serve Execute;` | `int32_t <node>_on_execute(self, const request_t *, response_t *)` |
+## 一、 节点的 5 项配置与开箱即用默认值
 
-`recv Event = app_event;` / `serve Execute = app_execute;` 可指定静态业务符号。`call Execute = app_done;` 绑定默认完成函数，简化调用可省略 callback。普通消息可在路由上写 `@codec(positional_v1)` 覆盖节点默认编码；两端必须一致。
+在 `node` 花括号内，你可以按需覆盖以下 5 项配置（不写则全部采用最省心的默认值）：
 
-`handlers = dynamic` 才生成 `<node>_handlers_t`。表字段是 `on_event` / `on_execute`，其首参为 `void *user`。静态模式首参则是 `<node>_node_t *self`。
+| 配置项 | 默认值 | 所有可选值 | 怎么选？（工程师决策指南） |
+| :--- | :--- | :--- | :--- |
+| **`framing`** | `native` | `native`<br/>`cobs_crc16`<br/>`length16` | • **UDP / 自带包边界队列**：用默认 `native`<br/>• **UART 串口 / USB CDC 虚拟串口**：选 `cobs_crc16`（自带 `0x00` 断包与 CRC16 校验）<br/>• **板内可靠字节通道**：选 `length16`（2B 小端长度头，无 CRC） |
+| **`codec`** | `schema_v1` | `schema_v1`<br/>`positional_v1` | • **需要后续加减可选字段演进、或用于 RPC**：用默认 `schema_v1` (TLV)<br/>• **极致压榨带宽的高频单向遥测**：选 `positional_v1`（省去字段 Tag，双方布局需严格一致） |
+| **`io`** | `embedded` | `embedded`<br/>`external` | • **同步发送或驱动自带环形缓冲**：用默认 `embedded`（节点内嵌端口、双 RX 槽与流转换器）<br/>• **零拷贝异步 DMA（需长期借用指针）或对接现有 Adapter**：选 `external` |
+| **`handlers`** | `static` | `static`<br/>`dynamic` | • **常规固件**：用默认 `static`（直接链接同名 C 函数，省去函数指针表）<br/>• **需要在运行时动态切换回调函数表**：选 `dynamic` |
+| **`timeout_ms`** | `500` | `1 .. 2147483647` | 简化调用 `<node>_call_<rpc>()` 的默认超时毫秒数 |
 
-## 多模块产品
+### 常见节点配置配方（Recipes）
 
-用 `import "motor.wl";`、`import "upgrade.wl";` 汇集共享类型与 RPC，再在产品 node 中列出实际 `serve` / `send` 等路由。`examples/04_composed_services/product.wl` 展示这种组合，CMake 直接 `NODE product`，不再组合部署文件。
+<Tabs>
+  <TabItem label="配方 1：UART 串口传感器节点">
+    采用 `cobs_crc16` 分帧，并把高频普通消息设为零 Tag 开销的 `positional_v1`：
 
-帧上限由已选择角色计算，分别输出 REQUEST/REPLY/MESSAGE/RX/TX 宏。无 `call`、`serve` 或 `send` 时对应字节池为零，不要求 `--gc-sections` 才能链接单角色固件。
+    ```wl
+    node serial_sensor {
+      framing = cobs_crc16;
+      codec = positional_v1;
+      timeout_ms = 1000;
+      serve Execute;
+      send Event;
+    }
+    ```
+    *(注意：即便节点默认设了 `codec = positional_v1;`，其中的 `Execute` RPC 也会自动保持 `schema_v1`，只有普通消息 `Event` 使用 `positional_v1`。你也可以在单条路由上写 `send Event @codec(positional_v1);` 单独覆盖。)*
+  </TabItem>
+
+  <TabItem label="配方 2：自定义静态业务函数名">
+    默认情况下，静态钩子名叫 `<node>_on_<msg>`。如果你想让多个节点共用同一个业务处理函数，或者给 `call` 绑定一个固定的完成回调（这样调用时连 callback 参数都能省掉！），可以用 `= 函数名`：
+
+    ```wl
+    node controller {
+      // 绑定固定完成回调 app_on_execute_done 后，
+      // 简化调用只需传 (self, &request) 两个参数！
+      call Execute = app_on_execute_done;
+
+      // 指定接收回调的名字为 app_handle_event
+      recv Event = app_handle_event;
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="配方 3：多模块大型产品组合 (import)">
+    当你的产品包含机械臂控制（`arm.wl`）、固件升级（`upgrade.wl`）等多个子团队维护的模块时，用 `import` 把它们汇聚到顶层 `product.wl` 中（源自 [`examples/04_composed_services/product.wl`](https://github.com/starwey604/wirelink/blob/main/examples/04_composed_services/product.wl)）：
+
+    {/* [docs:composed_product_schema] */}
+    ```wl
+    version 1;
+    import "arm.wl";
+    import "upgrade.wl";
+
+    node product {
+      io = external;
+      send Telemetry; recv Telemetry;
+      send BulkCommand; recv BulkCommand;
+      send BulkStatus; recv BulkStatus;
+      call Query; serve Query;
+      call Reboot; serve Reboot;
+    }
+    ```
+    {/* [/docs:composed_product_schema] */}
+  </TabItem>
+</Tabs>
+
+---
+
+## 二、 路由声明与生成的 C11 函数对照表
+
+假设你的节点名叫 `device`（即 `node device { ... }`），每一条路由声明生成的 C 函数签名如下：
+
+| `.wl` 路由声明 | 生成的让你调用的 API | 生成的需要你实现的静态业务钩子 (`handlers = static`) |
+| :--- | :--- | :--- |
+| **`send Event;`** | `wl_err_t device_send_event(device_node_t *self, const event_t *value);`<br/>*(若字段全为必选标量，还会额外生成 `_send_event_val`)* | *(无，发送端只需实现物理层 `device_tx_write`)* |
+| **`recv Event;`** | *(由 `device_step` 自动解码并触发钩子)* | `void device_on_event(device_node_t *self, const event_t *message);` |
+| **`call Execute;`** | `wl_err_t device_call_execute(self, &req, cb);`<br/>`wl_err_t device_call_execute_ex(self, &req, now, timeout, cb, user, &handle);` | *(完成回调通过 `cb` 参数传入，或在路由上用 `= fn` 固定绑定)* |
+| **`serve Execute;`** | *(由 `device_step` 自动调用钩子并封包发回响应或拒绝帧)* | `int32_t device_on_execute(device_node_t *self, const request_t *req, response_t *resp);` |
+
+<Aside type="note" title="静态模式 (static) vs 动态模式 (dynamic) 的回调首参差异">
+- 在默认的 **`handlers = static`** 下，所有业务回调的第一个参数都是强类型的节点指针 **`<node>_node_t *self`**（你可以通过 `self->user` 存取挂载的业务状态指针）。
+- 只有显式声明 **`handlers = dynamic`** 时，才会生成 `<node>_handlers_t` 结构体，且回调函数的第一个参数会变为通用的 **`void *user`**。
+</Aside>
+
+---
+
+## 三、 编译期精确计算的帧长上限宏
+
+为了方便你在外部驱动或 DMA 中分配恰当的缓冲区，`wlc` 会根据该节点实际声明的路由，在生成的 `.h` 中输出精确到字节的容量宏（以节点名大写 `<NODE>_` 为前缀）：
+
+- **各角色规范帧上限**：`<NODE>_REQUEST_FRAME_MAX`、`<NODE>_REPLY_FRAME_MAX`、`<NODE>_MESSAGE_FRAME_MAX`。如果节点没有声明对应的发送能力，该宏的值直接为 **`0`**。
+- **总收发规范帧上限**：`<NODE>_RX_FRAME_MAX` 与 `<NODE>_TX_FRAME_MAX`（包含 4B 帧头 + RPC 子头 + 该方向最大消息体）。
+- **物理线缆帧上限**：`<NODE>_RX_WIRE_MAX` 与 `<NODE>_TX_WIRE_MAX`（在规范帧基础上，自动计入了 `cobs_crc16` 转义膨胀与 CRC16 字节，或 `length16` 的 2B 长度头）。

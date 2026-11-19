@@ -5,10 +5,12 @@ extern unsigned telemetry_received;
 static pub_node_t publisher;
 static sub_node_t subscriber;
 
+/* [docs:telemetry_tx_write] */
 wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
   (void)self;
   return sub_rx_packet(&subscriber, data, length);
 }
+/* [/docs:telemetry_tx_write] */
 int main(void) {
   /* [docs:telemetry_publish] */
   EXAMPLE_REQUIRE(pub_init(&publisher) == WL_OK);

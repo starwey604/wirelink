@@ -1,0 +1,71 @@
+---
+interface Props {
+  title?: string;
+  prompt: string;
+  answerTitle?: string;
+}
+
+const {
+  title = '动手思考 / 微挑战',
+  prompt,
+  answerTitle = '点击展开解析与答案',
+} = Astro.props;
+---
+
+<section class="challenge">
+  <div class="challenge-header">
+    <span class="challenge-tag">🧪 {title}</span>
+    <p class="challenge-prompt">{prompt}</p>
+  </div>
+  <details class="challenge-details">
+    <summary>{answerTitle}</summary>
+    <div class="challenge-solution">
+      <slot />
+    </div>
+  </details>
+</section>
+
+<style>
+  .challenge {
+    margin-block: 1.5rem;
+    padding: 1.15rem 1.25rem;
+    border: 1px dashed var(--sl-color-accent);
+    border-radius: 0.4rem;
+    background: color-mix(in srgb, var(--sl-color-accent-low) 28%, transparent);
+  }
+
+  .challenge-tag {
+    display: inline-block;
+    margin-bottom: 0.45rem;
+    font-size: var(--sl-text-xs);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--sl-color-accent-high);
+  }
+
+  .challenge-prompt {
+    margin: 0 0 0.85rem;
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+
+  .challenge-details summary {
+    cursor: pointer;
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    color: var(--sl-color-accent-high);
+    user-select: none;
+  }
+
+  .challenge-details summary:hover {
+    text-decoration: underline;
+  }
+
+  .challenge-solution {
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--sl-color-gray-5);
+    font-size: var(--sl-text-sm);
+  }
+</style>

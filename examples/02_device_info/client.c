@@ -12,12 +12,14 @@ wl_err_t info_client_tx_write(info_client_node_t *self, const uint8_t *data, siz
 wl_err_t info_server_tx_write(info_server_node_t *self, const uint8_t *data, size_t length) {
   (void)self; return info_client_rx_packet(&caller, data, length);
 }
+/* [docs:device_info_done] */
 static void done(info_client_node_t *self, wl_kernel_result_t outcome, const info_response_t *response) {
   (void)self;
   EXAMPLE_REQUIRE(outcome.outcome == WL_KERNEL_SUCCESS && response);
   result = *response;
   ++completed;
 }
+/* [/docs:device_info_done] */
 int main(void) {
   unsigned queries = 0;
   EXAMPLE_REQUIRE(info_client_init(&caller) == WL_OK && info_server_init(&callee) == WL_OK);

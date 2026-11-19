@@ -7,6 +7,7 @@ int32_t device_server_on_self_test(device_server_node_t *self, const self_test_r
   response->observed = request->pattern ^ UINT32_C(0xa5a5);
   return 0;
 }
+/* [docs:device_job_start] */
 int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
                      start_self_test_response_t *response) {
   device_service_t *state = self->user;
@@ -18,6 +19,7 @@ int32_t device_server_on_start_self_test(device_server_node_t *self, const start
   response->job_id = state->job_id;
   return 0;
 }
+/* [/docs:device_job_start] */
 /* Application event-loop work, with ordinary TX backpressure. No reply token. */
 /* [docs:device_job_poll] */
 void self_test_poll(device_service_t *state, device_server_node_t *endpoint) {

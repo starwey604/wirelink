@@ -1,3 +1,4 @@
+// [docs:composed_product_schema]
 version 1;
 import "arm.wl";
 import "upgrade.wl";
@@ -10,3 +11,4 @@ node product {
   call Query; serve Query;
   call Reboot; serve Reboot;
 }
+// [/docs:composed_product_schema]

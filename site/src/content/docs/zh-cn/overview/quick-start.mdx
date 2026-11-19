@@ -1,13 +1,22 @@
 ---
 title: 5 分钟快速上手
-description: 一份 schema、一次生成、一个业务 handler，跑通 C11 与 Python。
+description: 两条路径带你上手：30 秒免编译工具链体验内置回环，或 3 步从 .wl 生成 C11 固件节点与 Python 客户端。
 sidebar:
   order: 2
 ---
 
-先跑现成回环验证工具链，再为自己的设备生成节点。
+import { Aside, Steps, Tabs, TabItem, FileTree } from '@astrojs/starlight/components';
 
-## 免硬件运行回环
+不管你手头有没有开发板，都可以在几分钟内跑通 Wirelink。
+
+- 如果你想**先花 30 秒看看它跑起来的效果**（不需要先编译 Rust 编译器 `wlc`），请看下面的**“热身：30 秒免硬件体验”**。
+- 如果你想**看懂自己写一个项目的完整三部曲**，可以直接跳到**“实战：三步构建你的第一个 RPC 服务”**。
+
+---
+
+## 热身：30 秒免硬件体验（无需安装 WLC）
+
+仓库里已经附带了一份预先生成的 C11 节点代码（位于 `examples/kernel/generated/`）。只要你的电脑上有 CMake（3.21+）和 C11/C++20 编译器（GCC 或 Clang），就能直接编译并运行内存回环示例：
 
 ```sh
 cmake -S . -B build/core -DCMAKE_BUILD_TYPE=Release
@@ -15,66 +24,132 @@ cmake --build build/core --parallel
 ./build/core/examples/wirelink_bare_metal_loopback
 ```
 
-输出 `6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent`。仓库带已生成的 demo C，因此这一步不需要 WLC。
+你会立即看到如下终端输出：
 
-## 1. 一份 `.wl` 定义消息与角色
-
-保存为 `calculator.wl`：
-
-{/* [docs:calculator_schema] */}
-```wl
-message AddRequest @id(20) {
-  int32 left @id(1);
-  int32 right @id(2);
-}
-message AddResponse @id(21) { int32 sum @id(1); }
-rpc Add(AddRequest) -> AddResponse;
-node client { call Add; }
-node server { serve Add; }
-```
-{/* [/docs:calculator_schema] */}
-
-字段默认必选，结构体不需要 `has_left = true`；节点默认 embedded/static，不需手写 port/handlers 装配。
-
-## 2. 按角色生成
-
-使用匹配的本地 WLC 0.14.0：
-
-```sh
-wlc compile calculator.wl --node server --out-dir generated
-wlc sdk calculator.wl --node client --name calculator --out-dir sdk
+```text
+6 bidirectional RPC completions, 2 telemetry messages; both endpoints quiescent
 ```
 
-固件得到 `calculator.h/.c` 和清单，上位机得到可构建的 UDP C++20/Python 工程。多角色本地回环使用 `--all-nodes`。
+这短短一行输出背后，两个纯 C11 节点已经在同一块内存里完成了 **6 次双向并发 RPC 调用（包含正常应答、超时与取消）** 和 **2 条单向遥测消息**，最后排空所有在途状态、优雅停机（`quiescent`）。
 
-## 3. 实现服务、物理发送与主循环
+---
 
-{/* [docs:calculator_server] */}
-```c
-int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
-  (void)self;
-  const int64_t sum = (int64_t)request->left + request->right;
-  if (sum < INT32_MIN || sum > INT32_MAX) return 1;
-  response->sum = (int32_t)sum;
-  return 0;
-}
-```
-{/* [/docs:calculator_server] */}
+## 实战：三步构建你的第一个 RPC 服务
 
-除业务函数外，实现 `server_tx_write`，把完整帧同步写出或复制到自己的发送队列；收包调用 `server_rx_packet`。初始化 `server_init(&server)`，周期推进 `server_step(&server, now_ms)`。物理接口必须遵守[整帧与背压契约](/wirelink/zh-cn/how-to/custom-drivers/)。
+现在，让我们从头写一个“远程加法计算器”协议：MCU 作为服务端（`server`）提供加法计算，并在整数溢出时拒绝请求；另一端（C11 客户端或上位机 Python）作为客户端（`client`）发起调用。
 
-已有 UDP 驱动的完整构建示例见 `examples/05_zephyr_udp`；SDK 的可执行联调与 wheel 检查见 `examples/06_bindings`。构建并安装 SDK 后，用 `Client`、`Udp` 与 `RejectedError`：
+<Steps>
 
-{/* [docs:python_sdk_client] */}
-```python
-with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
-    saved = client.add(left=20, right=22)
-    assert saved.sum == 42
-    try:
-        client.add(left=2**31 - 1, right=1)
-    except RejectedError as error:
-        assert error.status == 1
-```
-{/* [/docs:python_sdk_client] */}
+1. **写一份 `calculator.wl` 定义消息与两端角色**
 
-这里 `port` 是实际服务端 UDP 端口。继续[第 01 课](/wirelink/zh-cn/learn/01-loopback-endpoint/)或查看[SDK 构建指南](/wirelink/zh-cn/how-to/host-sdks/)。
+   新建 `calculator.wl`，把请求消息、响应消息、RPC 配对和两个节点角色写在一起：
+
+   {/* [docs:calculator_schema] */}
+   ```wl
+   message AddRequest @id(20) {
+     int32 left @id(1);
+     int32 right @id(2);
+   }
+   message AddResponse @id(21) { int32 sum @id(1); }
+   rpc Add(AddRequest) -> AddResponse;
+   node client { call Add; }
+   node server { serve Add; }
+   ```
+   {/* [/docs:calculator_schema] */}
+
+   <Aside type="note" title="默认配置省去了什么？">
+   - **字段默认必选**：`left`、`right`、`sum` 都是必选字段，生成的 C 结构体里直接是 `int32_t left;`，没有啰嗦的 `has_left`。
+   - **节点默认自包含（`embedded + static`）**：默认情况下，`node` 自带端口和收发缓冲区，业务回调通过静态 C 函数名直接链接，无需手写任何初始化装配表。
+   </Aside>
+
+2. **用 `wlc` 按角色生成 C11 节点与 Python SDK**
+
+   在仓库根目录下构建本地 `wlc` 编译器（版本 0.14.0），然后分别针对服务端固件和上位机客户端生成代码：
+
+   ```sh
+   # 1. 构建本地 WLC 编译器
+   cargo build --release --locked --manifest-path wlc/Cargo.toml
+
+   # 2. 为 MCU 服务端生成纯 C11 节点代码（指定 --node server）
+   wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
+     --node server --out-dir build/server
+
+   # 3. 为上位机生成 Python / C++20 UDP 客户端 SDK（指定 --node client）
+   wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
+     --node client --name calculator --out-dir build/calculator-sdk
+   ```
+
+   生成后的目录非常清爽：
+
+   <FileTree>
+   - build/
+     - server/ 固件只需把这一对 .h/.c 加入工程
+       - **calculator.h** 生成的メッセージ结构体、server_node_t 与 API 声明
+       - **calculator.c** 编解码与服务端节点路由实现
+       - calculator_manifest.json 构建校验清单
+     - calculator-sdk/ 完整的 C++20 与 Python 扩展工程
+       - CMakeLists.txt
+       - pyproject.toml
+       - include/calculator/client.hpp
+       - python/calculator_sdk/
+   </FileTree>
+
+   *(提示：如果你想在同一个 C 进程里同时跑 `client` 和 `server` 做本地回环测试，把 `--node server` 换成 `--all-nodes` 即可。)*
+
+3. **实现 1 个业务函数与收发钩子，跑通调用**
+
+   打开生成的 `calculator.h`，你会发现服务端节点 `server_node_t` 只需要你提供两个函数：一个处理加法业务的 `server_on_add`，一个把打包好的帧发出去的 `server_tx_write`。
+
+   <Tabs>
+     <TabItem label="MCU 服务端业务 (server.c)">
+       实现 `server_on_add`：返回 `0` 表示成功并发送 `response`；返回非零值（如这里的 `1`）表示**业务拒绝**，客户端会收到该状态码：
+
+       {/* [docs:calculator_server] */}
+       ```c
+       int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
+         (void)self;
+         const int64_t sum = (int64_t)request->left + request->right;
+         if (sum < INT32_MIN || sum > INT32_MAX) return 1;
+         response->sum = (int32_t)sum;
+         return 0;
+       }
+       ```
+       {/* [/docs:calculator_server] */}
+
+       接着：
+       - 实现 `server_tx_write(self, data, length)` 把整帧字节写到你的物理链路；
+       - 收到完整数据包时调用 `server_rx_packet(&server, data, length)`；
+       - 初始化 `server_init(&server)` 后，在主循环里周期调用 `server_step(&server, now_ms)`。
+     </TabItem>
+
+     <TabItem label="上位机 Python 调用">
+       当服务端接入 UDP 适配器运行后（完整可编译双端工程见 [`examples/05_zephyr_udp`](https://github.com/starwey604/wirelink/tree/main/examples/05_zephyr_udp) 和 [`examples/06_bindings`](https://github.com/starwey604/wirelink/tree/main/examples/06_bindings)），在 Python 中即可像调用本地函数一样调用远端 MCU：
+
+       {/* [docs:python_sdk_client] */}
+       ```python
+       with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
+           saved = client.add(left=20, right=22)
+           assert saved.sum == 42
+           try:
+               client.add(left=2**31 - 1, right=1)
+           except RejectedError as error:
+               assert error.status == 1
+       ```
+       {/* [/docs:python_sdk_client] */}
+     </TabItem>
+   </Tabs>
+
+</Steps>
+
+---
+
+## 接下来：进入互动式课程
+
+现在你已经看清了 Wirelink 的全貌！接下来，我们准备了 **6 节循序渐进的交互式课程**，每节课只有 5~8 分钟，带你亲手拆解每一个工程细节：
+
+1. **[第 01 课：跑通第一个本地回环节点](/wirelink/zh-cn/learn/01-loopback-endpoint/)** —— 搞懂 `step(now)` 事件循环与安全停机。
+2. **[第 02 课：定义与收发设备遥测消息](/wirelink/zh-cn/learn/02-telemetry/)** —— 透视生成的 `.h` 头文件，掌握单向发送与单槽背压。
+3. **[第 03 课：请求与响应：实现第一个 RPC 服务](/wirelink/zh-cn/learn/03-rpc-basics/)** —— 区分 `call`/`serve`、业务拒绝与免时钟超时。
+4. **[第 04 课：字符串、字节数组与生命周期](/wirelink/zh-cn/learn/04-strings-and-lifetime/)** —— 零 `malloc` 传输变长字符串，避开回调悬空指针。
+5. **[第 05 课：并发调用、背压与长任务](/wirelink/zh-cn/learn/05-concurrency-backpressure/)** —— 4 槽并发、取消请求，以及 Flash 擦写等长耗时任务的设计模式。
+6. **[第 06 课：上位机 SDK 与多传输接入](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)** —— 串口 `cobs_crc16` 怎么喂字节？UDP 与 Python/C++ SDK 怎么联调？

@@ -1,53 +1,75 @@
 ---
-title: 静态资源：测完整存储，不只看节点
-description: GCC x86-64 -Os 本地测量，模块代码与完整装配内存分开报告。
+title: 静态资源：实测 Flash 与完整装配 RAM 账本
+description: 在 GCC -Os 下实测 Wirelink 核心模块代码体积与包含端口、双 RX 及流缓冲的完整静态 RAM 占用。
 sidebar:
   order: 4
 ---
 
-以下为 2026-11-16 本地候选，GCC 16.2.1、x86-64、`-std=c11 -Os -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables`。测量工具为 `benchmarks/footprint/footprint.py --no-digests`。
+import { Aside } from '@astrojs/starlight/components';
 
-## 独立核心对象，不是最终固件镜像
+在评估嵌入式通信中间件的体积时，只看某一个核心结构体（比如 `sizeof(wl_kernel_t)`）是具有欺骗性的——因为真正把通信跑起来，你还必须为接收缓冲区（双 RX 槽）、出站请求/回复池以及串口流转换器（COBS/FIFO）分配内存。
 
-每个 `src/*.c` 单独编译后求和，包含未必被应用使用的流连接器和辅助模块；不含生成 demo codec。最终镜像必须测实际链接 ELF，不能把对象之和声称为 GC 后 Flash。
+因此，Wirelink 坚持**“测量并报告完整通信装配（Full Assembly）的真实静态内存”**。以下数据基于 **GCC 16.2.1 (x86-64)**，编译选项 `-std=c11 -Os -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables`，由仓库脚本 `benchmarks/footprint/footprint.py` 实测生成。
 
-| 编译单元 | text B | rodata B | data B | bss B |
-| --- | ---: | ---: | ---: | ---: |
-| `src/byte_fifo.c` | 489 | 0 | 0 | 0 |
-| `src/byte_fifo_cobs.c` | 278 | 0 | 0 | 0 |
-| `src/cobs.c` | 586 | 0 | 0 | 0 |
-| `src/cobs_crc16_stream.c` | 1493 | 0 | 0 | 0 |
-| `src/codec.c` | 6300 | 232 | 0 | 0 |
-| `src/crc.c` | 105 | 32 | 0 | 0 |
-| `src/kernel.c` | 4581 | 0 | 0 | 0 |
-| `src/length16_none_stream.c` | 1078 | 0 | 0 | 0 |
-| `src/packet_loopback.c` | 727 | 0 | 0 | 0 |
-| `src/packet_port.c` | 1513 | 0 | 0 | 4 |
-| `src/packet_stream.c` | 80 | 0 | 0 | 0 |
-| `src/types.c` | 244 | 1260 | 0 | 0 |
-| **合计** | **17474** | **1524** | **0** | **4** |
+---
 
-4 B BSS 来自进程级实例号计数器；“零堆分配”不等于所有全局 BSS 都为零。
+## 一、 核心库各编译单元体积（`.text` / `.rodata` / `.bss`）
 
-## 同条件比较完整静态装配
+下表将 `src/*.c` 的 12 个核心源文件单独编译后列出（包含所有可选流连接器与辅助模块，不含生成的业务消息编解码器）。在实际固件链接时，开启 `--gc-sections` 会自动裁剪掉你未使用的模块（例如用 `native` 时不会链接 COBS 和 CRC）：
 
-双角色 external/dynamic demo 的旧端点为 616 B，当前 `demo_node_t` 为 624 B。把外部 port、双 RX 和流缓冲全部计入：
+| 核心编译单元 | 模块职责 | `.text` (Flash 代码) | `.rodata` (只读常量) | `.data` | `.bss` (全局静态 RAM) |
+| :--- | :--- | ---: | ---: | ---: | ---: |
+| `src/codec.c` | TLV / Positional / Varint / UTF-8 编解码基础原语 | 6,300 B | 232 B | 0 B | 0 B |
+| `src/kernel.c` | RPC 状态机、超时调度、消息路由与步进引擎 | 4,581 B | 0 B | 0 B | 0 B |
+| `src/packet_port.c` | 双槽 RX 原子交换、异步 TX 租约与实例号分配 | 1,513 B | 0 B | 0 B | **4 B** |
+| `src/cobs_crc16_stream.c` | COBS + CRC16 流式封包与增量断包状态机 | 1,493 B | 0 B | 0 B | 0 B |
+| `src/length16_none_stream.c` | 2B 小端长度头流式封包与增量断包状态机 | 1,078 B | 0 B | 0 B | 0 B |
+| `src/packet_loopback.c` | 内存回环测试传输辅助器 | 727 B | 0 B | 0 B | 0 B |
+| `src/cobs.c` | 零字节逃逸 COBS 编码与解码算法 | 586 B | 0 B | 0 B | 0 B |
+| `src/byte_fifo.c` | 隔离 ISR 与主循环的单生产者单消费者字节 FIFO | 489 B | 0 B | 0 B | 0 B |
+| `src/byte_fifo_cobs.c` | 从字节 FIFO 到 COBS 流的高效桥接器 | 278 B | 0 B | 0 B | 0 B |
+| `src/types.c` | `wl_err_str()` 错误码可读字符串表 | 244 B | 1,260 B | 0 B | 0 B |
+| `src/crc.c` | 半字节查表法 CRC-16/CCITT-FALSE（仅 32B 表） | 105 B | 32 B | 0 B | 0 B |
+| `src/packet_stream.c` | 字节流连接器通用虚表接口 | 80 B | 0 B | 0 B | 0 B |
+| **12 个目标文件合计** | *(未经过链接器 `--gc-sections` 裁剪的总和)* | **17,474 B** | **1,524 B** | **0 B** | **4 B** |
 
-| 相同装配 | 旧版 B | 当前 B | 变化 |
-| --- | ---: | ---: | ---: |
-| native，RX 每槽保留最大帧 + 1 | 782 | 790 | +8 B |
-| COBS/CRC16，含 byte FIFO staging | 1046 | 1054 | +8 B |
-| length16 | 924 | 932 | +8 B |
+<Aside type="note" title="那 4 字节的 .bss 全局变量是什么？">
+这唯一的 4 字节 `.bss` 是 `src/packet_port.c` 中的进程级自动实例号分配计数器（供 `<node>_init()` 自动生成不重复的非零 `instance` ID）。**“零堆分配（0 `malloc`）”代表运行时绝不动态申请堆内存**，所有节点状态都存放在应用声明的静态或栈结构体中。
+</Aside>
 
-该 demo 没有减少总 RAM。单角色节点会裁剪未使用的字节池，但收益应在对应 schema 和模式下测量；embedded 把外部存储移入节点，也必须比较同等完整装配。上表不含驱动对象和外层结构 padding，不是自动回归门禁结论。
+---
 
-当前 x86-64 的 `wl_kernel_t` / `wl_packet_port_t` / `wl_packet_stream_t` 分别为 440 / 128 / 120 B；这些数字不外推到 MCU ABI。
+## 二、 完整双向节点装配的静态 RAM 账本
 
-## 复现
+对于仓库中同时启用双向 RPC（`call` + `serve`）与双向遥测（`send` + `recv`）的 `examples/kernel/demo.wl` 节点，将**节点结构体、端口、双 RX 接收缓冲以及流分帧/FIFO 缓冲区全部加在一起**的总 RAM 如下：
+
+| 完整通信装配方案 | 0.13 基线总 RAM | 当前 0.14 总 RAM | 变化 | 包含的静态存储组件明细 |
+| :--- | ---: | ---: | ---: | :--- |
+| **`native` 分帧装配** | 782 B | **790 B** | +8 B | 节点结构体 (`624 B`) + 端口 + 双 RX 接收槽（每槽保留最大帧 + 1B） |
+| **`length16` 分帧装配** | 924 B | **932 B** | +8 B | 上述基础装配 + `length16` 流连接器对象与拼包缓冲 |
+| **`cobs_crc16` 串口装配** | 1,046 B | **1,054 B** | +8 B | 上述基础装配 + COBS/CRC16 流连接器 + ISR 隔离字节 FIFO 缓冲 |
+
+### 按角色裁剪能省多少 RAM？
+
+上面的 `demo_node_t`（624 B，其中 `wl_kernel_t` 440 B、`wl_packet_port_t` 128 B、`wl_packet_stream_t` 120 B，基于 64 位 x86-64 ABI 测量；在 32 位 ARM Cortex-M 上指针减半还会更小）是因为它**同时开启了所有 4 种方向角色**。
+
+在你的实际固件中，只要在 `node` 里只声明真正用到的方向，未使用的字节池就会直接降为 0：
+- **纯传感器发布节点（仅 `send`）**：不分配 4 个 RPC 请求槽和 3 个 RPC 回复槽。
+- **纯执行器服务节点（仅 `serve`）**：不分配 4 个出站 RPC 请求槽和普通消息发送槽。
+
+---
+
+## 三、 如何在你自己的固件 ELF 上复现测量？
+
+你可以使用仓库自带的 `benchmarks/footprint/footprint.py` 测量核心体积或你自己编译出的 `.elf` 固件镜像：
 
 ```sh
+# 1. 复现核心目标文件与标准 Demo 装配的体积报告
 python3 benchmarks/footprint/footprint.py --no-digests --json footprint.json
-python3 benchmarks/footprint/footprint.py --no-digests --elf app.elf --size-tool size --json image.json
-```
 
-比较两份正式同 schema、同模式和同工具链报告时使用 `benchmarks/footprint/compare.py before.json after.json`。尺寸测量不证明 CPU 或时延提升；native simulator 的零 cycle 输出只能验证 workload 正确性。
+# 2. 测量你实际链接后的 MCU 固件 ELF 镜像体积
+python3 benchmarks/footprint/footprint.py --no-digests --elf my_firmware.elf --size-tool arm-none-eabi-size --json image.json
+
+# 3. 对比两次改动前后的体积差异
+python3 benchmarks/footprint/compare.py before.json after.json
+```

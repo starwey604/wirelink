@@ -1,3 +1,4 @@
+// [docs:device_info_schema]
 version 1;
 
 message InfoRequest @id(30) {}
@@ -11,3 +12,4 @@ message InfoResponse @id(31) {
 rpc GetInfo(InfoRequest) -> InfoResponse;
 node info_client { call GetInfo; }
 node info_server { serve GetInfo; }
+// [/docs:device_info_schema]
