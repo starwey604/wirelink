@@ -69,7 +69,7 @@ int main() {
   auto *port = packet_usb_test_storage();
   PacketUsbConfig config; config.maximum_frame_size = 1036;
   wl_packet_token_t old_token{};
-  for (uint64_t generation = 1; generation <= 3; ++generation) {
+  for (uint32_t generation = 1; generation <= 3; ++generation) {
     PacketUsbAdapter adapter(*port);
     assert(packet_usb_test_init(generation, PacketUsbAdapter::submit,
         PacketUsbAdapter::notify, &adapter) == WL_OK);

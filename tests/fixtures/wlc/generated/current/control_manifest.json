@@ -28,7 +28,7 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "control.c", "size": 48787, "digest": "0x47948a883d688cc9"},
+    {"path": "control.c", "size": 48949, "digest": "0x39e865ff394db459"},
     {"path": "control.h", "size": 9774, "digest": "0x62a3ffa2dd6928a3"}
   ]
 ,

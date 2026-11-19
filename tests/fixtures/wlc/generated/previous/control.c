@@ -10,9 +10,6 @@
 #error "Codec source/header profile mismatch; regenerate the matched artifacts."
 #endif
 
-static const wl_codec_desc_t joint_command_desc;
-static const wl_codec_desc_t arm_command_desc;
-
 typedef struct wlc_scalar_shape_0_s {
   bool h0;
   uint32_t v0;
@@ -225,29 +222,10 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
   return WL_CODEC_OK;
 }
 
-void joint_command_clear(joint_command_t *value) {
-  _Static_assert(sizeof(joint_command_t) == sizeof(wlc_scalar_shape_0_t), "shape layout mismatch");
-  wlc_scalar_shape_0_clear(value);
-}
-size_t joint_command_encoded_size(const joint_command_t *value) { return wlc_scalar_shape_0_encoded_size(value); }
-wl_codec_status_t joint_command_encode(const joint_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wlc_scalar_shape_0_encode(value, out, out_capacity, out_length); }
-wl_codec_status_t joint_command_decode(const uint8_t *input, size_t input_length, joint_command_t *out) {
-  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
-  joint_command_t temp;
-  wl_codec_status_t status = wlc_scalar_shape_0_decode(input, input_length, &temp);
-  if (status == WL_CODEC_OK) memcpy(out, &temp, sizeof(temp));
-  return status;
-}
-
-static void joint_command_wlc_clear_v(void *value) { joint_command_clear(value); }
-static wl_codec_status_t joint_command_wlc_measure_v(const void *value, size_t *out_size) {
-  const size_t size = joint_command_encoded_size(value);
-  if (size == SIZE_MAX) return WL_CODEC_ERR_INVALID_VALUE;
-  *out_size = size;
-  return WL_CODEC_OK;
-}
-static wl_codec_status_t joint_command_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length) { return joint_command_encode(value, out, capacity, length); }
-static wl_codec_status_t joint_command_wlc_decode_v(const uint8_t *input, size_t length, void *out) { return joint_command_decode(input, length, out); }
+static void joint_command_wlc_clear_v(void *value);
+static wl_codec_status_t joint_command_wlc_measure_v(const void *value, size_t *out_size);
+static wl_codec_status_t joint_command_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length);
+static wl_codec_status_t joint_command_wlc_decode_v(const uint8_t *input, size_t length, void *out);
 static const wl_codec_desc_t joint_command_desc = {
   .fields = NULL,
   .field_count = 0U,
@@ -264,10 +242,24 @@ static const wl_codec_desc_t joint_command_desc = {
   .decode = joint_command_wlc_decode_v
 };
 
-void arm_command_clear(arm_command_t *value) { wl_codec_clear(&arm_command_desc, value); }
-size_t arm_command_encoded_size(const arm_command_t *value) { size_t size = 0U; return wl_codec_measure(&arm_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t arm_command_encode(const arm_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&arm_command_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t arm_command_decode(const uint8_t *input, size_t input_length, arm_command_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; arm_command_t scratch; return wl_codec_decode(&arm_command_desc, input, input_length, out, &scratch); }
+static void joint_command_wlc_clear_v(void *value) { joint_command_clear(value); }
+static wl_codec_status_t joint_command_wlc_measure_v(const void *value, size_t *out_size) { const size_t size = joint_command_encoded_size(value); if (size == SIZE_MAX) return WL_CODEC_ERR_INVALID_VALUE; *out_size = size; return WL_CODEC_OK; }
+static wl_codec_status_t joint_command_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length) { return joint_command_encode(value, out, capacity, length); }
+static wl_codec_status_t joint_command_wlc_decode_v(const uint8_t *input, size_t length, void *out) { return joint_command_decode(input, length, out); }
+
+void joint_command_clear(joint_command_t *value) {
+  _Static_assert(sizeof(joint_command_t) == sizeof(wlc_scalar_shape_0_t), "shape layout mismatch");
+  wlc_scalar_shape_0_clear(value);
+}
+size_t joint_command_encoded_size(const joint_command_t *value) { return wlc_scalar_shape_0_encoded_size(value); }
+wl_codec_status_t joint_command_encode(const joint_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wlc_scalar_shape_0_encode(value, out, out_capacity, out_length); }
+wl_codec_status_t joint_command_decode(const uint8_t *input, size_t input_length, joint_command_t *out) {
+  if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE;
+  joint_command_t temp;
+  wl_codec_status_t status = wlc_scalar_shape_0_decode(input, input_length, &temp);
+  if (status == WL_CODEC_OK) memcpy(out, &temp, sizeof(temp));
+  return status;
+}
 
 static const char arm_command_source_default_str[] = "\x68""\x6F""\x73""\x74";
 static const wl_codec_field_t arm_command_fields[] = {
@@ -291,6 +283,11 @@ static const wl_codec_desc_t arm_command_desc = {
   .encode = NULL,
   .decode = NULL
 };
+
+void arm_command_clear(arm_command_t *value) { wl_codec_clear(&arm_command_desc, value); }
+size_t arm_command_encoded_size(const arm_command_t *value) { size_t size = 0U; return wl_codec_measure(&arm_command_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t arm_command_encode(const arm_command_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&arm_command_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t arm_command_decode(const uint8_t *input, size_t input_length, arm_command_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; arm_command_t scratch; return wl_codec_decode(&arm_command_desc, input, input_length, out, &scratch); }
 
 
 #include <limits.h>

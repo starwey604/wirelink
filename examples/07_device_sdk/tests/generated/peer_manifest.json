@@ -30,7 +30,7 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "peer.c", "size": 20990, "digest": "0x93449da38bcc49fe"},
+    {"path": "peer.c", "size": 21064, "digest": "0x3b35a8d132665afe"},
     {"path": "peer.h", "size": 8763, "digest": "0x0db751ce742c0c5e"}
   ]
 ,

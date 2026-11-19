@@ -30,7 +30,7 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 33369, "digest": "0x614f73701f13472c"},
+    {"path": "device.c", "size": 33405, "digest": "0x6cc960e4eb35a974"},
     {"path": "device.h", "size": 9852, "digest": "0xf31f3165d1424e31"}
   ]
 ,

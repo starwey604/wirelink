@@ -22,15 +22,6 @@
 #error "Codec source/header profile mismatch; regenerate the matched artifacts."
 #endif
 
-static const wl_codec_desc_t peer_info_request_desc;
-static const wl_codec_desc_t peer_settings_desc;
-static const wl_codec_desc_t peer_info_response_desc;
-static const wl_codec_desc_t peer_configure_request_desc;
-static const wl_codec_desc_t peer_configure_response_desc;
-
-void peer_info_request_clear(peer_info_request_t *value) { wl_codec_clear(&peer_info_request_desc, value); }
-wl_codec_status_t peer_info_request_decode(const uint8_t *input, size_t input_length, peer_info_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; peer_info_request_t scratch; return wl_codec_decode(&peer_info_request_desc, input, input_length, out, &scratch); }
-
 static const wl_codec_desc_t peer_info_request_desc = {
   .fields = NULL,
   .field_count = 0U,
@@ -47,14 +38,13 @@ static const wl_codec_desc_t peer_info_request_desc = {
   .decode = NULL
 };
 
-void peer_settings_clear(peer_settings_t *value) { wl_codec_clear(&peer_settings_desc, value); }
-size_t peer_settings_encoded_size(const peer_settings_t *value) { size_t size = 0U; return wl_codec_measure(&peer_settings_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t peer_settings_encode(const peer_settings_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&peer_settings_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t peer_settings_decode(const uint8_t *input, size_t input_length, peer_settings_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; peer_settings_t scratch; return wl_codec_decode(&peer_settings_desc, input, input_length, out, &scratch); }
+void peer_info_request_clear(peer_info_request_t *value) { wl_codec_clear(&peer_info_request_desc, value); }
+wl_codec_status_t peer_info_request_decode(const uint8_t *input, size_t input_length, peer_info_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; peer_info_request_t scratch; return wl_codec_decode(&peer_info_request_desc, input, input_length, out, &scratch); }
 
-static void peer_settings_wlc_clear_v(void *value) { wl_codec_clear(&peer_settings_desc, value); }
-static wl_codec_status_t peer_settings_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wl_codec_encode(&peer_settings_desc, value, out, capacity, length); }
-static wl_codec_status_t peer_settings_wlc_decode_v(const uint8_t *input, size_t length, void *out) { peer_settings_t scratch; return wl_codec_decode(&peer_settings_desc, input, length, out, &scratch); }
+static void peer_settings_wlc_clear_v(void *value);
+static wl_codec_status_t peer_settings_wlc_measure_v(const void *value, size_t *out_size);
+static wl_codec_status_t peer_settings_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length);
+static wl_codec_status_t peer_settings_wlc_decode_v(const uint8_t *input, size_t length, void *out);
 static const char peer_settings_label_default_str[] = "\xE8""\xAE""\xBE""\xE5""\xA4""\x87";
 static const wl_codec_field_t peer_settings_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_INLINE_STRING, .cardinality = WL_CODEC_CARD_OPTIONAL, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 1U, .presence_offset = (uint16_t)offsetof(peer_settings_t, has_label), .offset = (uint16_t)offsetof(peer_settings_t, label), .count_offset = (uint16_t)(offsetof(peer_settings_t, label.data) - offsetof(peer_settings_t, label)), .capacity_offset = 0U, .max_length = 12U, .element_stride = 0U, .default_bits = UINT64_C(6), .string_default = peer_settings_label_default_str, .child = NULL },
@@ -69,7 +59,6 @@ static const wl_codec_field_t peer_settings_fields[] = {
   { .number = 10U, .kind = WL_CODEC_KIND_UINT32, .cardinality = WL_CODEC_CARD_OPTIONAL, .wire_type = 0U, .scalar_size = 2U, .is_signed = 0U, .key_len = 1U, .key = { 0x50U, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = (uint16_t)offsetof(peer_settings_t, has_timeout), .offset = (uint16_t)offsetof(peer_settings_t, timeout), .count_offset = 0U, .capacity_offset = 0U, .max_length = 0U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
 };
 static const uint16_t peer_settings_dense[10] = { 0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U };
-static wl_codec_status_t peer_settings_wlc_measure_generic_v(const void *value, size_t *out_size) { return wl_codec_measure(&peer_settings_desc, value, out_size); }
 static const wl_codec_desc_t peer_settings_desc = {
   .fields = peer_settings_fields,
   .field_count = 10U,
@@ -81,14 +70,20 @@ static const wl_codec_desc_t peer_settings_desc = {
   .has_repeated = 0U,
   .dense_map = peer_settings_dense,
   .clear = peer_settings_wlc_clear_v,
-  .measure = peer_settings_wlc_measure_generic_v,
+  .measure = peer_settings_wlc_measure_v,
   .encode = peer_settings_wlc_encode_v,
   .decode = peer_settings_wlc_decode_v
 };
 
-void peer_info_response_clear(peer_info_response_t *value) { wl_codec_clear(&peer_info_response_desc, value); }
-size_t peer_info_response_encoded_size(const peer_info_response_t *value) { size_t size = 0U; return wl_codec_measure(&peer_info_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t peer_info_response_encode(const peer_info_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&peer_info_response_desc, value, out, out_capacity, out_length); }
+static void peer_settings_wlc_clear_v(void *value) { wl_codec_clear(&peer_settings_desc, value); }
+static wl_codec_status_t peer_settings_wlc_measure_v(const void *value, size_t *out_size) { return wl_codec_measure(&peer_settings_desc, value, out_size); }
+static wl_codec_status_t peer_settings_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wl_codec_encode(&peer_settings_desc, value, out, capacity, length); }
+static wl_codec_status_t peer_settings_wlc_decode_v(const uint8_t *input, size_t length, void *out) { peer_settings_t scratch; return wl_codec_decode(&peer_settings_desc, input, length, out, &scratch); }
+
+void peer_settings_clear(peer_settings_t *value) { wl_codec_clear(&peer_settings_desc, value); }
+size_t peer_settings_encoded_size(const peer_settings_t *value) { size_t size = 0U; return wl_codec_measure(&peer_settings_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t peer_settings_encode(const peer_settings_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&peer_settings_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t peer_settings_decode(const uint8_t *input, size_t input_length, peer_settings_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; peer_settings_t scratch; return wl_codec_decode(&peer_settings_desc, input, input_length, out, &scratch); }
 
 static const wl_codec_field_t peer_info_response_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_INLINE_STRING, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(peer_info_response_t, name), .count_offset = (uint16_t)(offsetof(peer_info_response_t, name.data) - offsetof(peer_info_response_t, name)), .capacity_offset = 0U, .max_length = 32U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
@@ -110,8 +105,9 @@ static const wl_codec_desc_t peer_info_response_desc = {
   .decode = NULL
 };
 
-void peer_configure_request_clear(peer_configure_request_t *value) { wl_codec_clear(&peer_configure_request_desc, value); }
-wl_codec_status_t peer_configure_request_decode(const uint8_t *input, size_t input_length, peer_configure_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; peer_configure_request_t scratch; return wl_codec_decode(&peer_configure_request_desc, input, input_length, out, &scratch); }
+void peer_info_response_clear(peer_info_response_t *value) { wl_codec_clear(&peer_info_response_desc, value); }
+size_t peer_info_response_encoded_size(const peer_info_response_t *value) { size_t size = 0U; return wl_codec_measure(&peer_info_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t peer_info_response_encode(const peer_info_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&peer_info_response_desc, value, out, out_capacity, out_length); }
 
 static const wl_codec_field_t peer_configure_request_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_MESSAGE, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(peer_configure_request_t, settings), .count_offset = 0U, .capacity_offset = 0U, .max_length = 0U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = &peer_settings_desc },
@@ -134,9 +130,8 @@ static const wl_codec_desc_t peer_configure_request_desc = {
   .decode = NULL
 };
 
-void peer_configure_response_clear(peer_configure_response_t *value) { wl_codec_clear(&peer_configure_response_desc, value); }
-size_t peer_configure_response_encoded_size(const peer_configure_response_t *value) { size_t size = 0U; return wl_codec_measure(&peer_configure_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t peer_configure_response_encode(const peer_configure_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&peer_configure_response_desc, value, out, out_capacity, out_length); }
+void peer_configure_request_clear(peer_configure_request_t *value) { wl_codec_clear(&peer_configure_request_desc, value); }
+wl_codec_status_t peer_configure_request_decode(const uint8_t *input, size_t input_length, peer_configure_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; peer_configure_request_t scratch; return wl_codec_decode(&peer_configure_request_desc, input, input_length, out, &scratch); }
 
 static const wl_codec_field_t peer_configure_response_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_MESSAGE, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(peer_configure_response_t, settings), .count_offset = 0U, .capacity_offset = 0U, .max_length = 0U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = &peer_settings_desc },
@@ -159,6 +154,10 @@ static const wl_codec_desc_t peer_configure_response_desc = {
   .encode = NULL,
   .decode = NULL
 };
+
+void peer_configure_response_clear(peer_configure_response_t *value) { wl_codec_clear(&peer_configure_response_desc, value); }
+size_t peer_configure_response_encoded_size(const peer_configure_response_t *value) { size_t size = 0U; return wl_codec_measure(&peer_configure_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t peer_configure_response_encode(const peer_configure_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&peer_configure_response_desc, value, out, out_capacity, out_length); }
 
 void peer_numbers_clear(peer_numbers_t *value) {
   if (value == NULL) return;

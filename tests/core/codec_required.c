@@ -120,7 +120,16 @@ static const wl_codec_field_t child_field = {
     .cardinality = WL_CODEC_CARD_REQUIRED, .scalar_size = 4U,
     .key_len = 1U, .key = {8U}, .presence_offset = UINT16_MAX,
 };
-static const wl_codec_desc_t child_descriptor;
+static void child_clear(void *out);
+static wl_codec_status_t child_measure(const void *out, size_t *size);
+static wl_codec_status_t child_encode(const void *input, uint8_t *out,
+                                      size_t capacity, size_t *length);
+static wl_codec_status_t child_decode(const uint8_t *input, size_t length, void *out);
+static const wl_codec_desc_t child_descriptor = {
+    .fields = &child_field, .field_count = 1U, .struct_size = sizeof(child_t),
+    .min_number = 1U, .max_number = 1U, .clear = child_clear,
+    .measure = child_measure, .encode = child_encode, .decode = child_decode,
+};
 static void child_clear(void *out) { wl_codec_clear(&child_descriptor, out); }
 static wl_codec_status_t child_measure(const void *out, size_t *size) {
   return wl_codec_measure(&child_descriptor, out, size);
@@ -133,11 +142,6 @@ static wl_codec_status_t child_decode(const uint8_t *input, size_t length, void 
   child_t scratch;
   return wl_codec_decode(&child_descriptor, input, length, out, &scratch);
 }
-static const wl_codec_desc_t child_descriptor = {
-    .fields = &child_field, .field_count = 1U, .struct_size = sizeof(child_t),
-    .min_number = 1U, .max_number = 1U, .clear = child_clear,
-    .measure = child_measure, .encode = child_encode, .decode = child_decode,
-};
 static const wl_codec_field_t parent_field = {
     .number = 1U, .kind = WL_CODEC_KIND_MESSAGE,
     .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U,

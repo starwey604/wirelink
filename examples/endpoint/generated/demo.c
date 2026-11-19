@@ -13,8 +13,6 @@
 #error "Codec source/header profile mismatch; regenerate the matched artifacts."
 #endif
 
-static const wl_codec_desc_t event_desc;
-
 typedef struct wlc_scalar_shape_0_s {
   int32_t v0;
 } wlc_scalar_shape_0_t;
@@ -125,11 +123,6 @@ wl_codec_status_t response_decode(const uint8_t *input, size_t input_length, res
   return status;
 }
 
-void event_clear(event_t *value) { wl_codec_clear(&event_desc, value); }
-size_t event_encoded_size(const event_t *value) { size_t size = 0U; return wl_codec_measure(&event_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t event_encode(const event_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&event_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; event_t scratch; return wl_codec_decode(&event_desc, input, input_length, out, &scratch); }
-
 static const wl_codec_field_t event_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_INLINE_BYTES, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(event_t, data), .count_offset = (uint16_t)(offsetof(event_t, data.data) - offsetof(event_t, data)), .capacity_offset = 0U, .max_length = 9U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
 };
@@ -148,6 +141,11 @@ static const wl_codec_desc_t event_desc = {
   .encode = NULL,
   .decode = NULL
 };
+
+void event_clear(event_t *value) { wl_codec_clear(&event_desc, value); }
+size_t event_encoded_size(const event_t *value) { size_t size = 0U; return wl_codec_measure(&event_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t event_encode(const event_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&event_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; event_t scratch; return wl_codec_decode(&event_desc, input, input_length, out, &scratch); }
 
 
 #include <limits.h>

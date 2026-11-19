@@ -22,18 +22,6 @@
 #error "Codec source/header profile mismatch; regenerate the matched artifacts."
 #endif
 
-static const wl_codec_desc_t info_request_desc;
-static const wl_codec_desc_t settings_desc;
-static const wl_codec_desc_t info_response_desc;
-static const wl_codec_desc_t configure_request_desc;
-static const wl_codec_desc_t configure_response_desc;
-static const wl_codec_desc_t numbers_desc;
-
-void info_request_clear(info_request_t *value) { wl_codec_clear(&info_request_desc, value); }
-size_t info_request_encoded_size(const info_request_t *value) { size_t size = 0U; return wl_codec_measure(&info_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t info_request_encode(const info_request_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&info_request_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t info_request_decode(const uint8_t *input, size_t input_length, info_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; info_request_t scratch; return wl_codec_decode(&info_request_desc, input, input_length, out, &scratch); }
-
 static const wl_codec_desc_t info_request_desc = {
   .fields = NULL,
   .field_count = 0U,
@@ -50,14 +38,15 @@ static const wl_codec_desc_t info_request_desc = {
   .decode = NULL
 };
 
-void settings_clear(settings_t *value) { wl_codec_clear(&settings_desc, value); }
-size_t settings_encoded_size(const settings_t *value) { size_t size = 0U; return wl_codec_measure(&settings_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t settings_encode(const settings_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&settings_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t settings_decode(const uint8_t *input, size_t input_length, settings_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; settings_t scratch; return wl_codec_decode(&settings_desc, input, input_length, out, &scratch); }
+void info_request_clear(info_request_t *value) { wl_codec_clear(&info_request_desc, value); }
+size_t info_request_encoded_size(const info_request_t *value) { size_t size = 0U; return wl_codec_measure(&info_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t info_request_encode(const info_request_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&info_request_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t info_request_decode(const uint8_t *input, size_t input_length, info_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; info_request_t scratch; return wl_codec_decode(&info_request_desc, input, input_length, out, &scratch); }
 
-static void settings_wlc_clear_v(void *value) { wl_codec_clear(&settings_desc, value); }
-static wl_codec_status_t settings_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wl_codec_encode(&settings_desc, value, out, capacity, length); }
-static wl_codec_status_t settings_wlc_decode_v(const uint8_t *input, size_t length, void *out) { settings_t scratch; return wl_codec_decode(&settings_desc, input, length, out, &scratch); }
+static void settings_wlc_clear_v(void *value);
+static wl_codec_status_t settings_wlc_measure_v(const void *value, size_t *out_size);
+static wl_codec_status_t settings_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length);
+static wl_codec_status_t settings_wlc_decode_v(const uint8_t *input, size_t length, void *out);
 static const char settings_label_default_str[] = "\xE8""\xAE""\xBE""\xE5""\xA4""\x87";
 static const wl_codec_field_t settings_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_INLINE_STRING, .cardinality = WL_CODEC_CARD_OPTIONAL, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 1U, .presence_offset = (uint16_t)offsetof(settings_t, has_label), .offset = (uint16_t)offsetof(settings_t, label), .count_offset = (uint16_t)(offsetof(settings_t, label.data) - offsetof(settings_t, label)), .capacity_offset = 0U, .max_length = 12U, .element_stride = 0U, .default_bits = UINT64_C(6), .string_default = settings_label_default_str, .child = NULL },
@@ -72,7 +61,6 @@ static const wl_codec_field_t settings_fields[] = {
   { .number = 10U, .kind = WL_CODEC_KIND_UINT32, .cardinality = WL_CODEC_CARD_OPTIONAL, .wire_type = 0U, .scalar_size = 2U, .is_signed = 0U, .key_len = 1U, .key = { 0x50U, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = (uint16_t)offsetof(settings_t, has_timeout), .offset = (uint16_t)offsetof(settings_t, timeout), .count_offset = 0U, .capacity_offset = 0U, .max_length = 0U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
 };
 static const uint16_t settings_dense[10] = { 0U, 1U, 2U, 3U, 4U, 5U, 6U, 7U, 8U, 9U };
-static wl_codec_status_t settings_wlc_measure_generic_v(const void *value, size_t *out_size) { return wl_codec_measure(&settings_desc, value, out_size); }
 static const wl_codec_desc_t settings_desc = {
   .fields = settings_fields,
   .field_count = 10U,
@@ -84,15 +72,20 @@ static const wl_codec_desc_t settings_desc = {
   .has_repeated = 0U,
   .dense_map = settings_dense,
   .clear = settings_wlc_clear_v,
-  .measure = settings_wlc_measure_generic_v,
+  .measure = settings_wlc_measure_v,
   .encode = settings_wlc_encode_v,
   .decode = settings_wlc_decode_v
 };
 
-void info_response_clear(info_response_t *value) { wl_codec_clear(&info_response_desc, value); }
-size_t info_response_encoded_size(const info_response_t *value) { size_t size = 0U; return wl_codec_measure(&info_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t info_response_encode(const info_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&info_response_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t info_response_decode(const uint8_t *input, size_t input_length, info_response_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; info_response_t scratch; return wl_codec_decode(&info_response_desc, input, input_length, out, &scratch); }
+static void settings_wlc_clear_v(void *value) { wl_codec_clear(&settings_desc, value); }
+static wl_codec_status_t settings_wlc_measure_v(const void *value, size_t *out_size) { return wl_codec_measure(&settings_desc, value, out_size); }
+static wl_codec_status_t settings_wlc_encode_v(const void *value, uint8_t *out, size_t capacity, size_t *length) { return wl_codec_encode(&settings_desc, value, out, capacity, length); }
+static wl_codec_status_t settings_wlc_decode_v(const uint8_t *input, size_t length, void *out) { settings_t scratch; return wl_codec_decode(&settings_desc, input, length, out, &scratch); }
+
+void settings_clear(settings_t *value) { wl_codec_clear(&settings_desc, value); }
+size_t settings_encoded_size(const settings_t *value) { size_t size = 0U; return wl_codec_measure(&settings_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t settings_encode(const settings_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&settings_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t settings_decode(const uint8_t *input, size_t input_length, settings_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; settings_t scratch; return wl_codec_decode(&settings_desc, input, input_length, out, &scratch); }
 
 static const wl_codec_field_t info_response_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_INLINE_STRING, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(info_response_t, name), .count_offset = (uint16_t)(offsetof(info_response_t, name.data) - offsetof(info_response_t, name)), .capacity_offset = 0U, .max_length = 32U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = NULL },
@@ -114,10 +107,10 @@ static const wl_codec_desc_t info_response_desc = {
   .decode = NULL
 };
 
-void configure_request_clear(configure_request_t *value) { wl_codec_clear(&configure_request_desc, value); }
-size_t configure_request_encoded_size(const configure_request_t *value) { size_t size = 0U; return wl_codec_measure(&configure_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t configure_request_encode(const configure_request_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&configure_request_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t configure_request_decode(const uint8_t *input, size_t input_length, configure_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; configure_request_t scratch; return wl_codec_decode(&configure_request_desc, input, input_length, out, &scratch); }
+void info_response_clear(info_response_t *value) { wl_codec_clear(&info_response_desc, value); }
+size_t info_response_encoded_size(const info_response_t *value) { size_t size = 0U; return wl_codec_measure(&info_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t info_response_encode(const info_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&info_response_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t info_response_decode(const uint8_t *input, size_t input_length, info_response_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; info_response_t scratch; return wl_codec_decode(&info_response_desc, input, input_length, out, &scratch); }
 
 static const wl_codec_field_t configure_request_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_MESSAGE, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(configure_request_t, settings), .count_offset = 0U, .capacity_offset = 0U, .max_length = 0U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = &settings_desc },
@@ -140,10 +133,10 @@ static const wl_codec_desc_t configure_request_desc = {
   .decode = NULL
 };
 
-void configure_response_clear(configure_response_t *value) { wl_codec_clear(&configure_response_desc, value); }
-size_t configure_response_encoded_size(const configure_response_t *value) { size_t size = 0U; return wl_codec_measure(&configure_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t configure_response_encode(const configure_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&configure_response_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t configure_response_decode(const uint8_t *input, size_t input_length, configure_response_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; configure_response_t scratch; return wl_codec_decode(&configure_response_desc, input, input_length, out, &scratch); }
+void configure_request_clear(configure_request_t *value) { wl_codec_clear(&configure_request_desc, value); }
+size_t configure_request_encoded_size(const configure_request_t *value) { size_t size = 0U; return wl_codec_measure(&configure_request_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t configure_request_encode(const configure_request_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&configure_request_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t configure_request_decode(const uint8_t *input, size_t input_length, configure_request_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; configure_request_t scratch; return wl_codec_decode(&configure_request_desc, input, input_length, out, &scratch); }
 
 static const wl_codec_field_t configure_response_fields[] = {
   { .number = 1U, .kind = WL_CODEC_KIND_MESSAGE, .cardinality = WL_CODEC_CARD_REQUIRED, .wire_type = 2U, .scalar_size = 0U, .is_signed = 0U, .key_len = 1U, .key = { 0x0aU, 0x00U, 0x00U }, .has_default = 0U, .presence_offset = 0U, .offset = (uint16_t)offsetof(configure_response_t, settings), .count_offset = 0U, .capacity_offset = 0U, .max_length = 0U, .element_stride = 0U, .default_bits = UINT64_C(0), .string_default = NULL, .child = &settings_desc },
@@ -167,10 +160,10 @@ static const wl_codec_desc_t configure_response_desc = {
   .decode = NULL
 };
 
-void numbers_clear(numbers_t *value) { wl_codec_clear(&numbers_desc, value); }
-size_t numbers_encoded_size(const numbers_t *value) { size_t size = 0U; return wl_codec_measure(&numbers_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
-wl_codec_status_t numbers_encode(const numbers_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&numbers_desc, value, out, out_capacity, out_length); }
-wl_codec_status_t numbers_decode(const uint8_t *input, size_t input_length, numbers_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; numbers_t scratch; return wl_codec_decode(&numbers_desc, input, input_length, out, &scratch); }
+void configure_response_clear(configure_response_t *value) { wl_codec_clear(&configure_response_desc, value); }
+size_t configure_response_encoded_size(const configure_response_t *value) { size_t size = 0U; return wl_codec_measure(&configure_response_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t configure_response_encode(const configure_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&configure_response_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t configure_response_decode(const uint8_t *input, size_t input_length, configure_response_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; configure_response_t scratch; return wl_codec_decode(&configure_response_desc, input, input_length, out, &scratch); }
 
 static const char numbers_text_default_str[] = "\x61""\x22""\x40""\x4E""\x41""\x4D""\x45""\x40";
 static const wl_codec_field_t numbers_fields[] = {
@@ -209,6 +202,11 @@ static const wl_codec_desc_t numbers_desc = {
   .encode = NULL,
   .decode = NULL
 };
+
+void numbers_clear(numbers_t *value) { wl_codec_clear(&numbers_desc, value); }
+size_t numbers_encoded_size(const numbers_t *value) { size_t size = 0U; return wl_codec_measure(&numbers_desc, value, &size) == WL_CODEC_OK ? size : SIZE_MAX; }
+wl_codec_status_t numbers_encode(const numbers_t *value, uint8_t *out, size_t out_capacity, size_t *out_length) { return wl_codec_encode(&numbers_desc, value, out, out_capacity, out_length); }
+wl_codec_status_t numbers_decode(const uint8_t *input, size_t input_length, numbers_t *out) { if (out == NULL) return WL_CODEC_ERR_INVALID_VALUE; numbers_t scratch; return wl_codec_decode(&numbers_desc, input, input_length, out, &scratch); }
 
 
 #include <limits.h>
