@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 2
+    "codegen_contract": 1
   },
   "module": "demo",
   "identity": {
@@ -22,7 +22,7 @@
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
     {"path": "demo.c", "size": 15235, "digest": "0xe5e3731b631538c8"},
-    {"path": "demo.h", "size": 4957, "digest": "0xf13b3e5620aa0d04"}
+    {"path": "demo.h", "size": 4957, "digest": "0xdd72d10a7e117d32"}
   ]
 ,
   "nodes": [{"name":"demo","framing":"native","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":18,"reply_frame_capacity":18,"message_frame_capacity":15,"rx_frame_capacity":18,"tx_frame_capacity":18,"rx_wire_capacity":18,"tx_wire_capacity":18}]

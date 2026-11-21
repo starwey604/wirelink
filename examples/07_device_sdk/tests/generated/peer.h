@@ -198,8 +198,8 @@ void peer_numbers_clear(peer_numbers_t *value);
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 2
-#error "WLC requires generated-code contract 2"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct device_peer_node device_peer_node_t;

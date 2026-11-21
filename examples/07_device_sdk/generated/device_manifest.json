@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 2
+    "codegen_contract": 1
   },
   "module": "device",
   "identity": {
@@ -31,7 +31,7 @@
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
     {"path": "device.c", "size": 35761, "digest": "0x2a7b1d4364b2ab85"},
-    {"path": "device.h", "size": 10725, "digest": "0x8a8f2bab5dba9eb9"}
+    {"path": "device.h", "size": 10725, "digest": "0x129b3707367419eb"}
   ]
 ,
   "nodes": [{"name":"device","framing":"native","handlers":"static","timeout_ms":500,"request_frame_capacity":222,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":228,"tx_frame_capacity":222,"rx_wire_capacity":228,"tx_wire_capacity":222}]

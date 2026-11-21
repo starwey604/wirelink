@@ -12,7 +12,7 @@ with a C-owned endpoint and a real executor owner/join.
 consumers. `NODE client` and `ALL_NODES` additionally exercise single-role linking
 and a multi-node loopback with default linker options, without section GC. The
 negative checks reject removed `PROFILE` and runtime helpers, missing compilers
-and incompatible generated-code contracts. Use a WLC binary that reports codegen contract 2. `cpp_session` tests the installed owning wrapper.
+and incompatible generated-code contracts. Use a WLC binary that reports codegen contract 1. `cpp_session` tests the installed owning wrapper.
 
 `udp_consumer` exercises the installed packet UDP target with C-owned storage,
 latched waiting and stop. `packet_adapters` runs the full installed packet UDP,

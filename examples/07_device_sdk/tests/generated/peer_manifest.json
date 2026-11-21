@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 2
+    "codegen_contract": 1
   },
   "module": "peer",
   "identity": {
@@ -31,7 +31,7 @@
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
     {"path": "peer.c", "size": 23719, "digest": "0xb7f183f405b71163"},
-    {"path": "peer.h", "size": 9810, "digest": "0x985ab4d4256e3d58"}
+    {"path": "peer.h", "size": 9810, "digest": "0xef6e1776e7be3d5e"}
   ]
 ,
   "nodes": [{"name":"device_peer","framing":"native","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":228,"message_frame_capacity":0,"rx_frame_capacity":222,"tx_frame_capacity":228,"rx_wire_capacity":222,"tx_wire_capacity":228}]

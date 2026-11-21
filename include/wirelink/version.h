@@ -11,6 +11,6 @@
 #define WIRELINK_PROTOCOL_VERSION 1
 
 /* Compatibility between generated C and the core headers, independent of the package version. */
-#define WIRELINK_CODEGEN_CONTRACT 2U
+#define WIRELINK_CODEGEN_CONTRACT 1U
 
 #endif /* WIRELINK_VERSION_H_ */

@@ -4,7 +4,7 @@
 
 Wirelink is an allocation-free ISO C11 communication library for embedded MCUs and host tools over UART, USB Bulk, UDP, or SPI. One `.wl` file declares messages, RPCs, and node roles; WLC generates one C header/source pair. Nodes embed their ports and RX storage and default to static handlers. Fields are required by default; only explicit `optional` fields carry presence flags.
 
-Wirelink and WLC use development version **0.0.99**. Generated C uses **codegen contract 2**, and the SDK source API is revision **3**. Regenerate C and SDK artifacts when moving to contract 2.
+Wirelink and WLC use development version **0.0.99**. Generated C uses **codegen contract 1**, and the SDK source API is revision **3**.
 
 ## Three steps
 

@@ -2,7 +2,7 @@
 
 ## 0.0.99
 
-- Generate unified node I/O with contract 2 and bind synchronous sinks or async adapters at initialization.
+- Generate unified node I/O and bind synchronous sinks or async adapters at initialization.
 - Split UDP send and receive limits and run the three introductory demos as separate UDP peers.
 
 - Rename the C core and CMake target to endpoint, expose the wire helpers in

@@ -37,7 +37,7 @@ ctest --test-dir build/core --output-on-failure
 
 ### 2. 编译 Rust 编译器 `wlc` 并运行编译器测试
 
-`wlc/` 是独立 Cargo 项目。Wirelink 与 WLC 的开发版本为 `0.0.99`。生成 C 代码的兼容性由独立整数契约 `2` 决定，可用 `wlc codegen-contract` 查看。CI 使用 stable Rust。
+`wlc/` 是独立 Cargo 项目。Wirelink 与 WLC 的开发版本为 `0.0.99`。生成 C 代码的兼容性由独立整数契约 `1` 决定，可用 `wlc codegen-contract` 查看。CI 使用 stable Rust。
 
 ```sh
 cargo fmt --manifest-path wlc/Cargo.toml --check

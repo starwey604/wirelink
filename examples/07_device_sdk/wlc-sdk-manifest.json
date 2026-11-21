@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 2
+    "codegen_contract": 1
   },
   "module": "device",
   "identity": {
@@ -32,11 +32,11 @@
   "artifacts": [
     {"path": "CMakeLists.txt", "size": 4298, "digest": "0x83bbf6bf12608f98"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 7312, "digest": "0xfd8da6b3facb0229"},
+    {"path": "README.md", "size": 7312, "digest": "0x382bc45d851afe9a"},
     {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 199, "digest": "0x948906da5d77756c"},
     {"path": "generated/device.c", "size": 35761, "digest": "0x2a7b1d4364b2ab85"},
-    {"path": "generated/device.h", "size": 10725, "digest": "0x8a8f2bab5dba9eb9"},
-    {"path": "generated/device_manifest.json", "size": 1947, "digest": "0xac25dcca89207bb5"},
+    {"path": "generated/device.h", "size": 10725, "digest": "0x129b3707367419eb"},
+    {"path": "generated/device_manifest.json", "size": 1947, "digest": "0xce510b17ef18c7cb"},
     {"path": "include/device/client.hpp", "size": 1547, "digest": "0x0745001751bd0cf7"},
     {"path": "include/device/types.hpp", "size": 2289, "digest": "0xbee0065f78a4a94a"},
     {"path": "licenses/asio.txt", "size": 1338, "digest": "0xcb7237a4720128f3"},
@@ -52,7 +52,7 @@
     {"path": "src/endpoint.c", "size": 2685, "digest": "0x4a9ecdb325daf699"},
     {"path": "src/endpoint.h", "size": 838, "digest": "0x9143aa2dbbaf5a65"},
     {"path": "src/native.hpp", "size": 398, "digest": "0x8c252446ab41278d"},
-    {"path": "src/python.cpp", "size": 13312, "digest": "0x70d9f503027245ab"},
+    {"path": "src/python.cpp", "size": 13312, "digest": "0x11b8c98960a85dd2"},
     {"path": "src/values.hpp", "size": 9046, "digest": "0x2e61f9891b0d9d9f"},
     {"path": "wlc-sdk-info.json", "size": 177, "digest": "0x89f1dd586d431555"},
     {"path": "wlc-sdk-name.txt", "size": 7, "digest": "0xb2a4fa33b5d9710b"}

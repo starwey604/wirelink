@@ -44,8 +44,8 @@ wl_codec_status_t peer_add_response_encode(const peer_add_response_t *value, uin
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 2
-#error "WLC requires generated-code contract 2"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct calculator_peer_node calculator_peer_node_t;

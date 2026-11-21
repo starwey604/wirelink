@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 include_guard(GLOBAL)
-set(WIRELINK_WLC_CODEGEN_CONTRACT "2" CACHE INTERNAL "Generated-code contract" FORCE)
+set(WIRELINK_WLC_CODEGEN_CONTRACT "1" CACHE INTERNAL "Generated-code contract" FORCE)
 
 function(_wirelink_wlc_validate_executable executable out_valid out_reason)
   if(NOT EXISTS "${executable}" OR IS_DIRECTORY "${executable}")
@@ -116,7 +116,7 @@ function(wirelink_wlc_generate)
     _wirelink_wlc_schema_dependencies("${compiler}" "${previous}" previous_depends)
     list(APPEND depends ${previous_depends})
   endif()
-  # Node framing are compile-time link dependencies, so inspect the
+  # Node framing determines compile-time link dependencies, so inspect the
   # generated manifest during configure and regenerate it after import edits.
   execute_process(COMMAND ${command} RESULT_VARIABLE status ERROR_VARIABLE error OUTPUT_QUIET)
   if(NOT status STREQUAL "0")

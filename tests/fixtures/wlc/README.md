@@ -1,7 +1,7 @@
 # WLC codec conformance fixtures
 
 `previous/control.wl` and `current/control.wl` are a compatible schema pair,
-compiled with WLC 0.0.99 (codegen contract 2). The checked-in C codecs and manifests test schema
+compiled with WLC 0.0.99 (codegen contract 1). The checked-in C codecs and manifests test schema
 payload evolution under the current little-endian codec contract, not 0.12
 binary interoperability. Optional packed arrays explicitly use `optional packed`.
 

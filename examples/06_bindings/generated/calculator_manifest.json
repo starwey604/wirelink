@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 2
+    "codegen_contract": 1
   },
   "module": "calculator",
   "identity": {
@@ -20,7 +20,7 @@
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
     {"path": "calculator.c", "size": 15100, "digest": "0xa8e47160054fe6af"},
-    {"path": "calculator.h", "size": 4087, "digest": "0x3ea8d71162039840"}
+    {"path": "calculator.h", "size": 4087, "digest": "0x5164bb5b5430ce26"}
   ]
 ,
   "nodes": [{"name":"calculator","framing":"native","handlers":"static","timeout_ms":500,"request_frame_capacity":24,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":18,"tx_frame_capacity":24,"rx_wire_capacity":18,"tx_wire_capacity":24}]

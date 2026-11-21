@@ -66,8 +66,8 @@ wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 2
-#error "WLC requires generated-code contract 2"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct demo_node demo_node_t;

@@ -47,8 +47,8 @@ wl_codec_status_t add_response_decode(const uint8_t *input, size_t input_length,
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 2
-#error "WLC requires generated-code contract 2"
+#if WIRELINK_CODEGEN_CONTRACT != 1
+#error "WLC requires generated-code contract 1"
 #endif
 
 typedef struct calculator_node calculator_node_t;
