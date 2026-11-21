@@ -19,8 +19,6 @@ typedef struct {
 } flight_t;
 struct side {
   usb_node_t endpoint;
-  wl_packet_port_t port;
-  uint8_t rx[2][2048];
   flight_t flight;
   side_t *peer;
   unsigned id;
@@ -52,14 +50,14 @@ static void callback_exit(side_t *side) {
 }
 static int copy_packet(side_t *side, const uint8_t *data, size_t length) {
   wl_packet_claim_t claim;
-  wl_err_t error = wl_packet_rx_claim(&side->peer->port, length, &claim);
+  wl_err_t error = wl_packet_rx_claim(&side->peer->endpoint.port, length, &claim);
   if (error == WL_ERR_WOULD_BLOCK) return 0;
   CHECK(error == WL_OK);
   memcpy(claim.span.data, data, length);
-  CHECK(wl_packet_rx_commit(&side->peer->port, &claim, length) == WL_OK);
+  CHECK(wl_packet_rx_commit(&side->peer->endpoint.port, &claim, length) == WL_OK);
   ++received;
   if (mode == USB_TAIL) {
-    wl_packet_activity(&side->peer->port); /* Normal RX rearm publication. */
+    wl_packet_activity(&side->peer->endpoint.port); /* Normal RX rearm publication. */
     callback_exit(side->peer); /* Outer wake after final adapter access. */
   }
   return 1;
@@ -83,21 +81,21 @@ static wl_packet_submit_t submit(void *user, const uint8_t *data, size_t length,
 }
 static void service_io(side_t *side) {
   phase = CAPACITY_SIGNAL;
-  if (side->blocked && wl_packet_rx_available(&side->peer->port)) {
+  if (side->blocked && wl_packet_rx_available(&side->peer->endpoint.port)) {
     side->blocked = 0;
-    wl_packet_activity(&side->port);
+    wl_packet_activity(&side->endpoint.port);
   }
   phase = IO_COMPLETION;
   flight_t *flight = &side->flight;
   if (flight->state == 1U) {
     CHECK(digest(flight->data, flight->length) == flight->digest);
     if (!copy_packet(side, flight->data, flight->length)) return;
-    CHECK(wl_packet_tx_publish(&side->port, flight->token,
+    CHECK(wl_packet_tx_publish(&side->endpoint.port, flight->token,
           mode == SPLIT ? WL_PACKET_CONSUMED : WL_PACKET_DRAINED) == WL_OK);
     if (mode == USB_TAIL) callback_exit(side);
     flight->state = mode == SPLIT ? 2U : 0U;
   } else if (flight->state == 2U) {
-    CHECK(wl_packet_tx_publish(&side->port, flight->token, WL_PACKET_DRAINED) == WL_OK);
+    CHECK(wl_packet_tx_publish(&side->endpoint.port, flight->token, WL_PACKET_DRAINED) == WL_OK);
     flight->state = 0U;
   }
 }
@@ -158,12 +156,9 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
   for (unsigned i = 0; i < 2U; ++i) {
     side_t *side = &sides[i];
     side->id = i; side->peer = &sides[i ^ 1U];
-    wl_packet_config_t config = {.instance = 100U + mode * 100U + budget * 2U + i,
-      .rx_storage = &side->rx[0][0], .rx_unit_size = sizeof(side->rx[0]),
-      .rx_storage_size = sizeof(side->rx), .submit = submit, .notify = notify, .user = side};
-    CHECK(wl_packet_init(&side->port, &config) == WL_OK);
+    const wl_packet_io_t io = {.submit = submit, .notify = notify, .user = side};
     usb_handlers_t handlers = {.on_setpoint = handle, .on_sample = sample};
-    CHECK(usb_init(&side->endpoint, &side->port, &handlers, side) == WL_OK);
+    CHECK(usb_init_io(&side->endpoint, 100U + mode * 100U + budget * 2U + i, &io, &handlers, side) == WL_OK);
   }
   for (expected = 0U; expected < CALLS; ++expected) {
     phase = ADMISSION;

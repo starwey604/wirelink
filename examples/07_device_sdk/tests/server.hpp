@@ -29,7 +29,8 @@ public:
       self.entered_=true;self.changed_.notify_all();self.changed_.wait(lock,[&] {return !self.blocked_;});
     },this);
     wirelink::asio::PacketUdpConfig config;
-    config.bind_address="127.0.0.1";config.maximum_datagram_size=descriptor_.maximum_rx_frame;config.learn_peer=true;
+    config.bind_address="127.0.0.1";config.maximum_datagram_size=descriptor_.maximum_rx_frame;
+    config.maximum_tx_datagram_size=descriptor_.maximum_tx_frame;config.learn_peer=true;
     std::error_code error;CHECK(adapter_->start(config,error)==WL_OK && !error);
     port_=adapter_->local_port();
     owner_=std::thread([this] {

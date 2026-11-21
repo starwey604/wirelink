@@ -8,9 +8,14 @@ int32_t udp_server_on_add(udp_server_node_t *self, const add_request_t *request,
 }
 int main(void) {
   if (sample_network_init() < 0) { printk("network unavailable\n"); return 1; }
-  wl_err_t error = sample_udp_open(&udp);
-  if (error != WL_OK) { printk("UDP open: %d\n", error); return 1; }
-  error = udp_server_init(&server, &udp.port);
+  uint32_t instance;
+  wl_err_t error = wl_session_next(wl_platform_environment().session, 0U, &instance);
+  if (error != WL_OK) return 1;
+  const wl_packet_io_t io = {.submit = wl_zephyr_udp_submit,
+    .notify = wl_zephyr_udp_notify, .user = &udp.adapter};
+  error = udp_server_init_io(&server, instance, &io);
+  if (error == WL_OK)
+    error = sample_udp_open(&udp, &server.port, UDP_SERVER_RX_WIRE_MAX, UDP_SERVER_TX_WIRE_MAX);
   if (error != WL_OK) { (void)wl_zephyr_udp_close(&udp.adapter); return 1; }
   printk("UDP peer server ready on %s:%u\n", CONFIG_NET_CONFIG_MY_IPV4_ADDR, wl_zephyr_udp_local_port(&udp.adapter));
   uint32_t sequence = 0, due = k_uptime_get_32();

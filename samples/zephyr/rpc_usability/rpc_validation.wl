@@ -13,7 +13,6 @@ message Large @id(5) { required bytes<2023> data @id(1); }
 rpc Execute(Request) -> Response;
 rpc Download(Empty) -> Large;
 node rpc_validation {
-  io = external;
   handlers = dynamic;
   serve Execute;
   call Execute;

@@ -1,13 +1,7 @@
-# Send telemetry with two self-contained nodes
+# Send telemetry over UDP
 
-Configure with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and WLC 0.0.99, then run
-`wirelink_telemetry_demo` or its CTest case. `telemetry.wl` declares the message,
-`pub` sender and `sub` receiver. CMake uses `ALL_NODES` because this program hosts
-both nodes; a firmware containing only the publisher uses `NODE pub`.
-
-The publisher implements `pub_tx_write` by passing a complete packet to
-`sub_rx_packet`. Both nodes own their ports and receive buffers. Business code
-initializes ordinary required fields directly and implements `sub_on_telemetry`.
-Advance the sender before admitting its next ordinary message: there is one TX
-slot. The callback's decoded view lasts only through that callback; retain a copy
-if the application needs the last value.
+Enable `WIRELINK_BUILD_WLC_EXAMPLES`, `WIRELINK_BUILD_ASIO_UDP_ADAPTER`, and
+`WIRELINK_BUILD_PLATFORM` with WLC codegen contract 2. CMake generates each role separately.
+Run `telemetry_subscriber` in one terminal and `telemetry_publisher` in another.
+The default IPv4 loopback ports are 50001 / 50002. Override them with
+`LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT`.

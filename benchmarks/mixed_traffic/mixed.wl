@@ -9,7 +9,6 @@ message Telemetry @id(23) {
 rpc Echo(EchoRequest) -> EchoResponse;
 
 node mixed {
-  io = external;
   handlers = dynamic;
   call Echo;
   serve Echo;

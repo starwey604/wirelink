@@ -66,8 +66,8 @@ wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 1
-#error "WLC requires generated-code contract 1"
+#if WIRELINK_CODEGEN_CONTRACT != 2
+#error "WLC requires generated-code contract 2"
 #endif
 
 typedef struct demo_node demo_node_t;
@@ -78,6 +78,8 @@ typedef struct demo_node demo_node_t;
 #define DEMO_TX_FRAME_MAX 18U
 #define DEMO_RX_WIRE_MAX 18U
 #define DEMO_TX_WIRE_MAX 18U
+/* Accept and drain the whole frame, or reject it without consuming bytes. */
+typedef wl_err_t (*demo_tx_write_fn)(demo_node_t *self, const uint8_t *data, size_t length);
 typedef struct {
   int32_t (*on_execute)(void *, const request_t *, response_t *);
   void (*on_event)(void *, const event_t *);
@@ -93,8 +95,18 @@ struct demo_node {
   uint8_t replies[WL_ENDPOINT_REPLIES][18];
   uint8_t requests[WL_ENDPOINT_CALLS][18];
   uint8_t message[15];
+  wl_packet_port_t port;
+  uint8_t rx[WL_PACKET_RX_SLOTS][DEMO_RX_WIRE_MAX + 1U];
+  demo_tx_write_fn tx_write;
 };
-wl_err_t demo_init(demo_node_t *self, wl_packet_port_t *port, const demo_handlers_t *handlers, void *user);
+/* Automatic instances are unique only within this process lifetime.
+ * Stop I/O before reinitialization; persistent links should supply an instance. */
+wl_err_t demo_init(demo_node_t *self, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user);
+wl_err_t demo_init_with_instance(demo_node_t *self, uint32_t instance, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user);
+/* Instance zero requests an automatic instance. */
+wl_err_t demo_init_io(demo_node_t *self, uint32_t instance, const wl_packet_io_t *io, const demo_handlers_t *handlers, void *user);
+static inline void demo_tx_ready(demo_node_t *self) { wl_packet_activity(&self->port); }
+wl_err_t demo_rx_packet(demo_node_t *self, const uint8_t *data, size_t length);
 wl_err_t demo_step(demo_node_t *self, uint32_t now);
 /* Stop the RX producer before close, then step until quiescent. */
 wl_err_t demo_close(demo_node_t *self);

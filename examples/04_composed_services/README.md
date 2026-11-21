@@ -1,7 +1,7 @@
 # Static RPC, telemetry and application upload
 
 One generated `product_node_t` per peer carries Query/Reboot RPCs and ordinary messages.
-`product.wl` imports `arm.wl` and `upgrade.wl` and declares the external `product`
+`product.wl` imports `arm.wl` and `upgrade.wl` and declares the `product`
 node. CMake selects `NODE product`; handlers are linked as `product_on_*` symbols.
 The existing business message structures/IDs and upload phase/status numbers
 remain unchanged. The application messages do not define a standard bulk wire.

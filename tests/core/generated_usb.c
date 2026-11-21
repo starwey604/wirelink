@@ -10,7 +10,6 @@
 
 typedef struct {
   usb_node_t endpoint;
-  wl_packet_port_t port;
   uint8_t rx[2][2048];
   uint8_t frames[16][1100];
   size_t lengths[16];
@@ -103,17 +102,16 @@ static void error(void *user, uint16_t id, wl_err_t code) {
 }
 
 static void init(fixture_t *f, uint32_t instance) {
-  wl_packet_config_t port = {
-      .instance = instance, .rx_storage = &f->rx[0][0], .rx_unit_size = 2048U,
+  const wl_packet_io_t io = {
+      .rx_storage = &f->rx[0][0], .rx_unit_size = 2048U,
       .rx_storage_size = sizeof(f->rx), .submit = sink, .user = f
   };
-  CHECK(wl_packet_init(&f->port, &port) == WL_OK);
   usb_handlers_t handlers = {
       .on_setpoint = setpoint, .on_control = control,
       .on_sample = sample, .on_stream_chunk = chunk,
       .on_progress = progress
   };
-  CHECK(usb_init(&f->endpoint, &f->port, &handlers, f) == WL_OK);
+  CHECK(usb_init_io(&f->endpoint, instance, &io, &handlers, f) == WL_OK);
   f->endpoint.on_error = error;
 }
 
@@ -134,9 +132,9 @@ static void run(fixture_t *f, uint32_t now) {
 static void deliver(fixture_t *to, const fixture_t *from, unsigned frame) {
   wl_packet_claim_t claim;
   CHECK(frame < from->frames_count);
-  CHECK(wl_packet_rx_claim(&to->port, 2048U, &claim) == WL_OK);
+  CHECK(wl_packet_rx_claim(&to->endpoint.port, 2048U, &claim) == WL_OK);
   memcpy(claim.span.data, from->frames[frame], from->lengths[frame]);
-  CHECK(wl_packet_rx_commit(&to->port, &claim, from->lengths[frame]) == WL_OK);
+  CHECK(wl_packet_rx_commit(&to->endpoint.port, &claim, from->lengths[frame]) == WL_OK);
 }
 
 static void setpoint_done(void *user, wl_rpc_result_t result,
@@ -227,7 +225,7 @@ static void test_backpressure_and_lease(void) {
   deliver(&b, &a, WL_ENDPOINT_REPLIES); run(&b, 0U);
   CHECK(b.effects == WL_ENDPOINT_REPLIES && !ready(&b, 0U));
   b.sink_result = WL_PACKET_SENT;
-  wl_packet_activity(&b.port);
+  wl_packet_activity(&b.endpoint.port);
   run(&b, 0U);
   CHECK(b.effects == WL_ENDPOINT_REPLIES + 1U && b.frames_count == WL_ENDPOINT_REPLIES + 1U);
 
@@ -245,10 +243,10 @@ static void test_backpressure_and_lease(void) {
   deliver(&c, &d, 0U); run(&c, 0U);
   CHECK(c.callbacks == 1U && c.values[0] == 37U);
   CHECK(memcmp(saved, c.leased, c.leased_length) == 0);
-  CHECK(wl_packet_tx_active(&c.port));
-  CHECK(wl_packet_tx_publish(&c.port, c.token, WL_PACKET_DRAINED) == WL_OK);
+  CHECK(wl_packet_tx_active(&c.endpoint.port));
+  CHECK(wl_packet_tx_publish(&c.endpoint.port, c.token, WL_PACKET_DRAINED) == WL_OK);
   run(&c, 0U);
-  CHECK(!wl_packet_tx_active(&c.port));
+  CHECK(!wl_packet_tx_active(&c.endpoint.port));
 }
 
 static void test_control_and_all_messages(void) {

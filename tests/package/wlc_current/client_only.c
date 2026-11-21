@@ -15,7 +15,7 @@ int main(void) {
   client_node_t client;
   input_t request = {.value = 42};
   wl_call_handle_t handle;
-  if (client_init(&client) ||
+  if (client_init(&client, client_tx_write) ||
       client_call_execute_ex(&client, &request, 0, 100, done, NULL, &handle) ||
       client_cancel(&client, handle) || client_step(&client, 0) ||
       completed != 1 || client_close(&client) || client_step(&client, 0) ||

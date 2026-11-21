@@ -137,7 +137,7 @@ node dma_sensor {
 ```cpp
 wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
   try {
-    const auto error = udp->adapter->service();
+    const auto error = udp->adapter.service();
     const auto advanced = wl_endpoint_step(core, now, 16);
     return error == WL_OK ? advanced : error;
   } catch (...) { return WL_ERR_IO; }

@@ -20,9 +20,9 @@ Use strict ISO C11 and keep GCC/Clang builds warning-clean (`-Wall -Wextra -Wped
 
 ## Schema & Generated-Code Contract
 
-Wirelink and WLC are at 0.0.99. The generated C contract is the independent integer 1. Declare messages, RPCs, and nodes in one `.wl`; use `wlc compile --node NAME` or `--all-nodes` for multiple nodes, and CMake `NODE` or `ALL_NODES`. Generation produces one header/source pair and manifest. Fields are required by default; only `optional` and `optional packed` have presence flags. Preserve old optional wire semantics explicitly when migrating schemas.
+Wirelink and WLC are at 0.0.99. The generated C contract is the independent integer 2. Declare messages, RPCs, and nodes in one `.wl`; use `wlc compile --node NAME` or `--all-nodes` for multiple nodes, and CMake `NODE` or `ALL_NODES`. Generation produces one header/source pair and manifest. Fields are required by default; only `optional` and `optional packed` have presence flags. Preserve old optional wire semantics explicitly when migrating schemas.
 
-Prefer default embedded I/O and static handlers for introductory examples. Embedded TX hooks must accept a whole frame synchronously or reject it completely; notify `tx_ready` when a busy sink becomes writable. Preserve unconsumed stream tails, stop RX before close, and step until quiescent. Use external I/O for asynchronous/zero-copy drivers and preserve physical leases through drain. Simple RPC deadlines start on the next owner step; `_ex` uses explicit time.
+Prefer static handlers for introductory examples. Synchronous TX callbacks must accept a whole frame synchronously or reject it completely; notify `tx_ready` when a busy sink becomes writable. Preserve unconsumed stream tails, stop RX before close, and step until quiescent. Use `init_io` for asynchronous/zero-copy drivers and preserve physical leases through drain. Simple RPC deadlines start on the next owner step; `_ex` uses explicit time.
 
 ## Testing Guidelines
 

@@ -3,13 +3,13 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 1
+    "codegen_contract": 2
   },
   "module": "calculator",
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x96a3b1226f6423df",
-    "node": "0x48cbaee3150ffe44"
+    "node": "0x99693bec7070cade"
   },
   "codec_formats": {
     "ADD_REQUEST_CODEC_FORMAT": "schema-v1",
@@ -19,9 +19,9 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "calculator.c", "size": 12668, "digest": "0xf21b746cbc678dda"},
-    {"path": "calculator.h", "size": 3158, "digest": "0xcf8fad73f58ee282"}
+    {"path": "calculator.c", "size": 15100, "digest": "0xa8e47160054fe6af"},
+    {"path": "calculator.h", "size": 4087, "digest": "0x3ea8d71162039840"}
   ]
 ,
-  "nodes": [{"name":"calculator","framing":"native","io":"external","handlers":"static","timeout_ms":500,"request_frame_capacity":24,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":18,"tx_frame_capacity":24,"rx_wire_capacity":18,"tx_wire_capacity":24}]
+  "nodes": [{"name":"calculator","framing":"native","handlers":"static","timeout_ms":500,"request_frame_capacity":24,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":18,"tx_frame_capacity":24,"rx_wire_capacity":18,"tx_wire_capacity":24}]
 }

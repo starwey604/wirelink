@@ -9,6 +9,7 @@ typedef struct {
   wl_endpoint_t *core;
   wl_packet_port_t *port;
   size_t maximum_rx_frame;
+  size_t maximum_tx_frame; /* Zero uses maximum_rx_frame. */
 } wl_host_endpoint_t;
 typedef void (*wl_host_rpc_notify_fn)(void *, wl_rpc_result_t);
 #endif

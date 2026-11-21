@@ -66,9 +66,15 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
 
     {/* [docs:telemetry_tx_write] */}
     ```c
-    wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
-      (void)self;
-      return sub_rx_packet(&subscriber, data, length);
+    static example_udp_t *open_publisher(int argc, char **argv) {
+      example_udp_t *udp = example_udp_create(&publisher.port);
+      if (udp == NULL) return NULL;
+      if (pub_init_io(&publisher, 0U, example_udp_io(udp)) != WL_OK ||
+          example_udp_start(udp, PUB_TX_WIRE_MAX, argc, argv, 50001, 50002) != WL_OK) {
+        example_udp_destroy(udp);
+        return NULL;
+      }
+      return udp;
     }
     ```
     {/* [/docs:telemetry_tx_write] */}
@@ -79,13 +85,11 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
 
     {/* [docs:telemetry_receive] */}
     ```c
-    unsigned telemetry_received;
-    telemetry_t latest_telemetry;
-
     void sub_on_telemetry(sub_node_t *self, const telemetry_t *message) {
       (void)self;
-      latest_telemetry = *message;
-      ++telemetry_received;
+      printf("sample=%" PRIu32 " temperature_centi_c=%" PRId32 "\n",
+             message->sample, message->temperature_centi_c);
+      fflush(stdout);
     }
     ```
     {/* [/docs:telemetry_receive] */}
@@ -96,13 +100,11 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
 
     {/* [docs:telemetry_publish] */}
     ```c
-    static wl_err_t publish_sample(uint32_t sample) {
-      wl_err_t error = pub_send_telemetry(&publisher, &(telemetry_t){
-          .sample = sample, .temperature_centi_c = -1234});
+    static wl_err_t publish_sample(example_udp_t *udp, uint32_t sequence) {
+      telemetry_t sample = {.sample = sequence, .temperature_centi_c = -1234};
+      wl_err_t error = pub_send_telemetry(&publisher, &sample);
       if (error != WL_OK) return error;
-      error = pub_step(&publisher, 0);
-      if (error != WL_OK) return error;
-      return sub_step(&subscriber, 0);
+      return example_udp_step(udp, &publisher.core, 0U);
     }
     ```
     {/* [/docs:telemetry_publish] */}

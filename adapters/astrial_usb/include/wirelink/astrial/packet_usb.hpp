@@ -28,6 +28,7 @@ public:
   ~PacketUsbAdapter();
   PacketUsbAdapter(const PacketUsbAdapter &) = delete;
   PacketUsbAdapter &operator=(const PacketUsbAdapter &) = delete;
+  wl_packet_io_t io() noexcept { return {submit, notify, this, nullptr, 0, 0}; }
   wl_err_t start(const PacketUsbConfig &);
   wl_err_t service();
   bool ready() const;

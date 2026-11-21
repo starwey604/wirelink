@@ -37,7 +37,7 @@ ctest --test-dir build/core --output-on-failure
 
 ### 2. 编译 Rust 编译器 `wlc` 并运行编译器测试
 
-`wlc/` 是独立 Cargo 项目。Wirelink 与 WLC 的开发版本为 `0.0.99`。生成 C 代码的兼容性由独立整数契约 `1` 决定，可用 `wlc codegen-contract` 查看。CI 使用 stable Rust。
+`wlc/` 是独立 Cargo 项目。Wirelink 与 WLC 的开发版本为 `0.0.99`。生成 C 代码的兼容性由独立整数契约 `2` 决定，可用 `wlc codegen-contract` 查看。CI 使用 stable Rust。
 
 ```sh
 cargo fmt --manifest-path wlc/Cargo.toml --check
@@ -114,7 +114,7 @@ python3 benchmarks/footprint/footprint.py --no-digests --json build/footprint.js
 
 当前生成入口是单个 `.wl`，节点选择通过 CLI `--node` / `--all-nodes` 或 CMake `NODE` / `ALL_NODES`。有多个节点时不能依赖默认选择。生成输出为单对 `.h/.c` 与 manifest；安装消费工程应只链接实际需要的节点，验证默认链接选项下不产生未实现的其他角色静态钩子。
 
-默认字段必选且不带 `has_*`；旧可选字段显式写 `optional`，旧可选数组写 `optional packed`。修改 schema 后同时检查生成布局、初始化、业务回调、测试和 SDK，不能只做函数名替换。对 embedded 的验证至少覆盖：TX 忙后 `tx_ready` 恢复、流接收 `consumed` 尾部、停 RX 后关闭半帧与 quiescent。external 还需保留物理租约完成/停止测试。
+默认必选字段直接生成值。旧可选字段显式写 `optional`，旧可选数组写 `optional packed`。修改 schema 后同时检查生成布局、初始化、业务回调、测试和 SDK。同步驱动验证 TX 忙后通过 `tx_ready` 恢复、保留 `consumed` 之外的流接收尾部，以及停 RX 后关闭半帧并推进到 quiescent。异步驱动还需验证物理租约完成与停止。
 
 文档代码锚点直接取自可运行示例：
 

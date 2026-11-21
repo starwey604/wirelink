@@ -10,12 +10,13 @@ namespace wirelink::asio {
 struct PacketUdpConfig {
   std::string bind_address{"0.0.0.0"};
   uint16_t bind_port{};
-  size_t maximum_datagram_size{};
+  size_t maximum_datagram_size{}; // RX limit. Zero derives it from the receive unit.
   unsigned service_budget{8};
   bool learn_peer{};
   // Optional selected, in-place transport decoder. Runs only on owner.
   // Updates length to canonical DATA after framing/integrity validation.
   wl_err_t (*decode)(uint8_t *, size_t, size_t *){};
+  size_t maximum_tx_datagram_size{}; // Zero uses the RX limit.
 };
 struct PacketUdpStats {
   uint64_t received{}, sent{}, rejected{}, errors{};
@@ -28,6 +29,7 @@ public:
   ~PacketUdpAdapter();
   PacketUdpAdapter(const PacketUdpAdapter &) = delete;
   PacketUdpAdapter &operator=(const PacketUdpAdapter &) = delete;
+  wl_packet_io_t io() noexcept { return {submit, notify, this, nullptr, 0, 0}; }
   wl_err_t start(const PacketUdpConfig &, std::error_code &);
   wl_err_t set_peer(const std::string &, uint16_t);
   wl_err_t service();

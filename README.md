@@ -32,7 +32,7 @@ node server { serve Add; }
 ```
 <!-- [/docs:calculator_schema] -->
 
-节点默认采用 `io = embedded; handlers = static; framing = native; codec = schema_v1; timeout_ms = 500;`，自带内部收发缓冲区并直接链接同名静态 C 函数，无需编写初始化配置表。
+节点默认采用 `handlers = static; framing = native; codec = schema_v1; timeout_ms = 500;`，节点内置端口和缓冲区。同步驱动向 `_init` 传发送函数，异步驱动通过 `_init_io` 接线。
 
 ### 第二步：用 `wlc` 生成下位机 C11 节点与上位机 SDK
 
@@ -146,7 +146,7 @@ ctest --test-dir build/core --output-on-failure
   5. [05 并发调用、超时取消与发送背压控制](site/src/content/docs/zh-cn/learn/05-concurrency-backpressure.mdx)
   6. [06 进阶内核机制：安全停机、RTOS 唤醒与零拷贝 DMA](site/src/content/docs/zh-cn/learn/06-host-sdk-and-transports.mdx)
 - **[WLC 语言、CLI 与生成 API 手册](wlc/README.md)**：`.wl` 类型系统、`node` 配置、生成的 C11 函数签名与 CMake 集成。
-- **[驱动移植指南（UART / USB / UDP / SPI）](docs/porting-adapters.md)**：默认 `embedded` 同步整帧接入模板与 `external` 异步零拷贝 DMA 租约协议。
+- **[驱动移植指南（UART / USB / UDP / SPI）](docs/porting-adapters.md)**：同步整帧发送与异步零拷贝 DMA 租约。
 - **[Wire v2 二进制协议规范](docs/wire-format.md)**：4B 帧头、8/12B RPC 子头、TLV / Positional-v1 与 COBS+CRC16 字节图解。
 - **[开发与验证指南](docs/development.md)**：目录职责、测试矩阵、Zephyr Twister、libFuzzer 与体积验收命令。
 - **[可编译教学示例 (`examples/`)](examples/)** · **[Zephyr 工程示例 (`samples/zephyr/`)](samples/zephyr/)** · **[基准测试 (`benchmarks/`)](benchmarks/)**

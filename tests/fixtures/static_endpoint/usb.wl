@@ -11,7 +11,6 @@ rpc Setpoint(SetpointRequest) -> SetpointResponse;
 rpc Control(ControlRequest) -> ControlResponse;
 
 node usb {
-  io = external;
   handlers = dynamic;
   call Setpoint;
   serve Setpoint;

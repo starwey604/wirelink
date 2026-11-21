@@ -1,18 +1,22 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "business.h"
-#include "peer_options.h"
+#include "tutorial_host.h"
 #include <string.h>
 void udp_client_on_telemetry(udp_client_node_t *self, const telemetry_t *message) {
   peer_sample(self->user, message);
 }
 int main(int argc, char **argv) {
   static udp_client_node_t client;
-  static wl_packet_port_t port;
-  static uint8_t rx[2][2053];
   peer_client_t state = {0};
-  example_udp_t *udp = peer_open(&port, (wl_span_t){&rx[0][0], sizeof(rx)}, sizeof(rx[0]), argc, argv);
+  example_udp_t *udp = example_udp_create(&client.port);
   CHECK(udp);
-  CHECK(udp_client_init(&client, &port) == WL_OK);
+  uint32_t instance;
+  if (example_instance(&instance) != WL_OK ||
+      udp_client_init_io(&client, instance, example_udp_io(udp)) != WL_OK ||
+      example_udp_start(udp, UDP_CLIENT_TX_WIRE_MAX, argc, argv, 50007, 50008) != WL_OK) {
+    example_udp_destroy(udp);
+    return 1;
+  }
   client.user = &state;
   add_request_t request = {.left = 20, .right = 22};
   CHECK(udp_client_call_add_ex(&client, &request, example_now_ms(), 1500, peer_completed, &state, NULL) == WL_OK);

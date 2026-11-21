@@ -9,7 +9,6 @@ message Sample @id(23) {
 rpc Query(Query) -> Answer;
 
 node endpoint_api {
-  io = external;
   handlers = dynamic;
   call Query;
   serve Query;

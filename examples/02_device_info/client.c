@@ -1,49 +1,48 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "device_info.h"
-#include "example_check.h"
-#include <string.h>
-static info_client_node_t caller;
-static info_server_node_t callee;
+#include "tutorial_host.h"
+#include <inttypes.h>
+
 static unsigned completed;
-static info_response_t result;
-wl_err_t info_client_tx_write(info_client_node_t *self, const uint8_t *data, size_t length) {
-  (void)self; return info_server_rx_packet(&callee, data, length);
-}
-wl_err_t info_server_tx_write(info_server_node_t *self, const uint8_t *data, size_t length) {
-  (void)self; return info_client_rx_packet(&caller, data, length);
-}
+static wl_rpc_result_t result;
+static info_response_t saved;
+
 /* [docs:device_info_done] */
 static void done(info_client_node_t *self, wl_rpc_result_t outcome, const info_response_t *response) {
   (void)self;
-  if (outcome.outcome != WL_RPC_SUCCESS || response == NULL) return;
-  result = *response;
+  result = outcome;
+  if (response != NULL) saved = *response;
   ++completed;
 }
 /* [/docs:device_info_done] */
 
 /* [docs:device_info_client] */
-static wl_err_t read_device_info(uint32_t now) {
-  wl_err_t error = info_client_call_get_info(&caller, &(info_request_t){0}, done);
-  if (error != WL_OK) return error;
-  error = info_client_step(&caller, now);
-  if (error != WL_OK) return error;
-  error = info_server_step(&callee, 0);
-  if (error != WL_OK) return error;
-  return info_client_step(&caller, now);
+static wl_err_t read_device_info(info_client_node_t *client, example_udp_t *udp) {
+  wl_err_t error = info_client_call_get_info(client, &(info_request_t){0}, done);
+  while (error == WL_OK && example_running() && !completed) {
+    error = example_udp_step(udp, &client->core, example_now_ms());
+    if (error == WL_OK && !completed)
+      error = example_udp_wait(udp, &client->core, 100U);
+  }
+  return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
 }
 /* [/docs:device_info_client] */
 
-int main(void) {
-  unsigned queries = 0;
-  EXAMPLE_REQUIRE(info_client_init(&caller) == WL_OK && info_server_init(&callee) == WL_OK);
-  callee.user = &queries;
-  for (unsigned call = 0; call < 8; ++call) {
-    if (read_device_info(call) != WL_OK) return 1;
-    EXAMPLE_REQUIRE(completed == call + 1 && result.query_count == call + 1);
+int main(int argc, char **argv) {
+  static info_client_node_t client;
+  example_udp_t *udp = example_udp_create(&client.port);
+  if (udp == NULL) return 1;
+  if (info_client_init_io(&client, 0U, example_udp_io(udp)) != WL_OK ||
+      example_udp_start(udp, INFO_CLIENT_TX_WIRE_MAX, argc, argv, 50005, 50006) != WL_OK) {
+    example_udp_destroy(udp);
+    return 1;
   }
-  EXAMPLE_REQUIRE(info_client_close(&caller) == WL_OK && info_server_close(&callee) == WL_OK);
-  EXAMPLE_REQUIRE(info_client_quiescent(&caller) && info_server_quiescent(&callee));
-  EXAMPLE_REQUIRE(result.name.length == 11 && memcmp(result.name.data, "workbench\0x", 11) == 0);
-  puts("bounded UTF-8/NUL response copied before callback exit and retained after close");
+  const wl_err_t read = read_device_info(&client, udp);
+  const wl_err_t closed = example_udp_close(udp, &client.core);
+  if (read != WL_OK || closed != WL_OK || result.outcome != WL_RPC_SUCCESS) return 1;
+  fputs("name=", stdout);
+  fwrite(saved.name.data, 1, saved.name.length, stdout);
+  printf(" firmware=%.*s query_count=%" PRIu32 "\n",
+         (int)saved.firmware.length, saved.firmware.data, saved.query_count);
   return 0;
 }

@@ -24,7 +24,7 @@ typedef struct {
 typedef struct {
   simulation_t *simulation;
   unsigned side;
-  wl_packet_port_t port;
+  wl_packet_port_t *port;
   wl_packet_stream_t stream;
   uint8_t rx[2][128], stream_tx[80], copy[80];
   const uint8_t *borrowed;
@@ -83,13 +83,13 @@ static wl_packet_submit_t transmit(void *user, const uint8_t *data, size_t lengt
 static void service(port_t *p) {
   simulation_t *s = p->simulation;
   if (p->retry_due && s->tick >= p->retry_at) {
-    p->retry_due = false; wl_packet_activity(&p->port);
+    p->retry_due = false; wl_packet_activity(p->port);
   }
   if (!p->active) return;
   if (p->borrowed && s->tick >= p->consumed_at) {
     CHECK(memcmp(p->borrowed, p->copy, p->length) == 0);
     p->borrowed = NULL;
-    CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_CONSUMED) == WL_OK);
+    CHECK(wl_packet_tx_publish(p->port, p->token, WL_PACKET_CONSUMED) == WL_OK);
   }
   if (s->tick < p->drained_at) return;
   port_t *peer = &s->ports[1 - p->side];
@@ -97,10 +97,10 @@ static void service(port_t *p) {
     wl_err_t error;
     if (s->envelope == 1) {
       wl_packet_claim_t claim;
-      error = wl_packet_rx_claim(&peer->port, p->length, &claim);
+      error = wl_packet_rx_claim(peer->port, p->length, &claim);
       if (error == WL_ERR_WOULD_BLOCK) return;
       CHECK(error == WL_OK); memcpy(claim.span.data, p->copy, p->length);
-      CHECK(wl_packet_rx_commit(&peer->port, &claim, p->length) == WL_OK);
+      CHECK(wl_packet_rx_commit(peer->port, &claim, p->length) == WL_OK);
     } else {
       size_t consumed = 0;
       error = s->envelope == 0 ? wl_packet_stream_cobs_crc16_feed(&peer->stream,
@@ -111,7 +111,7 @@ static void service(port_t *p) {
       if (p->fed < p->length) return;
     }
   }
-  CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_DRAINED) == WL_OK);
+  CHECK(wl_packet_tx_publish(p->port, p->token, WL_PACKET_DRAINED) == WL_OK);
   p->borrowed = NULL; p->active = false;
 }
 static int32_t echo(void *user, const echo_request_t *request, echo_response_t *response) {
@@ -166,20 +166,20 @@ static void run(scenario_t scenario, int envelope, bool check) {
   const mixed_handlers_t handlers = {.on_echo = echo, .on_telemetry = telemetry};
   for (unsigned side = 0; side < 2; ++side) {
     port_t *p = &s->ports[side]; p->simulation = s; p->side = side;
-    wl_packet_config_t config = {.instance = ++next_instance, .rx_storage = &p->rx[0][0],
+    p->port = &s->endpoints[side].port;
+    wl_packet_io_t config = { .rx_storage = &p->rx[0][0],
       .rx_unit_size = sizeof(p->rx[0]), .rx_storage_size = sizeof(p->rx), .submit = transmit, .user = p};
     if (envelope != 1) {
       config.submit = envelope == 0 ? wl_packet_stream_cobs_crc16_submit : wl_packet_stream_length16_none_submit;
       config.notify = wl_packet_stream_notify; config.user = &p->stream;
     }
-    CHECK(wl_packet_init(&p->port, &config) == WL_OK);
+    CHECK(mixed_init_io(&s->endpoints[side], ++next_instance, &config, &handlers, p) == WL_OK);
     if (envelope != 1) {
-      wl_packet_stream_config_t stream = {.port = &p->port, .tx_storage = {p->stream_tx, sizeof(p->stream_tx)},
+      wl_packet_stream_config_t stream = {.port = p->port, .tx_storage = {p->stream_tx, sizeof(p->stream_tx)},
         .maximum_frame_size = 64, .physical_submit = transmit, .user = p};
       CHECK((envelope == 0 ? wl_packet_stream_cobs_crc16_init(&p->stream, &stream) :
         wl_packet_stream_length16_none_init(&p->stream, &stream)) == WL_OK);
     }
-    CHECK(mixed_init(&s->endpoints[side], &p->port, &handlers, p) == WL_OK);
   }
 #ifdef MIXED_TRAFFIC_FIRMWARE
   mixed_fw_case_begin();
@@ -243,7 +243,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
     if (p->active) {
       /* Model driver abandons its actual held source/copy before TX_ERROR. */
       p->borrowed = NULL; p->active = false;
-      CHECK(wl_packet_tx_publish(&p->port, p->token, WL_PACKET_TX_ERROR) == WL_OK);
+      CHECK(wl_packet_tx_publish(p->port, p->token, WL_PACKET_TX_ERROR) == WL_OK);
     }
     if (envelope != 1) CHECK(wl_packet_stream_abort_rx(&p->stream) == WL_OK);
     wl_err_t error = mixed_step(&s->endpoints[side], now(s));

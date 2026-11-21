@@ -3,12 +3,12 @@
 [中文](README-cn.md)
 
 Build `wirelink_device_service_demo` with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and
-matching WLC 0.0.99 (codegen contract 1). Its two C11 endpoints share one deterministic
+matching WLC 0.0.99 (codegen contract 2). Its two C11 endpoints share one deterministic
 owner and RAM-copy loopback. Run `ctest -R wirelink_device_service` for the demo
 and extension test. The example does not access hardware; UDP interoperability
 is covered by the UDP/SDK examples.
 
-`device.wl` holds messages, shared RPC declarations, and the external
+`device.wl` holds messages, shared RPC declarations, and the
 `device_client` / `device_server` nodes. Business state lives in
 `device_service_t`. Service modules directly implement `device_server_on_*`
 symbols, fill owned responses, and return signed business status. They obtain

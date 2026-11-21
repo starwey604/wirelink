@@ -53,6 +53,7 @@ public:
         wirelink::asio::PacketUdpAdapter::notify, adapter.get()) == WL_OK);
     wirelink::asio::PacketUdpConfig config;
     config.bind_address = "127.0.0.1"; config.maximum_datagram_size = driver.maximum_rx_frame;
+    config.maximum_tx_datagram_size = driver.maximum_tx_frame;
     std::error_code os; require(adapter->start(config, os) == WL_OK);
   }
   void start(uint16_t peer) {

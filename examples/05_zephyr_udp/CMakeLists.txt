@@ -1,8 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-add_library(wirelink_tutorial_host STATIC ../common/tutorial_host.cpp)
-target_include_directories(wirelink_tutorial_host PUBLIC ../common)
-target_link_libraries(wirelink_tutorial_host PUBLIC Wirelink::asio_udp Wirelink::platform)
-wl_warnings(wirelink_tutorial_host PRIVATE -Wall -Wextra -Wpedantic -Werror)
 foreach(role client server)
   wirelink_wlc_generate(TARGET udp_${role}_protocol SCHEMA "${CMAKE_CURRENT_SOURCE_DIR}/udp_demo.wl"
     NODE udp_${role})

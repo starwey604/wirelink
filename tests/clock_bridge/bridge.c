@@ -38,11 +38,12 @@ void *clock_bridge_create(uint32_t initial_ms, int native_clock) {
   if (!bridge) return NULL;
   bridge->time = initial_ms;
   if (native_clock) bridge->native = clock_bridge_native_clock();
-  example_pair_init(&bridge->pair, &bridge->client.core, &bridge->server.core);
+  example_pair_init(&bridge->pair, &bridge->client.core, &bridge->server.core,
+      &bridge->client.port, &bridge->server.port);
   calculator_handlers_t handlers = {.on_add = add};
   const calculator_handlers_t client_handlers = {0};
-  EXAMPLE_REQUIRE(calculator_init(&bridge->client, &bridge->pair.ports[0], &client_handlers, bridge) == WL_OK);
-  EXAMPLE_REQUIRE(calculator_init(&bridge->server, &bridge->pair.ports[1], &handlers, bridge) == WL_OK);
+  EXAMPLE_REQUIRE(calculator_init_io(&bridge->client, 0U, &bridge->pair.io[0], &client_handlers, bridge) == WL_OK);
+  EXAMPLE_REQUIRE(calculator_init_io(&bridge->server, 0U, &bridge->pair.io[1], &handlers, bridge) == WL_OK);
   bridge->ready = true; return bridge;
 }
 void clock_bridge_close(void *value) {

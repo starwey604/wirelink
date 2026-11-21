@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "probe.h"
 #include <cstdlib>
-extern "C" wl_packet_port_t *installed_test_port();
+extern "C" wl_err_t installed_test_init(probe_node_t *, const probe_handlers_t *);
 static unsigned cancelled, received;
 static void done(void *, wl_rpc_result_t result, const response_t *response) {
   if (result.outcome != WL_RPC_CANCELLED || response)
@@ -14,13 +14,10 @@ static void event(void *, const event_t *value) {
   ++received;
 }
 int main() {
-  auto *port = installed_test_port();
-  if (!port)
-    return 1;
   probe_node_t endpoint{};
   probe_handlers_t handlers{};
   handlers.on_event = event;
-  if (probe_init(&endpoint, port, &handlers, nullptr))
+  if (installed_test_init(&endpoint, &handlers))
     return 2;
   request_t request{};
 

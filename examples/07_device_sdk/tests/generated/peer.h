@@ -198,8 +198,8 @@ void peer_numbers_clear(peer_numbers_t *value);
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 1
-#error "WLC requires generated-code contract 1"
+#if WIRELINK_CODEGEN_CONTRACT != 2
+#error "WLC requires generated-code contract 2"
 #endif
 
 typedef struct device_peer_node device_peer_node_t;
@@ -210,6 +210,8 @@ typedef struct device_peer_node device_peer_node_t;
 #define DEVICE_PEER_TX_FRAME_MAX 228U
 #define DEVICE_PEER_RX_WIRE_MAX 222U
 #define DEVICE_PEER_TX_WIRE_MAX 228U
+/* Accept and drain the whole frame, or reject it without consuming bytes. */
+typedef wl_err_t (*device_peer_tx_write_fn)(device_peer_node_t *self, const uint8_t *data, size_t length);
 typedef struct {
   int32_t (*on_configure)(void *, const peer_configure_request_t *, peer_configure_response_t *);
   int32_t (*on_get_info)(void *, const peer_info_request_t *, peer_info_response_t *);
@@ -224,8 +226,18 @@ struct device_peer_node {
     peer_info_response_t get_info;
   } reply;
   uint8_t replies[WL_ENDPOINT_REPLIES][228];
+  wl_packet_port_t port;
+  uint8_t rx[WL_PACKET_RX_SLOTS][DEVICE_PEER_RX_WIRE_MAX + 1U];
+  device_peer_tx_write_fn tx_write;
 };
-wl_err_t device_peer_init(device_peer_node_t *self, wl_packet_port_t *port, const device_peer_handlers_t *handlers, void *user);
+/* Automatic instances are unique only within this process lifetime.
+ * Stop I/O before reinitialization; persistent links should supply an instance. */
+wl_err_t device_peer_init(device_peer_node_t *self, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user);
+wl_err_t device_peer_init_with_instance(device_peer_node_t *self, uint32_t instance, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user);
+/* Instance zero requests an automatic instance. */
+wl_err_t device_peer_init_io(device_peer_node_t *self, uint32_t instance, const wl_packet_io_t *io, const device_peer_handlers_t *handlers, void *user);
+static inline void device_peer_tx_ready(device_peer_node_t *self) { wl_packet_activity(&self->port); }
+wl_err_t device_peer_rx_packet(device_peer_node_t *self, const uint8_t *data, size_t length);
 wl_err_t device_peer_step(device_peer_node_t *self, uint32_t now);
 /* Stop the RX producer before close, then step until quiescent. */
 wl_err_t device_peer_close(device_peer_node_t *self);

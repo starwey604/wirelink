@@ -6,9 +6,7 @@
 #include <string.h>
 /* Real generated RPCs over two real Zephyr UDP sockets. */
 static udp_validation_node_t endpoints[2];
-static wl_packet_port_t ports[2];
 static wl_zephyr_udp_t adapters[2];
-static uint8_t rx[2][2][2053];
 static peer_client_t states[2];
 static uint32_t tick;
 static uint32_t incarnation;
@@ -27,16 +25,15 @@ static void setup(void) {
   const uint16_t base = 49200;
   for (unsigned side = 0; side < 2; ++side) {
     memset(&adapters[side], 0, sizeof(adapters[side]));
-    wl_packet_config_t pc = {.instance = ++incarnation, .rx_storage = &rx[side][0][0],
-      .rx_storage_size = sizeof(rx[side]), .rx_unit_size = sizeof(rx[side][0]),
-      .submit = wl_zephyr_udp_submit, .notify = wl_zephyr_udp_notify, .user = &adapters[side]};
-    zassert_ok(wl_packet_init(&ports[side], &pc));
-    wl_zephyr_udp_config_t config = {.port = &ports[side], .local = address(base + side),
-      .peer = address(base + 1U - side), .maximum_datagram_size = 2052, .service_budget = 8,
+    const wl_packet_io_t io = {.submit = wl_zephyr_udp_submit,
+      .notify = wl_zephyr_udp_notify, .user = &adapters[side]};
+    const udp_validation_handlers_t handlers = {.on_add = add, .on_telemetry = peer_sample};
+    zassert_ok(udp_validation_init_io(&endpoints[side], ++incarnation, &io, &handlers, &states[side]));
+    wl_zephyr_udp_config_t config = {.port = &endpoints[side].port, .local = address(base + side),
+      .peer = address(base + 1U - side), .maximum_datagram_size = UDP_VALIDATION_RX_WIRE_MAX,
+      .maximum_tx_datagram_size = UDP_VALIDATION_TX_WIRE_MAX, .service_budget = 8,
       .clock = {clock_read, NULL}};
     zassert_ok(wl_zephyr_udp_open(&adapters[side], &config));
-    const udp_validation_handlers_t handlers = {.on_add = add, .on_telemetry = peer_sample};
-    zassert_ok(udp_validation_init(&endpoints[side], &ports[side], &handlers, &states[side]));
   }
 }
 static void pass(void) {

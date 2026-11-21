@@ -23,7 +23,7 @@ static void done(void *user, wl_rpc_result_t result, const response_t *response)
 }
 int main(void) {
   probe_handlers_t handlers = {.on_execute = execute};
-  if (probe_init(&endpoint, &handlers, NULL)) abort();
+  if (probe_init(&endpoint, probe_tx_write, &handlers, NULL)) abort();
   request_t value = {.input = INT32_MIN};
   if (probe_call_execute_ex(&endpoint, &value, 0, 100, done, NULL, NULL)) abort();
   for (unsigned i = 0; i < 10 && !complete; ++i)

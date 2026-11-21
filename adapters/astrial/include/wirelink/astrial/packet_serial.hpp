@@ -28,6 +28,7 @@ public:
   ~PacketSerialAdapter();
   PacketSerialAdapter(const PacketSerialAdapter &) = delete;
   PacketSerialAdapter &operator=(const PacketSerialAdapter &) = delete;
+  wl_packet_io_t io() noexcept { return {submit, notify, this, nullptr, 0, 0}; }
   wl_err_t start(const PacketSerialConfig &, std::error_code &);
   wl_err_t service(uint32_t now);
   wl_io_readiness_t readiness(uint32_t now) const;

@@ -6,8 +6,6 @@
 #include <string.h>
 
 static demo_node_t endpoints[2];
-static wl_packet_port_t ports[2];
-static uint8_t receive_storage[2][2][256];
 static wl_packet_loopback_t transport;
 static unsigned completions, messages, executions;
 
@@ -35,18 +33,14 @@ static void received(void *user, const event_t *event) {
   ++messages;
 }
 int main(void) {
-  require(wl_packet_loopback_init(&transport, &ports[0], &ports[1], NULL, NULL) == WL_OK);
+  require(wl_packet_loopback_init(&transport, &endpoints[0].port, &endpoints[1].port, NULL, NULL) == WL_OK);
   for (unsigned side = 0; side < 2U; ++side) {
     /* A real integration supplies a fresh nonzero instance at each restart. */
     /* [docs:loopback_setup] */
-    wl_packet_config_t config = {.instance = 1001U + side,
-        .rx_storage = &receive_storage[side][0][0], .rx_unit_size = 256U,
-        .rx_storage_size = sizeof(receive_storage[side]),
-        .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
+    const wl_packet_io_t config = {.submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
         .user = &transport.directions[side]};
-    require(wl_packet_init(&ports[side], &config) == WL_OK);
     demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
-    require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
+    require(demo_init_io(&endpoints[side], 1001U + side, &config, &handlers, NULL) == WL_OK);
     /* [/docs:loopback_setup] */
     for (unsigned slot = 0; slot < WL_ENDPOINT_REPLIES; ++slot) {
       request_t request = {.input = INT32_MIN};

@@ -7,7 +7,6 @@ message Event @id(42) { required bytes<9> data @id(1); }
 rpc Execute(Request) -> Response;
 
 node probe {
-  io = external;
   handlers = dynamic;
   call Execute;
   serve Execute;

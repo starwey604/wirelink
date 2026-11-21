@@ -264,8 +264,8 @@ wl_codec_status_t bulk_status_encode(const bulk_status_t *value, uint8_t *out, s
 wl_codec_status_t bulk_status_decode(const uint8_t *input, size_t input_length, bulk_status_t *out);
 
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 1
-#error "WLC requires generated-code contract 1"
+#if WIRELINK_CODEGEN_CONTRACT != 2
+#error "WLC requires generated-code contract 2"
 #endif
 #ifdef __cplusplus
 }

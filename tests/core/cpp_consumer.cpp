@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <type_traits>
 
-extern "C" wl_packet_port_t *cpp_test_port(uint32_t);
+static wl_err_t send_frame(usb_node_t *, const uint8_t *, size_t) { return WL_OK; }
 static_assert(std::is_standard_layout_v<usb_node_t>);
 static_assert(std::is_standard_layout_v<wl_packet_port_t>);
 static unsigned completed;
@@ -12,11 +12,9 @@ static void done(void *, wl_rpc_result_t result, const setpoint_response_t *repl
   ++completed;
 }
 int main() {
-  auto *port = cpp_test_port(7701);
-  if (!port || wl_packet_rx_unit_size(port) != 2048) return 1;
   usb_node_t endpoint{};
   usb_handlers_t handlers{};
-  if (usb_init(&endpoint, port, &handlers, nullptr)) return 2;
+  if (usb_init_with_instance(&endpoint, 7701, send_frame, &handlers, nullptr)) return 2;
   setpoint_request_t value{};
 
   value.request_id = UINT32_MAX;
@@ -28,7 +26,7 @@ int main() {
   if (wl_endpoint_close(&endpoint.core) || usb_step(&endpoint, 0) ||
       !wl_endpoint_quiescent(&endpoint.core)) return 6;
   // Reuse the same C storage with a new identity after quiescence.
-  port = cpp_test_port(7702);
-  if (!port || wl_endpoint_cancel(&endpoint.core, handle) != WL_ERR_NOT_FOUND) return 7;
+  if (usb_init_with_instance(&endpoint, 7702, send_frame, &handlers, nullptr) ||
+      wl_endpoint_cancel(&endpoint.core, handle) != WL_ERR_NOT_FOUND) return 7;
   return 0;
 }

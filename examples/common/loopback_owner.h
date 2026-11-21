@@ -8,24 +8,20 @@
 #include <string.h>
 #include "example_check.h"
 typedef struct {
-  wl_packet_port_t ports[2];
   wl_endpoint_t *cores[2];
   wl_packet_loopback_t cable;
-  uint8_t rx[2][2][2053];
+  wl_packet_io_t io[2];
   uint32_t now;
 } example_pair_t;
-static inline void example_pair_init(example_pair_t *pair, wl_endpoint_t *a, wl_endpoint_t *b) {
-  static uint32_t next_instance = 1000; /* Single-owner fixture provider. */
-  memset(pair, 0, sizeof(*pair)); pair->cores[0] = a; pair->cores[1] = b;
-  EXAMPLE_REQUIRE(wl_packet_loopback_init(&pair->cable, &pair->ports[0], &pair->ports[1], NULL, NULL) == WL_OK);
+static inline void example_pair_init(example_pair_t *pair, wl_endpoint_t *a, wl_endpoint_t *b,
+                                     wl_packet_port_t *first, wl_packet_port_t *second) {
+  memset(pair, 0, sizeof(*pair));
+  pair->cores[0] = a;
+  pair->cores[1] = b;
+  EXAMPLE_REQUIRE(wl_packet_loopback_init(&pair->cable, first, second, NULL, NULL) == WL_OK);
   for (unsigned side = 0; side < 2; ++side) {
-    /* Deterministic fixture identities. Production must supply fresh identities. */
-    EXAMPLE_REQUIRE(next_instance != UINT32_MAX);
-    wl_packet_config_t config = {.instance = ++next_instance,
-      .rx_storage = &pair->rx[side][0][0], .rx_storage_size = sizeof(pair->rx[side]),
-      .rx_unit_size = sizeof(pair->rx[side][0]), .submit = wl_packet_loopback_submit,
+    pair->io[side] = (wl_packet_io_t){.submit = wl_packet_loopback_submit,
       .notify = wl_packet_loopback_notify, .user = &pair->cable.directions[side]};
-    EXAMPLE_REQUIRE(wl_packet_init(&pair->ports[side], &config) == WL_OK);
   }
 }
 static inline void example_pair_step(example_pair_t *pair) {
@@ -49,17 +45,21 @@ static inline void example_pair_close(example_pair_t *pair) {
     EXAMPLE_REQUIRE(wl_endpoint_quiescent(pair->cores[side]));
   }
 }
-/* Retain only application-owned results; no call matching or timeout table. */
-#define EXAMPLE_COMPLETION(name, type) \
+/* Copy responses that the application reads after completion. */
+#define EXAMPLE_COMPLETION_IMPL(name, type, on_success) \
   static unsigned name##_count; \
   static wl_rpc_result_t name##_result; \
-  static type##_t name##_value; \
   static void name##_completed(void *user, wl_rpc_result_t result, const type##_t *view) { \
     (void)user; name##_result = result; \
     if (result.outcome == WL_RPC_SUCCESS) { \
       EXAMPLE_REQUIRE(view != NULL); \
-      name##_value = *view; \
+      on_success; \
     } \
     ++name##_count; \
   }
+#define EXAMPLE_COMPLETION(name, type) \
+  static type##_t name##_value; \
+  EXAMPLE_COMPLETION_IMPL(name, type, name##_value = *view)
+#define EXAMPLE_COMPLETION_STATUS(name, type) \
+  EXAMPLE_COMPLETION_IMPL(name, type, (void)view)
 #endif

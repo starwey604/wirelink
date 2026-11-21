@@ -24,7 +24,7 @@ static void done(client_node_t *self, wl_rpc_result_t result, const output_t *re
 }
 int main(void) {
   const input_t request = {.value = 41};
-  if (client_init(&client) || server_init(&server) ||
+  if (client_init(&client, client_tx_write) || server_init(&server, server_tx_write) ||
       client_call_execute(&client, &request, done)) abort();
   for (unsigned i = 0; i < 10 && !completed; ++i)
     if (client_step(&client, i) || server_step(&server, i)) abort();

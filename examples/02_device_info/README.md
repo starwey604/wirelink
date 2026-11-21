@@ -1,9 +1,7 @@
-# Bounded owned response
+# Read device information over UDP
 
-Build `wirelink_device_info_demo` with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and a
-matching WLC 0.0.99. `device_info.wl` declares the embedded `info_client` and
-`info_server`; the server accesses application state through `self->user`. Eight real loopback RPCs return bounded UTF-8/NUL data and a
-query counter. The completion copies its borrowed view into the generated owned
-value before returning. The saved result remains valid after close and physical
-quiescence. Requests and replies use the shared C endpoint; no inspect/release
-terminal slot or second synchronous RPC implementation is involved.
+Enable `WIRELINK_BUILD_WLC_EXAMPLES`, `WIRELINK_BUILD_ASIO_UDP_ADAPTER`, and
+`WIRELINK_BUILD_PLATFORM` with WLC codegen contract 2. CMake generates each role separately.
+Run `device_info_server` in one terminal and `device_info_client` in another.
+The default IPv4 loopback ports are 50005 / 50006. Override them with
+`LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT`.

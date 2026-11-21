@@ -106,6 +106,7 @@ Result<Session> Session::connect(const UdpOptions &options, EndpointFactory fact
     asio::PacketUdpConfig config;
     config.bind_address = options.bind_address; config.bind_port = options.bind_port;
     config.maximum_datagram_size = p->driver.maximum_rx_frame;
+    config.maximum_tx_datagram_size = p->driver.maximum_tx_frame;
     std::error_code os_error;
     status = p->adapter->start(config, os_error);
     if (status != WL_OK) { error = Error::local(status); error.system_error = os_error; return error; }

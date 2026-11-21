@@ -10,15 +10,15 @@ static unsigned telemetry_count, job_count;
 static uint32_t completed_job, observed;
 EXAMPLE_COMPLETION(ping, ping_response)
 EXAMPLE_COMPLETION(get_info, get_info_response)
-EXAMPLE_COMPLETION(set_name, set_name_response)
+EXAMPLE_COMPLETION_STATUS(set_name, set_name_response)
 EXAMPLE_COMPLETION(read_register, read_register_response)
-EXAMPLE_COMPLETION(write_register, write_register_response)
+EXAMPLE_COMPLETION_STATUS(write_register, write_register_response)
 EXAMPLE_COMPLETION(get_counters, get_counters_response)
-EXAMPLE_COMPLETION(reset_counters, reset_counters_response)
+EXAMPLE_COMPLETION_STATUS(reset_counters, reset_counters_response)
 EXAMPLE_COMPLETION(add, add_response)
 EXAMPLE_COMPLETION(scale, scale_response)
 EXAMPLE_COMPLETION(get_limits, get_limits_response)
-EXAMPLE_COMPLETION(set_limits, set_limits_response)
+EXAMPLE_COMPLETION_STATUS(set_limits, set_limits_response)
 EXAMPLE_COMPLETION(self_test, self_test_response)
 static unsigned starts;
 static wl_rpc_result_t start_results[2];
@@ -56,10 +56,11 @@ static void await(const unsigned *count, unsigned target) {
 #define SUCCESS(method) EXAMPLE_REQUIRE(method##_result.outcome == WL_RPC_SUCCESS)
 /* extension: completions */
 int main(void) {
-  example_pair_init(&pair, &client.core, &server.core);
+  example_pair_init(&pair, &client.core, &server.core,
+      &client.port, &server.port);
   device_service_init(&service);
-  EXAMPLE_REQUIRE(device_client_init(&client, &pair.ports[0]) == WL_OK);
-  EXAMPLE_REQUIRE(device_server_init(&server, &pair.ports[1]) == WL_OK);
+  EXAMPLE_REQUIRE(device_client_init_io(&client, 0U, &pair.io[0]) == WL_OK);
+  EXAMPLE_REQUIRE(device_server_init_io(&server, 0U, &pair.io[1]) == WL_OK);
   server.user = &service;
   ping_request_t ping = {.nonce = UINT32_MAX};
   CALL(ping, ping); SUCCESS(ping); EXAMPLE_REQUIRE(ping_value.nonce == UINT32_MAX);

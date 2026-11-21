@@ -2,9 +2,9 @@
 
 [English](README.md)
 
-使用 `WIRELINK_BUILD_WLC_EXAMPLES=ON` 和匹配 WLC 0.0.99 / 生成契约 1 构建 `wirelink_device_service_demo`。两个 C11 端点共用确定性 owner 和 RAM-copy loopback。运行 `ctest -R wirelink_device_service` 检查 demo 与扩展测试。例程不访问硬件；UDP 互通由 UDP/SDK 例程覆盖。
+使用 `WIRELINK_BUILD_WLC_EXAMPLES=ON` 和匹配 WLC 0.0.99 / 生成契约 2 构建 `wirelink_device_service_demo`。两个 C11 端点共用确定性 owner 和 RAM-copy loopback。运行 `ctest -R wirelink_device_service` 检查 demo 与扩展测试。例程不访问硬件；UDP 互通由 UDP/SDK 例程覆盖。
 
-`device.wl` 集中声明消息、RPC、`device_client` 与 `device_server` 两个 external 节点。业务状态位于 `device_service_t`；各模块直接实现 `device_server_on_*` 符号，通过 `self->user` 读取状态、填写自持响应并返回有符号业务 status，无须注册 handler 表。100 通道普通 telemetry 消息参与 TX 字节容量推导。
+`device.wl` 集中声明消息、RPC、`device_client` 与 `device_server` 两个节点。业务状态位于 `device_service_t`。各模块直接实现 `device_server_on_*` 符号，通过 `self->user` 读取状态、填写自持响应并返回有符号业务 status。100 通道普通 telemetry 消息参与 TX 字节容量推导。
 
 StartSelfTest（消息 132）立即返回 job_id（133）。应用轮询等待 20 个 owner tick，发送普通 SelfTestProgress（134）。一次只运行一个 job；第二个 Start 返回 DEVICE_BUSY。普通 TX 背压时保留结果直到接纳成功。现有 SelfTest RPC 直接返回计算结果。相关文档总览见 [docs/README.md](../../docs/README.md)。
 

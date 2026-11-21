@@ -22,10 +22,11 @@ static void done(void *user, wl_rpc_result_t value, const add_response_t *respon
 }
 static void transaction(int selected, unsigned idle_ms) {
   mode = selected; completed = handled = 0; unsigned unsupported = 0;
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core,
+      &endpoints[0].port, &endpoints[1].port);
   const calculator_handlers_t handlers = {.on_add = selected == 2 ? NULL : add};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_init(&endpoints[side], &pair.ports[side], &handlers, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(calculator_init_io(&endpoints[side], 0U, &pair.io[side], &handlers, NULL) == WL_OK);
   k_sleep(K_MSEC(idle_ms)); /* No step before submit: owner supplies fresh now. */
   const uint32_t began = read_clock();
   add_request_t request = {.left = 20, .right = 22};
@@ -61,10 +62,11 @@ static void transaction(int selected, unsigned idle_ms) {
 int main(void) {
   printk("CLOCK_CHECK contract=0.14 native_ms=%u start\n", k_uptime_get_32());
   transaction(0, 75); transaction(0, 150); transaction(1, 75); transaction(2, 75);
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core,
+      &endpoints[0].port, &endpoints[1].port);
   const calculator_handlers_t handlers = {0};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_init(&endpoints[side], &pair.ports[side], &handlers, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(calculator_init_io(&endpoints[side], 0U, &pair.io[side], &handlers, NULL) == WL_OK);
   uint32_t now = read_clock(); unsigned before = reads; uint32_t began = k_cycle_get_32();
   for (unsigned i = 0; i < 20000; ++i) EXAMPLE_REQUIRE(calculator_step(&endpoints[0], now) == WL_OK);
   uint32_t cycles = k_cycle_get_32() - began;

@@ -6,8 +6,6 @@
 #define CHECK(x) do { if (!(x)) { printf("SESSION line=%d: %s FAIL\n", __LINE__, #x); return 1; } } while (0)
 typedef struct {
   session_node_t endpoint;
-  wl_packet_port_t port;
-  uint8_t rx[2][2053];
   wl_packet_port_t *peer;
   uint8_t captured[96];
   size_t length;
@@ -64,28 +62,24 @@ static wl_err_t init(owner_t *owner, wl_session_source_t source, bool service) {
   uint32_t fresh = 0;
   wl_err_t error = wl_session_next(source, owner->previous, &fresh);
   if (error != WL_OK) return error;
-  wl_packet_config_t config = {.instance = fresh, .rx_storage = &owner->rx[0][0],
-    .rx_unit_size = sizeof(owner->rx[0]), .rx_storage_size = sizeof(owner->rx),
-    .submit = send, .user = owner};
-  error = wl_packet_init(&owner->port, &config);
-  if (error != WL_OK) return error;
+  const wl_packet_io_t io = {.submit = send, .user = owner};
   session_handlers_t handlers = {.on_execute = service ? execute : NULL};
-  error = session_init(&owner->endpoint, &owner->port, &handlers, NULL);
+  error = session_init_io(&owner->endpoint, fresh, &io, &handlers, NULL);
   if (error == WL_OK) owner->previous = fresh;
   return error;
 }
 static int close_owner(owner_t *owner) {
   CHECK(wl_endpoint_close(&owner->endpoint.core) == WL_OK);
   /* RAM submit never retains a physical source after returning. */
-  wl_packet_stop(&owner->port);
+  wl_packet_stop(&owner->endpoint.port);
   CHECK(session_step(&owner->endpoint, now) == WL_OK);
   CHECK(wl_endpoint_quiescent(&owner->endpoint.core)); return 0;
 }
 static int drain(void) {
   for (unsigned i = 0; i < 8; ++i) {
     /* A peer credit change wakes a previously busy synchronous driver. */
-    if (wl_packet_rx_available(&server.port)) wl_packet_activity(&client.port);
-    if (wl_packet_rx_available(&client.port)) wl_packet_activity(&server.port);
+    if (wl_packet_rx_available(&server.endpoint.port)) wl_packet_activity(&client.endpoint.port);
+    if (wl_packet_rx_available(&client.endpoint.port)) wl_packet_activity(&server.endpoint.port);
     CHECK(session_step(&client.endpoint, now) == WL_OK);
     CHECK(session_step(&server.endpoint, now) == WL_OK); ++now;
   }
@@ -109,7 +103,7 @@ int session_run(wl_session_source_t native) {
   source_mode = 3;
   CHECK(wl_session_next(source, identity, &sentinel) == WL_ERR_INVALID_STATE && sentinel == 42);
   source_mode = 0;
-  client.peer = &server.port; server.peer = &client.port;
+  client.peer = &server.endpoint.port; server.peer = &client.endpoint.port;
   CHECK(init(&client, source, false) == WL_OK && init(&server, source, true) == WL_OK);
   CHECK(client.previous != server.previous);
   unsigned reads = source_reads;
@@ -129,12 +123,12 @@ int session_run(wl_session_source_t native) {
   CHECK(init(&client, source, false) == WL_OK);
   CHECK(call(50, &current) == WL_OK && current.operation == old.operation && current.instance != old.instance);
   CHECK(wl_endpoint_cancel(&client.endpoint.core, old) == WL_ERR_NOT_FOUND);
-  CHECK(inject(&client.port, stale_success, success_size) == WL_OK);
-  CHECK(inject(&client.port, stale_reject, metadata_size + 4) == WL_OK);
+  CHECK(inject(&client.endpoint.port, stale_success, success_size) == WL_OK);
+  CHECK(inject(&client.endpoint.port, stale_reject, metadata_size + 4) == WL_OK);
   CHECK(session_step(&client.endpoint, now) == WL_OK && notifications == 1);
   /* Requests are not replay-deduplicated. The old request executes again, but
    * its response cannot complete a call from the new instance. */
-  CHECK(inject(&server.port, stale_request, request_size) == WL_OK);
+  CHECK(inject(&server.endpoint.port, stale_request, request_size) == WL_OK);
   CHECK(drain() == 0 && notifications == 2 && executed == 3);
   CHECK(result.outcome == WL_RPC_SUCCESS && owned.output == 51);
   reads = source_reads;

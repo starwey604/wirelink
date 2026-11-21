@@ -29,8 +29,11 @@ wl_err_t PacketUdpAdapter::start(const PacketUdpConfig &c, std::error_code &erro
   error.clear();
   if (p.started_once)
     return WL_ERR_INVALID_STATE;
-  if (!c.maximum_datagram_size || c.maximum_datagram_size > 65507 ||
-      c.maximum_datagram_size >= wl_packet_rx_unit_size(&p.port) || !c.service_budget ||
+  const size_t unit = wl_packet_rx_unit_size(&p.port);
+  if (!c.maximum_datagram_size && unit < 5) return WL_ERR_INVALID_ARG;
+  const size_t rx_limit = c.maximum_datagram_size ? c.maximum_datagram_size : unit - 1;
+  if (rx_limit > 65507 || rx_limit >= unit || c.maximum_tx_datagram_size > 65507 ||
+      !c.service_budget ||
       c.service_budget > 16)
     return WL_ERR_INVALID_ARG;
   auto address = ::asio::ip::make_address(c.bind_address, error);
@@ -59,6 +62,8 @@ wl_err_t PacketUdpAdapter::start(const PacketUdpConfig &c, std::error_code &erro
     return WL_ERR_IO;
   }
   p.config = c;
+  p.config.maximum_datagram_size = rx_limit;
+  if (!p.config.maximum_tx_datagram_size) p.config.maximum_tx_datagram_size = rx_limit;
   p.started = p.started_once = true;
   return WL_OK;
 }
@@ -82,7 +87,7 @@ wl_packet_submit_t PacketUdpAdapter::submit(void *user, const uint8_t *data, siz
   if (!user || !data || !length)
     return WL_PACKET_FAILED;
   auto &p = *static_cast<PacketUdpAdapter *>(user)->impl_;
-  if (!p.started || length > p.config.maximum_datagram_size)
+  if (!p.started || length > p.config.maximum_tx_datagram_size)
     return WL_PACKET_FAILED;
   if (!p.have_peer)
     return WL_PACKET_BUSY;

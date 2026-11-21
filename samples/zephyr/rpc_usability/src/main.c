@@ -45,10 +45,11 @@ static void downloaded(void *user, wl_rpc_result_t result, const large_t *output
   ++completions;
 }
 static void setup(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core,
+      &endpoints[0].port, &endpoints[1].port);
   const rpc_validation_handlers_t handlers = {.on_execute = execute, .on_download = download};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(rpc_validation_init(&endpoints[side], &pair.ports[side], &handlers, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(rpc_validation_init_io(&endpoints[side], 0U, &pair.io[side], &handlers, NULL) == WL_OK);
 }
 int main(void) {
   setup();
@@ -80,7 +81,7 @@ int main(void) {
   pair.now += 5;
   EXAMPLE_REQUIRE(rpc_validation_step(&endpoints[0], pair.now) == WL_OK);
   EXAMPLE_REQUIRE(completions == 8 && terminal.outcome == WL_RPC_TIMED_OUT);
-  EXAMPLE_REQUIRE(wl_packet_tx_active(&pair.ports[0]) && pair.cable.directions[0].pending);
+  EXAMPLE_REQUIRE(wl_packet_tx_active(&endpoints[0].port) && pair.cable.directions[0].pending);
   example_pair_close(&pair); /* Stop really abandons the model driver's borrow. */
   EXAMPLE_REQUIRE(completions == 8 && saved.output == 42);
   setup();

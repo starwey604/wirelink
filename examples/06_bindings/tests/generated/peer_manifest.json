@@ -3,13 +3,13 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 1
+    "codegen_contract": 2
   },
   "module": "peer",
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0xaeba9101ba899e83",
-    "node": "0xd164a1c8cc73cd52"
+    "node": "0xf7e78c6f40b57b66"
   },
   "codec_formats": {
     "PEER_ADD_REQUEST_CODEC_FORMAT": "schema-v1",
@@ -19,9 +19,9 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "peer.c", "size": 7965, "digest": "0xc874493671ea9a8e"},
-    {"path": "peer.h", "size": 2716, "digest": "0x259639c437bad828"}
+    {"path": "peer.c", "size": 10708, "digest": "0xc5b4ab5ed31f0d7d"},
+    {"path": "peer.h", "size": 3827, "digest": "0x0b7b8039ee23942c"}
   ]
 ,
-  "nodes": [{"name":"calculator_peer","framing":"native","io":"external","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":18,"message_frame_capacity":0,"rx_frame_capacity":24,"tx_frame_capacity":18,"rx_wire_capacity":24,"tx_wire_capacity":18}]
+  "nodes": [{"name":"calculator_peer","framing":"native","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":18,"message_frame_capacity":0,"rx_frame_capacity":24,"tx_frame_capacity":18,"rx_wire_capacity":24,"tx_wire_capacity":18}]
 }

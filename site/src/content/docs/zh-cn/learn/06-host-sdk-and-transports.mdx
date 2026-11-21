@@ -127,14 +127,10 @@ cmake --build build/core --parallel
 
 {/* [docs:loopback_setup] */}
 ```c
-wl_packet_config_t config = {.instance = 1001U + side,
-    .rx_storage = &receive_storage[side][0][0], .rx_unit_size = 256U,
-    .rx_storage_size = sizeof(receive_storage[side]),
-    .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
+const wl_packet_io_t config = {.submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
     .user = &transport.directions[side]};
-require(wl_packet_init(&ports[side], &config) == WL_OK);
 demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
-require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
+require(demo_init_io(&endpoints[side], 1001U + side, &config, &handlers, NULL) == WL_OK);
 ```
 {/* [/docs:loopback_setup] */}
 

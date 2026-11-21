@@ -204,7 +204,7 @@ The schema matches `examples/01_rpc`; without a `node` declaration, `wlc sdk`
 synthesizes a client from the top-level RPC. Files listed in `wlc-sdk-manifest.json`
 are generated; keep this GUIDE and business tests outside that inventory.
 CMake checks the codegen contract in the included manifest against the
-installed Wirelink package. `wlc-sdk-build.json` records endpoint contract 1
+installed Wirelink package. `wlc-sdk-build.json` records endpoint contract 2
 in the `wirelink-sdk-build-v3` format.
 
 The [Device SDK](../07_device_sdk/README.md) exercises owned string/bytes, optional,

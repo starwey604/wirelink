@@ -1,12 +1,12 @@
-# 接入物理链路：先选 embedded，异步驱动用 external
+# 接入同步与异步物理链路
 
 [文档总览](README.md) · [节点与生成 API](../wlc/README.md) · [packet_port.h](../include/wirelink/packet_port.h) · [packet_stream.h](../include/wirelink/packet_stream.h)
 
-Wirelink 核心不读取时钟，也不运行线程、ISR、DMA 或 socket。普通同步发送先使用默认的 `io = embedded`：节点自带端口、精确大小的收发缓冲及所选流连接器。需要异步 DMA、零拷贝、驱动 stop/drain 协议或已有 Host/Zephyr 执行器时，选择 `io = external`，由应用提供 `wl_packet_port_t`。
+Wirelink 核心不读取时钟，也不运行线程、ISR、DMA 或 socket。节点内置端口、默认双 RX 槽和所选流连接器。同步发送使用 `_init` 绑定整帧写函数。异步驱动使用 `_init_io` 绑定提交和唤醒回调，USB Bulk 可指定满足硬件步长要求的外部 RX 槽。
 
-## 一、embedded：只实现物理收发
+## 一、同步整帧收发
 
-以下以 [遥测回环](../examples/00_telemetry/) 的 `pub` / `sub` 为例。生成同一进程使用的两个角色：
+以下用 [遥测示例](../examples/00_telemetry/) 的 `pub` 和 `sub` 演示进程内回环。先生成两个节点：
 
 ```sh
 wlc compile examples/00_telemetry/telemetry.wl --all-nodes --out-dir build/telemetry
@@ -19,25 +19,25 @@ wlc compile examples/00_telemetry/telemetry.wl --all-nodes --out-dir build/telem
 static pub_node_t publisher;
 static sub_node_t subscriber;
 
-wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
+static wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
   (void)self;
   return sub_rx_packet(&subscriber, data, length);
 }
 ```
 
-初始化 `pub_init(&publisher)` / `sub_init(&subscriber)` 并检查返回值后，调用 `pub_send_telemetry()`；owner 步进 `pub_step()` 和 `sub_step()` 即可收发。应用实现 `sub_on_telemetry()` 接收业务值，不用注册 handler 表。上面物理钩子用于短回环；实际驱动把完整包交给 `<node>_rx_packet()`，其成功返回表示已复制接收，不表示业务回调已执行。
+调用 `pub_init(&publisher, pub_tx_write)` 和 `sub_init(&subscriber)` 并检查返回值。提交 `pub_send_telemetry()` 后，由 owner 推进 `pub_step()` 和 `sub_step()`。应用实现 `sub_on_telemetry()` 接收业务值。实际驱动把完整包交给 `<node>_rx_packet()`，返回成功表示完整包已复制到节点 RX 槽，回调随后由 owner 执行。
 
-默认初始化通过进程级 `wl_packet_instance_next()` 分配非零、不会回绕的实例号，分配失败会传递给调用者。它只保证本进程内自动分配之间唯一。链路可能残留重启前旧包时，用 `pub_init_with_instance(&publisher, id)` 接入应用的持久会话身份策略，并避免显式 ID 与自动 ID 冲突。
+默认初始化通过进程级 `wl_packet_instance_next()` 分配非零、不会回绕的实例号，分配失败会传递给调用者。它保证本进程内自动分配之间唯一。链路可能残留重启前旧包时，用 `pub_init_with_instance(&publisher, id, pub_tx_write)` 接入应用的持久会话身份策略，并避免显式 ID 与自动 ID 冲突。
 
 ### TX 是整帧事务，忙后必须通知恢复
 
-`<node>_tx_write(self, bytes, length)` 在 owner 步进期间调用：
+owner 步进时调用初始化中传入的 `tx_write(self, bytes, length)`：
 
 - 返回 `WL_OK`：已在返回前同步消费并完成整帧物理发送，之后不再保留此指针。
 - 返回 `WL_ERR_WOULD_BLOCK` 或 `WL_ERR_BUSY`：没有接受任何字节。待硬件或对端 RX 槽恢复可用后，调用 `<node>_tx_ready(self)`，让 owner 重试。
 - 其他错误：发送失败，按节点错误/调用完成路径报告。
 
-不能先写半帧再返回忙，也不能启动 DMA 后立即返回 `WL_OK`。如果物理设备只支持部分写入或异步持有指针，使用 external 管理真实物理租约。
+如果物理设备需要部分写入或异步持有指针，使用 `_init_io` 绑定驱动，由驱动管理物理租约。
 
 回环中的可写条件是对端 RX 有空槽：owner 消费完接收包后通知发送端 `tx_ready()`。单次普通消息提交成功不等于槽位已可复用；后续提交背压时保留业务值，待步进/恢复事件后再试。
 
@@ -55,27 +55,23 @@ wl_err_t error = sensor_rx_feed(&sensor, bytes, length, &consumed);
 ### 关闭顺序
 
 1. 停止并确认 RX 生产者不再调用 `rx_packet()` / `rx_feed()`。
-2. owner 调用 `<node>_close()`。embedded stream 节点会 abort 尚未完成的半帧 RX claim。
+2. owner 调用 `<node>_close()`。流式节点会撤销尚未完成的半帧 RX claim。
 3. 继续 `<node>_step(now)`，直到 `<node>_quiescent()` 为真，再释放或重新初始化节点存储。
 
-## 二、external：由驱动持有端口与物理租约
+## 二、绑定异步驱动与物理租约
 
-在 schema 中选择 `io = external`。静态节点初始化是 `n_init(&node, &port)`；只有显式选择 `handlers = dynamic` 时才追加 handler 表与 `user`。下段来自 [裸机回环](../examples/bare_metal_loopback.c)，同时演示 external 与 dynamic：
+驱动使用节点的 `&node.port`，流式驱动使用 `&node.stream`。适配器先保存引用，再调用 `n_init_io(&node, instance, &io)`，最后启动收发。`handlers = dynamic` 节点在初始化时追加回调表与用户指针。下段来自 [裸机回环](../examples/bare_metal_loopback.c)。
 
 <!-- [docs:loopback_setup] -->
 ```c
-wl_packet_config_t config = {.instance = 1001U + side,
-    .rx_storage = &receive_storage[side][0][0], .rx_unit_size = 256U,
-    .rx_storage_size = sizeof(receive_storage[side]),
-    .submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
+const wl_packet_io_t config = {.submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
     .user = &transport.directions[side]};
-require(wl_packet_init(&ports[side], &config) == WL_OK);
 demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
-require(demo_init(&endpoints[side], &ports[side], &handlers, NULL) == WL_OK);
+require(demo_init_io(&endpoints[side], 1001U + side, &config, &handlers, NULL) == WL_OK);
 ```
 <!-- [/docs:loopback_setup] -->
 
-`instance` 必须非零；每次新建物理会话应使用应用选定的不冲突身份。`rx_storage_size` 等于 `WL_PACKET_RX_SLOTS * rx_unit_size`。端口的最大规范接收帧按 `<N>_RX_FRAME_MAX` 计算；USB/UDP 驱动若以容量检测截断，应额外预留一个字节。外设缓冲还须服从适配器的具体边界规则，而非盲目只取发送方向的宏。
+`instance` 为零时自动分配实例号。默认两个 RX 槽的单槽大小为 `<N>_RX_WIRE_MAX + 1U`，多出的字节用于识别超长报文。USB Bulk 等硬件需要特定步长或对齐时，可在 `wl_packet_io_t` 中同时填写 `rx_storage`、`rx_storage_size` 和 `rx_unit_size`。每槽至少为 `<N>_RX_WIRE_MAX + 1U`，总容量至少为 `WL_PACKET_RX_SLOTS * rx_unit_size`。
 
 ### 异步 TX：submit 与 completion
 
@@ -100,10 +96,9 @@ owner 调用 `wl_packet_sink_fn`。驱动返回值决定是否持有传入的数
 
 完整包驱动可直接使用 `wl_packet_rx_push(port, bytes, length)` 复制一包，并检查返回值。真正零拷贝时先 `wl_packet_rx_claim()`，把 `claim.span.data` 交给 DMA，完成后 `wl_packet_rx_commit()`；失败时 `wl_packet_rx_abort()`。双槽 RX 暂满时，由硬件流控或应用丢包策略处理，不能覆盖已提交的槽。
 
-UART 等流式链路使用 `wl_packet_stream_t`，再按需增加 `wl_byte_fifo_t` 隔离 ISR 与 owner。参考 [packet_tool_owner.c](../examples/common/packet_tool_owner.c) 与 [Zephyr UART 适配器](../adapters/zephyr/)：
+UART 等流式链路使用节点内的 `wl_packet_stream_t`，可按需增加 `wl_byte_fifo_t` 隔离 ISR 与 owner。参考 [Zephyr UART 适配器](../adapters/zephyr/)：
 
-- `wl_packet_stream_config_t.maximum_frame_size` 使用节点 TX 规范帧上界；`maximum_rx_frame_size` 使用 RX 上界。
-- stream TX 存储至少容纳 `<N>_TX_WIRE_MAX`；RX 单元按所选连接器的实际存储要求分配，不能把 TX/RX 两个角色混为一个大小。
+- 初始化按节点的 TX 和 RX 规范帧上界配置连接器，并分配 `<N>_TX_WIRE_MAX` 大小的 TX 存储。
 - ISR 使用 `wl_byte_fifo_reserve()` / `commit()`；FIFO 满导致字节丢失时调用 `wl_byte_fifo_note_gap()`。
 - owner 用 `wl_byte_fifo_to_cobs()` 排入 stream；直接调用 stream `feed()` 时也必须处理 `consumed` 尾部。
 
@@ -111,12 +106,12 @@ UART 等流式链路使用 `wl_packet_stream_t`，再按需增加 `wl_byte_fifo_
 
 所有节点调用、发送、步进、取消、关闭及业务回调都在同一 owner 中顺序运行。ISR / I/O 线程只能使用传输层允许的单生产者/原子入口：RX claim/commit/abort/push、FIFO reserve/commit/note_gap、TX publish 与 activity 通知；不能运行内核。
 
-external 关闭按以下顺序完成：
+异步驱动按以下顺序关闭：
 
-1. 停止 RX 生产者并等待其退出；若外部 stream 持有半帧 claim，此时调用 `wl_packet_stream_abort_rx()`。
+1. 停止 RX 生产者并等待其退出。
 2. owner 调用节点 `close()`，停止新业务提交并安排 `WL_RPC_CLOSED` 完成回调。
 3. 停止/排空物理驱动，让所有异步 TX 发布最终状态；继续 owner `step(now)`，直至节点 quiescent 且驱动确认不再访问存储。
-4. 才能释放端口、stream、FIFO、节点及驱动缓冲，或用新实例号重新初始化。
+4. 释放节点、FIFO 与驱动缓冲，或用新实例号重新初始化。
 
 ## 三、Host / RTOS 事件循环
 
@@ -126,7 +121,7 @@ external 关闭按以下顺序完成：
 ```cpp
 wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
   try {
-    const auto error = udp->adapter->service();
+    const auto error = udp->adapter.service();
     const auto advanced = wl_endpoint_step(core, now, 16);
     return error == WL_OK ? advanced : error;
   } catch (...) { return WL_ERR_IO; }

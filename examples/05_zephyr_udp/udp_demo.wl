@@ -14,5 +14,5 @@ message Telemetry @id(22) {
 }
 
 rpc Add(AddRequest) -> AddResponse;
-node udp_client { io = external; call Add; recv Telemetry; }
-node udp_server { io = external; serve Add; send Telemetry; }
+node udp_client { call Add; recv Telemetry; }
+node udp_server { serve Add; send Telemetry; }

@@ -6,7 +6,7 @@ endif()
 set(_source "${TEST_BINARY_DIR}/source")
 set(_build "${TEST_BINARY_DIR}/build")
 file(MAKE_DIRECTORY "${_source}")
-file(WRITE "${_source}/product.wl" "version 1; import \"child.wl\"; node product { io = external; handlers = dynamic; recv State; }\n")
+file(WRITE "${_source}/product.wl" "version 1; import \"child.wl\"; node product { handlers = dynamic; recv State; }\n")
 file(WRITE "${_source}/child.wl" "version 1; message State @id(1) {}\n")
 
 file(WRITE "${_source}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.21)

@@ -2,7 +2,7 @@
 
 [English](README.md).
 
-C 业务与 Zephyr peer 共用 `udp_demo.wl`。external 节点 `udp_client` 发起 Add 并接收 telemetry，`udp_server` 处理 Add 并发送 telemetry。每个程序只生成自己的节点，无须实现另一角色的 handler。native 封装直接保留 UDP 包边界。
+C 业务与 Zephyr peer 共用 `udp_demo.wl`。`udp_client` 发起 Add 并接收 telemetry，`udp_server` 处理 Add 并发送 telemetry。每个程序只生成自己的节点。native 封装直接保留 UDP 包边界。
 
 ```sh
 cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
@@ -12,11 +12,9 @@ cmake --build build/udp --parallel
 ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
 ```
 
-可执行程序接收 `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT`。server 与 client 的本地/peer 参数互换，client 输出 `20 + 22 = 42` 和一条 telemetry。测试以三个新进程复用 client 地址/端口，并验证 peer 缺席时的有限超时。
+两个程序默认使用本机端口 50007 和 50008。也可传入 `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT`，server 与 client 的本地和对端参数需要互换。client 输出 `20 + 22 = 42` 和一条 telemetry。测试以三个新进程复用 client 地址和端口，并验证对端缺席时的超时。
 
-C 持有端点、端口 和两个 RX unit。薄 C++ helper 管理 UDP/等待，初始化时获取新 instance。
-
-它在调用方 owner 上 service 和 step，再合并 端点与 I/O 的就绪状态。它不创建 RPC 表或内部线程。
+生成节点持有端点、端口和两个 RX 槽。C 程序以新实例号初始化节点，并通过 `_init_io` 绑定 UDP 适配器。C++ helper 管理适配器与等待资源，在调用方 owner 上推进 I/O 和端点，并等待其中任一就绪。
 
 admission 返回前编码快照，completion 在借用期复制响应。close 停止真实 I/O、推进到物理 quiescence 后释放 socket。重试/幂等/应用状态恢复由业务定义。
 

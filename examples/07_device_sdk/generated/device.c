@@ -297,16 +297,60 @@ static wl_err_t device_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) 
   default: return WL_ERR_NOT_SUPPORTED;
   }
 }
-wl_err_t device_init(device_node_t *self, wl_packet_port_t *port) {
-  if (self == NULL || port == NULL) return WL_ERR_INVALID_ARG;
+static wl_packet_submit_t device_submit(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
+  (void)token;
+  device_node_t *self = user;
+  wl_err_t error = self->tx_write(self, data, length);
+  if (error == WL_OK) return WL_PACKET_SENT;
+  return error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY ? WL_PACKET_BUSY : WL_PACKET_FAILED;
+}
+wl_err_t device_init_io(device_node_t *self, uint32_t instance, const wl_packet_io_t *io) {
+  if (self == NULL || io == NULL || io->submit == NULL) return WL_ERR_INVALID_ARG;
+  const wl_packet_io_t binding = *io;
+  const int external_rx = binding.rx_storage != NULL || binding.rx_storage_size != 0U || binding.rx_unit_size != 0U;
+  if (external_rx && (binding.rx_storage == NULL || binding.rx_unit_size < DEVICE_RX_WIRE_MAX + 1U ||
+      binding.rx_unit_size > binding.rx_storage_size / WL_PACKET_RX_SLOTS)) return WL_ERR_INVALID_ARG;
+  wl_err_t error;
+  if (instance == 0U) {
+    error = wl_packet_instance_next(&instance);
+    if (error != WL_OK) return error;
+  }
   memset(self, 0, sizeof(*self));
-  wl_endpoint_config_t config = {.port = port, .route = device_route, .on_error = device_error, .user = self,
+  wl_packet_config_t packet = {.instance = instance,
+      .rx_storage = external_rx ? binding.rx_storage : &self->rx[0][0],
+      .rx_unit_size = external_rx ? binding.rx_unit_size : sizeof(self->rx[0]),
+      .rx_storage_size = external_rx ? binding.rx_storage_size : sizeof(self->rx),
+      .submit = binding.submit, .notify = binding.notify, .user = binding.user};
+  error = wl_packet_init(&self->port, &packet);
+  if (error != WL_OK) return error;
+  wl_endpoint_config_t config = {.port = &self->port, .route = device_route, .on_error = device_error, .user = self,
       .storage = {
           .requests = &self->requests[0][0], .request_stride = 222U,
           .replies = NULL, .reply_stride = 0U,
           .message = NULL, .message_capacity = 0U,
       }};
-  return wl_endpoint_init(&self->core, &config);
+  error = wl_endpoint_init(&self->core, &config);
+  if (error != WL_OK) wl_packet_stop(&self->port);
+  return error;
+}
+static wl_err_t device_init_sync(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write) {
+  if (tx_write == NULL) return WL_ERR_INVALID_ARG;
+  const wl_packet_io_t io = {.submit = device_submit, .user = self};
+  wl_err_t error = device_init_io(self, instance, &io);
+  if (error == WL_OK) self->tx_write = tx_write;
+  return error;
+}
+wl_err_t device_init(device_node_t *self, device_tx_write_fn tx_write) {
+  return device_init_sync(self, 0U, tx_write);
+}
+wl_err_t device_init_with_instance(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write) {
+  if (instance == 0U) return WL_ERR_INVALID_ARG;
+  return device_init_sync(self, instance, tx_write);
+}
+wl_err_t device_rx_packet(device_node_t *self, const uint8_t *data, size_t length) {
+  if (self == NULL) return WL_ERR_INVALID_ARG;
+  if (length > DEVICE_RX_WIRE_MAX) return WL_ERR_BUF_TOO_SMALL;
+  return wl_packet_rx_push(&self->port, data, length);
 }
 wl_err_t device_step(device_node_t *self, uint32_t now) {
   return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_step(&self->core, now, WL_ENDPOINT_BUDGET);

@@ -9,12 +9,17 @@ void udp_client_on_telemetry(udp_client_node_t *self, const telemetry_t *sample)
 }
 int main(void) {
   if (sample_network_init() < 0) { printk("network unavailable\n"); return 1; }
-  wl_err_t error = sample_udp_open(&udp);
+  uint32_t instance;
+  wl_err_t error = wl_session_next(wl_platform_environment().session, 0U, &instance);
+  if (error != WL_OK) return 1;
+  const wl_packet_io_t io = {.submit = wl_zephyr_udp_submit,
+    .notify = wl_zephyr_udp_notify, .user = &udp.adapter};
+  error = udp_client_init_io(&client, instance, &io);
+  if (error == WL_OK)
+    error = sample_udp_open(&udp, &client.port, UDP_CLIENT_RX_WIRE_MAX, UDP_CLIENT_TX_WIRE_MAX);
   if (error != WL_OK) { printk("UDP open: %d\n", error); return 1; }
   peer_client_t state = {0};
-  error = udp_client_init(&client, &udp.port);
   client.user = &state;
-  if (error != WL_OK) { (void)wl_zephyr_udp_close(&udp.adapter); return 1; }
   add_request_t request = {.left = 20, .right = 22};
   wl_call_handle_t call;
   error = udp_client_call_add_ex(&client, &request, k_uptime_get_32(), 1500, peer_completed, &state, &call);

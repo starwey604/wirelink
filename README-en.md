@@ -2,9 +2,9 @@
 
 [简体中文](README.md) · [Documentation](docs/README-en.md) · [Compiler reference (中文)](wlc/README.md)
 
-Wirelink is an allocation-free ISO C11 communication library for embedded MCUs and host tools over UART, USB Bulk, UDP, or SPI. One `.wl` file declares messages, RPCs, and node roles; WLC generates one C header/source pair. Nodes default to embedded I/O and static handlers. Fields are required by default; only explicit `optional` fields carry presence flags.
+Wirelink is an allocation-free ISO C11 communication library for embedded MCUs and host tools over UART, USB Bulk, UDP, or SPI. One `.wl` file declares messages, RPCs, and node roles; WLC generates one C header/source pair. Nodes embed their ports and RX storage and default to static handlers. Fields are required by default; only explicit `optional` fields carry presence flags.
 
-Wirelink and WLC use development version **0.0.99**. Generated C uses **codegen contract 1**, and the SDK source API is revision **3**. Regenerate C and SDK artifacts when moving to contract 1.
+Wirelink and WLC use development version **0.0.99**. Generated C uses **codegen contract 2**, and the SDK source API is revision **3**. Regenerate C and SDK artifacts when moving to contract 2.
 
 ## Three steps
 
@@ -18,7 +18,7 @@ Wirelink and WLC use development version **0.0.99**. Generated C uses **codegen 
    ```
 
    No nodes means codec-only output. One node is selected automatically; multiple nodes require `--node` or `--all-nodes` for C generation.
-3. Implement `server_on_add()` and the whole-frame synchronous `server_tx_write()` hook, call `server_init(&server)`, deliver packets through `server_rx_packet(&server, bytes, length)`, and advance `server_step(&server, now)`. See the [complete loopback example](examples/01_rpc/). Notify `server_tx_ready()` after a busy sink becomes writable. Use `io = external` for asynchronous DMA or zero-copy drivers.
+3. Implement `server_on_add()` and the whole-frame synchronous `server_tx_write()` hook, call `server_init(&server, server_tx_write)`, deliver packets through `server_rx_packet(&server, bytes, length)`, and advance `server_step(&server, now)`. See the [two-process UDP example](examples/01_rpc/). Notify `server_tx_ready()` after a busy sink becomes writable. Use `server_init_io` for asynchronous DMA or zero-copy drivers.
 
 Simple RPC calls start their timeout at the next owner step. The `_ex` form accepts explicit time, timeout, callback context, and an optional cancellation handle. Stop the RX producer before closing; step until the node is quiescent before reusing its storage.
 

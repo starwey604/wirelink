@@ -5,26 +5,20 @@
 #include <string.h>
 typedef struct {
   calculator_node_t endpoint;
-  wl_packet_port_t port;
-  uint8_t rx[WL_PACKET_RX_SLOTS][25];
 } calculator_sdk_owner_t;
 size_t calculator_sdk_endpoint_size(void) { return sizeof(calculator_sdk_owner_t); }
 size_t calculator_sdk_endpoint_alignment(void) { return _Alignof(calculator_sdk_owner_t); }
 wl_err_t calculator_sdk_endpoint_prepare(void* storage, wl_host_endpoint_t* descriptor) {
   calculator_sdk_owner_t* owner = storage;
   memset(owner, 0, sizeof(*owner));
-  *descriptor = (wl_host_endpoint_t){owner, &owner->endpoint.core, &owner->port, 24};
+  *descriptor = (wl_host_endpoint_t){owner, &owner->endpoint.core, &owner->endpoint.port, CALCULATOR_RX_WIRE_MAX, CALCULATOR_TX_WIRE_MAX};
   return WL_OK;
 }
 wl_err_t calculator_sdk_endpoint_initialize(void* storage, uint32_t instance,
     wl_packet_sink_fn sink, wl_packet_notify_fn notify, void* user) {
   calculator_sdk_owner_t* owner = storage;
-  wl_packet_config_t config = {.instance = instance, .rx_storage = &owner->rx[0][0],
-    .rx_storage_size = sizeof(owner->rx), .rx_unit_size = sizeof(owner->rx[0]),
-    .submit = sink, .notify = notify, .user = user};
-  const wl_err_t error = wl_packet_init(&owner->port, &config);
-  if (error != WL_OK) return error;
-  return calculator_init(&owner->endpoint, &owner->port);
+  const wl_packet_io_t io = {.submit = sink, .notify = notify, .user = user};
+  return calculator_init_io(&owner->endpoint, instance, &io);
 }
 static void calculator_sdk_add_done(void* context, wl_rpc_result_t result, const add_response_t* response) {
   calculator_sdk_call_t* state = context;

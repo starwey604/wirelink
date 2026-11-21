@@ -1,16 +1,20 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "business.h"
-#include "peer_options.h"
+#include "tutorial_host.h"
 int32_t udp_server_on_add(udp_server_node_t *self, const add_request_t *request, add_response_t *response) {
   return peer_add(self->user, request, response);
 }
 int main(int argc, char **argv) {
   static udp_server_node_t server;
-  static wl_packet_port_t port;
-  static uint8_t rx[2][2053];
-  example_udp_t *udp = peer_open(&port, (wl_span_t){&rx[0][0], sizeof(rx)}, sizeof(rx[0]), argc, argv);
+  example_udp_t *udp = example_udp_create(&server.port);
   CHECK(udp);
-  CHECK(udp_server_init(&server, &port) == WL_OK);
+  uint32_t instance;
+  if (example_instance(&instance) != WL_OK ||
+      udp_server_init_io(&server, instance, example_udp_io(udp)) != WL_OK ||
+      example_udp_start(udp, UDP_SERVER_TX_WIRE_MAX, argc, argv, 50008, 50007) != WL_OK) {
+    example_udp_destroy(udp);
+    return 1;
+  }
   puts("UDP peer server ready"); fflush(stdout);
   uint32_t sequence = 0, due = example_now_ms();
   int status = 0;

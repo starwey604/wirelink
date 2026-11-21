@@ -12,7 +12,6 @@ message Reading @id(201) {
 
 
 node instrument {
-  io = external;
   handlers = dynamic;
   recv Reading;
   send Reading;

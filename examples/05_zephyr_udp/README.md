@@ -1,6 +1,6 @@
 # Desktop UDP peers
 
-C business code uses the same `udp_demo.wl` as the Zephyr peers. The external
+C business code uses the same `udp_demo.wl` as the Zephyr peers. The
 `udp_client` node calls Add and receives telemetry; `udp_server` serves Add and
 sends telemetry. Each executable generates only its selected node, so it does not
 need to implement the other role's handlers. Native packet framing preserves UDP
@@ -14,15 +14,17 @@ cmake --build build/udp --parallel
 ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
 ```
 
-The two executables accept `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT` arguments.
-Start the server with the addresses/ports reversed relative to the client. The
+The two executables default to localhost ports 50007 and 50008. To use another
+address or port, pass `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT` to each
+executable and swap the local and peer arguments between the two. The
 client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
 address/port across three new processes and verifies absent-peer timeout.
 
-C owns the endpoint, port and two RX units. The desktop C++ helper only owns packet UDP and
-wait resources: it initializes a fresh instance identity outside the core,
-services I/O and advances the same endpoint on the calling owner, and merges
-waiting for the endpoint and I/O without an RPC registry or thread. Admission encodes before
+A generated node owns the endpoint, port, and two RX units. The desktop C++ helper
+owns the UDP adapter and wait resources. The C program initializes the node with
+a fresh instance and binds the adapter through `_init_io`. The helper services
+I/O, advances the endpoint, and waits for endpoint or socket readiness on the
+calling owner. Admission encodes before
 return; completion copies the borrowed response. Close stops actual I/O, steps
 until physical quiescence, then frees socket resources.
 

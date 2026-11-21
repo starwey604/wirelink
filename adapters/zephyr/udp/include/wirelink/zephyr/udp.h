@@ -19,6 +19,7 @@ typedef struct {
   uint32_t retry_ms;       /* 0 selects 1 ms. */
   wl_clock_t clock;
   wl_err_t (*decode)(uint8_t *, size_t, size_t *); /* Optional selected framing. */
+  size_t maximum_tx_datagram_size; /* Zero uses maximum_datagram_size (RX). */
 } wl_zephyr_udp_config_t;
 typedef struct {
   wl_zephyr_udp_config_t config;

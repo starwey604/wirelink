@@ -47,8 +47,8 @@ wl_codec_status_t add_response_decode(const uint8_t *input, size_t input_length,
 
 #include <wirelink/endpoint.h>
 #include <wirelink/version.h>
-#if WIRELINK_CODEGEN_CONTRACT != 1
-#error "WLC requires generated-code contract 1"
+#if WIRELINK_CODEGEN_CONTRACT != 2
+#error "WLC requires generated-code contract 2"
 #endif
 
 typedef struct calculator_node calculator_node_t;
@@ -59,13 +59,25 @@ typedef struct calculator_node calculator_node_t;
 #define CALCULATOR_TX_FRAME_MAX 24U
 #define CALCULATOR_RX_WIRE_MAX 18U
 #define CALCULATOR_TX_WIRE_MAX 24U
+/* Accept and drain the whole frame, or reject it without consuming bytes. */
+typedef wl_err_t (*calculator_tx_write_fn)(calculator_node_t *self, const uint8_t *data, size_t length);
 struct calculator_node {
   wl_endpoint_t core;
   void *user;
   wl_endpoint_error_fn on_error;
   uint8_t requests[WL_ENDPOINT_CALLS][24];
+  wl_packet_port_t port;
+  uint8_t rx[WL_PACKET_RX_SLOTS][CALCULATOR_RX_WIRE_MAX + 1U];
+  calculator_tx_write_fn tx_write;
 };
-wl_err_t calculator_init(calculator_node_t *self, wl_packet_port_t *port);
+/* Automatic instances are unique only within this process lifetime.
+ * Stop I/O before reinitialization; persistent links should supply an instance. */
+wl_err_t calculator_init(calculator_node_t *self, calculator_tx_write_fn tx_write);
+wl_err_t calculator_init_with_instance(calculator_node_t *self, uint32_t instance, calculator_tx_write_fn tx_write);
+/* Instance zero requests an automatic instance. */
+wl_err_t calculator_init_io(calculator_node_t *self, uint32_t instance, const wl_packet_io_t *io);
+static inline void calculator_tx_ready(calculator_node_t *self) { wl_packet_activity(&self->port); }
+wl_err_t calculator_rx_packet(calculator_node_t *self, const uint8_t *data, size_t length);
 wl_err_t calculator_step(calculator_node_t *self, uint32_t now);
 /* Stop the RX producer before close, then step until quiescent. */
 wl_err_t calculator_close(calculator_node_t *self);

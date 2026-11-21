@@ -10,7 +10,8 @@ static uint32_t remaining(const wl_zephyr_udp_t *a, uint32_t now) {
 wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *a, const wl_zephyr_udp_config_t *c) {
   if (a == NULL || c == NULL || c->port == NULL || c->clock.now_ms == NULL ||
       c->maximum_datagram_size == 0U || c->maximum_datagram_size > 65507U ||
-      c->maximum_datagram_size >= wl_packet_rx_unit_size(c->port) || c->service_budget == 0U ||
+      c->maximum_datagram_size >= wl_packet_rx_unit_size(c->port) || c->maximum_tx_datagram_size > 65507U ||
+      c->service_budget == 0U ||
       c->service_budget > 16U || c->retry_ms > INT32_MAX)
     return WL_ERR_INVALID_ARG;
   // Initial/reuse storage must be zeroed and previous notifier producers joined.
@@ -19,6 +20,8 @@ wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *a, const wl_zephyr_udp_config_t *c)
   const wl_zephyr_udp_config_t saved = *c;
   memset(a, 0, sizeof(*a));
   a->config = saved;
+  if (a->config.maximum_tx_datagram_size == 0U)
+    a->config.maximum_tx_datagram_size = saved.maximum_datagram_size;
   return wl_zephyr_udp_socket_open(&a->io, &saved.local, &saved.peer);
 }
 wl_packet_submit_t wl_zephyr_udp_submit(void *user, const uint8_t *data, size_t length,
@@ -26,7 +29,7 @@ wl_packet_submit_t wl_zephyr_udp_submit(void *user, const uint8_t *data, size_t 
   (void)token;
   wl_zephyr_udp_t *a = user;
   if (a == NULL || !a->io.opened || atomic_get(&a->io.stopped) ||
-      length > a->config.maximum_datagram_size)
+      length > a->config.maximum_tx_datagram_size)
     return WL_PACKET_FAILED;
   if (a->retry_pending && remaining(a, a->config.clock.now_ms(a->config.clock.user_data)))
     return WL_PACKET_BUSY;

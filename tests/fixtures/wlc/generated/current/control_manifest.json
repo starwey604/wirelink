@@ -3,7 +3,7 @@
   "compiler": {
     "name": "wlc",
     "version": "0.0.99",
-    "codegen_contract": 1
+    "codegen_contract": 2
   },
   "module": "control",
   "identity": {
@@ -29,7 +29,7 @@
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
     {"path": "control.c", "size": 48949, "digest": "0x39e865ff394db459"},
-    {"path": "control.h", "size": 9774, "digest": "0x62a3ffa2dd6928a3"}
+    {"path": "control.h", "size": 9774, "digest": "0xa4d3d1b4d5746b25"}
   ]
 ,
   "nodes": []

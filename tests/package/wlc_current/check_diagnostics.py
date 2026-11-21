@@ -27,9 +27,9 @@ find_package(Wirelink CONFIG REQUIRED)
     ]
     if os.name == 'posix':
         fake = root / 'incompatible-wlc'
-        fake.write_text('#!/bin/sh\n[ "$1" = codegen-contract ] || exit 1\nprintf "2\\n"\n')
+        fake.write_text('#!/bin/sh\n[ "$1" = codegen-contract ] || exit 1\nprintf "1\\n"\n')
         fake.chmod(0o755)
-        cases.append(('incompatible_compiler', 'wirelink_wlc_generate_codec(TARGET probe SCHEMA test.wl)', str(fake), 'provides generated-code contract 2, expected 1'))
+        cases.append(('incompatible_compiler', 'wirelink_wlc_generate_codec(TARGET probe SCHEMA test.wl)', str(fake), 'provides generated-code contract 1, expected 2'))
     for name, invocation, compiler, diagnostic in cases:
         (project / 'CMakeLists.txt').write_text(common + invocation + '\n')
         result = subprocess.run([a.cmake, '-S', str(project), '-B', str(root / name),

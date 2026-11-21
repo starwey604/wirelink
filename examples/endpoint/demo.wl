@@ -6,7 +6,6 @@ message Event @id(42) { bytes<9> data @id(1); }
 
 rpc Execute(Request) -> Response;
 node demo {
-  io = external;
   handlers = dynamic;
   call Execute;
   serve Execute;

@@ -1,10 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "service.h"
-#include "example_check.h"
-static unsigned completed;
+#include <stdbool.h>
+static int completed;
+static bool failed;
 static void done(client_node_t *self, wl_rpc_result_t result, const add_response_t *response) {
   (void)self;
-  EXAMPLE_REQUIRE(result.outcome == WL_RPC_SUCCESS && response && response->sum == 42);
+  if (result.outcome != WL_RPC_SUCCESS || response == NULL || response->sum != 42) failed = true;
   ++completed;
 }
 /* [docs:calculator_async_rpc] */
@@ -18,4 +19,4 @@ wl_err_t calculator_async_example(client_node_t *client) {
   return WL_OK;
 }
 /* [/docs:calculator_async_rpc] */
-unsigned calculator_async_count(void) { return completed; }
+int calculator_async_count(void) { return failed ? -1 : completed; }

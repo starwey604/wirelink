@@ -5,8 +5,7 @@
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 typedef struct peer {
   instrument_node_t endpoint;
-  wl_packet_port_t port;
-  uint8_t rx[2][256], frame[128];
+  uint8_t rx[WL_PACKET_RX_SLOTS][256], frame[128];
   size_t length;
   unsigned received, errors;
 } peer_t;
@@ -29,18 +28,18 @@ static void error(void *user, uint16_t id, wl_err_t e) {
   peer_t *p = user; CHECK(id == 201 && e != WL_OK); ++p->errors;
 }
 static void init(peer_t *p, uint32_t instance) {
-  wl_packet_config_t c = {.instance = instance, .rx_storage = &p->rx[0][0],
-      .rx_unit_size = 256, .rx_storage_size = sizeof(p->rx), .submit = sink, .user = p};
+  const wl_packet_io_t io = {.submit = sink, .user = p,
+    .rx_storage = &p->rx[0][0], .rx_storage_size = sizeof(p->rx),
+    .rx_unit_size = sizeof(p->rx[0])};
   instrument_handlers_t h = {.on_reading = reading};
-  CHECK(wl_packet_init(&p->port, &c) == WL_OK);
-  CHECK(instrument_init(&p->endpoint, &p->port, &h, p) == WL_OK);
+  CHECK(instrument_init_io(&p->endpoint, instance, &io, &h, p) == WL_OK);
   p->endpoint.on_error = error;
 }
 static void inject(peer_t *to, const uint8_t *bytes, size_t length) {
   wl_packet_claim_t claim;
-  CHECK(wl_packet_rx_claim(&to->port, 256, &claim) == WL_OK);
+  CHECK(wl_packet_rx_claim(&to->endpoint.port, length, &claim) == WL_OK);
   memcpy(claim.span.data, bytes, length);
-  CHECK(wl_packet_rx_commit(&to->port, &claim, length) == WL_OK);
+  CHECK(wl_packet_rx_commit(&to->endpoint.port, &claim, length) == WL_OK);
 }
 int main(void) {
   peer_t a = {0}, b = {0}; init(&a, 101); init(&b, 102);

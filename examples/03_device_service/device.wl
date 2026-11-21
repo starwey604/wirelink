@@ -72,7 +72,6 @@ rpc SelfTest(SelfTestRequest) -> SelfTestResponse;
 rpc StartSelfTest(StartSelfTestRequest) -> StartSelfTestResponse;
 
 node device_server {
-  io = external;
   serve Ping;
   serve GetInfo;
   serve SetName;
@@ -90,7 +89,6 @@ node device_server {
   send SelfTestProgress;
 }
 node device_client {
-  io = external;
   call Ping;
   call GetInfo;
   call SetName;

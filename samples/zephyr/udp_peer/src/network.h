@@ -10,22 +10,15 @@
  * provisioning. No adapter/core fallback or discovery is implied. */
 typedef struct {
   wl_zephyr_udp_t adapter;
-  wl_packet_port_t port;
-  uint8_t rx[2][2053];
 } sample_udp_t;
 static inline int sample_network_init(void) {
   return net_config_init("Wirelink UDP", NET_CONFIG_NEED_IPV4, 30000);
 }
-static inline wl_err_t sample_udp_open(sample_udp_t *udp) {
-  wl_environment_t environment = wl_platform_environment(); uint32_t instance;
-  wl_err_t error = wl_session_next(environment.session, 0, &instance);
-  if (error != WL_OK) return error;
-  wl_packet_config_t port = {.instance = instance, .rx_storage = &udp->rx[0][0],
-    .rx_storage_size = sizeof(udp->rx), .rx_unit_size = sizeof(udp->rx[0]),
-    .submit = wl_zephyr_udp_submit, .notify = wl_zephyr_udp_notify, .user = &udp->adapter};
-  error = wl_packet_init(&udp->port, &port);
-  if (error != WL_OK) return error;
-  wl_zephyr_udp_config_t config = {.port = &udp->port, .maximum_datagram_size = 2052,
+static inline wl_err_t sample_udp_open(sample_udp_t *udp, wl_packet_port_t *port,
+                                       size_t rx_max, size_t tx_max) {
+  wl_environment_t environment = wl_platform_environment();
+  wl_zephyr_udp_config_t config = {.port = port, .maximum_datagram_size = rx_max,
+    .maximum_tx_datagram_size = tx_max,
     .service_budget = 8, .clock = environment.clock,
     .local = {.sin_family = NET_AF_INET, .sin_port = net_htons(CONFIG_SAMPLE_WIRELINK_UDP_LOCAL_PORT)},
     .peer = {.sin_family = NET_AF_INET, .sin_port = net_htons(CONFIG_SAMPLE_WIRELINK_UDP_PEER_PORT)}};

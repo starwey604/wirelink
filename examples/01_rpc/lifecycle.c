@@ -33,10 +33,11 @@ static void done(void *user, wl_rpc_result_t result, const add_response_t *respo
 }
 
 int main(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core);
+  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core,
+      &endpoints[0].port, &endpoints[1].port);
   const calculator_handlers_t handlers = {.on_add = add};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(calculator_init(&endpoints[side], &pair.ports[side],
+    EXAMPLE_REQUIRE(calculator_init_io(&endpoints[side], 0U, &pair.io[side],
       &handlers, NULL) == WL_OK);
   wl_call_handle_t handles[4], rejected;
   add_request_t request = {.left = 20, .right = 22};
@@ -60,7 +61,7 @@ int main(void) {
   EXAMPLE_REQUIRE(completed == 4 && completions[4].count == 0);
   for (unsigned i = 1; i < 4; ++i)
     EXAMPLE_REQUIRE(completions[i].result.outcome == WL_RPC_TIMED_OUT);
-  EXAMPLE_REQUIRE(wl_packet_tx_active(&pair.ports[0]) && effects == 0);
+  EXAMPLE_REQUIRE(wl_packet_tx_active(&endpoints[0].port) && effects == 0);
 
   /* Resume real copying. Local cancellation did not retract the leased request. */
   pair.now = 2;
