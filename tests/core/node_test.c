@@ -71,7 +71,7 @@ static wl_io_readiness_t readiness(const wl_transport_t *base, uint32_t now_ms) 
   return wl_io_readiness_at(15U);
 }
 
-static wl_err_t wait(wl_transport_t *base, uint32_t maximum) {
+static wl_err_t driver_wait(wl_transport_t *base, uint32_t maximum) {
   ((driver_t *)base)->waited = maximum;
   return WL_ERR_NO_DATA;
 }
@@ -85,7 +85,7 @@ static wl_err_t stop(wl_transport_t *base) {
 int main(void) {
   static const wl_transport_ops_t ops = {
     .configure_rx = configure, .attach = attach, .service = service, .readiness = readiness,
-    .wait = wait, .stop = stop
+    .wait = driver_wait, .stop = stop
   };
   driver_t driver = {.base = {&ops}, .attach_result = WL_ERR_IO};
   wl_node_layout_t layout = {.rx_frame_max = 16U, .rx_wire_max = 16U};

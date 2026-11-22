@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "../fixtures/model_transport.h"
 #include "usb.h"
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,7 +23,7 @@ typedef struct {
   unsigned progresses;
   unsigned errors;
   unsigned callbacks;
-  unsigned running;
+  bool running;
   wl_packet_submit_t sink_result;
   const uint8_t *leased;
   size_t leased_length;
@@ -70,8 +71,8 @@ static int32_t control(void *user, const control_request_t *request,
   if (request->opcode == 1U) {
     response->data.length = 512U;
     for (unsigned i = 0U; i < 512U; ++i) response->data.data[i] = (uint8_t)i;
-  } else if (request->opcode == 2U) f->running = 1U;
-  else if (request->opcode == 3U) f->running = 0U;
+  } else if (request->opcode == 2U) f->running = true;
+  else if (request->opcode == 3U) f->running = false;
   else if (request->opcode == 4U) response->data.length = 513U; /* Encode error. */
   return 0;
 }

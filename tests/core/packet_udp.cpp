@@ -32,8 +32,11 @@ struct Peer {
       layout.stream = &stream;
       layout.stream_ops = &cobs_ops;
       layout.stream_tx_wire = {tx_wire, sizeof(tx_wire)};
-      layout.rx_wire_max = wl_packet_stream_cobs_crc16_bound(layout.rx_frame_max);
-      layout.tx_wire_max = wl_packet_stream_cobs_crc16_bound(layout.tx_frame_max);
+      const auto rx_bound = wl_packet_stream_cobs_crc16_bound(layout.rx_frame_max);
+      const auto tx_bound = wl_packet_stream_cobs_crc16_bound(layout.tx_frame_max);
+      assert(rx_bound <= sizeof(rx[0]) && tx_bound <= sizeof(tx_wire));
+      layout.rx_wire_max = static_cast<uint16_t>(rx_bound);
+      layout.tx_wire_max = static_cast<uint16_t>(tx_bound);
     }
     assert(wl_node_bind_transport(&node, &layout, transport) == WL_OK);
   }
