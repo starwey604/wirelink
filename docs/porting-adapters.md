@@ -115,25 +115,15 @@ UART 等流式链路使用节点内的 `wl_packet_stream_t`，可按需增加 `w
 
 ## 三、Host / RTOS 事件循环
 
-对于已有异步适配器，使用 `service + step` 推进，再以 ready/deadline 和外层锁存通知决定等待，避免唤醒丢失。以下来自可编译的 [Host UDP 示例](../examples/05_zephyr_udp/)：
+桌面 UDP 程序包含 `<wirelink/asio/packet_udp.h>` 并链接 `Wirelink::asio_udp`。CMake 工程启用 C 和 CXX，应用源文件按 C11 编译，由 C++ 链接器链接 Asio 库。
 
-<!-- [docs:udp_host_step] -->
-```cpp
-wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
-  try {
-    const auto error = udp->adapter.service();
-    const auto advanced = wl_endpoint_step(core, now, 16);
-    return error == WL_OK ? advanced : error;
-  } catch (...) { return WL_ERR_IO; }
-}
-```
-<!-- [/docs:udp_host_step] -->
+调用 `wl_asio_udp_create(&node.port)` 和 `wl_asio_udp_io(udp)` 取得绑定，用 `_init_io` 初始化节点，再调用 `wl_asio_udp_start`。owner 调用 `wl_asio_udp_step_endpoint` 推进收发和端点，通过 `wl_asio_udp_wait_endpoint` 合并端点截止时间与等待上限。关停时调用 `wl_asio_udp_close_endpoint`，确认端点 quiescent 后销毁适配器。以下循环来自 [Host UDP 示例](../examples/05_zephyr_udp/)。
 
 <!-- [docs:udp_server_loop] -->
 ```c
 while (example_running()) {
   uint32_t now = example_now_ms();
-  if (example_udp_step(udp, &server.core, now) != WL_OK) { status = 1; break; }
+  if (wl_asio_udp_step_endpoint(udp, &server.core, now) != WL_OK) { status = 1; break; }
   if ((int32_t)(now - due) >= 0) {
     telemetry_t sample = {.sample = ++sequence};
     const wl_err_t error = udp_server_send_telemetry(&server, &sample);
@@ -142,7 +132,7 @@ while (example_running()) {
   }
   now = example_now_ms();
   uint32_t wait = (int32_t)(due - now) > 0 ? due - now : 0;
-  if (example_udp_wait(udp, &server.core, wait) != WL_OK) { status = 1; break; }
+  if (wl_asio_udp_wait_endpoint(udp, &server.core, now, wait) != WL_OK) { status = 1; break; }
 }
 ```
 <!-- [/docs:udp_server_loop] -->

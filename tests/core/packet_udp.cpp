@@ -6,6 +6,7 @@
 #include <thread>
 extern "C" wl_packet_port_t *packet_udp_test_port(unsigned);
 extern "C" int packet_udp_test_init(unsigned, wl_packet_sink_fn, wl_packet_notify_fn, void *);
+extern "C" void packet_udp_test_c_api(void);
 // Activity includes configuration/resource notifications, not just datagrams.
 // Keep servicing until the observable receive condition, with one real deadline.
 template <typename Predicate>
@@ -22,6 +23,7 @@ static void service_until(wirelink::asio::PacketUdpAdapter &adapter, Predicate d
   }
 }
 int main() {
+  packet_udp_test_c_api();
   using namespace std::chrono_literals;
   using wirelink::asio::PacketUdpAdapter;
   using wirelink::asio::PacketUdpConfig;

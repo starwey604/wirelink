@@ -27,6 +27,7 @@ REQUIRED_SNIPPETS = {
     "telemetry_receive",
     "calculator_schema",
     "calculator_server",
+    "calculator_udp_server",
     "calculator_sync_rpc",
     "calculator_rejected_callback",
     "calculator_async_rpc",

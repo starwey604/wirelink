@@ -14,8 +14,9 @@ and a multi-node loopback with default linker options, without section GC. The
 negative checks reject removed `PROFILE` and runtime helpers, missing compilers
 and incompatible generated-code contracts. Use a WLC binary that reports codegen contract 1. `cpp_session` tests the installed owning wrapper.
 
-`udp_consumer` exercises the installed packet UDP target with C-owned storage,
-latched waiting and stop. `packet_adapters` runs the full installed packet UDP,
+`udp_consumer` exercises the installed packet UDP target from C11 and C++20.
+The project enables both languages so the C-only executable can link the
+C++ Asio library. `packet_adapters` runs the full installed packet UDP,
 controlled USB and PTY serial contracts, plus missing-component/backend negative
 checks. Supply the unchanged Astrial backend source explicitly; these tests do
 not flash or open the board's native USB device. The serial PTY case uses a

@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "service.h"
 #include "tutorial_host.h"
+#include <wirelink/asio/packet_udp.h>
 #include <inttypes.h>
 #include <limits.h>
 
@@ -25,13 +26,13 @@ static void rejected(client_node_t *self, wl_rpc_result_t outcome, const add_res
 }
 /* [/docs:calculator_rejected_callback] */
 
-static wl_err_t advance(client_node_t *client, example_udp_t *udp) {
-  wl_err_t error = example_udp_step(udp, &client->core, example_now_ms());
-  return error == WL_OK ? example_udp_wait(udp, &client->core, 100U) : error;
+static wl_err_t advance(client_node_t *client, wl_asio_udp_t *udp) {
+  wl_err_t error = wl_asio_udp_step_endpoint(udp, &client->core, example_now_ms());
+  return error == WL_OK ? wl_asio_udp_wait_endpoint(udp, &client->core, example_now_ms(), 100U) : error;
 }
 
 /* [docs:calculator_sync_rpc] */
-static wl_err_t add_once(client_node_t *client, example_udp_t *udp, add_request_t request,
+static wl_err_t add_once(client_node_t *client, wl_asio_udp_t *udp, add_request_t request,
                          client_add_cb_t done) {
   completed = 0;
   wl_err_t error = client_call_add(client, &request, done);
@@ -41,7 +42,7 @@ static wl_err_t add_once(client_node_t *client, example_udp_t *udp, add_request_
 }
 /* [/docs:calculator_sync_rpc] */
 
-static int run(client_node_t *client, example_udp_t *udp) {
+static int run(client_node_t *client, wl_asio_udp_t *udp) {
   if (add_once(client, udp, (add_request_t){.left = 20, .right = 22}, added) != WL_OK ||
       result.outcome != WL_RPC_SUCCESS || sum != 42) return 1;
   printf("20 + 22 = %" PRId32 "\n", sum);
@@ -62,14 +63,23 @@ static int run(client_node_t *client, example_udp_t *udp) {
 
 int main(int argc, char **argv) {
   static client_node_t client;
-  example_udp_t *udp = example_udp_create(&client.port);
-  if (udp == NULL) return 1;
-  if (client_init_io(&client, 0U, example_udp_io(udp)) != WL_OK ||
-      example_udp_start(udp, CLIENT_TX_WIRE_MAX, argc, argv, 50003, 50004) != WL_OK) {
-    example_udp_destroy(udp);
+  wl_asio_udp_config_t config = {
+    .bind_address = "127.0.0.1", .bind_port = 50003,
+    .peer_address = "127.0.0.1", .peer_port = 50004,
+    .maximum_tx_datagram_size = CLIENT_TX_WIRE_MAX
+  };
+  if (!example_udp_args(argc, argv, &config)) return 1;
+  wl_asio_udp_t *udp = wl_asio_udp_create(&client.port);
+  if (!udp) return 1;
+  const wl_packet_io_t io = wl_asio_udp_io(udp);
+  if (client_init_io(&client, 0U, &io) != WL_OK ||
+      wl_asio_udp_start(udp, &config) != WL_OK) {
+    wl_asio_udp_destroy(udp);
     return 1;
   }
+  example_install_signals();
   int status = run(&client, udp);
-  if (example_udp_close(udp, &client.core) != WL_OK) status = 1;
+  if (wl_asio_udp_close_endpoint(udp, &client.core, example_now_ms()) != WL_OK) status = 1;
+  wl_asio_udp_destroy(udp);
   return status;
 }

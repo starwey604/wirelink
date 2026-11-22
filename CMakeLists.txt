@@ -233,7 +233,7 @@ if(WIRELINK_BUILD_ASIO_UDP_ADAPTER)
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/adapters/asio_udp/include>
     $<INSTALL_INTERFACE:include>
     PRIVATE ${WIRELINK_ASIO_INCLUDE_DIR})
-  target_link_libraries(wirelink_asio_udp PUBLIC wirelink_packet_port PRIVATE wirelink_wire Threads::Threads)
+  target_link_libraries(wirelink_asio_udp PUBLIC wirelink_endpoint PRIVATE wirelink_wire Threads::Threads)
   wl_warnings(wirelink_asio_udp PRIVATE -Wall -Wextra -Wpedantic -Werror)
   if(WIN32)
     target_compile_definitions(wirelink_asio_udp PRIVATE _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN NOMINMAX)

@@ -131,16 +131,10 @@ node dma_sensor {
 
 ### 2. 对接现有异步适配器（如 Host / Zephyr UDP）
 
-仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 目录已经提供了现成的 Zephyr（UART DMA/IRQ、USB Bulk）、Asio UDP、Astrial 串口/USB 适配器。在主循环中，通常只需将适配器的 `service()` 与内核 `wl_endpoint_step()` 放在同一个 Owner 函数中推进（源自 [`examples/05_zephyr_udp/zephyr_owner.h`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/zephyr_owner.h)）：
+仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 目录已经提供了现成的 Zephyr（UART DMA/IRQ、USB Bulk）、Asio UDP、Astrial 串口/USB 适配器。在主循环中，通常只需将适配器的 `service()` 与内核 `wl_endpoint_step()` 放在同一个 Owner 函数中推进（源自 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)）：
 
 {/* [docs:udp_host_step] */}
-```cpp
-wl_err_t example_udp_step(example_udp_t *udp, wl_endpoint_t *core, uint32_t now) {
-  try {
-    const auto error = udp->adapter.service();
-    const auto advanced = wl_endpoint_step(core, now, 16);
-    return error == WL_OK ? advanced : error;
-  } catch (...) { return WL_ERR_IO; }
-}
+```c
+if (wl_asio_udp_step_endpoint(udp, &server.core, now) != WL_OK) { status = 1; break; }
 ```
 {/* [/docs:udp_host_step] */}

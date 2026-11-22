@@ -118,7 +118,7 @@ wl_err_t serial_device_tx_write(serial_device_node_t *self, const uint8_t *data,
 ```c
 while (example_running()) {
   uint32_t now = example_now_ms();
-  if (example_udp_step(udp, &server.core, now) != WL_OK) { status = 1; break; }
+  if (wl_asio_udp_step_endpoint(udp, &server.core, now) != WL_OK) { status = 1; break; }
   if ((int32_t)(now - due) >= 0) {
     telemetry_t sample = {.sample = ++sequence};
     const wl_err_t error = udp_server_send_telemetry(&server, &sample);
@@ -127,7 +127,7 @@ while (example_running()) {
   }
   now = example_now_ms();
   uint32_t wait = (int32_t)(due - now) > 0 ? due - now : 0;
-  if (example_udp_wait(udp, &server.core, wait) != WL_OK) { status = 1; break; }
+  if (wl_asio_udp_wait_endpoint(udp, &server.core, now, wait) != WL_OK) { status = 1; break; }
 }
 ```
 {/* [/docs:udp_server_loop] */}

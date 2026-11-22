@@ -2,6 +2,7 @@
 
 ## 0.0.99
 
+- Export a C11 API for the Asio UDP adapter and use it in the desktop UDP tutorials.
 - Generate unified node I/O and bind synchronous sinks or async adapters at initialization.
 - Split UDP send and receive limits and run the three introductory demos as separate UDP peers.
 

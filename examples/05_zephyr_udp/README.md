@@ -20,11 +20,11 @@ executable and swap the local and peer arguments between the two. The
 client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
 address/port across three new processes and verifies absent-peer timeout.
 
-A generated node owns the endpoint, port, and two RX units. The desktop C++ helper
-owns the UDP adapter and wait resources. The C program initializes the node with
-a fresh instance and binds the adapter through `_init_io`. The helper services
-I/O, advances the endpoint, and waits for endpoint or socket readiness on the
-calling owner. Admission encodes before
+A generated node owns the endpoint, port, and two RX units. The C program
+creates the UDP adapter with `wl_asio_udp_create` and binds it through
+`_init_io` with a fresh instance. The Asio adapter services I/O, advances
+the endpoint, and waits for endpoint or socket readiness on the owner.
+Admission encodes before
 return; completion copies the borrowed response. Close stops actual I/O, steps
 until physical quiescence, then frees socket resources.
 

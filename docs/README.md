@@ -45,14 +45,22 @@ node sub { recv Telemetry; }
 
 <!-- [docs:telemetry_tx_write] -->
 ```c
-static example_udp_t *open_publisher(int argc, char **argv) {
-  example_udp_t *udp = example_udp_create(&publisher.port);
-  if (udp == NULL) return NULL;
-  if (pub_init_io(&publisher, 0U, example_udp_io(udp)) != WL_OK ||
-      example_udp_start(udp, PUB_TX_WIRE_MAX, argc, argv, 50001, 50002) != WL_OK) {
-    example_udp_destroy(udp);
+static wl_asio_udp_t *open_publisher(int argc, char **argv) {
+  wl_asio_udp_config_t config = {
+    .bind_address = "127.0.0.1", .bind_port = 50001,
+    .peer_address = "127.0.0.1", .peer_port = 50002,
+    .maximum_tx_datagram_size = PUB_TX_WIRE_MAX
+  };
+  if (!example_udp_args(argc, argv, &config)) return NULL;
+  wl_asio_udp_t *udp = wl_asio_udp_create(&publisher.port);
+  if (!udp) return NULL;
+  const wl_packet_io_t io = wl_asio_udp_io(udp);
+  if (pub_init_io(&publisher, 0U, &io) != WL_OK ||
+      wl_asio_udp_start(udp, &config) != WL_OK) {
+    wl_asio_udp_destroy(udp);
     return NULL;
   }
+  example_install_signals();
   return udp;
 }
 ```

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_ASIO_PACKET_UDP_HPP_
 #define WIRELINK_ASIO_PACKET_UDP_HPP_
-#include "wirelink/packet_port.h"
+#include "wirelink/asio/packet_udp.h"
 #include <chrono>
 #include <memory>
 #include <string>
@@ -42,7 +42,7 @@ public:
   static void notify(void *);
 
 private:
-  class Impl;
+  using Impl = ::wl_asio_udp;
   std::unique_ptr<Impl> impl_;
 };
 } // namespace wirelink::asio
