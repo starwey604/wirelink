@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "../../tests/fixtures/model_transport.h"
 /* Deterministic application/packet-time model, not a hardware CPU benchmark. */
 #include "mixed.h"
 #include "wirelink/packet_stream.h"
@@ -25,6 +26,7 @@ typedef struct {
   simulation_t *simulation;
   unsigned side;
   wl_packet_port_t *port;
+  model_transport_t transport;
   wl_packet_stream_t stream;
   uint8_t rx[2][128], stream_tx[80], copy[80];
   const uint8_t *borrowed;
@@ -166,14 +168,15 @@ static void run(scenario_t scenario, int envelope, bool check) {
   const mixed_handlers_t handlers = {.on_echo = echo, .on_telemetry = telemetry};
   for (unsigned side = 0; side < 2; ++side) {
     port_t *p = &s->ports[side]; p->simulation = s; p->side = side;
-    p->port = &s->endpoints[side].port;
-    wl_packet_io_t config = { .rx_storage = &p->rx[0][0],
-      .rx_unit_size = sizeof(p->rx[0]), .rx_storage_size = sizeof(p->rx), .submit = transmit, .user = p};
+    p->port = &s->endpoints[side].node.port;
+    p->transport = (model_transport_t){.base = {&model_transport_ops},
+        .rx = {&p->rx[0][0], sizeof(p->rx), sizeof(p->rx[0])},
+        .sink = transmit, .context = p};
     if (envelope != 1) {
-      config.submit = envelope == 0 ? wl_packet_stream_cobs_crc16_submit : wl_packet_stream_length16_none_submit;
-      config.notify = wl_packet_stream_notify; config.user = &p->stream;
+      p->transport.sink = envelope == 0 ? wl_packet_stream_cobs_crc16_submit : wl_packet_stream_length16_none_submit;
+      p->transport.wake = wl_packet_stream_notify; p->transport.context = &p->stream;
     }
-    CHECK(mixed_init_io(&s->endpoints[side], ++next_instance, &config, &handlers, p) == WL_OK);
+    CHECK(mixed_bind_instance(&s->endpoints[side], ++next_instance, &p->transport.base, &handlers, p) == WL_OK);
     if (envelope != 1) {
       wl_packet_stream_config_t stream = {.port = p->port, .tx_storage = {p->stream_tx, sizeof(p->stream_tx)},
         .maximum_frame_size = 64, .physical_submit = transmit, .user = p};
@@ -199,7 +202,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
       for (unsigned index = 0; index < CALLS; ++index) if (p->jobs[index].retry) start(&p->jobs[index]);
     }
     if (scenario.telemetry_first) for (unsigned side = 0; side < 2; ++side) send_sample(&s->ports[side]);
-    for (unsigned side = 0; side < 2; ++side) CHECK(mixed_step(&s->endpoints[side], now(s)) == WL_OK);
+    for (unsigned side = 0; side < 2; ++side) CHECK(wl_node_step(&s->endpoints[side].node, now(s)) == WL_OK);
     if (!scenario.telemetry_first) for (unsigned side = 0; side < 2; ++side) send_sample(&s->ports[side]);
     for (unsigned side = 0; side < 2; ++side) {
       port_t *p = &s->ports[side];
@@ -238,7 +241,7 @@ static void run(scenario_t scenario, int envelope, bool check) {
       s->max_rpc, p->dropped_requests, p->dropped_responses, p->busy);
   }
   for (unsigned side = 0; side < 2; ++side) {
-    port_t *p = &s->ports[side]; CHECK(wl_endpoint_close(&s->endpoints[side].core) == WL_OK);
+    port_t *p = &s->ports[side]; CHECK(wl_endpoint_close(&s->endpoints[side].node.core) == WL_OK);
     bool cancelled = p->active;
     if (p->active) {
       /* Model driver abandons its actual held source/copy before TX_ERROR. */
@@ -246,9 +249,9 @@ static void run(scenario_t scenario, int envelope, bool check) {
       CHECK(wl_packet_tx_publish(p->port, p->token, WL_PACKET_TX_ERROR) == WL_OK);
     }
     if (envelope != 1) CHECK(wl_packet_stream_abort_rx(&p->stream) == WL_OK);
-    wl_err_t error = mixed_step(&s->endpoints[side], now(s));
+    wl_err_t error = wl_node_step(&s->endpoints[side].node, now(s));
     CHECK(error == WL_OK || (cancelled && error == WL_ERR_IO));
-    CHECK(wl_endpoint_quiescent(&s->endpoints[side].core));
+    CHECK(wl_endpoint_quiescent(&s->endpoints[side].node.core));
   }
 }
 int mixed_traffic_run(bool check) {

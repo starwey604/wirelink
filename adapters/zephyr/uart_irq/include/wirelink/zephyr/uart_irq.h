@@ -8,7 +8,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
 #include "wirelink/byte_fifo.h"
-#include "wirelink/io_readiness.h"
+#include "wirelink/transport.h"
 struct uart_driver_api;
 #ifdef __cplusplus
 extern "C" {
@@ -16,9 +16,7 @@ extern "C" {
 
 typedef struct {
   const struct device *uart;
-  wl_packet_port_t *port;
-  wl_byte_fifo_t *fifo;
-  wl_packet_stream_t *stream;
+  wl_span_t fifo_storage; /* Staging memory owned by this transport until close. */
   /* Physical UART only. TX-empty IRQ is disabled at memory consumed; line
    * idle is queried once per deadline. CDC cannot provide this boundary. */
   uint32_t drain_check_ms; /* 0 selects 1 ms; physical drain is always required. */
@@ -42,10 +40,12 @@ typedef struct {
 } wl_zephyr_uart_irq_stats_t;
 
 typedef struct {
+  wl_transport_t transport;
+  wl_zephyr_uart_irq_config_t config;
+  wl_byte_fifo_t fifo;
   const struct device *uart;
   const struct uart_driver_api *private_uart_api;
   wl_packet_port_t *port;
-  wl_byte_fifo_t *fifo;
   wl_packet_stream_t *stream;
   const uint8_t *tx_data;
   size_t tx_length, tx_offset;
@@ -66,12 +66,13 @@ typedef struct {
   atomic_t callback_irqs, callback_ticks;
 #endif
 } wl_zephyr_uart_irq_t;
+/* Configure before binding a node. Keep hardware buffers and callback contexts
+ * live through node close. */
+wl_transport_t *wl_zephyr_uart_irq_transport(wl_zephyr_uart_irq_t *adapter,
+    const wl_zephyr_uart_irq_config_t *config);
 
-/* Explicit packet/byte-FIFO assembly; caller merges readiness and deadlines.
- * IRQ stop synchronizes callbacks through the generation binding lock. */
-int wl_zephyr_uart_irq_init(wl_zephyr_uart_irq_t *adapter,
-                            const wl_zephyr_uart_irq_config_t *config);
-int wl_zephyr_uart_irq_start(wl_zephyr_uart_irq_t *adapter);
+/* Check the physical drain and IRQ API without taking ownership of the UART. */
+wl_err_t wl_zephyr_uart_irq_probe(const struct device *uart);
 int wl_zephyr_uart_irq_service(wl_zephyr_uart_irq_t *adapter, uint32_t now_ms);
 wl_io_readiness_t wl_zephyr_uart_irq_readiness(const void *adapter, uint32_t now_ms);
 void wl_zephyr_uart_irq_stop(wl_zephyr_uart_irq_t *adapter);

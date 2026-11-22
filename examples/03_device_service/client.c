@@ -56,12 +56,11 @@ static void await(const unsigned *count, unsigned target) {
 #define SUCCESS(method) EXAMPLE_REQUIRE(method##_result.outcome == WL_RPC_SUCCESS)
 /* extension: completions */
 int main(void) {
-  example_pair_init(&pair, &client.core, &server.core,
-      &client.port, &server.port);
+  example_pair_init(&pair, &client.node, &server.node);
   device_service_init(&service);
-  EXAMPLE_REQUIRE(device_client_init_io(&client, 0U, &pair.io[0]) == WL_OK);
-  EXAMPLE_REQUIRE(device_server_init_io(&server, 0U, &pair.io[1]) == WL_OK);
-  server.user = &service;
+  EXAMPLE_REQUIRE(device_client_bind(&client, wl_packet_loopback_transport(&pair.cable, 0)) == WL_OK);
+  EXAMPLE_REQUIRE(device_server_bind(&server, wl_packet_loopback_transport(&pair.cable, 1)) == WL_OK);
+  server.node.user = &service;
   ping_request_t ping = {.nonce = UINT32_MAX};
   CALL(ping, ping); SUCCESS(ping); EXAMPLE_REQUIRE(ping_value.nonce == UINT32_MAX);
   get_info_request_t info = {0}; CALL(get_info, info); SUCCESS(get_info);

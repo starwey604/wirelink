@@ -32,7 +32,7 @@ unchanged when comparing timeout settings.
 Run the boundary fixture against the applied patch and its matching HAL:
 
 ```sh
-python3 tests/package/esp32_uart_timeout.py --zephyr-base /path/to/zephyr
+python3 tests/zephyr/host_fixtures/esp32_uart_timeout.py --zephyr-base /path/to/zephyr
 ```
 
 This host fixture compiles the actual driver configure path and HAL timeout
@@ -73,7 +73,7 @@ count so the ZLP is not consumed and then overwritten by a receive rearm.
 ```sh
 git -C /path/to/zephyr apply --check "$PWD/adapters/zephyr/patches/dwc2-bulk-zlp.patch"
 git -C /path/to/zephyr apply "$PWD/adapters/zephyr/patches/dwc2-bulk-zlp.patch"
-python3 tests/package/zephyr_dwc2_completion.py --zephyr-base /path/to/zephyr
+python3 tests/zephyr/host_fixtures/zephyr_dwc2_completion.py --zephyr-base /path/to/zephyr
 ```
 
 The host fixture compiles the actual two driver functions with mocked register

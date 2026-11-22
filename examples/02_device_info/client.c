@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "device_info.h"
 #include "tutorial_host.h"
-#include <wirelink/asio/packet_udp.h>
+#include <wirelink/udp.h>
 #include <inttypes.h>
 
 static unsigned completed;
@@ -18,12 +18,12 @@ static void done(info_client_node_t *self, wl_rpc_result_t outcome, const info_r
 /* [/docs:device_info_done] */
 
 /* [docs:device_info_client] */
-static wl_err_t read_device_info(info_client_node_t *client, wl_asio_udp_t *udp) {
+static wl_err_t read_device_info(info_client_node_t *client) {
   wl_err_t error = info_client_call_get_info(client, &(info_request_t){0}, done);
   while (error == WL_OK && example_running() && !completed) {
-    error = wl_asio_udp_step_endpoint(udp, &client->core, example_now_ms());
+    error = wl_node_step(&client->node, example_now_ms());
     if (error == WL_OK && !completed)
-      error = wl_asio_udp_wait_endpoint(udp, &client->core, example_now_ms(), 100U);
+      error = wl_node_wait(&client->node, example_now_ms(), 100U);
   }
   return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
 }
@@ -31,24 +31,21 @@ static wl_err_t read_device_info(info_client_node_t *client, wl_asio_udp_t *udp)
 
 int main(int argc, char **argv) {
   static info_client_node_t client;
-  wl_asio_udp_config_t config = {
+  wl_udp_config_t config = {
     .bind_address = "127.0.0.1", .bind_port = 50005,
-    .peer_address = "127.0.0.1", .peer_port = 50006,
-    .maximum_tx_datagram_size = INFO_CLIENT_TX_WIRE_MAX
+    .peer_address = "127.0.0.1", .peer_port = 50006
   };
   if (!example_udp_args(argc, argv, &config)) return 1;
-  wl_asio_udp_t *udp = wl_asio_udp_create(&client.port);
-  if (!udp) return 1;
-  const wl_packet_io_t io = wl_asio_udp_io(udp);
-  if (info_client_init_io(&client, 0U, &io) != WL_OK ||
-      wl_asio_udp_start(udp, &config) != WL_OK) {
-    wl_asio_udp_destroy(udp);
+  wl_udp_t *udp = NULL;
+  if (wl_udp_open(&udp, &config, NULL) != WL_OK) return 1;
+  if (info_client_bind(&client, wl_udp_transport(udp)) != WL_OK) {
+    wl_udp_close(udp);
     return 1;
   }
   example_install_signals();
-  const wl_err_t read = read_device_info(&client, udp);
-  const wl_err_t closed = wl_asio_udp_close_endpoint(udp, &client.core, example_now_ms());
-  wl_asio_udp_destroy(udp);
+  const wl_err_t read = read_device_info(&client);
+  const wl_err_t closed = wl_node_close(&client.node, example_now_ms());
+  wl_udp_close(udp);
   if (read != WL_OK || closed != WL_OK || result.outcome != WL_RPC_SUCCESS) return 1;
   fputs("name=", stdout);
   fwrite(saved.name.data, 1, saved.name.length, stdout);

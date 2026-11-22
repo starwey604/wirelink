@@ -45,11 +45,10 @@ static void downloaded(void *user, wl_rpc_result_t result, const large_t *output
   ++completions;
 }
 static void setup(void) {
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core,
-      &endpoints[0].port, &endpoints[1].port);
+  example_pair_init(&pair, &endpoints[0].node, &endpoints[1].node);
   const rpc_validation_handlers_t handlers = {.on_execute = execute, .on_download = download};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(rpc_validation_init_io(&endpoints[side], 0U, &pair.io[side], &handlers, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(rpc_validation_bind(&endpoints[side], wl_packet_loopback_transport(&pair.cable, side), &handlers, NULL) == WL_OK);
 }
 int main(void) {
   setup();
@@ -76,16 +75,16 @@ int main(void) {
   EXAMPLE_REQUIRE(saved.output == 42 && large_saved.data.data[2022] == 0xa5);
   setup(); pair.now = UINT32_MAX - 2; value = request(41);
   EXAMPLE_REQUIRE(rpc_validation_call_execute_ex(&endpoints[0], &value, pair.now, 5, done, NULL, &handle) == WL_OK);
-  EXAMPLE_REQUIRE(rpc_validation_step(&endpoints[0], pair.now) == WL_OK);
+  EXAMPLE_REQUIRE(wl_endpoint_step(&endpoints[0].node.core, pair.now, WL_ENDPOINT_BUDGET) == WL_OK);
   /* The model driver retains the physical TX source; timeout is logical only. */
   pair.now += 5;
-  EXAMPLE_REQUIRE(rpc_validation_step(&endpoints[0], pair.now) == WL_OK);
+  EXAMPLE_REQUIRE(wl_endpoint_step(&endpoints[0].node.core, pair.now, WL_ENDPOINT_BUDGET) == WL_OK);
   EXAMPLE_REQUIRE(completions == 8 && terminal.outcome == WL_RPC_TIMED_OUT);
-  EXAMPLE_REQUIRE(wl_packet_tx_active(&endpoints[0].port) && pair.cable.directions[0].pending);
+  EXAMPLE_REQUIRE(wl_packet_tx_active(&endpoints[0].node.port) && pair.cable.directions[0].pending);
   example_pair_close(&pair); /* Stop really abandons the model driver's borrow. */
   EXAMPLE_REQUIRE(completions == 8 && saved.output == 42);
   setup();
-  EXAMPLE_REQUIRE(wl_endpoint_cancel(&endpoints[0].core, handle) != WL_OK);
+  EXAMPLE_REQUIRE(wl_node_cancel(&endpoints[0].node, handle) != WL_OK);
   example_pair_close(&pair);
   printk("RPC_OWNERSHIP ALL PASS slots=4 chained=1 bytes=2023 core_clock=none\n");
   return 0;

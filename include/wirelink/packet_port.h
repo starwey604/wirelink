@@ -52,18 +52,6 @@ typedef wl_packet_submit_t (*wl_packet_sink_fn)(
     void *, const uint8_t *, size_t, wl_packet_token_t);
 typedef void (*wl_packet_notify_fn)(void *);
 
-/* Adapter binding for generated nodes. A zero RX triple selects the node's
- * built-in storage. External storage must remain live until I/O is stopped
- * and all claims and leases have drained. */
-typedef struct {
-  wl_packet_sink_fn submit; /* Required for nodes with a TX role. */
-  wl_packet_notify_fn notify; /* Optional owner wakeup. */
-  void *user;
-  uint8_t *rx_storage;
-  size_t rx_storage_size;
-  size_t rx_unit_size;
-} wl_packet_io_t;
-
 typedef struct {
   uint32_t instance; /* Nonzero, unique across reinitialization. */
   uint8_t *rx_storage;

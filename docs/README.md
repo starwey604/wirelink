@@ -24,7 +24,7 @@
 5. **多模块 `.wl` 组合**：[`examples/04_composed_services/`](../examples/04_composed_services/) —— 演示通过 `import` 将多个业务子模块汇聚到一个产品节点。
 6. **Zephyr / Host UDP 双端联调**：[`examples/05_zephyr_udp/`](../examples/05_zephyr_udp/) —— 真实 UDP 传输下一面响应 RPC、一面定时每 20ms 推遥测的服务端主循环与客户端联调。
 7. **上位机 Python / C++20 SDK**：[`examples/06_bindings/`](../examples/06_bindings/)、[`examples/07_device_sdk/`](../examples/07_device_sdk/) —— 使用 `wlc sdk` 生成的可安装 Wheel 与 C++20 客户端工程。
-8. **免 WLC 底层内存回环**：[`examples/bare_metal_loopback.c`](../examples/bare_metal_loopback.c) —— 演示 `init_io` 与动态处理器下的端口租约与 `quiescent` 安全停机。
+8. **免 WLC 底层内存回环**：[`examples/bare_metal_loopback.c`](../examples/bare_metal_loopback.c) —— 演示 `bind_instance` 与动态处理器下的端口租约与 `quiescent` 安全停机。
 
 ### 极简代码速览：单向遥测收发只需写什么？
 
@@ -41,23 +41,20 @@ node sub { recv Telemetry; }
 ```
 <!-- [/docs:telemetry_schema] -->
 
-发布端通过 `pub_init_io` 接入 UDP，订阅端在 `sub_on_telemetry` 中使用解码后的结构体。
+发布端通过 `pub_bind` 接入 UDP，订阅端在 `sub_on_telemetry` 中使用解码后的结构体。
 
 <!-- [docs:telemetry_tx_write] -->
 ```c
-static wl_asio_udp_t *open_publisher(int argc, char **argv) {
-  wl_asio_udp_config_t config = {
+static wl_udp_t *open_publisher(int argc, char **argv) {
+  wl_udp_config_t config = {
     .bind_address = "127.0.0.1", .bind_port = 50001,
-    .peer_address = "127.0.0.1", .peer_port = 50002,
-    .maximum_tx_datagram_size = PUB_TX_WIRE_MAX
+    .peer_address = "127.0.0.1", .peer_port = 50002
   };
   if (!example_udp_args(argc, argv, &config)) return NULL;
-  wl_asio_udp_t *udp = wl_asio_udp_create(&publisher.port);
-  if (!udp) return NULL;
-  const wl_packet_io_t io = wl_asio_udp_io(udp);
-  if (pub_init_io(&publisher, 0U, &io) != WL_OK ||
-      wl_asio_udp_start(udp, &config) != WL_OK) {
-    wl_asio_udp_destroy(udp);
+  wl_udp_t *udp = NULL;
+  if (wl_udp_open(&udp, &config, NULL) != WL_OK) return NULL;
+  if (pub_bind(&publisher, wl_udp_transport(udp)) != WL_OK) {
+    wl_udp_close(udp);
     return NULL;
   }
   example_install_signals();

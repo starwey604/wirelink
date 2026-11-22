@@ -1,33 +1,26 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_EXAMPLE_LOOPBACK_OWNER_H
 #define WIRELINK_EXAMPLE_LOOPBACK_OWNER_H
-#include "wirelink/endpoint.h"
+#include "wirelink/node.h"
 #include "wirelink/packet_loopback.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "example_check.h"
 typedef struct {
-  wl_endpoint_t *cores[2];
+  wl_node_t *nodes[2];
   wl_packet_loopback_t cable;
-  wl_packet_io_t io[2];
   uint32_t now;
 } example_pair_t;
-static inline void example_pair_init(example_pair_t *pair, wl_endpoint_t *a, wl_endpoint_t *b,
-                                     wl_packet_port_t *first, wl_packet_port_t *second) {
-  memset(pair, 0, sizeof(*pair));
-  pair->cores[0] = a;
-  pair->cores[1] = b;
-  EXAMPLE_REQUIRE(wl_packet_loopback_init(&pair->cable, first, second, NULL, NULL) == WL_OK);
-  for (unsigned side = 0; side < 2; ++side) {
-    pair->io[side] = (wl_packet_io_t){.submit = wl_packet_loopback_submit,
-      .notify = wl_packet_loopback_notify, .user = &pair->cable.directions[side]};
-  }
+static inline void example_pair_init(example_pair_t *pair, wl_node_t *a, wl_node_t *b) {
+  pair->now = 0;
+  pair->nodes[0] = a;
+  pair->nodes[1] = b;
+  EXAMPLE_REQUIRE(wl_packet_loopback_init(&pair->cable, NULL, NULL) == WL_OK);
 }
 static inline void example_pair_step(example_pair_t *pair) {
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(wl_endpoint_step(pair->cores[side], pair->now, 16) == WL_OK);
-  EXAMPLE_REQUIRE(wl_packet_loopback_service(&pair->cable, 2) == WL_OK);
+    EXAMPLE_REQUIRE(wl_node_step(pair->nodes[side], pair->now) == WL_OK);
   ++pair->now;
 }
 static inline void example_pair_wait(example_pair_t *pair, const unsigned *completed, unsigned target) {
@@ -36,13 +29,10 @@ static inline void example_pair_wait(example_pair_t *pair, const unsigned *compl
 }
 static inline void example_pair_close(example_pair_t *pair) {
   const bool cancelled[2] = {pair->cable.directions[0].pending != 0, pair->cable.directions[1].pending != 0};
-  for (unsigned side = 0; side < 2; ++side) EXAMPLE_REQUIRE(wl_endpoint_close(pair->cores[side]) == WL_OK);
-  wl_packet_loopback_stop(&pair->cable);
   for (unsigned side = 0; side < 2; ++side) {
-    const wl_err_t error = wl_endpoint_step(pair->cores[side], pair->now, 16);
-    /* A stopped model driver reports a real abandoned physical transfer. */
+    const wl_err_t error = wl_node_close(pair->nodes[side], pair->now);
     EXAMPLE_REQUIRE(error == WL_OK || (cancelled[side] && error == WL_ERR_IO));
-    EXAMPLE_REQUIRE(wl_endpoint_quiescent(pair->cores[side]));
+    EXAMPLE_REQUIRE(wl_node_quiescent(pair->nodes[side]));
   }
 }
 /* Copy responses that the application reads after completion. */

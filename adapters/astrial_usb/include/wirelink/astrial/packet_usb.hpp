@@ -4,32 +4,30 @@
 #include <astrial/Usb.hpp>
 #include <chrono>
 #include <memory>
+#include "wirelink/transport.h"
 #include "wirelink/packet_port.h"
 
 namespace wirelink::astrial {
 enum class PacketUsbFault { none, transfer, boundary_lost, invalid_completion, disconnected };
 struct PacketUsbConfig {
   UsbBulkConfig usb;
-  std::size_t maximum_frame_size{};
+  wl_transport_rx_override_t rx{}; // Optional slots, each a multiple of the USB IN packet size.
   void (*wake)(void *){}; // Nonblocking; may run on I/O thread.
   void *wake_user{};
 };
 struct PacketUsbStats {
   uint64_t rx_bytes{}, tx_bytes{}, rx_units{}, tx_units{}, errors{}, stale_completions{};
 };
-// Single owner. Construct before C port init, then start after port init with
-// submit/notify below and user=this. Port/RX/outer wake storage must outlive
-// stop(). stop() joins the Astrial I/O thread, not merely requests cancellation.
+// Single owner. Node bind opens the device; stop joins borrowed I/O callbacks.
 // A fault is sticky: stop, explicitly reset USB framing, recreate with a fresh
 // port instance. Reopen alone does not restore the remote packet boundary.
-class PacketUsbAdapter {
+class PacketUsbAdapter : private wl_transport_t {
 public:
-  explicit PacketUsbAdapter(wl_packet_port_t &);
+  explicit PacketUsbAdapter(PacketUsbConfig config);
   ~PacketUsbAdapter();
   PacketUsbAdapter(const PacketUsbAdapter &) = delete;
   PacketUsbAdapter &operator=(const PacketUsbAdapter &) = delete;
-  wl_packet_io_t io() noexcept { return {submit, notify, this, nullptr, 0, 0}; }
-  wl_err_t start(const PacketUsbConfig &);
+  wl_transport_t *transport() noexcept { return this; }
   wl_err_t service();
   bool ready() const;
   void stop();
@@ -41,6 +39,7 @@ public:
   static wl_packet_submit_t submit(void *, const uint8_t *, size_t, wl_packet_token_t);
   static void notify(void *);
 private:
+  wl_err_t attach(const wl_transport_attach_t &);
   class Impl;
   std::unique_ptr<Impl> impl_;
 };

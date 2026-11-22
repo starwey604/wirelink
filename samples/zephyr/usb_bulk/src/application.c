@@ -90,7 +90,9 @@ static wl_err_t end(usb_sample_application_t *app, const wl_wire_frame_t *frame)
   return status(app, value.transfer_id, CONTROL_BULK_PHASE_END, code);
 }
 wl_err_t usb_sample_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
-  usb_sample_application_t *app = core->user;
+  return usb_sample_dispatch(core->user, frame);
+}
+wl_err_t usb_sample_dispatch(usb_sample_application_t *app, const wl_wire_frame_t *frame) {
   /* A fair kernel may grant RX a turn before submitting the previous echo.
    * Retain that input without decoding or applying any business side effect. */
   if (app->output_pending) return WL_ERR_WOULD_BLOCK;

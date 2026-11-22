@@ -5,6 +5,7 @@
 #include "wirelink/byte_fifo.h"
 #include "wirelink/io_readiness.h"
 #include <memory>
+#include "wirelink/transport.h"
 namespace wirelink::astrial {
 struct PacketSerialConfig {
   std::string port;
@@ -22,14 +23,13 @@ struct PacketSerialConfig {
 // C owns port/FIFO atomic storage. Producer only stages bytes; owner service
 // runs the selected COBS connector. stop joins the Astrial I/O worker before
 // acknowledging cancellation and releasing storage. No automatic reconnect.
-class PacketSerialAdapter {
+class PacketSerialAdapter : private wl_transport_t {
 public:
-  PacketSerialAdapter(wl_packet_port_t &, wl_byte_fifo_t &, wl_packet_stream_t &);
+  explicit PacketSerialAdapter(PacketSerialConfig config, wl_span_t fifo_storage);
   ~PacketSerialAdapter();
   PacketSerialAdapter(const PacketSerialAdapter &) = delete;
   PacketSerialAdapter &operator=(const PacketSerialAdapter &) = delete;
-  wl_packet_io_t io() noexcept { return {submit, notify, this, nullptr, 0, 0}; }
-  wl_err_t start(const PacketSerialConfig &, std::error_code &);
+  wl_transport_t *transport() noexcept { return this; }
   wl_err_t service(uint32_t now);
   wl_io_readiness_t readiness(uint32_t now) const;
   bool wait_for_activity(std::chrono::nanoseconds);
@@ -39,6 +39,7 @@ public:
   static void notify(void *);
 
 private:
+  wl_err_t attach(const wl_transport_attach_t &);
   class Impl;
   std::unique_ptr<Impl> impl_;
 };

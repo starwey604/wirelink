@@ -1,4 +1,4 @@
-> The replay-cache peer-hook workload has been retired. Peer identity and stale-result behavior are covered by `tests/session`; no cache hook is restored.
+> The replay-cache peer-hook workload has been retired. Peer identity and stale-result behavior are covered by `tests/core/session_cases.c`; no cache hook is restored.
 
 # RPC peer fast-path benchmark
 

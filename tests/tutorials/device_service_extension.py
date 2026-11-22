@@ -5,7 +5,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from device_service import check_demo
 
 
 def main():
@@ -67,7 +66,10 @@ add_subdirectory(example)
         subprocess.run(command, check=True, timeout=30)
         subprocess.run([args.cmake, '--build', str(build), '--target', 'wirelink_device_service_demo', '--config', 'Release', '--parallel', '2'], check=True, timeout=90)
         candidates = [build / 'example' / suffix for suffix in ['wirelink_device_service_demo', 'wirelink_device_service_demo.exe', 'Release/wirelink_device_service_demo.exe']]
-        check_demo(next(path for path in candidates if path.is_file()), extended=True)
+        executable = next(path for path in candidates if path.is_file())
+        result = subprocess.run([executable], capture_output=True, text=True, check=True, timeout=15)
+        assert 'new GetBuildLabel RPC: OK' in result.stdout, result.stdout
+        assert 'ordinary completion and retained results passed' in result.stdout, result.stdout
         print('New RPC acceptance: exactly three application files changed; infrastructure unchanged')
 
 

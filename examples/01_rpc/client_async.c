@@ -20,3 +20,9 @@ wl_err_t calculator_async_example(client_node_t *client) {
 }
 /* [/docs:calculator_async_rpc] */
 int calculator_async_count(void) { return failed ? -1 : completed; }
+
+/* [docs:calculator_cancel_timeout] */
+wl_err_t calculator_cancel_example(client_node_t *client, wl_call_handle_t handle) {
+  return wl_node_cancel(&client->node, handle);
+}
+/* [/docs:calculator_cancel_timeout] */

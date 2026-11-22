@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/cpp/session.hpp"
-#include "wirelink/asio/packet_udp.hpp"
+#include "wirelink/udp.h"
 #include "wirelink/host/executor.hpp"
-#include "endpoint.h"
+#include "probe.h"
 #include <cstdlib>
 #include <atomic>
 #include <cstdio>
@@ -11,74 +11,72 @@
 #include <vector>
 using namespace std::chrono_literals;
 #define require(value) do { if (!(value)) { std::fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #value); std::abort(); } } while (0)
-static void *prepare(wl_host_endpoint_t &driver, wirelink::Error &error, bool echo) {
-  void *storage = ::operator new(cpp_test_size(), std::align_val_t(cpp_test_alignment()));
-  auto status = cpp_test_prepare(storage, &driver, echo);
-  if (status != WL_OK) {
-    ::operator delete(storage, std::align_val_t(cpp_test_alignment()));
-    error = wirelink::Error::local(status); return nullptr;
-  }
-  return storage;
+static int32_t execute(void *, const request_t *request, response_t *response) {
+  if (request->input == INT32_MIN) return WL_ERR_TIMEOUT;
+  response->output = request->input;
+  return 0;
 }
-static void *create(wl_host_endpoint_t &driver, wirelink::Error &error) {
-  return prepare(driver, error, false);
+static wl_err_t create(uint32_t instance, wl_transport_t *transport, wl_node_t **out) {
+  auto owner = std::make_unique<probe_node_t>();
+  probe_handlers_t handlers{};
+  const auto status = probe_bind_instance(owner.get(), instance, transport, &handlers, nullptr);
+  if (status == WL_OK) *out = &owner.release()->node;
+  return status;
 }
-static void destroy(void *storage) noexcept {
-  ::operator delete(storage, std::align_val_t(cpp_test_alignment()));
+static void destroy(wl_node_t *node) noexcept {
+  delete reinterpret_cast<probe_node_t *>(node);
 }
 struct Call : wirelink::detail::OperationState<int32_t> {
   request_t request{};
   response_t response{};
-  cpp_test_call_t bridge{};
+  unsigned callbacks{};
+  wl_host_rpc_notify_fn completion{};
+  void *callback_user{};
   explicit Call(int32_t input) { request.input = input; }
   wl_err_t submit(uint32_t now, uint32_t timeout, wl_host_rpc_notify_fn notify,
                   void *user, wl_call_handle_t *handle) noexcept override {
-    bridge.endpoint = endpoint; bridge.request = &request; bridge.response = &response;
-    return cpp_test_submit(&bridge, now, timeout, notify, user, handle);
+    completion = notify;
+    callback_user = user;
+    const auto done = [](void *context, wl_rpc_result_t result, const response_t *value) {
+      auto &call = *static_cast<Call *>(context);
+      ++call.callbacks;
+      if (result.outcome == WL_RPC_SUCCESS) {
+        require(value);
+        call.response = *value;
+      }
+      call.completion(call.callback_user, result);
+    };
+    return probe_call_execute_ex(static_cast<probe_node_t *>(endpoint), &request,
+                                 now, timeout, done, this, handle);
   }
   int32_t decode_response() override { return response.output; }
 };
 class Server {
 public:
   wirelink::host::Executor owner;
-  wl_host_endpoint_t driver{};
-  void *storage{};
-  std::unique_ptr<wirelink::asio::PacketUdpAdapter> adapter;
+  probe_node_t node{};
+  wl_udp_t *udp{};
   explicit Server(bool echo) {
-    auto error = wirelink::Error::local(WL_ERR_INVALID_STATE);
-    storage = prepare(driver, error, echo); require(storage != nullptr);
-    adapter = std::make_unique<wirelink::asio::PacketUdpAdapter>(*driver.port);
-    static uint32_t instance = 81971;
-    require(cpp_test_initialize(storage, instance++, wirelink::asio::PacketUdpAdapter::submit,
-        wirelink::asio::PacketUdpAdapter::notify, adapter.get()) == WL_OK);
-    wirelink::asio::PacketUdpConfig config;
-    config.bind_address = "127.0.0.1"; config.maximum_datagram_size = driver.maximum_rx_frame;
-    config.maximum_tx_datagram_size = driver.maximum_tx_frame;
-    std::error_code os; require(adapter->start(config, os) == WL_OK);
+    wl_udp_config_t config{};
+    config.bind_address = "127.0.0.1";
+    require(wl_udp_open(&udp, &config, nullptr) == WL_OK);
+    probe_handlers_t handlers{};
+    handlers.on_execute = echo ? execute : nullptr;
+    require(probe_bind(&node, wl_udp_transport(udp), &handlers, this) == WL_OK);
   }
   void start(uint16_t peer) {
-    require(adapter->set_peer("127.0.0.1", peer) == WL_OK);
-    wirelink::host::ExecutorIo io;
-    io.user = adapter.get();
-    io.service = [](void *p, uint32_t) { return static_cast<wirelink::asio::PacketUdpAdapter *>(p)->service(); };
-    io.readiness = [](void *p, uint32_t) {
-      return wl_io_readiness_at(static_cast<wirelink::asio::PacketUdpAdapter *>(p)->ready() ? 0U : UINT32_MAX);
-    };
-    io.wait = [](void *p, uint32_t ms) {
-      return static_cast<wirelink::asio::PacketUdpAdapter *>(p)->wait_for_activity(std::chrono::milliseconds(ms));
-    };
-    io.notify = wirelink::asio::PacketUdpAdapter::notify;
-    io.stop = [](void *p) { static_cast<wirelink::asio::PacketUdpAdapter *>(p)->stop(); };
-    require(owner.initialize(*driver.core, io) == WL_OK && owner.start() == WL_OK);
+    require(wl_udp_set_peer(udp, "127.0.0.1", peer) == WL_OK);
+    require(owner.initialize(node.node) == WL_OK && owner.start() == WL_OK);
   }
   ~Server() {
-    require(owner.stop() == WL_OK); adapter->stop(); adapter.reset();
-    require(wl_endpoint_quiescent(driver.core)); destroy(storage);
+    require(owner.stop() == WL_OK);
+    require(wl_node_close(&node.node, 0) == WL_OK);
+    wl_udp_close(udp);
   }
 };
 static wirelink::Session connect(Server &server) {
-  wirelink::UdpOptions options; options.peer_port = server.adapter->local_port();
-  auto result = wirelink::Session::connect(options, {create, cpp_test_initialize, destroy});
+  wirelink::UdpOptions options; options.peer_port = wl_udp_local_port(server.udp);
+  auto result = wirelink::Session::connect(options, {create, destroy});
   require(bool(result)); return std::move(result).value();
 }
 int main() {
@@ -94,7 +92,7 @@ int main() {
     }
     auto refused = std::make_shared<Call>(8);
     require(client.submit(refused, 5000) == WL_ERR_WOULD_BLOCK);
-    require(!refused->done() && refused->bridge.callbacks == 0 && !refused->keepalive);
+    require(!refused->done() && refused->callbacks == 0 && !refused->keepalive);
     wirelink::Operation<int32_t> cancelled(calls.back());
     require(cancelled.cancel() && cancelled.wait_for(1s));
     require(!cancelled.result() && cancelled.result().error().kind == wirelink::ErrorKind::cancelled);
@@ -102,9 +100,9 @@ int main() {
     for (unsigned i = 0; i < 3; ++i) {
       require(calls[i]->wait_for(2s)); auto result = calls[i]->result();
       require(bool(result) && result.value() == int32_t(i + 1));
-      require(calls[i]->bridge.callbacks == 1);
+      require(calls[i]->callbacks == 1);
     }
-    require(calls.back()->bridge.callbacks == 1 && refused->bridge.callbacks == 0);
+    require(calls.back()->callbacks == 1 && refused->callbacks == 0);
     auto rejected = std::make_shared<Call>(INT32_MIN);
     require(client.submit(rejected, 1000) == WL_OK && rejected->wait_for(2s));
     auto result = rejected->result();
@@ -129,7 +127,7 @@ int main() {
     a.join(); b.join();
     require(retained.expired());
     require(closing->wait_for(1s) && closing->result().error().kind == wirelink::ErrorKind::closed);
-    require(closing->bridge.callbacks == 1 && timeout->bridge.callbacks == 1);
+    require(closing->callbacks == 1 && timeout->callbacks == 1);
     require(client.submit(std::make_shared<Call>(3), 1000) == WL_ERR_NOT_INITIALIZED);
   }
   {
@@ -139,14 +137,14 @@ int main() {
       uint32_t instance{984371};
     } clock;
     Server silent(false);
-    wirelink::UdpOptions options; options.peer_port = silent.adapter->local_port();
+    wirelink::UdpOptions options; options.peer_port = wl_udp_local_port(silent.udp);
     options.environment.clock = {[](void *p) -> uint32_t {
       auto *c = static_cast<Clock *>(p); ++c->reads; return c->value.load();
     }, &clock};
     options.environment.session = {[](void *p, uint32_t *out) -> wl_err_t {
       *out = static_cast<Clock *>(p)->instance++; return WL_OK;
     }, &clock};
-    auto connection = wirelink::Session::connect(options, {create, cpp_test_initialize, destroy});
+    auto connection = wirelink::Session::connect(options, {create, destroy});
     require(bool(connection)); auto client = std::move(connection).value();
     silent.start(client.local_port());
     auto call = std::make_shared<Call>(1);
@@ -159,7 +157,7 @@ int main() {
     client.notify(); // Would otherwise remain in a real ten-second wait.
     require(call->wait_for(500ms) && call->result().error().kind == wirelink::ErrorKind::timed_out);
     client.close();
-    require(call->bridge.callbacks == 1);
+    require(call->callbacks == 1);
   }
 
 }

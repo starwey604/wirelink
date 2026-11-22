@@ -171,10 +171,6 @@ void peer_numbers_clear(peer_numbers_t *value) {
 
 
 #include <limits.h>
-static void device_peer_error(void *user, uint16_t id, wl_err_t error) {
-  device_peer_node_t *self = user;
-  if (self->on_error != NULL) self->on_error(self->user, id, error);
-}
 static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   device_peer_node_t *self = (device_peer_node_t *)core;
   (void)self;
@@ -193,7 +189,7 @@ static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *fr
       wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
     peer_configure_response_clear(&self->reply.configure);
-    int32_t status = self->handlers.on_configure(self->user, &request, &self->reply.configure);
+    int32_t status = self->handlers.on_configure(self->node.user, &request, &self->reply.configure);
     if (status != 0) return wl_endpoint_reply_error(core, slot, status);
     size_t length = 0U;
     if (peer_configure_response_encode(&self->reply.configure, payload, capacity, &length) != WL_CODEC_OK) {
@@ -215,7 +211,7 @@ static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *fr
       wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
     peer_info_response_clear(&self->reply.get_info);
-    int32_t status = self->handlers.on_get_info(self->user, &request, &self->reply.get_info);
+    int32_t status = self->handlers.on_get_info(self->node.user, &request, &self->reply.get_info);
     if (status != 0) return wl_endpoint_reply_error(core, slot, status);
     size_t length = 0U;
     if (peer_info_response_encode(&self->reply.get_info, payload, capacity, &length) != WL_CODEC_OK) {
@@ -226,72 +222,44 @@ static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *fr
   default: return WL_ERR_NOT_SUPPORTED;
   }
 }
-static wl_packet_submit_t device_peer_submit(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
-  (void)token;
-  device_peer_node_t *self = user;
-  wl_err_t error = self->tx_write(self, data, length);
-  if (error == WL_OK) return WL_PACKET_SENT;
-  return error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY ? WL_PACKET_BUSY : WL_PACKET_FAILED;
+static wl_err_t device_peer_sync_write(wl_node_t *node, const uint8_t *data, size_t length) {
+  device_peer_node_t *self = (device_peer_node_t *)node;
+  return self->tx_write(self, data, length);
 }
-wl_err_t device_peer_init_io(device_peer_node_t *self, uint32_t instance, const wl_packet_io_t *io, const device_peer_handlers_t *handlers, void *user) {
-  if (self == NULL || io == NULL || io->submit == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_io_t binding = *io;
-  const int external_rx = binding.rx_storage != NULL || binding.rx_storage_size != 0U || binding.rx_unit_size != 0U;
-  if (external_rx && (binding.rx_storage == NULL || binding.rx_unit_size < DEVICE_PEER_RX_WIRE_MAX + 1U ||
-      binding.rx_unit_size > binding.rx_storage_size / WL_PACKET_RX_SLOTS)) return WL_ERR_INVALID_ARG;
+static wl_err_t device_peer_bind_impl(device_peer_node_t *self, uint32_t instance, wl_transport_t *transport, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user) {
+  if (self == NULL) return WL_ERR_INVALID_ARG;
+  if (transport == NULL && tx_write == NULL) return WL_ERR_INVALID_ARG;
   if (handlers == NULL) return WL_ERR_INVALID_ARG;
-  const device_peer_handlers_t saved = *handlers;
-  wl_err_t error;
-  if (instance == 0U) {
-    error = wl_packet_instance_next(&instance);
-    if (error != WL_OK) return error;
-  }
-  memset(self, 0, sizeof(*self));
-  self->handlers = saved; self->user = user;
-  wl_packet_config_t packet = {.instance = instance,
-      .rx_storage = external_rx ? binding.rx_storage : &self->rx[0][0],
-      .rx_unit_size = external_rx ? binding.rx_unit_size : sizeof(self->rx[0]),
-      .rx_storage_size = external_rx ? binding.rx_storage_size : sizeof(self->rx),
-      .submit = binding.submit, .notify = binding.notify, .user = binding.user};
-  error = wl_packet_init(&self->port, &packet);
-  if (error != WL_OK) return error;
-  wl_endpoint_config_t config = {.port = &self->port, .route = device_peer_route, .on_error = device_peer_error, .user = self,
-      .storage = {
+  self->handlers = *handlers;
+  self->tx_write = tx_write;
+  const wl_node_layout_t layout = {
+    .instance = instance, .has_tx = 1,
+    .route = device_peer_route, .user = user,
+    .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
+    .rx_frame_max = DEVICE_PEER_RX_FRAME_MAX, .tx_frame_max = DEVICE_PEER_TX_FRAME_MAX,
+    .rx_wire_max = DEVICE_PEER_RX_WIRE_MAX, .tx_wire_max = DEVICE_PEER_TX_WIRE_MAX,
+    .storage = {
           .requests = NULL, .request_stride = 0U,
           .replies = &self->replies[0][0], .reply_stride = 228U,
           .message = NULL, .message_capacity = 0U,
-      }};
-  error = wl_endpoint_init(&self->core, &config);
-  if (error != WL_OK) wl_packet_stop(&self->port);
-  return error;
+    }
+  };
+  return transport != NULL ? wl_node_bind_transport(&self->node, &layout, transport)
+                           : wl_node_bind_sync(&self->node, &layout, device_peer_sync_write);
 }
-static wl_err_t device_peer_init_sync(device_peer_node_t *self, uint32_t instance, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user) {
-  if (tx_write == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_io_t io = {.submit = device_peer_submit, .user = self};
-  wl_err_t error = device_peer_init_io(self, instance, &io, handlers, user);
-  if (error == WL_OK) self->tx_write = tx_write;
-  return error;
+wl_err_t device_peer_bind(device_peer_node_t *self, wl_transport_t *transport, const device_peer_handlers_t *handlers, void *user) {
+  if (transport == NULL) return WL_ERR_INVALID_ARG;
+  return device_peer_bind_impl(self, 0U, transport, NULL, handlers, user);
 }
-wl_err_t device_peer_init(device_peer_node_t *self, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user) {
-  return device_peer_init_sync(self, 0U, tx_write, handlers, user);
-}
-wl_err_t device_peer_init_with_instance(device_peer_node_t *self, uint32_t instance, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user) {
+wl_err_t device_peer_bind_instance(device_peer_node_t *self, uint32_t instance, wl_transport_t *transport, const device_peer_handlers_t *handlers, void *user) {
   if (instance == 0U) return WL_ERR_INVALID_ARG;
-  return device_peer_init_sync(self, instance, tx_write, handlers, user);
+  if (transport == NULL) return WL_ERR_INVALID_ARG;
+  return device_peer_bind_impl(self, instance, transport, NULL, handlers, user);
 }
-wl_err_t device_peer_rx_packet(device_peer_node_t *self, const uint8_t *data, size_t length) {
-  if (self == NULL) return WL_ERR_INVALID_ARG;
-  if (length > DEVICE_PEER_RX_WIRE_MAX) return WL_ERR_BUF_TOO_SMALL;
-  return wl_packet_rx_push(&self->port, data, length);
+wl_err_t device_peer_bind_sync(device_peer_node_t *self, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user) {
+  return device_peer_bind_impl(self, 0U, NULL, tx_write, handlers, user);
 }
-wl_err_t device_peer_step(device_peer_node_t *self, uint32_t now) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_step(&self->core, now, WL_ENDPOINT_BUDGET);
-}
-wl_err_t device_peer_close(device_peer_node_t *self) {
-  if (self == NULL) return WL_ERR_INVALID_ARG;
-  wl_err_t error = wl_endpoint_close(&self->core);
-  return error;
-}
-int device_peer_quiescent(const device_peer_node_t *self) {
-  return self != NULL && wl_endpoint_quiescent(&self->core);
+wl_err_t device_peer_bind_sync_instance(device_peer_node_t *self, uint32_t instance, device_peer_tx_write_fn tx_write, const device_peer_handlers_t *handlers, void *user) {
+  if (instance == 0U) return WL_ERR_INVALID_ARG;
+  return device_peer_bind_impl(self, instance, NULL, tx_write, handlers, user);
 }

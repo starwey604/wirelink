@@ -1,31 +1,16 @@
 # Installed-contract checks
 
-Install Wirelink to a fresh prefix first. The C-only `c_core` project verifies
-CMake and pkg-config without enabling C++. `consumer` compiles the public C and
-C++20 headers and links the independent wire/diagnostic tools. C++ verifies that
-`wl_packet_port_t` is complete and standard-layout; its atomic operations remain
-C-owned. `wl_byte_fifo_t` remains opaque. Add
-`-DWIRELINK_CONSUMER_HOST=ON` to exercise the explicitly loaded host component
-with a C-owned endpoint and a real executor owner/join.
+Configure the consumers against a fresh Wirelink installation with
+`-DCMAKE_PREFIX_PATH=<prefix>`. Each project builds and runs with CMake and CTest.
 
-`wlc_current` builds installed native, COBS, C++ opaque-owner and keyword-codec
-consumers. `NODE client` and `ALL_NODES` additionally exercise single-role linking
-and a multi-node loopback with default linker options, without section GC. The
-negative checks reject removed `PROFILE` and runtime helpers, missing compilers
-and incompatible generated-code contracts. Use a WLC binary that reports codegen contract 1. `cpp_session` tests the installed owning wrapper.
+| Project or setting | Coverage |
+| --- | --- |
+| `installed_core` | Installed C and C++20 public headers, wire operations and ABI types. CI also compiles the consumer with `-fshort-enums` against a normal-width library. |
+| `installed_core -DWIRELINK_CONSUMER_C_ONLY=ON` | C11 CMake and pkg-config consumers in a C-only project. Add the installed pkgconfig directory to `PKG_CONFIG_PATH`. |
+| `installed_core -DWIRELINK_WLC_EXECUTABLE=<wlc>` | Generated native and COBS generated nodes, C++ calls, keyword modules, node selection and generator diagnostics. |
+| `installed_core -DWIRELINK_CONSUMER_HOST=ON` | Installed Executor and C/C++ UDP consumers. Supplying WLC also runs the installed C++ Session with a generated node. |
+| `installed_core -DWIRELINK_TEST_ASTRIAL_SOURCE_DIR=<source>` | Installed Astrial USB and serial components, controlled transfers and missing-backend diagnostics. Install Wirelink with these adapters enabled first. |
+| `calculator_consumer`, `device_consumer` | Installed SDK headers and libraries. Install both example SDKs into the prefix before running the device consumer. |
 
-`udp_consumer` exercises the installed packet UDP target from C11 and C++20.
-The project enables both languages so the C-only executable can link the
-C++ Asio library. `packet_adapters` runs the full installed packet UDP,
-controlled USB and PTY serial contracts, plus missing-component/backend negative
-checks. Supply the unchanged Astrial backend source explicitly; these tests do
-not flash or open the board's native USB device. The serial PTY case uses a
-controlled physical-drain query and is not a hardware UART qualification.
-
-Build and install both SDKs separately, then configure and test the
-calculator and device consumer projects against that install prefix.
-The bindings CI also builds both wheels and runs their Python tests against
-independent C peers.
-
-The platform completion/timeout scripts compile external driver snapshots
-against controlled fixtures.
+The bindings workflow builds and tests wheels against independent C peers.
+Zephyr patch checks and their host fixtures live in `tests/zephyr/host_fixtures/`.

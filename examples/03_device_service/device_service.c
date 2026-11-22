@@ -19,7 +19,7 @@ int32_t device_server_on_ping(device_server_node_t *self, const ping_request_t *
 
 int32_t device_server_on_get_info(device_server_node_t *self, const get_info_request_t *request,
                         get_info_response_t *response) {
-  const device_service_t *device = self->user;
+  const device_service_t *device = self->node.user;
   (void)request;
   response->name.length = device->name_length;
   memcpy(response->name.data, device->name, device->name_length);
@@ -28,7 +28,7 @@ int32_t device_server_on_get_info(device_server_node_t *self, const get_info_req
 
 int32_t device_server_on_set_name(device_server_node_t *self, const set_name_request_t *request,
                         set_name_response_t *response) {
-  device_service_t *device = self->user;
+  device_service_t *device = self->node.user;
   (void)response;
   if (request->name.length == 0) return DEVICE_INVALID_ARGUMENT;
   memcpy(device->name, request->name.data, request->name.length);
@@ -39,7 +39,7 @@ int32_t device_server_on_set_name(device_server_node_t *self, const set_name_req
 
 int32_t device_server_on_read_register(device_server_node_t *self, const read_register_request_t *request,
                              read_register_response_t *response) {
-  const device_service_t *device = self->user;
+  const device_service_t *device = self->node.user;
   if (request->index >= 4) return DEVICE_INVALID_ARGUMENT;
   response->value = device->registers[request->index];
   return 0;
@@ -47,7 +47,7 @@ int32_t device_server_on_read_register(device_server_node_t *self, const read_re
 
 int32_t device_server_on_write_register(device_server_node_t *self, const write_register_request_t *request,
                               write_register_response_t *response) {
-  device_service_t *device = self->user;
+  device_service_t *device = self->node.user;
   (void)response;
   if (request->index >= 4) return DEVICE_INVALID_ARGUMENT;
   if (request->value < device->lower || request->value > device->upper)
@@ -59,7 +59,7 @@ int32_t device_server_on_write_register(device_server_node_t *self, const write_
 
 int32_t device_server_on_get_counters(device_server_node_t *self, const get_counters_request_t *request,
                             get_counters_response_t *response) {
-  const device_service_t *device = self->user;
+  const device_service_t *device = self->node.user;
   (void)request;
   response->writes = device->writes;
   return 0;
@@ -67,7 +67,7 @@ int32_t device_server_on_get_counters(device_server_node_t *self, const get_coun
 
 int32_t device_server_on_reset_counters(device_server_node_t *self, const reset_counters_request_t *request,
                               reset_counters_response_t *response) {
-  device_service_t *device = self->user;
+  device_service_t *device = self->node.user;
   (void)request;
   (void)response;
   device->writes = 0;

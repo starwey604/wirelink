@@ -12,7 +12,7 @@
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/byte_fifo.h"
-#include "wirelink/io_readiness.h"
+#include "wirelink/transport.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,9 +23,7 @@ typedef uint32_t (*wl_zephyr_uart_dma_cycle_count_fn)(void *user_data);
 
 typedef struct {
   const struct device *uart;
-  wl_packet_port_t *port;
-  wl_byte_fifo_t *fifo;
-  wl_packet_stream_t *stream;
+  wl_span_t fifo_storage; /* Staging memory owned by this transport until close. */
   /* Two disjoint caller-owned, DMA-capable buffers. The async UART alternates
    * between them; completed bytes are copied into the Wirelink RX ring. */
   wl_span_t rx_buffers[2];
@@ -56,11 +54,15 @@ typedef struct {
 } wl_zephyr_uart_dma_slot_t;
 
 typedef struct {
+  wl_transport_t transport;
   wl_zephyr_uart_dma_config_t config;
+  wl_byte_fifo_t fifo;
+  wl_packet_port_t *port;
+  wl_packet_stream_t *stream;
   struct k_sem wake;
   atomic_t service_pending;
   uint32_t drain_due, tx_retry_due;
-  uint8_t tx_retry_pending, detached;
+  uint8_t tx_retry_pending, detached, stop_requested;
   uint8_t drain_pending;
   uint8_t binding;
   wl_zephyr_uart_dma_slot_t slots[2];
@@ -93,6 +95,10 @@ typedef struct {
   atomic_t tx_busy;
   atomic_t errors;
 } wl_zephyr_uart_dma_t;
+/* Configure before binding a node. Keep hardware buffers and callback contexts
+ * live through node close. */
+wl_transport_t *wl_zephyr_uart_dma_transport(wl_zephyr_uart_dma_t *adapter,
+    const wl_zephyr_uart_dma_config_t *config);
 
 typedef struct {
   uint32_t buffer_requests;
@@ -110,17 +116,6 @@ typedef struct {
   uint8_t paused;
   uint8_t tx_active;
 } wl_zephyr_uart_dma_stats_t;
-
-/*
- * Initialize the adapter and register the UART's sole async callback.
- * Bind submit explicitly through the selected stream transport.
- * Does not start reception.
- */
-int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
-                            const wl_zephyr_uart_dma_config_t *config);
-
-/* Start a staged DMA receive stream into the Wirelink RX ring. */
-int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter);
 
 /*
  * Begin an asynchronous stop. New sink submissions fail immediately. The

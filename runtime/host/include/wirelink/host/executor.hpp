@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_HOST_EXECUTOR_HPP
 #define WIRELINK_HOST_EXECUTOR_HPP
-#include "wirelink/endpoint.h"
+#include "wirelink/node.h"
 #include "wirelink/clock.h"
 #include "wirelink/io_readiness.h"
 #include "wirelink/host/clock.hpp"
@@ -13,17 +13,6 @@
 #include <thread>
 
 namespace wirelink::host {
-struct ExecutorIo {
-  void *user{};
-  wl_err_t (*service)(void *, uint32_t){};
-  wl_io_readiness_t (*readiness)(void *, uint32_t){};
-  wl_err_t (*wait)(void *, uint32_t){};
-  // Latched, nonblocking, thread-safe; must not reenter Executor or callbacks.
-  void (*notify)(void *){};
-  // Owner-only: stop/join actual I/O producers and publish final completion.
-  // Never synthesize physical drain. Storage remains alive until owner join.
-  void (*stop)(void *){};
-};
 // A thread/wait wrapper around the one C endpoint. No RPC table, reply cache,
 // application service scheduler, protocol timer or payload storage is mirrored.
 class Executor {
@@ -39,7 +28,7 @@ public:
   Executor &operator=(const Executor &) = delete;
   // Binding alone does not transfer ownership: the caller owns the endpoint
   // until start succeeds, and must keep all storage alive through stop/join.
-  wl_err_t initialize(wl_endpoint_t &, ExecutorIo = {}, wl_clock_t = monotonic_clock());
+  wl_err_t initialize(wl_node_t &, wl_clock_t = monotonic_clock());
   wl_err_t start();
   // Success owns one command, whose work or shutdown rejection runs on owner.
   // Functions must not throw, block or call stop. Core admission is separate.
@@ -47,6 +36,7 @@ public:
   void notify() noexcept;
   void request_stop() noexcept;
   // Owner callbacks may request_stop, but cannot stop/join or destroy Executor.
+  // A driver stop error returns the node to its caller for further close attempts.
   wl_err_t stop() noexcept;
   bool on_owner_thread() const noexcept;
   State state() const noexcept;
@@ -58,8 +48,9 @@ private:
   bool commands(bool reject);
   void run() noexcept;
   uint32_t now() const noexcept { return clock_.now_ms(clock_.user_data); }
-  wl_endpoint_t *core_{};
-  ExecutorIo io_{};
+  wl_node_t *node_{};
+  wl_transport_t *waitable_{};
+  wl_err_t close_result_{WL_OK};
   wl_clock_t clock_{};
   mutable std::mutex gate_;
   std::mutex join_;

@@ -7,7 +7,6 @@ on:
     inputs:
       wlc_ref:
         description: WLC branch or ref
-        default: main
         type: string
 permissions:
   contents: read
@@ -26,7 +25,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-wlc
         with:
-          ref: ${{ inputs.wlc_ref || 'main' }}
+          ref: ${{ inputs.wlc_ref }}
       - uses: actions/checkout@v5
         with:
           repository: chriskohlhoff/asio
@@ -46,30 +45,11 @@ jobs:
           ctest --test-dir build --build-config Release --output-on-failure
       - name: Install
         run: cmake --install build --config Release --prefix ${{ github.workspace }}/install
-      - name: Configure public C/C++ and owner consumer
-        run: >-
-          cmake -S tests/package/consumer -B consumer-build
-          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
-          -DWIRELINK_CONSUMER_HOST=ON -DCMAKE_BUILD_TYPE=Release
-      - name: Build and test public consumer
+      - name: Test the installed core, generator, Executor, Session and UDP transports
         run: |
+          cmake -S tests/package/installed_core -B consumer-build "-DCMAKE_PREFIX_PATH=${{ github.workspace }}/install" -DWIRELINK_CONSUMER_HOST=ON "-DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}" -DCMAKE_BUILD_TYPE=Release
           cmake --build consumer-build --config Release --parallel
           ctest --test-dir consumer-build --build-config Release --output-on-failure
-      - name: Configure installed current generator
-        run: >-
-          cmake -S tests/package/wlc_current -B generated-consumer-build
-          -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
-          -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }}
-      - name: Build and test native, COBS, C++, keyword and diagnostics
-        run: |
-          cmake --build generated-consumer-build --config Release --parallel
-          ctest --test-dir generated-consumer-build --build-config Release --output-on-failure
-      - name: Configure installed UDP consumer
-        run: cmake -S tests/package/udp_consumer -B udp-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
-      - name: Build and test installed UDP
-        run: |
-          cmake --build udp-consumer-build --config Release --parallel
-          ctest --test-dir udp-consumer-build --build-config Release --output-on-failure
   short-enum-abi:
     name: Installed C ABI with short-enum consumer
     runs-on: ubuntu-latest
@@ -80,16 +60,16 @@ jobs:
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install -DCMAKE_INSTALL_LIBDIR=lib
           cmake --build build --parallel
           cmake --install build
-      - name: Build and test poisoned-result short-enum consumer
+      - name: Build and test short-enum consumer
         run: |
-          cmake -S tests/package/consumer -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_C_FLAGS=-fshort-enums -DCMAKE_CXX_FLAGS=-fshort-enums
+          cmake -S tests/package/installed_core -B consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install -DCMAKE_C_FLAGS=-fshort-enums -DCMAKE_CXX_FLAGS=-fshort-enums
           cmake --build consumer-build --parallel
           ctest --test-dir consumer-build --output-on-failure
       - name: Build installed C-only CMake and pkg-config consumers
         env:
           PKG_CONFIG_PATH: ${{ github.workspace }}/install/lib/pkgconfig
         run: |
-          cmake -S tests/package/c_core -B c-core-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
+          cmake -S tests/package/installed_core -DWIRELINK_CONSUMER_C_ONLY=ON -B c-core-consumer-build -DCMAKE_PREFIX_PATH=${{ github.workspace }}/install
           cmake --build c-core-consumer-build --parallel
           ctest --test-dir c-core-consumer-build --output-on-failure
   astrial:
@@ -142,7 +122,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-wlc
         with:
-          ref: ${{ inputs.wlc_ref || 'main' }}
+          ref: ${{ inputs.wlc_ref }}
       - uses: actions/checkout@v5
         with:
           repository: chriskohlhoff/asio
@@ -172,7 +152,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup-wlc
         with:
-          ref: ${{ inputs.wlc_ref || 'main' }}
+          ref: ${{ inputs.wlc_ref }}
       - name: Configure
         run: >-
           cmake -S . -B build -DWIRELINK_BUILD_FUZZERS=ON

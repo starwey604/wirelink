@@ -37,7 +37,7 @@ static bool parse_port(const char *text, uint16_t *port) {
   return true;
 }
 
-bool example_udp_args(int argc, char **argv, wl_asio_udp_config_t *config) {
+bool example_udp_args(int argc, char **argv, wl_udp_config_t *config) {
   if (argc == 1) return true;
   uint16_t local, peer;
   if (argc == 5 && parse_port(argv[2], &local) && parse_port(argv[4], &peer)) {

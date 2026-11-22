@@ -2,8 +2,14 @@
 
 ## 0.0.99
 
-- Export a C11 API for the Asio UDP adapter and use it in the desktop UDP tutorials.
-- Generate unified node I/O and bind synchronous sinks or async adapters at initialization.
+- Regenerate nodes and SDKs with matching WLC. Bind drivers with
+  `<node>_bind`, bind whole-frame writers with `<node>_bind_sync`, and pass
+  `&instance.node` to the shared `wl_node_*` API. Earlier generated layouts and
+  symbols require migration within development version 0.0.99 and contract 1.
+- Open UDP sockets with `wl_udp_open` from `<wirelink/udp.h>` and link
+  `Wirelink::udp`. Node binding supplies both datagram size limits.
+- Keep node and driver storage alive until `wl_node_close` confirms quiescence,
+  including asynchronous stop, pending callbacks and physical DMA leases.
 - Split UDP send and receive limits and run the three introductory demos as separate UDP peers.
 
 - Rename the C core and CMake target to endpoint, expose the wire helpers in

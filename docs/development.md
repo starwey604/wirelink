@@ -9,7 +9,7 @@
 | 目录 | 定位与职责 | 核心约束 |
 | --- | --- | --- |
 | [`src/`](../src/) · [`include/wirelink/`](../include/wirelink/) | 纯 ISO C11 核心运行库 | **严禁**引入 OS、驱动、线程、时钟读取与动态内存分配（`-Wall -Wextra -Wpedantic -Werror`） |
-| [`adapters/`](../adapters/) | 硬件与传输适配器（`zephyr/`、`asio_udp/`、`astrial/`、`astrial_usb/`） | 只通过 `wl_packet_port_t` / `wl_byte_fifo_t` / `wl_packet_stream_t` 对接核心 |
+| [`adapters/`](../adapters/) | 硬件与传输适配器（`zephyr/`、`asio_udp/`、`astrial/`、`astrial_usb/`） | 通过 `wl_transport_t` 绑定节点，用端口或字节 FIFO 提交 I/O |
 | [`runtime/`](../runtime/) | 执行期封装：`host/`（C++20 Executor/Session）、`platform/`、`zephyr/`（静态锁存 waiter） | 不得与核心维护第二套并行 RPC 状态机 |
 | [`bindings/cpp/`](../bindings/cpp/) | 自持式 C++20 UDP 客户端底层支持库 | 配合 `wlc sdk` 生成包使用 |
 | [`wlc/`](../wlc/) | 独立 Rust Schema 编译器（词法/语义/Plan/生成引擎与 SDK 打包） | 生成代码引擎位于 `wlc/src/codegen/`；保持输出字节 100% 确定性 |
@@ -105,7 +105,7 @@ python3 benchmarks/footprint/footprint.py --no-digests --json build/footprint.js
 | 内核状态机 / 队列 / 超时取消 | [`src/endpoint.c`](../src/endpoint.c)、[`endpoint.h`](../include/wirelink/endpoint.h) | `ctest --test-dir build/core`、`tests/zephyr/unit/static_packet_port`、`tests/zephyr/integration/mixed_traffic` |
 | Wire v2 帧头 / RPC 子头 | [`wire.h`](../include/wirelink/wire.h)、`wlc/src/codegen/wire.rs` | `cargo test`、`build/fuzz`、`tests/zephyr/unit/generated_codec` |
 | TLV / Positional 编解码运行时 | [`src/codec.c`](../src/codec.c)、[`codec.h`](../include/wirelink/codec.h) | `tests/zephyr/unit/generated_codec`、`cargo test`、`build/fuzz` |
-| `cobs_crc16` / `length16` 流连接器 | [`src/cobs_crc16_stream.c`](../src/cobs_crc16_stream.c)、[`src/length16_none_stream.c`](../src/length16_none_stream.c)、[`src/crc.c`](../src/crc.c) | `tests/zephyr/unit/{cobs,static_stream}`、`tests/packet_tools/`、`build/fuzz` |
+| `cobs_crc16` / `length16` 流连接器 | [`src/cobs_crc16_stream.c`](../src/cobs_crc16_stream.c)、[`src/length16_none_stream.c`](../src/length16_none_stream.c)、[`src/crc.c`](../src/crc.c) | `tests/zephyr/unit/{cobs,static_stream}`、`tests/core/packet_tool.c`、`build/fuzz` |
 | `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |
 | 文档与示例片段同步 | `README*.md`、`docs/*.md`、`wlc/README.md`、`examples/` 锚点 | `python3 tests/tutorials/doc_sources.py` |
 
@@ -123,4 +123,4 @@ python3 tests/tutorials/doc_sources.py
 ctest --test-dir build/core -R wirelink_tutorial_doc_sources --output-on-failure
 ```
 
-体积报告应同时列出节点、端口、RX、stream、FIFO 与 TX 存储；缓冲移到结构体内部不等于减少总 RAM。本机 0.13→0.14 双向 demo 的完整装配分别为 native 782→790 B、COBS 1,046→1,054 B、length16 924→932 B，均增加 8 B。对象统计中的进程级自动实例号另占 `.bss` 4 B；不要把对象总和或 `sizeof(node)` 当作最终固件资源。
+体积报告应同时列出节点、端口、RX、stream、FIFO 与 TX 存储；缓冲移到结构体内部不等于减少总 RAM。本机 x86-64 双向 demo 的 native 节点为 832 B，length16 节点为 984 B，COBS 节点加示例 FIFO 为 1,100 B。对象统计中的进程级自动实例号另占 `.bss` 4 B；不要把对象总和或 `sizeof(node)` 当作最终固件资源。

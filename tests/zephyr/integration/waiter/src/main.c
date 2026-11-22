@@ -5,7 +5,6 @@
 #include "wirelink/zephyr/detail/timeout.h"
 
 static wl_zephyr_waiter_t waiter;
-static wl_waiter_t descriptor;
 static struct k_thread worker;
 K_THREAD_STACK_DEFINE(worker_stack, 2048);
 K_SEM_DEFINE(entering, 0, 1);
@@ -16,13 +15,12 @@ static void run(void *a, void *b, void *c) {
   (void)a; (void)b; (void)c;
   for (unsigned i = 0; i < iterations; ++i) {
     k_sem_give(&entering);
-    outcome = descriptor.wait(descriptor.user_data, UINT32_MAX);
+    outcome = wl_zephyr_waiter_wait(&waiter, UINT32_MAX);
     if (outcome != WL_OK) return;
   }
 }
 static void start(unsigned count) {
   zassert_ok(wl_zephyr_waiter_init(&waiter));
-  descriptor = wl_zephyr_waiter_descriptor(&waiter);
   iterations = count;
   outcome = WL_ERR_INVALID_STATE;
   k_thread_create(&worker, worker_stack, K_THREAD_STACK_SIZEOF(worker_stack),
@@ -30,13 +28,12 @@ static void start(unsigned count) {
 }
 ZTEST(wirelink_waiter, test_notify_before_wait_and_timeout) {
   zassert_ok(wl_zephyr_waiter_init(&waiter));
-  descriptor = wl_zephyr_waiter_descriptor(&waiter);
-  descriptor.notify(descriptor.user_data);
-  zassert_equal(descriptor.wait(descriptor.user_data, 0), WL_OK);
-  zassert_equal(descriptor.wait(descriptor.user_data, 0), WL_ERR_NO_DATA);
-  zassert_equal(descriptor.wait(descriptor.user_data, 2), WL_ERR_NO_DATA);
+  wl_zephyr_waiter_notify(&waiter);
+  zassert_equal(wl_zephyr_waiter_wait(&waiter, 0), WL_OK);
+  zassert_equal(wl_zephyr_waiter_wait(&waiter, 0), WL_ERR_NO_DATA);
+  zassert_equal(wl_zephyr_waiter_wait(&waiter, 2), WL_ERR_NO_DATA);
   wl_zephyr_waiter_stop(&waiter);
-  zassert_equal(descriptor.wait(descriptor.user_data, UINT32_MAX), WL_ERR_CANCELLED);
+  zassert_equal(wl_zephyr_waiter_wait(&waiter, UINT32_MAX), WL_ERR_CANCELLED);
 }
 ZTEST(wirelink_waiter, test_finite_timeout_conversion_never_becomes_forever) {
   const uint32_t limits[] = {0U, 1U, 2U, INT32_MAX, UINT32_MAX - 2U, UINT32_MAX - 1U};
@@ -81,7 +78,7 @@ ZTEST(wirelink_waiter, test_notify_races_wait_entry) {
   start(200);
   for (unsigned i = 0; i < 200; ++i) {
     zassert_ok(k_sem_take(&entering, K_SECONDS(2)));
-    descriptor.notify(descriptor.user_data);
+    wl_zephyr_waiter_notify(&waiter);
   }
   zassert_ok(k_thread_join(&worker, K_SECONDS(2)));
   zassert_equal(outcome, WL_OK);

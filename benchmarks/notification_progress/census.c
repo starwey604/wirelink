@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "../../tests/fixtures/model_transport.h"
 #include "usb.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -19,6 +20,7 @@ typedef struct {
 } flight_t;
 struct side {
   usb_node_t endpoint;
+  model_transport_t transport;
   flight_t flight;
   side_t *peer;
   unsigned id;
@@ -50,14 +52,14 @@ static void callback_exit(side_t *side) {
 }
 static int copy_packet(side_t *side, const uint8_t *data, size_t length) {
   wl_packet_claim_t claim;
-  wl_err_t error = wl_packet_rx_claim(&side->peer->endpoint.port, length, &claim);
+  wl_err_t error = wl_packet_rx_claim(&side->peer->endpoint.node.port, length, &claim);
   if (error == WL_ERR_WOULD_BLOCK) return 0;
   CHECK(error == WL_OK);
   memcpy(claim.span.data, data, length);
-  CHECK(wl_packet_rx_commit(&side->peer->endpoint.port, &claim, length) == WL_OK);
+  CHECK(wl_packet_rx_commit(&side->peer->endpoint.node.port, &claim, length) == WL_OK);
   ++received;
   if (mode == USB_TAIL) {
-    wl_packet_activity(&side->peer->endpoint.port); /* Normal RX rearm publication. */
+    wl_packet_activity(&side->peer->endpoint.node.port); /* Normal RX rearm publication. */
     callback_exit(side->peer); /* Outer wake after final adapter access. */
   }
   return 1;
@@ -81,21 +83,21 @@ static wl_packet_submit_t submit(void *user, const uint8_t *data, size_t length,
 }
 static void service_io(side_t *side) {
   phase = CAPACITY_SIGNAL;
-  if (side->blocked && wl_packet_rx_available(&side->peer->endpoint.port)) {
+  if (side->blocked && wl_packet_rx_available(&side->peer->endpoint.node.port)) {
     side->blocked = 0;
-    wl_packet_activity(&side->endpoint.port);
+    wl_packet_activity(&side->endpoint.node.port);
   }
   phase = IO_COMPLETION;
   flight_t *flight = &side->flight;
   if (flight->state == 1U) {
     CHECK(digest(flight->data, flight->length) == flight->digest);
     if (!copy_packet(side, flight->data, flight->length)) return;
-    CHECK(wl_packet_tx_publish(&side->endpoint.port, flight->token,
+    CHECK(wl_packet_tx_publish(&side->endpoint.node.port, flight->token,
           mode == SPLIT ? WL_PACKET_CONSUMED : WL_PACKET_DRAINED) == WL_OK);
     if (mode == USB_TAIL) callback_exit(side);
     flight->state = mode == SPLIT ? 2U : 0U;
   } else if (flight->state == 2U) {
-    CHECK(wl_packet_tx_publish(&side->endpoint.port, flight->token, WL_PACKET_DRAINED) == WL_OK);
+    CHECK(wl_packet_tx_publish(&side->endpoint.node.port, flight->token, WL_PACKET_DRAINED) == WL_OK);
     flight->state = 0U;
   }
 }
@@ -122,7 +124,7 @@ static int ready(side_t *side) {
   int has;
   uint32_t deadline;
   ++queries;
-  return wl_endpoint_ready(&side->endpoint.core, 0U, &has, &deadline);
+  return wl_endpoint_ready(&side->endpoint.node.core, 0U, &has, &deadline);
 }
 static void drive(unsigned target) {
   for (unsigned pass = 0; pass < 256U; ++pass) {
@@ -135,7 +137,7 @@ static void drive(unsigned target) {
         /* An explicit software latch model, not an OS wait/wakeup count. */
         side->latched = 0;
         phase = OWNER_STEP;
-        CHECK(wl_endpoint_step(&side->endpoint.core, 0U, budget) == WL_OK);
+        CHECK(wl_endpoint_step(&side->endpoint.node.core, 0U, budget) == WL_OK);
         ++steps;
       }
     }
@@ -156,9 +158,10 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
   for (unsigned i = 0; i < 2U; ++i) {
     side_t *side = &sides[i];
     side->id = i; side->peer = &sides[i ^ 1U];
-    const wl_packet_io_t io = {.submit = submit, .notify = notify, .user = side};
+    side->transport = (model_transport_t){.base = {&model_transport_ops},
+        .sink = submit, .context = side, .wake = notify};
     usb_handlers_t handlers = {.on_setpoint = handle, .on_sample = sample};
-    CHECK(usb_init_io(&side->endpoint, 100U + mode * 100U + budget * 2U + i, &io, &handlers, side) == WL_OK);
+    CHECK(usb_bind_instance(&side->endpoint, 100U + mode * 100U + budget * 2U + i, &side->transport.base, &handlers, side) == WL_OK);
   }
   for (expected = 0U; expected < CALLS; ++expected) {
     phase = ADMISSION;
@@ -192,9 +195,9 @@ static void run(unsigned selected_mode, unsigned selected_budget) {
     notices[ADMISSION], notices[OWNER_STEP], notices[IO_COMPLETION], notices[CAPACITY_SIGNAL], outer_exit_wakes,
     merged, steps, queries, signalled_only_steps);
   for (unsigned i = 0; i < 2U; ++i) {
-    CHECK(wl_endpoint_close(&sides[i].endpoint.core) == WL_OK);
-    CHECK(wl_endpoint_step(&sides[i].endpoint.core, 0U, WL_ENDPOINT_BUDGET) == WL_OK);
-    CHECK(wl_endpoint_quiescent(&sides[i].endpoint.core));
+    CHECK(wl_endpoint_close(&sides[i].endpoint.node.core) == WL_OK);
+    CHECK(wl_endpoint_step(&sides[i].endpoint.node.core, 0U, WL_ENDPOINT_BUDGET) == WL_OK);
+    CHECK(wl_endpoint_quiescent(&sides[i].endpoint.node.core));
   }
 }
 int main(void) {

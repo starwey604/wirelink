@@ -32,7 +32,7 @@ node server { serve Add; }
 ```
 <!-- [/docs:calculator_schema] -->
 
-节点默认采用 `handlers = static; framing = native; codec = schema_v1; timeout_ms = 500;`，节点内置端口和缓冲区。同步驱动向 `_init` 传发送函数，异步驱动通过 `_init_io` 接线。
+节点默认采用 `handlers = static; framing = native; codec = schema_v1; timeout_ms = 500;`，节点内置端口和缓冲区。同步驱动向 `<node>_bind_sync` 传发送函数，异步驱动通过 `<node>_bind` 接线。
 
 ### 第二步：用 `wlc` 生成下位机 C11 节点与上位机 SDK
 
@@ -97,7 +97,7 @@ wl_err_t calculator_async_example(client_node_t *client) {
 ```
 <!-- [/docs:calculator_async_rpc] -->
 
-主循环调用 `<node>_step(&node, now)` 处理解包、回调、超时和发送。只接收消息或提供 RPC 服务的节点可以传 `0`。
+主循环调用 `wl_node_step(&node.node, now)` 处理解包、回调、超时和发送。只接收消息或提供 RPC 服务的节点可以传 `0`。
 
 ---
 
@@ -123,14 +123,14 @@ ctest --test-dir build/core --output-on-failure
 ## 实测静态体积：完整通信装配账本
 
 基于 GCC 16.2.1（`-std=c11 -Os -ffunction-sections -fdata-sections`）：
-- **核心库代码体积**：`src/*.c` 全部 12 个目标文件未裁剪总和为 `.text = 17,474 B`、`.rodata = 1,524 B`、`.data = 0 B`、`.bss = 4 B`（实际链接固件开启 `--gc-sections` 后会自动剔除未使用的流分帧器与辅助模块）。
-- **完整双向节点装配总 RAM**：将节点结构体（双向 `demo_node_t` 624 B，其中 `wl_endpoint_t` 440 B、`wl_packet_port_t` 128 B）、双 RX 接收缓冲以及流连接器/FIFO 全部计入后：
+- **核心库代码体积**：`src/*.c` 全部 13 个目标文件未裁剪总和为 `.text = 19,730 B`、`.rodata = 1,524 B`、`.data = 64 B`、`.bss = 4 B`（实际链接固件开启 `--gc-sections` 后会自动剔除未使用的流分帧器与辅助模块）。
+- **完整双向节点装配总 RAM**：节点已内嵌端口、双 RX 接收槽及所选分帧器。下表包含这些成员和串口示例额外的 FIFO：
 
 | 完整通信装配方案 | 实测总 RAM | 包含的静态组件 |
 | :--- | ---: | :--- |
-| `native` 分帧装配 | **790 B** | 节点结构体 + 端口 + 双 RX 接收槽 |
-| `length16` 分帧装配 | **932 B** | 上述基础装配 + `length16` 流连接器与拼包缓冲 |
-| `cobs_crc16` 串口装配 | **1,054 B** | 上述基础装配 + COBS/CRC16 流连接器 + 字节 FIFO |
+| `native` 分帧装配 | **832 B** | native 节点，含端口与双 RX 接收槽 |
+| `length16` 分帧装配 | **984 B** | length16 节点，含流连接器与收发缓冲 |
+| `cobs_crc16` 串口装配 | **1,100 B** | COBS 节点（984 B）与 FIFO 对象及暂存（116 B） |
 
 单向或单角色节点（如只发遥测的传感器）会自动省去未声明方向的请求、回复或消息存储池。复现命令与统计口径见 [Footprint 测量指南](benchmarks/footprint/README-cn.md)。
 

@@ -4,16 +4,16 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/usb/usbd.h>
 #include "application.h"
+#include "wirelink/node.h"
 #include "wirelink/platform.h"
 #include "wirelink/zephyr/usb_bulk.h"
 #include "wirelink/zephyr/detail/timeout.h"
 
-static wl_endpoint_t endpoint;
-static wl_packet_port_t port;
+static wl_node_t node;
 static wl_zephyr_usb_bulk_t adapter;
 static usb_sample_application_t application;
 static uint8_t snapshots[WL_ENDPOINT_TX_COUNT][USB_SAMPLE_FRAME_MAX];
-static uint8_t rx[2][USB_SAMPLE_FRAME_MAX + 1];
+static uint8_t rx[WL_PACKET_RX_SLOTS][ROUND_UP(USB_SAMPLE_FRAME_MAX + 1U, 512U)] __aligned(512);
 K_SEM_DEFINE(owner_wake, 0, 1);
 static void wake(void *user) { (void)user; k_sem_give(&owner_wake); }
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
@@ -52,6 +52,9 @@ static void print_stats(void) {
   print_region("usbd_thread", &usbd_thread);
 }
 #endif
+static wl_err_t route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
+  return usb_sample_dispatch(((wl_node_t *)core)->user, frame);
+}
 static void usb_message(struct usbd_context *context, const struct usbd_msg *message) {
   if (usbd_can_detect_vbus(context) && message->type == USBD_MSG_VBUS_READY) (void)usbd_enable(context);
   if (usbd_can_detect_vbus(context) && message->type == USBD_MSG_VBUS_REMOVED) (void)usbd_disable(context);
@@ -61,21 +64,18 @@ int main(void) {
   uint32_t instance;
   int error = wl_session_next(environment.session, 0, &instance);
   if (error != WL_OK) { printk("Fresh USB instance unavailable: %d\n", error); return 1; }
-  wl_packet_config_t packet = {.instance = instance, .rx_storage = &rx[0][0],
-    .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = wl_zephyr_usb_bulk_submit,
-    .notify = wl_zephyr_usb_bulk_notify, .user = &adapter};
-  if (wl_packet_init(&port, &packet) != WL_OK) return 1;
-  wl_endpoint_config_t kernel = {.port = &port,
-    .storage = wl_endpoint_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
-    .route = usb_sample_route, .user = &application};
-  if (wl_endpoint_init(&endpoint, &kernel) != WL_OK) return 1;
-  wl_zephyr_usb_bulk_config_t physical = {.port = &port, .maximum_frame_size = USB_SAMPLE_FRAME_MAX,
+  wl_node_layout_t layout = {.instance = instance,
+    .storage = wl_endpoint_storage_uniform(snapshots[0], USB_SAMPLE_FRAME_MAX),
+    .route = route, .user = &application,
+    .rx_frame_max = USB_SAMPLE_FRAME_MAX, .rx_wire_max = USB_SAMPLE_FRAME_MAX,
+    .tx_frame_max = USB_SAMPLE_FRAME_MAX, .tx_wire_max = USB_SAMPLE_FRAME_MAX, .has_tx = 1};
+  wl_zephyr_usb_bulk_config_t physical = {.rx = {rx[0], sizeof(rx), sizeof(rx[0])},
     .wake_consumer = wake,
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
     .cycle_counter = adapter_cycles,
 #endif
   };
-  error = wl_zephyr_usb_bulk_init(&adapter, &physical);
+  error = wl_node_bind_transport(&node, &layout, wl_zephyr_usb_bulk_transport(&adapter, &physical));
   if (error != WL_OK) { printk("USB adapter init: %d\n", error); return 1; }
   struct usbd_context *usb = sample_usbd_init_device(usb_message);
   if (usb == NULL || (!usbd_can_detect_vbus(usb) && usbd_enable(usb) != 0)) {
@@ -98,7 +98,7 @@ int main(void) {
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
     uint32_t began = wirelink_usb_cpu_cycle_count();
 #endif
-    error = usb_sample_pass(&application, &endpoint, now);
+    error = usb_sample_pass(&application, &node.core, now);
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
     uint32_t cycles = wirelink_usb_cpu_cycle_count() - began;
     ++pass_calls; pass_cycles += cycles; if (cycles > pass_max) pass_max = cycles;
@@ -108,7 +108,7 @@ int main(void) {
     }
     if (error != WL_OK) break;
     if (application.report_pending && (int32_t)(now - application.report_due) >= 0 &&
-        !application.output_pending && !wl_packet_tx_active(&port)) {
+        !application.output_pending && !wl_packet_tx_active(&node.port)) {
       printk("wirelink_object_rx_v1,transfer_id,%u,bytes,%llu,elapsed_ms,%u,crc32c,0x%08x,write_calls,%u\n",
         application.completed_id, (unsigned long long)application.completed_length,
         application.elapsed, application.completed_crc, application.completed_writes);
@@ -124,18 +124,16 @@ int main(void) {
     if (next_stats - now < maximum) maximum = next_stats - now;
 #endif
     uint32_t elapsed = k_uptime_get_32() - now;
-    if (usb_sample_ready(&application, &endpoint, now) || wl_zephyr_usb_bulk_ready(&adapter) ||
+    if (usb_sample_ready(&application, &node.core, now) || wl_zephyr_usb_bulk_ready(&adapter) ||
         (maximum != UINT32_MAX && elapsed >= maximum)) continue;
     (void)k_sem_take(&owner_wake, wl_zephyr_timeout_ms(maximum == UINT32_MAX ? maximum : maximum - elapsed));
   }
   printk("USB owner stopping: %d\n", error);
-  usb_sample_close(&application); (void)wl_endpoint_close(&endpoint);
-  (void)wl_zephyr_usb_bulk_stop(&adapter);
-  while (!wl_zephyr_usb_bulk_stopped(&adapter) || !wl_endpoint_quiescent(&endpoint)) {
-    (void)wl_zephyr_usb_bulk_service(&adapter);
-    (void)wl_endpoint_step(&endpoint, k_uptime_get_32(), 16);
-    if (!wl_zephyr_usb_bulk_stopped(&adapter) || !wl_endpoint_quiescent(&endpoint))
+  usb_sample_close(&application);
+  do {
+    error = wl_node_close(&node, k_uptime_get_32());
+    if (error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY)
       (void)k_sem_take(&owner_wake, K_MSEC(1));
-  }
-  return wl_zephyr_usb_bulk_deinit(&adapter) == WL_OK ? 0 : 1;
+  } while (error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY);
+  return error == WL_OK ? 0 : 1;
 }

@@ -9,7 +9,7 @@ int32_t device_server_on_self_test(device_server_node_t *self, const self_test_r
 /* [docs:device_job_start] */
 int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
                      start_self_test_response_t *response) {
-  device_service_t *state = self->user;
+  device_service_t *state = self->node.user;
   if (state->job_pending || state->next_job == UINT32_MAX) return DEVICE_BUSY;
   state->job_id = ++state->next_job;
   state->pattern = request->pattern;

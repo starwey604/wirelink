@@ -21,8 +21,8 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "demo.c", "size": 15235, "digest": "0xe5e3731b631538c8"},
-    {"path": "demo.h", "size": 4957, "digest": "0xdd72d10a7e117d32"}
+    {"path": "demo.c", "size": 13604, "digest": "0xff92f637d6c537b3"},
+    {"path": "demo.h", "size": 4434, "digest": "0xcbf509e1fe1c701a"}
   ]
 ,
   "nodes": [{"name":"demo","framing":"native","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":18,"reply_frame_capacity":18,"message_frame_capacity":15,"rx_frame_capacity":18,"tx_frame_capacity":18,"rx_wire_capacity":18,"tx_wire_capacity":18}]

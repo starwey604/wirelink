@@ -45,7 +45,7 @@ size_t add_response_encoded_size(const add_response_t *value);
 wl_codec_status_t add_response_encode(const add_response_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t add_response_decode(const uint8_t *input, size_t input_length, add_response_t *out);
 
-#include <wirelink/endpoint.h>
+#include <wirelink/node.h>
 #include <wirelink/version.h>
 #if WIRELINK_CODEGEN_CONTRACT != 1
 #error "WLC requires generated-code contract 1"
@@ -62,27 +62,16 @@ typedef struct calculator_node calculator_node_t;
 /* Accept and drain the whole frame, or reject it without consuming bytes. */
 typedef wl_err_t (*calculator_tx_write_fn)(calculator_node_t *self, const uint8_t *data, size_t length);
 struct calculator_node {
-  wl_endpoint_t core;
-  void *user;
-  wl_endpoint_error_fn on_error;
+  wl_node_t node;
   uint8_t requests[WL_ENDPOINT_CALLS][24];
-  wl_packet_port_t port;
   uint8_t rx[WL_PACKET_RX_SLOTS][CALCULATOR_RX_WIRE_MAX + 1U];
   calculator_tx_write_fn tx_write;
 };
-/* Automatic instances are unique only within this process lifetime.
- * Stop I/O before reinitialization; persistent links should supply an instance. */
-wl_err_t calculator_init(calculator_node_t *self, calculator_tx_write_fn tx_write);
-wl_err_t calculator_init_with_instance(calculator_node_t *self, uint32_t instance, calculator_tx_write_fn tx_write);
-/* Instance zero requests an automatic instance. */
-wl_err_t calculator_init_io(calculator_node_t *self, uint32_t instance, const wl_packet_io_t *io);
-static inline void calculator_tx_ready(calculator_node_t *self) { wl_packet_activity(&self->port); }
-wl_err_t calculator_rx_packet(calculator_node_t *self, const uint8_t *data, size_t length);
-wl_err_t calculator_step(calculator_node_t *self, uint32_t now);
-/* Stop the RX producer before close, then step until quiescent. */
-wl_err_t calculator_close(calculator_node_t *self);
-int calculator_quiescent(const calculator_node_t *self);
-wl_err_t calculator_cancel(calculator_node_t *self, wl_call_handle_t handle);
+/* Explicit instance IDs must be nonzero. Rebind only after close completes. */
+wl_err_t calculator_bind(calculator_node_t *self, wl_transport_t *transport);
+wl_err_t calculator_bind_instance(calculator_node_t *self, uint32_t instance, wl_transport_t *transport);
+wl_err_t calculator_bind_sync(calculator_node_t *self, calculator_tx_write_fn tx_write);
+wl_err_t calculator_bind_sync_instance(calculator_node_t *self, uint32_t instance, calculator_tx_write_fn tx_write);
 typedef void (*calculator_add_cb_t)(calculator_node_t *, wl_rpc_result_t, const add_response_t *);
 typedef void (*calculator_add_ex_cb_t)(void *, wl_rpc_result_t, const add_response_t *);
 /* Simplified calls start their timeout on the next step(now). */

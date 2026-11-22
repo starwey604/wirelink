@@ -9,7 +9,7 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 本页将引导你完成两项准备工作：
 1. 验证本地 C11 构建环境并运行仓库自带的基础示例。
-2. 构建协议编译器 `wlc`，从 `.wl` 文件生成 C 代码并运行对应的示例程序。
+2. 构建协议编译器 `wlc`，从 `.wl` 文件生成 C 代码并编译双进程示例。
 
 ---
 
@@ -19,6 +19,7 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 - **CMake 3.21+** 与支持 **ISO C11** 的编译器（GCC、Clang 或 MSVC）
 - **Rust / Cargo**：用于构建协议编译器 `wlc`（若暂未安装，仍可先完成第一步）
+- **独立版 Asio 头文件**（可选）：用于编译本地双进程 UDP 教程示例
 
 ---
 
@@ -42,7 +43,7 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
    cmake --build build/core --parallel
    ```
 
-3. 运行本地内存回环示例：
+3. 运行本地回环示例：
 
    ```sh
    ./build/core/examples/wirelink_bare_metal_loopback
@@ -101,17 +102,29 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
      - calculator_manifest.json 构建与版本核对清单
    </FileTree>
 
-5. 使用 CMake 编译并运行该协议对应的完整示例：
+5. 若要编译全部双进程 UDP 教程示例（如 `calculator_server` 与 `calculator_client`），在配置时传入本地 `wlc` 与 Asio 头文件路径：
 
    ```sh
    cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release \
      -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
+     -DWIRELINK_BUILD_UDP_ADAPTER=ON \
+     -DWIRELINK_BUILD_PLATFORM=ON \
+     -DWIRELINK_ASIO_INCLUDE_DIR=/path/to/asio/include \
      -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
-   cmake --build build/examples --target wirelink_calculator_demo
-   ctest --test-dir build/examples -R wirelink_calculator_demo --output-on-failure
+   cmake --build build/examples --target calculator_server calculator_client
    ```
 
-   测试通过后，表示「`.wl` 定义 → `wlc` 代码生成 → C11 编译运行」的完整链路已在本地就绪。
+   在两个终端中分别运行服务端与客户端：
+
+   ```sh
+   # 终端 1：启动服务端
+   ./build/examples/examples/01_rpc/calculator_server
+
+   # 终端 2：启动客户端
+   ./build/examples/examples/01_rpc/calculator_client
+   ```
+
+   客户端终端输出 `20 + 22 = 42`、`4 concurrent calls returned 42` 与 `overflow rejected: status=1`，表示完整的双进程通信已就绪。
 
 </Steps>
 
@@ -121,9 +134,9 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 完成环境验证后，可以按顺序阅读 6 节实战教程：
 
-1. **[01 编写第一个 `.wl` 并运行服务端](/wirelink/zh-cn/learn/01-loopback-endpoint/)** —— 打开生成的 `calculator.h`，理解生成符号的命名规则，实现服务处理函数与主循环。
-2. **[02 单向消息（Telemetry）与 RPC](/wirelink/zh-cn/learn/02-telemetry/)** —— 学习 `send` / `recv` 单向推送，理清它与双向 RPC 的分工与配合方式。
-3. **[03 C 语言客户端调用与错误处理](/wirelink/zh-cn/learn/03-rpc-basics/)** —— 在 C 代码中发起 RPC 调用，在回调中区分成功响应与服务端业务拒绝。
+1. **[01 编写第一个 `.wl` 并运行服务端](/wirelink/zh-cn/learn/01-loopback-endpoint/)** —— 打开生成的 `calculator.h`，理解生成符号的命名规则，实现服务处理函数并运行双进程服务端。
+2. **[02 单向消息（Telemetry）与 RPC](/wirelink/zh-cn/learn/02-telemetry/)** —— 编写双进程遥测发布端与订阅端，理清单向消息与双向 RPC 的分工与配合方式。
+3. **[03 C 语言客户端调用与错误处理](/wirelink/zh-cn/learn/03-rpc-basics/)** —— 在独立的 C 客户端中发起 RPC 调用，在回调中区分成功响应与服务端业务拒绝。
 4. **[04 字符串、可选字段与多文件组合](/wirelink/zh-cn/learn/04-strings-and-lifetime/)** —— 使用 `string<N>`、`bytes<N>`、`optional` 与 `import`，掌握回调中的结构体拷贝规则。
 5. **[05 并发调用、超时取消与发送队列控制](/wirelink/zh-cn/learn/05-concurrency-backpressure/)** —— 处理并发请求、设置调用超时与主动取消，以及应对 `WL_ERR_WOULD_BLOCK`。
 6. **[06 接入串口、UDP 与上位机 Python / C++ SDK](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)** —— 配置 UART 串口分帧与 UDP 传输，并生成 Python 与 C++20 上位机客户端进行联调。

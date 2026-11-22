@@ -30,8 +30,8 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 35761, "digest": "0x2a7b1d4364b2ab85"},
-    {"path": "device.h", "size": 10725, "digest": "0x129b3707367419eb"}
+    {"path": "device.c", "size": 34103, "digest": "0x3c26c6337260ae90"},
+    {"path": "device.h", "size": 10137, "digest": "0xa41f162cfe48a61a"}
   ]
 ,
   "nodes": [{"name":"device","framing":"native","handlers":"static","timeout_ms":500,"request_frame_capacity":222,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":228,"tx_frame_capacity":222,"rx_wire_capacity":228,"tx_wire_capacity":222}]

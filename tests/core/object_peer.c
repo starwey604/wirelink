@@ -1,0 +1,65 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+#include "application.h"
+#include "packet_tool.h"
+#include <stdlib.h>
+#include <string.h>
+#define CHECK(x) do { if (!(x)) abort(); } while (0)
+static wl_endpoint_t core;
+static wl_packet_port_t port;
+static usb_sample_application_t app;
+static uint8_t rx[2][2053], tx[WL_ENDPOINT_TX_COUNT][2052], output[2052], last[2052];
+static size_t output_length, last_length;
+static int drop, stale;
+static wl_packet_port_t *object_client_port;
+static wl_packet_submit_t peer_send(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
+  (void)user; (void)token; CHECK(length <= sizeof(output));
+  memcpy(output, data, length); output_length = length;
+  return WL_PACKET_SENT; /* Real model driver copy into owned receiving storage. */
+}
+static void receive(const uint8_t *data, size_t length) {
+  wl_packet_claim_t claim;
+  CHECK(wl_packet_rx_claim(object_client_port, length, &claim) == WL_OK);
+  memcpy(claim.span.data, data, length);
+  CHECK(wl_packet_rx_commit(object_client_port, &claim, length) == WL_OK);
+}
+static wl_packet_submit_t object_peer_exchange(wl_transport_t *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
+  (void)user; (void)token;
+  wl_packet_claim_t claim;
+  CHECK(wl_packet_rx_claim(&port, length, &claim) == WL_OK);
+  memcpy(claim.span.data, data, length);
+  CHECK(wl_packet_rx_commit(&port, &claim, length) == WL_OK);
+  output_length = 0;
+  for (unsigned i = 0; i < 10; ++i) CHECK(usb_sample_pass(&app, &core, 0) == WL_OK);
+  CHECK(output_length != 0);
+  if (drop > 0) { --drop; return WL_PACKET_SENT; }
+  if (stale && last_length) receive(last, last_length);
+  receive(output, output_length);
+  memcpy(last, output, output_length); last_length = output_length;
+  return WL_PACKET_SENT;
+}
+static wl_err_t attach(wl_transport_t *transport, const wl_transport_attach_t *info) {
+  (void)transport;
+  object_client_port = info->port;
+  return WL_OK;
+}
+wl_transport_t *object_peer_transport(void) {
+  static const wl_transport_ops_t ops = {.attach = attach, .submit = object_peer_exchange};
+  static wl_transport_t transport = {&ops};
+  return &transport;
+}
+void object_peer_prepare(void) {
+  wl_packet_config_t packet = {.instance = 9090, .rx_storage = &rx[0][0],
+    .rx_unit_size = sizeof(rx[0]), .rx_storage_size = sizeof(rx), .submit = peer_send};
+  CHECK(wl_packet_init(&port, &packet) == WL_OK);
+  wl_endpoint_config_t config = {.port = &port,
+    .storage = wl_endpoint_storage_uniform(&tx[0][0], sizeof(tx[0])),
+    .route = usb_sample_route, .user = &app};
+  CHECK(wl_endpoint_init(&core, &config) == WL_OK);
+}
+void object_peer_faults(int count, int old) { drop = count; stale = old; }
+unsigned object_peer_commits(void) { return app.commits; }
+unsigned object_peer_writes(void) { return app.writes; }
+void object_peer_close(void) {
+  usb_sample_close(&app); CHECK(wl_endpoint_close(&core) == WL_OK);
+  CHECK(wl_endpoint_quiescent(&core));
+}

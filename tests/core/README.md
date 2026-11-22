@@ -1,23 +1,19 @@
-# Portable kernel fixtures
+# C-owned kernel clock bridge
 
-The root CTest build runs the production C11 kernel/port/wire/stream sources.
-The concurrent packet-port and byte-FIFO fixtures keep all C atomic storage and
-producer/consumer code in C. `threaded_fixture.cpp` only creates and joins a
-portable `std::thread` through exported C functions; it does not substitute
-`std::atomic` or assume a C/C++ atomic ABI. The packet test transfers 100000
-RX/TX units, including duplicate-old-completion races; the byte test transfers
-one million bytes before checking framing/gap recovery.
+Enable `WIRELINK_BUILD_FOREIGN_TESTS=ON` with matching local WLC 0.14. The C
+shared library owns both kernels, ports, C11 atomic objects and loopback storage.
+C++ and Python use opaque exported C handles; Python callbacks are not involved.
+The test wrapper allocates once at create and frees after close/quiescence.
 
-GCC/Clang can run these fixtures directly, including Clang ThreadSanitizer.
-MSVC builds retain `/utf-8` and require a compiler with C11 atomic support;
-`/experimental:c11atomics` propagates to C consumers through the installed
-header targets. That flag is not applied to C++ consumers. Windows execution
-still needs its own CI runner; a Linux run is not Windows qualification.
+One outer owner-clock read is shared by both kernel steps in each pass. Admission
+also reads the clock once outside the kernel. Manual/native clocks, a long idle
+gap, business rejection, a wrapping deadline, idempotent close and owned results
+after close are exercised. The timeout case stalls the peer owner; the removed
+deferred reply API and cache TTL are not recreated. The kernels/codecs perform
+zero clock-provider reads, checked directly by the C wrapper.
 
-Generated node fixtures use a matching local WLC 0.14. `wl_packet_port_t` is a
-complete, standard-layout type in C++20; C++ may embed it, while atomic access
-remains in the C11 implementation. `packet_port_cpp.cpp` compares size, alignment
-and every member offset against C, then exercises concurrent RX/TX, quiescent
-close and in-place reinitialization of a C++-owned port. The byte FIFO remains
-opaque to C++. The separate installed-consumer, foreign-bridge, Zephyr and
-adapter suites test their actual ownership boundaries rather than sharing a second RPC implementation.
+`wirelink_clock_benchmark` emits `clock_bridge_v2`: one pass includes the C bridge,
+two kernel steps, loopback service and one explicit outer clock read. It is not
+the old single-endpoint/pump workload and its timing must not be compared with
+those rows. Zephyr's endpoint_clock sample separately checks direct core steps
+with zero clock reads. No CPU improvement claim is made by these bridge tests.

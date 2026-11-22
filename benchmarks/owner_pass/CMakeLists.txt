@@ -2,7 +2,7 @@
 if(NOT TARGET Wirelink::host)
   message(FATAL_ERROR "Owner-pass model requires the current host component")
 endif()
-add_executable(wirelink_owner_pass owner_pass.cpp owner.c)
+add_executable(wirelink_owner_pass owner_pass.cpp)
 target_compile_features(wirelink_owner_pass PRIVATE cxx_std_20)
 target_link_libraries(wirelink_owner_pass PRIVATE Wirelink::host)
 wl_warnings(wirelink_owner_pass PRIVATE -Wall -Wextra -Wpedantic -Werror)

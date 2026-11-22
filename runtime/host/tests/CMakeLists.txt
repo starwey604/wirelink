@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-add_executable(wirelink_host_executor_tests executor.cpp owner.c)
+add_executable(wirelink_host_executor_tests executor.cpp)
 target_link_libraries(wirelink_host_executor_tests PRIVATE wirelink_host)
 wl_warnings(wirelink_host_executor_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
 add_test(NAME wirelink_host_executor COMMAND wirelink_host_executor_tests)

@@ -4,7 +4,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
-#include "wirelink/wait.h"
+#include "wirelink/types.h"
 #include "wirelink/clock.h"
 
 #ifdef __cplusplus
@@ -20,7 +20,7 @@ typedef struct {
 } wl_zephyr_waiter_t;
 
 wl_err_t wl_zephyr_waiter_init(wl_zephyr_waiter_t *waiter);
-wl_waiter_t wl_zephyr_waiter_descriptor(wl_zephyr_waiter_t *waiter);
+wl_err_t wl_zephyr_waiter_wait(wl_zephyr_waiter_t *waiter, uint32_t maximum_ms);
 /* Latches activity. Invoke AFTER committing RX/completion or advancing a
  * synchronized manual clock; never lose an event just before the owner sleeps. */
 void wl_zephyr_waiter_notify(wl_zephyr_waiter_t *waiter);

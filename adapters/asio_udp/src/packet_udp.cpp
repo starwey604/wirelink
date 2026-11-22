@@ -1,18 +1,20 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "wirelink/asio/packet_udp.hpp"
+#include "wirelink/udp.h"
 #include "wirelink/wire.h"
 #include <asio.hpp>
-#include <algorithm>
+#include <chrono>
+#include <memory>
 #include <atomic>
 #include <optional>
 #include <utility>
 #if defined(_WIN32)
 #include <mswsock.h>
 #endif
-struct wl_asio_udp {
-  explicit wl_asio_udp(wl_packet_port_t &port_ref) : port(port_ref), socket(io) {}
+struct wl_udp : wl_transport_t {
+  explicit wl_udp(const wl_transport_ops_t *operations) : wl_transport_t{operations}, socket(io) {}
+  wl_err_t attach(const wl_transport_attach_t &);
 
-  wl_err_t start(const wl_asio_udp_config_t &config, std::error_code &error);
+  wl_err_t start(const wl_udp_config_t &config, std::error_code &error);
   wl_err_t set_peer(const char *address, uint16_t port_number);
   void stop();
   wl_err_t service();
@@ -22,8 +24,8 @@ struct wl_asio_udp {
   wl_packet_submit_t submit(const uint8_t *data, size_t length);
   void notify();
 
-  wl_packet_port_t &port;
-  wl_asio_udp_stats_t stats{};
+  wl_packet_port_t *port{};
+  wl_udp_stats_t stats{};
 
 private:
   void set_peer(const ::asio::ip::udp::endpoint &endpoint);
@@ -31,25 +33,20 @@ private:
   ::asio::io_context io;
   ::asio::ip::udp::socket socket;
   ::asio::ip::udp::endpoint peer;
-  size_t maximum_datagram_size{}, maximum_tx_datagram_size{};
+  size_t maximum_datagram_size{}, maximum_tx_datagram_size{}, maximum_rx_frame{};
   unsigned service_budget{};
   bool learn_peer{};
   wl_err_t (*decode)(uint8_t *, size_t, size_t *){};
   wl_packet_claim_t rx_claim{};
   bool rx_claimed{};
   std::atomic<bool> wake{false};
-  bool have_peer{}, started{}, started_once{}, tx_blocked{}, more_rx{};
+  bool have_peer{}, started{}, tx_blocked{}, more_rx{};
 };
 
-wl_err_t wl_asio_udp::start(const wl_asio_udp_config_t &config, std::error_code &error) {
+wl_err_t wl_udp::start(const wl_udp_config_t &config, std::error_code &error) {
   error.clear();
-  if (started_once) return WL_ERR_INVALID_STATE;
-  const size_t unit = wl_packet_rx_unit_size(&port);
-  if (!config.maximum_datagram_size && unit < 5) return WL_ERR_INVALID_ARG;
-  const size_t rx_limit = config.maximum_datagram_size ? config.maximum_datagram_size : unit - 1;
-  if (rx_limit > 65507 || rx_limit >= unit || config.maximum_tx_datagram_size > 65507 ||
-      !config.service_budget || config.service_budget > 16 ||
-      (config.peer_address == nullptr) != (config.peer_port == 0))
+  if (config.maximum_datagram_size > 65507 || config.maximum_tx_datagram_size > 65507 ||
+      config.service_budget > 16 || (config.peer_address == nullptr) != (config.peer_port == 0))
     return WL_ERR_INVALID_ARG;
 
   const auto local = ::asio::ip::make_address(config.bind_address ? config.bind_address : "0.0.0.0", error);
@@ -79,33 +76,50 @@ wl_err_t wl_asio_udp::start(const wl_asio_udp_config_t &config, std::error_code 
   if (error) return WL_ERR_IO;
 
   socket = std::move(pending_socket);
-  maximum_datagram_size = rx_limit;
-  maximum_tx_datagram_size = config.maximum_tx_datagram_size ? config.maximum_tx_datagram_size : rx_limit;
-  service_budget = config.service_budget;
+  maximum_datagram_size = config.maximum_datagram_size;
+  maximum_tx_datagram_size = config.maximum_tx_datagram_size;
+  service_budget = config.service_budget ? config.service_budget : 8;
   learn_peer = config.learn_peer;
   decode = config.decode;
-  started = started_once = true;
   if (config.peer_address) set_peer(initial_peer);
   return WL_OK;
 }
 
-void wl_asio_udp::set_peer(const ::asio::ip::udp::endpoint &endpoint) {
+wl_err_t wl_udp::attach(const wl_transport_attach_t &info) {
+  if (started || !socket.is_open()) return WL_ERR_INVALID_STATE;
+  const size_t rx = maximum_datagram_size ? maximum_datagram_size : info.rx_wire_max;
+  const size_t tx = maximum_tx_datagram_size ? maximum_tx_datagram_size : info.tx_wire_max;
+  if ((info.stream && !decode) || !info.port || rx == 0 || rx > info.rx_wire_max ||
+      rx >= wl_packet_rx_unit_size(info.port) || rx > 65507 || tx > 65507)
+    return WL_ERR_INVALID_ARG;
+  maximum_rx_frame = info.stream ? info.stream->config.maximum_rx_frame_size : info.rx_wire_max;
+  maximum_datagram_size = rx;
+  maximum_tx_datagram_size = tx;
+  port = info.port;
+  started = true;
+  return WL_OK;
+}
+
+void wl_udp::set_peer(const ::asio::ip::udp::endpoint &endpoint) {
   peer = endpoint;
   have_peer = true;
   tx_blocked = false;
-  wl_packet_activity(&port);
+  if (port) wl_packet_activity(port);
 }
 
-wl_err_t wl_asio_udp::set_peer(const char *address, uint16_t port_number) {
-  if (!started || !port_number) return WL_ERR_INVALID_STATE;
+wl_err_t wl_udp::set_peer(const char *address, uint16_t port_number) {
+  if (!socket.is_open() || !port_number) return WL_ERR_INVALID_STATE;
   std::error_code error;
   const auto value = ::asio::ip::make_address(address, error);
   if (error) return WL_ERR_INVALID_ARG;
+  const auto local = socket.local_endpoint(error);
+  if (error) return WL_ERR_IO;
+  if (value.is_v6() != local.address().is_v6()) return WL_ERR_INVALID_ARG;
   set_peer({value, port_number});
   return WL_OK;
 }
 
-wl_packet_submit_t wl_asio_udp::submit(const uint8_t *data, size_t length) {
+wl_packet_submit_t wl_udp::submit(const uint8_t *data, size_t length) {
   if (!data || !length || !started || length > maximum_tx_datagram_size)
     return WL_PACKET_FAILED;
   if (!have_peer)
@@ -126,14 +140,14 @@ wl_packet_submit_t wl_asio_udp::submit(const uint8_t *data, size_t length) {
   return WL_PACKET_SENT; // Whole datagram accepted; no retained user memory.
 }
 
-wl_err_t wl_asio_udp::service() {
+wl_err_t wl_udp::service() {
   if (!started)
     return WL_ERR_INVALID_STATE;
   more_rx = false;
   for (unsigned n = 0; n < service_budget; ++n) {
     wl_err_t result = WL_OK;
     if (!rx_claimed) {
-      result = wl_packet_rx_claim(&port, maximum_datagram_size + 1, &rx_claim);
+      result = wl_packet_rx_claim(port, maximum_datagram_size + 1, &rx_claim);
       if (result == WL_ERR_WOULD_BLOCK)
         return WL_OK;
       if (result != WL_OK)
@@ -151,42 +165,42 @@ wl_err_t wl_asio_udp::service() {
     if (error == ::asio::error::message_size ||
         (!error && (!received || received > maximum_datagram_size)) ||
         (!error && have_peer && source != peer)) {
-      (void)wl_packet_rx_abort(&port, &claim);
+      (void)wl_packet_rx_abort(port, &claim);
       rx_claimed = false;
       ++stats.rejected;
       continue;
     }
     if (error) {
-      (void)wl_packet_rx_abort(&port, &claim);
+      (void)wl_packet_rx_abort(port, &claim);
       rx_claimed = false;
       ++stats.errors;
       return WL_ERR_IO;
     }
-    if (decode && decode(claim.span.data, received, &received) != WL_OK) {
-      (void)wl_packet_rx_abort(&port, &claim);
+    if (decode && (decode(claim.span.data, received, &received) != WL_OK || received > maximum_rx_frame)) {
+      (void)wl_packet_rx_abort(port, &claim);
       rx_claimed = false;
       ++stats.rejected;
       continue;
     }
     if (!have_peer) {
       if (!learn_peer) {
-        (void)wl_packet_rx_abort(&port, &claim);
+        (void)wl_packet_rx_abort(port, &claim);
         rx_claimed = false;
         ++stats.rejected;
         continue;
       }
       wl_wire_frame_t frame{};
       if (wl_wire_native_none_read(claim.span.data, received, &frame) != WL_OK) {
-        (void)wl_packet_rx_abort(&port, &claim);
+        (void)wl_packet_rx_abort(port, &claim);
         rx_claimed = false;
         ++stats.rejected;
         continue;
       }
       set_peer(source);
     }
-    result = wl_packet_rx_commit(&port, &claim, received);
+    result = wl_packet_rx_commit(port, &claim, received);
     if (result != WL_OK) {
-      (void)wl_packet_rx_abort(&port, &claim);
+      (void)wl_packet_rx_abort(port, &claim);
       rx_claimed = false;
       return result;
     }
@@ -196,18 +210,18 @@ wl_err_t wl_asio_udp::service() {
   more_rx = true;
   return WL_OK;
 }
-bool wl_asio_udp::ready() const {
+bool wl_udp::ready() const {
   if (!started)
     return false;
   std::error_code error;
-  return (rx_claimed || wl_packet_rx_available(&port)) &&
+  return (rx_claimed || wl_packet_rx_available(port)) &&
          (more_rx || socket.available(error) != 0);
 }
-void wl_asio_udp::notify() {
+void wl_udp::notify() {
   wake.store(true, std::memory_order_release);
   io.stop();
 }
-wl_err_t wl_asio_udp::wait_for_activity(std::chrono::milliseconds maximum) {
+wl_err_t wl_udp::wait_for_activity(std::chrono::milliseconds maximum) {
   if (!started)
     return WL_ERR_INVALID_STATE;
   if (maximum.count() < 0)
@@ -248,7 +262,7 @@ wl_err_t wl_asio_udp::wait_for_activity(std::chrono::milliseconds maximum) {
         failed = true;
     });
     ++pending;
-    if (rx_claimed || wl_packet_rx_available(&port)) {
+    if (rx_claimed || wl_packet_rx_available(port)) {
       socket.async_wait(::asio::ip::udp::socket::wait_read, completion);
       ++pending;
     }
@@ -273,177 +287,88 @@ wl_err_t wl_asio_udp::wait_for_activity(std::chrono::milliseconds maximum) {
     more_rx = true;
     if (tx_blocked) {
       tx_blocked = false;
-      wl_packet_activity(&port);
+      wl_packet_activity(port);
     }
   }
   return ready ? WL_OK : WL_ERR_NO_DATA;
 }
-void wl_asio_udp::stop() {
+void wl_udp::stop() {
   if (!started)
     return;
   started = false;
   if (rx_claimed) {
-    (void)wl_packet_rx_abort(&port, &rx_claim);
+    (void)wl_packet_rx_abort(port, &rx_claim);
     rx_claimed = false;
   }
-  wl_packet_stop(&port);
+  port = nullptr;
   notify();
   std::error_code error;
   socket.close(error);
 }
-uint16_t wl_asio_udp::local_port() const {
+uint16_t wl_udp::local_port() const {
   std::error_code error;
   const auto endpoint = socket.local_endpoint(error);
   return error ? 0 : endpoint.port();
 }
 
-namespace wirelink::asio {
-
-PacketUdpAdapter::PacketUdpAdapter(wl_packet_port_t &port) : impl_(std::make_unique<Impl>(port)) {}
-PacketUdpAdapter::~PacketUdpAdapter() { stop(); }
-
-wl_err_t PacketUdpAdapter::start(const PacketUdpConfig &config, std::error_code &error) {
-  return impl_->start({config.bind_address.c_str(), config.bind_port, nullptr, 0,
-                       config.maximum_datagram_size, config.maximum_tx_datagram_size,
-                       config.service_budget, config.learn_peer, config.decode}, error);
+namespace {
+const wl_transport_ops_t udp_ops{
+  nullptr,
+  [](wl_transport_t *self, const wl_transport_attach_t *info) {
+    return static_cast<wl_udp *>(self)->attach(*info);
+  },
+  [](wl_transport_t *self, const uint8_t *data, size_t length, wl_packet_token_t) -> wl_packet_submit_t {
+    try { return static_cast<wl_udp *>(self)->submit(data, length); }
+    catch (...) { return WL_PACKET_FAILED; }
+  },
+  [](wl_transport_t *self) { static_cast<wl_udp *>(self)->notify(); },
+  [](wl_transport_t *self, uint32_t) -> wl_err_t {
+    try { return static_cast<wl_udp *>(self)->service(); }
+    catch (const std::bad_alloc &) { return WL_ERR_NO_MEM; }
+    catch (...) { return WL_ERR_IO; }
+  },
+  [](const wl_transport_t *self, uint32_t) {
+    return wl_io_readiness_at(static_cast<const wl_udp *>(self)->ready() ? 0U : UINT32_MAX);
+  },
+  [](wl_transport_t *self, uint32_t limit) -> wl_err_t {
+    try { return static_cast<wl_udp *>(self)->wait_for_activity(std::chrono::milliseconds(limit)); }
+    catch (const std::bad_alloc &) { return WL_ERR_NO_MEM; }
+    catch (...) { return WL_ERR_IO; }
+  },
+  [](wl_transport_t *self) -> wl_err_t {
+    static_cast<wl_udp *>(self)->stop();
+    return WL_OK;
+  }
+};
 }
 
-wl_err_t PacketUdpAdapter::set_peer(const std::string &address, uint16_t port) {
-  return impl_->set_peer(address.c_str(), port);
-}
-
-void PacketUdpAdapter::stop() { impl_->stop(); }
-wl_err_t PacketUdpAdapter::service() { return impl_->service(); }
-bool PacketUdpAdapter::ready() const { return impl_->ready(); }
-wl_err_t PacketUdpAdapter::wait_for_activity(std::chrono::milliseconds maximum) {
-  return impl_->wait_for_activity(maximum);
-}
-uint16_t PacketUdpAdapter::local_port() const { return impl_->local_port(); }
-PacketUdpStats PacketUdpAdapter::stats() const {
-  const auto &stats = impl_->stats;
-  return {stats.received, stats.sent, stats.rejected, stats.errors};
-}
-
-wl_packet_submit_t PacketUdpAdapter::submit(void *user, const uint8_t *data, size_t length,
-                                          wl_packet_token_t) {
-  return user ? static_cast<PacketUdpAdapter *>(user)->impl_->submit(data, length) : WL_PACKET_FAILED;
-}
-
-void PacketUdpAdapter::notify(void *user) {
-  if (user) static_cast<PacketUdpAdapter *>(user)->impl_->notify();
-}
-
-} // namespace wirelink::asio
-
-extern "C" {
-
-wl_asio_udp_t *wl_asio_udp_create(wl_packet_port_t *port) {
-  try { return port ? new wl_asio_udp(*port) : nullptr; }
-  catch (...) { return nullptr; }
-}
-
-void wl_asio_udp_destroy(wl_asio_udp_t *udp) noexcept {
-  wl_asio_udp_stop(udp);
-  delete udp;
-}
-
-wl_packet_io_t wl_asio_udp_io(wl_asio_udp_t *udp) {
-  return udp ? wl_packet_io_t{wl_asio_udp_submit, wl_asio_udp_notify, udp, nullptr, 0, 0}
-             : wl_packet_io_t{};
-}
-
-wl_err_t wl_asio_udp_start(wl_asio_udp_t *udp, const wl_asio_udp_config_t *config) {
-  if (!udp || !config) return WL_ERR_INVALID_ARG;
+wl_err_t wl_udp_open(wl_udp_t **out, const wl_udp_config_t *config, int *os_error) {
+  if (os_error) *os_error = 0;
+  if (!out) return WL_ERR_INVALID_ARG;
+  *out = nullptr;
+  if (!config) return WL_ERR_INVALID_ARG;
   try {
-    auto settings = *config;
-    if (!settings.service_budget) settings.service_budget = 8;
+    auto udp = std::make_unique<wl_udp>(&udp_ops);
     std::error_code error;
-    return udp->start(settings, error);
-  } catch (...) { return WL_ERR_IO; }
+    const auto status = udp->start(*config, error);
+    if (status == WL_OK) *out = udp.release();
+    else if (os_error && status == WL_ERR_IO) *os_error = error.value();
+    return status;
+  } catch (const std::bad_alloc &) { return WL_ERR_NO_MEM; }
+    catch (const std::system_error &error) {
+      if (os_error) *os_error = error.code().value();
+      return WL_ERR_IO;
+    } catch (...) { return WL_ERR_IO; }
 }
 
-wl_err_t wl_asio_udp_set_peer(wl_asio_udp_t *udp, const char *address, uint16_t port) {
+wl_transport_t *wl_udp_transport(wl_udp_t *udp) { return udp; }
+void wl_udp_close(wl_udp_t *udp) { delete udp; }
+
+wl_err_t wl_udp_set_peer(wl_udp_t *udp, const char *address, uint16_t port) {
   if (!udp || !address || !port) return WL_ERR_INVALID_ARG;
   try { return udp->set_peer(address, port); }
+  catch (const std::bad_alloc &) { return WL_ERR_NO_MEM; }
   catch (...) { return WL_ERR_IO; }
 }
-
-void wl_asio_udp_stop(wl_asio_udp_t *udp) noexcept {
-  if (!udp) return;
-  try { udp->stop(); }
-  catch (...) {}
-}
-
-wl_err_t wl_asio_udp_service(wl_asio_udp_t *udp) {
-  if (!udp) return WL_ERR_INVALID_ARG;
-  try { return udp->service(); }
-  catch (...) { return WL_ERR_IO; }
-}
-
-bool wl_asio_udp_ready(const wl_asio_udp_t *udp) {
-  try { return udp && udp->ready(); }
-  catch (...) { return false; }
-}
-
-wl_err_t wl_asio_udp_wait(wl_asio_udp_t *udp, uint32_t maximum_ms) {
-  if (!udp) return WL_ERR_INVALID_ARG;
-  try { return udp->wait_for_activity(std::chrono::milliseconds(maximum_ms)); }
-  catch (...) { return WL_ERR_IO; }
-}
-
-wl_err_t wl_asio_udp_step_endpoint(wl_asio_udp_t *udp, wl_endpoint_t *core, uint32_t now_ms) {
-  if (!udp || !core || core->port != &udp->port) return WL_ERR_INVALID_ARG;
-  try {
-    const auto status = wl_asio_udp_service(udp);
-    const auto step = wl_endpoint_step(core, now_ms, WL_ENDPOINT_BUDGET);
-    return status == WL_OK ? step : status;
-  } catch (...) { return WL_ERR_IO; }
-}
-
-wl_err_t wl_asio_udp_wait_endpoint(wl_asio_udp_t *udp, wl_endpoint_t *core,
-                                  uint32_t now_ms, uint32_t maximum_ms) {
-  if (!udp || !core || core->port != &udp->port) return WL_ERR_INVALID_ARG;
-  try {
-    int has_deadline = 0;
-    uint32_t deadline = 0;
-    if (wl_endpoint_ready(core, now_ms, &has_deadline, &deadline)) return WL_OK;
-    const uint32_t limit = has_deadline ? std::min(maximum_ms, deadline - now_ms) : maximum_ms;
-    const auto status = wl_asio_udp_wait(udp, limit);
-    return status == WL_ERR_NO_DATA ? WL_OK : status;
-  } catch (...) { return WL_ERR_IO; }
-}
-
-wl_err_t wl_asio_udp_close_endpoint(wl_asio_udp_t *udp, wl_endpoint_t *core, uint32_t now_ms) {
-  if (!udp || !core || core->port != &udp->port) return WL_ERR_INVALID_ARG;
-  try {
-    const auto closed = wl_endpoint_close(core);
-    if (closed != WL_OK) return closed;
-    udp->stop();
-    const auto step = wl_endpoint_step(core, now_ms, WL_ENDPOINT_BUDGET);
-    if (step != WL_OK) return step;
-    return wl_endpoint_quiescent(core) ? WL_OK : WL_ERR_BUSY;
-  } catch (...) { return WL_ERR_IO; }
-}
-
-uint16_t wl_asio_udp_local_port(const wl_asio_udp_t *udp) {
-  try { return udp ? udp->local_port() : 0; }
-  catch (...) { return 0; }
-}
-
-wl_asio_udp_stats_t wl_asio_udp_stats(const wl_asio_udp_t *udp) {
-  return udp ? udp->stats : wl_asio_udp_stats_t{};
-}
-
-wl_packet_submit_t wl_asio_udp_submit(void *user, const uint8_t *data, size_t length,
-                                    wl_packet_token_t) {
-  try { return user ? static_cast<wl_asio_udp *>(user)->submit(data, length) : WL_PACKET_FAILED; }
-  catch (...) { return WL_PACKET_FAILED; }
-}
-
-void wl_asio_udp_notify(void *user) {
-  if (!user) return;
-  try { static_cast<wl_asio_udp *>(user)->notify(); }
-  catch (...) {}
-}
-
-} // extern "C"
+uint16_t wl_udp_local_port(const wl_udp_t *udp) { return udp ? udp->local_port() : 0; }
+wl_udp_stats_t wl_udp_stats(const wl_udp_t *udp) { return udp ? udp->stats : wl_udp_stats_t{}; }

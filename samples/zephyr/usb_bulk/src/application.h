@@ -20,6 +20,7 @@ typedef struct {
   uint32_t completed_id, completed_crc, completed_writes, elapsed, report_due;
   uint64_t completed_length;
 } usb_sample_application_t;
+wl_err_t usb_sample_dispatch(usb_sample_application_t *, const wl_wire_frame_t *);
 wl_err_t usb_sample_route(wl_endpoint_t *, const wl_wire_frame_t *);
 wl_err_t usb_sample_pass(usb_sample_application_t *, wl_endpoint_t *, uint32_t now);
 int usb_sample_ready(const usb_sample_application_t *, const wl_endpoint_t *, uint32_t now);

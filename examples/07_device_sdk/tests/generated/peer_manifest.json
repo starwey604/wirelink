@@ -30,8 +30,8 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "peer.c", "size": 23719, "digest": "0xb7f183f405b71163"},
-    {"path": "peer.h", "size": 9810, "digest": "0xef6e1776e7be3d5e"}
+    {"path": "peer.c", "size": 22188, "digest": "0x6cbb654963e1499a"},
+    {"path": "peer.h", "size": 9304, "digest": "0x27ed99486951b005"}
   ]
 ,
   "nodes": [{"name":"device_peer","framing":"native","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":228,"message_frame_capacity":0,"rx_frame_capacity":222,"tx_frame_capacity":228,"rx_wire_capacity":222,"tx_wire_capacity":228}]

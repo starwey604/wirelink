@@ -4,7 +4,7 @@ find_package(Zephyr COMPONENTS unittest REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_static_stream_unit)
 get_filename_component(WIRELINK_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 target_sources(testbinary PRIVATE src/main.c ${WIRELINK_ROOT}/tests/core/packet_stream.c
-  ${WIRELINK_ROOT}/src/packet_port.c
+  ${WIRELINK_ROOT}/src/node.c ${WIRELINK_ROOT}/src/endpoint.c ${WIRELINK_ROOT}/src/packet_port.c
   ${WIRELINK_ROOT}/src/packet_stream.c ${WIRELINK_ROOT}/src/cobs_crc16_stream.c
   ${WIRELINK_ROOT}/src/length16_none_stream.c ${WIRELINK_ROOT}/src/byte_fifo.c
   ${WIRELINK_ROOT}/src/cobs.c ${WIRELINK_ROOT}/src/crc.c)

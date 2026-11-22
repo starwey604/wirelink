@@ -9,8 +9,7 @@ wl_err_t wl_zephyr_waiter_init(wl_zephyr_waiter_t *waiter) {
   return k_sem_init(&waiter->private_activity, 0, 1) == 0 ? WL_OK : WL_ERR_INVALID_ARG;
 }
 
-static wl_err_t wait_activity(void *context, uint32_t maximum_ms) {
-  wl_zephyr_waiter_t *waiter = context;
+wl_err_t wl_zephyr_waiter_wait(wl_zephyr_waiter_t *waiter, uint32_t maximum_ms) {
   int result;
   if (waiter == NULL) return WL_ERR_INVALID_ARG;
   if (k_is_in_isr()) return WL_ERR_REENTRANT;
@@ -22,13 +21,6 @@ static wl_err_t wait_activity(void *context, uint32_t maximum_ms) {
 
 void wl_zephyr_waiter_notify(wl_zephyr_waiter_t *waiter) {
   if (waiter != NULL) k_sem_give(&waiter->private_activity);
-}
-
-static void notify_activity(void *context) { wl_zephyr_waiter_notify(context); }
-
-wl_waiter_t wl_zephyr_waiter_descriptor(wl_zephyr_waiter_t *waiter) {
-  const wl_waiter_t descriptor = {wait_activity, waiter, notify_activity};
-  return descriptor;
 }
 
 void wl_zephyr_waiter_stop(wl_zephyr_waiter_t *waiter) {

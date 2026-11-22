@@ -2,9 +2,6 @@
 #ifndef WIRELINK_BYTE_FIFO_H_
 #define WIRELINK_BYTE_FIFO_H_
 #include "wirelink/packet_stream.h"
-#ifndef __cplusplus
-#include <stdatomic.h>
-#endif
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,17 +9,16 @@ extern "C" {
  * reserves/copies/commits and reports gaps; owner parses later. Both roles
  * must stop before init/reuse. Claim/peek capacity is saved internally. */
 typedef struct wl_byte_fifo wl_byte_fifo_t;
-#ifndef __cplusplus
+/* Qualified C ABI storage shared with packet_port. All atomic access is in C. */
 struct wl_byte_fifo {
   wl_span_t storage;
   wl_packet_notify_fn notify;
   void *user;
-  atomic_uint_least32_t read, write;
-  atomic_bool gap;
+  wl_atomic_u32_t read, write;
+  wl_atomic_bool_t gap;
   size_t reserved, peeked;
   uint8_t reservation;
 };
-#endif
 wl_err_t wl_byte_fifo_init(wl_byte_fifo_t *, wl_span_t, wl_packet_notify_fn, void *);
 wl_err_t wl_byte_fifo_reserve(wl_byte_fifo_t *, wl_span_t *);
 wl_err_t wl_byte_fifo_commit(wl_byte_fifo_t *, size_t);

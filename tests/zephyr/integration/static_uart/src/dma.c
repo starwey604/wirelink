@@ -10,6 +10,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/ztest.h>
+#include "fixture.h"
 
 #include "wirelink/zephyr/uart_dma.h"
 
@@ -148,9 +149,8 @@ static struct device fake_uart = {
 };
 
 static wl_zephyr_uart_dma_t adapter;
-static wl_packet_port_t port;
+static wl_node_t node;
 static wl_packet_stream_t stream;
-static wl_byte_fifo_t fifo;
 static uint8_t rx[2][96], tx[96], bytes[128], dma[2][128];
 static void emit(struct uart_event *event) {
   fake_data.callback(&fake_uart, event, fake_data.callback_data);
@@ -158,86 +158,65 @@ static void emit(struct uart_event *event) {
 static uint32_t instance = 1000U;
 static void setup(void) {
   memset(&fake_data, 0, sizeof(fake_data));
-  zassert_ok(wl_byte_fifo_init(&fifo, (wl_span_t){bytes, sizeof(bytes)}, wl_zephyr_uart_dma_notify,
-                               &adapter));
-  wl_packet_config_t pc = {.instance = ++instance,
-                           .rx_storage = &rx[0][0],
-                           .rx_unit_size = 96,
-                           .rx_storage_size = sizeof(rx),
-                           .submit = wl_packet_stream_cobs_crc16_submit,
-                           .notify = wl_packet_stream_notify,
-                           .user = &stream};
-  zassert_ok(wl_packet_init(&port, &pc));
-  wl_packet_stream_config_t sc = {.port = &port,
-                                  .tx_storage = {tx, sizeof(tx)},
-                                  .maximum_frame_size = 64,
-                                  .physical_submit = wl_zephyr_uart_dma_submit,
-                                  .notify = wl_zephyr_uart_dma_notify,
-                                  .user = &adapter};
-  zassert_ok(wl_packet_stream_cobs_crc16_init(&stream, &sc));
   wl_zephyr_uart_dma_config_t config = {.uart = &fake_uart,
-                                        .port = &port,
-                                        .fifo = &fifo,
-                                        .stream = &stream,
+                                        .fifo_storage = {bytes, sizeof(bytes)},
                                         .rx_buffers = {{dma[0], 128}, {dma[1], 128}},
                                         .timeout_us = 100,
                                         .tx_timeout_us = SYS_FOREVER_US,
                                         .wait_for_tx_idle = true};
-  zassert_ok(wl_zephyr_uart_dma_init(&adapter, &config));
-  zassert_ok(wl_zephyr_uart_dma_start(&adapter));
+  zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_dma_transport(&adapter, &config)));
 }
 ZTEST(static_uart_dma, test_callbacks_stage_and_stop_requires_real_returns) {
   setup();
   uint8_t packet[12] = {0x57, 0, 22, 0, 1, 2, 3, 4, 5, 6, 7, 8};
   wl_packet_token_t token;
-  zassert_ok(wl_packet_tx_submit(&port, packet, sizeof(packet), &token));
+  zassert_ok(wl_packet_tx_submit(&node.port, packet, sizeof(packet), &token));
   size_t length = fake_data.tx_len;
   memcpy(fake_data.rx_buf, fake_data.tx_buf, length);
   struct uart_event ready = {.type = UART_RX_RDY,
                              .data.rx = {.buf = fake_data.rx_buf, .offset = 0, .len = length}};
   emit(&ready);
-  zassert_false(wl_packet_rx_ready(&port));
+  zassert_false(wl_packet_rx_ready(&node.port));
   zassert_ok(wl_zephyr_uart_dma_service(&adapter, 0));
   wl_packet_borrow_t borrow;
-  zassert_ok(wl_packet_rx_borrow(&port, &borrow));
+  zassert_ok(wl_packet_rx_borrow(&node.port, &borrow));
   zassert_equal(borrow.length, sizeof(packet));
   zassert_mem_equal(borrow.data, packet, sizeof(packet));
-  zassert_ok(wl_packet_rx_release(&port, &borrow));
+  zassert_ok(wl_packet_rx_release(&node.port, &borrow));
   struct uart_event done = {.type = UART_TX_DONE,
                             .data.tx = {.buf = fake_data.tx_buf, .len = fake_data.tx_len}};
   fake_data.tx_active = false;
   emit(&done);
   zassert_ok(wl_zephyr_uart_dma_service(&adapter, 0));
-  zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_CONSUMED);
-  zassert_true(wl_packet_tx_active(&port));
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_CONSUMED);
+  zassert_true(wl_packet_tx_active(&node.port));
   fake_data.tx_idle = true;
   zassert_ok(wl_zephyr_uart_dma_service(&adapter, 1));
-  zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_DRAINED);
-  zassert_ok(wl_packet_tx_submit(&port, packet, sizeof(packet), &token));
-  zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
-  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_DRAINED);
+  zassert_ok(wl_packet_tx_submit(&node.port, packet, sizeof(packet), &token));
+  zassert_equal(wl_node_close(&node, 2), WL_ERR_WOULD_BLOCK);
   // RX disable acknowledgement alone does not return the two DMA buffers.
   struct uart_event disabled = {.type = UART_RX_DISABLED};
   fake_data.rx_enabled = false;
   emit(&disabled);
-  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_node_close(&node, 2), WL_ERR_WOULD_BLOCK);
   for (unsigned i = 0; i < 2; ++i) {
     struct uart_event released = {.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}};
     emit(&released);
   }
-  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 2), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_node_close(&node, 2), WL_ERR_WOULD_BLOCK);
   struct uart_event aborted = {.type = UART_TX_ABORTED,
                                .data.tx = {.buf = fake_data.tx_buf, .len = 0}};
   fake_data.tx_active = false;
   emit(&aborted);
-  zassert_ok(wl_zephyr_uart_dma_service(&adapter, 2));
-  zassert_true(wl_packet_tx_take(&port, &token) & WL_PACKET_TX_ERROR);
   uart_callback_t old = fake_data.callback;
   void *old_user = fake_data.callback_data;
-  wl_zephyr_uart_dma_quiesce(&adapter);
-  zassert_true(wl_packet_quiescent(&port));
+  zassert_equal(wl_node_close(&node, 2), WL_ERR_WOULD_BLOCK);
+  zassert_ok(wl_node_close(&node, 2));
+  zassert_true(wl_packet_quiescent(&node.port));
   old(&fake_uart, &ready, old_user);
-  zassert_false(wl_byte_fifo_readable(&fifo));
+  zassert_false(wl_byte_fifo_readable(&adapter.fifo));
 }
 static struct k_thread callback_thread, quiesce_thread;
 static void suspend_callback(void *unused) {
@@ -268,7 +247,7 @@ ZTEST(static_uart_dma, test_quiesce_joins_entered_callback_with_full_fifo) {
   struct uart_event ready = {.type = UART_RX_RDY,
                              .data.rx = {.buf = dma[0], .offset = 0, .len = sizeof(dma[0])}};
   emit(&ready);
-  zassert_false(wl_byte_fifo_has_space(&fifo));
+  zassert_false(wl_byte_fifo_has_space(&adapter.fifo));
   zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
   for (unsigned i = 0; i < 2; ++i) {
     struct uart_event released = {.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}};
@@ -294,7 +273,7 @@ ZTEST(static_uart_dma, test_quiesce_joins_entered_callback_with_full_fifo) {
   zassert_ok(k_thread_join(&quiesce_thread, K_SECONDS(1)));
   zassert_true(adapter.detached);
   zassert_is_null(fake_data.callback);
-  zassert_true(wl_packet_quiescent(&port));
-  zassert_true(wl_byte_fifo_readable(&fifo)); // Unpublished bytes never block shutdown.
+  zassert_true(wl_packet_quiescent(&node.port));
+  zassert_true(wl_byte_fifo_readable(&adapter.fifo)); // Unpublished bytes never block shutdown.
 }
 ZTEST_SUITE(static_uart_dma, NULL, NULL, NULL, NULL, NULL);

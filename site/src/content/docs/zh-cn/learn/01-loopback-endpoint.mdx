@@ -1,11 +1,11 @@
 ---
 title: 01 编写第一个 .wl 并运行服务端
-description: 编写一份 .wl 协议文件，使用 wlc 生成 C11 代码，理解生成的头文件符号并实现你的第一个服务端。
+description: 编写一份 .wl 协议文件，使用 wlc 生成 C11 代码，理解生成的头文件符号并运行你的第一个独立服务端。
 sidebar:
   order: 1
 ---
 
-import { Aside } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
 import Challenge from '../../../../components/tutorial/Challenge.astro';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
@@ -18,7 +18,7 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
   goals={[
     '使用 message、rpc 与 node 定义一份 .wl 协议文件',
     '运行 wlc compile 生成单端 C11 代码，理解生成头文件中的命名规则',
-    '实现业务处理函数与主循环驱动，完成一次远程调用与错误返回',
+    '实现业务处理函数并运行独立的双进程服务端与客户端',
   ]}
 />
 
@@ -52,7 +52,7 @@ node server { serve Add; }
 
 ## 第二步：使用 `wlc` 生成 C 代码并查阅头文件
 
-运行以下命令，为 `server` 角色生成 C11 代码：
+运行以下命令，只为 `server` 角色生成 C11 代码：
 
 ```sh
 wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
@@ -63,41 +63,43 @@ wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
 
 ```c
 /* 1. 消息结构体：由 AddRequest / AddResponse 转换而来 */
-typedef struct add_request_s {
+typedef struct add_request add_request_t;
+typedef struct add_response add_response_t;
+
+struct add_request {
   int32_t left;
   int32_t right;
-} add_request_t;
+};
 
-typedef struct add_response_s {
+struct add_response {
   int32_t sum;
-} add_response_t;
+};
 
-/* 2. 节点类型与调用入口（已生成在 calculator.c 中） */
-wl_err_t server_init(server_node_t *self);
-wl_err_t server_rx_packet(server_node_t *self, const uint8_t *data, size_t length);
-wl_err_t server_step(server_node_t *self, uint32_t now);
+/* 2. 生成的绑定入口与公共节点 API */
+wl_err_t server_bind_sync(server_node_t *self, server_tx_write_fn tx_write);
+wl_err_t server_bind(server_node_t *self, wl_transport_t *transport);
+wl_err_t wl_node_rx_packet(wl_node_t *node, const uint8_t *data, size_t length);
+wl_err_t wl_node_step(wl_node_t *node, uint32_t now);
 
-/* 3. 需要由应用层实现的两个回调函数 */
-extern int32_t server_on_add(
+/* 3. 需要由应用层实现的业务处理函数 */
+int32_t server_on_add(
     server_node_t *self, const add_request_t *request, add_response_t *response);
-extern wl_err_t server_tx_write(
-    server_node_t *self, const uint8_t *data, size_t length);
 ```
 
 <Aside type="note" title="生成符号的命名规则">
 所有节点类型与函数前缀均来自 `.wl` 中的节点名 `server`：
 - 节点类型为 `<node>_node_t`（此处为 `server_node_t`）。
-- 生命周期与驱动函数为 `<node>_init`、`<node>_rx_packet`、`<node>_step`，由 `calculator.c` 提供实现。
-- 业务处理函数为 `<node>_on_<rpc>`（此处为 `server_on_add`），物理发送函数为 `<node>_tx_write`，这两者需要由你的应用程序提供实现。
+- 绑定入口 `<node>_bind_sync` 和 `<node>_bind` 由 `calculator.c` 生成。调用公共函数 `wl_node_rx_packet` 和 `wl_node_step` 时传入 `&server.node`。
+- 业务处理函数为 `<node>_on_<rpc>`（此处为 `server_on_add`），由你的应用程序提供实现。
 
-例如，如果协议中声明的是 `node motor { serve SetSpeed; }`，对应的类型与回调则会生成为 `motor_node_t` 与 `motor_on_set_speed`。
+例如，若协议中声明的是 `node motor { serve SetSpeed; }`，对应的类型与回调则会生成为 `motor_node_t` 与 `motor_on_set_speed`。
 </Aside>
 
 ---
 
 ## 第三步：实现业务处理函数 `server_on_add`
 
-在业务源文件中实现 `server_on_add`（摘自 [`examples/01_rpc/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c)）：
+在服务端源文件 [`examples/01_rpc/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c) 中实现 `server_on_add`：
 
 {/* [docs:calculator_server] */}
 ```c
@@ -117,87 +119,134 @@ int32_t server_on_add(server_node_t *self, const add_request_t *request, add_res
 
 ---
 
-## 第四步：接入主循环
+## 第四步：接入传输层并驱动主循环
 
-完成 `server_on_add` 后，再实现物理发送函数 `server_tx_write`，并在主循环中定期调用 `server_step` 即可驱动整个节点：
+同一个生成节点支持两种接线方式：在嵌入式板卡上可以直接传入一个同步发包函数（`server_bind_sync`），也可以通过 `server_bind` 直接挂载现有的传输适配器（例如桌面端的 UDP 适配器）。
 
-```c
-#include "calculator.h"
+<Tabs>
+  <TabItem label="方式 A：自定义同步发送函数（嵌入式裸机常用）">
+    把你板子上的发包函数直接传给 `server_bind_sync`，收到数据包时调用 `wl_node_rx_packet`，并在主循环中定期调用 `wl_node_step`：
 
-static server_node_t server;
+    ```c
+    #include "calculator.h"
 
-/* 当节点需要发送响应帧时，会调用此函数输出字节 */
-wl_err_t server_tx_write(server_node_t *self, const uint8_t *data, size_t length) {
-  (void)self;
-  return my_hardware_send(data, length);
-}
+    static server_node_t server;
 
-int main(void) {
-  server_init(&server);
+    static wl_err_t my_tx_write(server_node_t *self, const uint8_t *data, size_t length) {
+      (void)self;
+      return my_hardware_send(data, length);
+    }
 
-  for (;;) {
-    /* 当硬件收到完整数据包时，将数据传入节点：
-     * if (has_new_packet) {
-     *   server_rx_packet(&server, rx_buf, rx_len);
-     * }
-     */
+    int main(void) {
+      server_bind_sync(&server, my_tx_write);
 
-    /* 推进解包、回调派发与响应发送。 */
-    server_step(&server, 0);
-  }
-}
-```
+      for (;;) {
+        /* 硬件收到完整数据包时传入节点：
+         * if (has_new_packet) {
+         *   wl_node_rx_packet(&server.node, rx_buf, rx_len);
+         * }
+         */
+        wl_node_step(&server.node, board_millis());
+      }
+    }
+    ```
+  </TabItem>
 
-`now` 用于计算出站 RPC 超时。这个节点只提供 RPC 服务，因此传 `0`。
+  <TabItem label="方式 B：使用官方 UDP 适配器（本系列桌面教程示例）">
+    为了让教程中的服务端与客户端能够在电脑上作为两个独立进程直接通信，本系列示例（`00_telemetry`、`01_rpc`、`02_device_info`）直接调用 Wirelink 内置的 Asio UDP C API（`<wirelink/udp.h>`，默认在 `127.0.0.1` 的一对端口上互通），通过 `server_bind` 挂载到服务端节点。代码中的 `example_udp_args`、`example_install_signals` 和 `example_now_ms` 仅用于处理示例的命令行端口覆盖、`Ctrl-C` 退出与系统毫秒时钟：
+
+    {/* [docs:calculator_udp_server] */}
+    ```c
+    int main(int argc, char **argv) {
+      static server_node_t server;
+      wl_udp_config_t config = {
+        .bind_address = "127.0.0.1", .bind_port = 50004,
+        .peer_address = "127.0.0.1", .peer_port = 50003
+      };
+      if (!example_udp_args(argc, argv, &config)) return 1;
+      wl_udp_t *udp = NULL;
+      if (wl_udp_open(&udp, &config, NULL) != WL_OK) return 1;
+      if (server_bind(&server, wl_udp_transport(udp)) != WL_OK) {
+        wl_udp_close(udp);
+        return 1;
+      }
+      example_install_signals();
+      puts("Calculator server ready");
+      fflush(stdout);
+      int status = 0;
+      while (example_running()) {
+        if (wl_node_step(&server.node, 0U) != WL_OK ||
+            wl_node_wait(&server.node, example_now_ms(), 100U) != WL_OK) {
+          status = 1;
+          break;
+        }
+      }
+      if (wl_node_close(&server.node, example_now_ms()) != WL_OK) status = 1;
+      wl_udp_close(udp);
+      return status;
+    }
+    ```
+    {/* [/docs:calculator_udp_server] */}
+    移植到真实硬件时，只需将 Asio UDP 适配器换成对应的硬件发送/接收函数或平台适配器，上面的 `server_on_add` 业务代码无需改动。
+  </TabItem>
+</Tabs>
 
 数据在主循环中的流转顺序如下：
 
 ```mermaid
 sequenceDiagram
-  participant Peer as 调用方 (client)
-  participant App as 应用主循环
+  participant Peer as 调用方进程 (client)
+  participant App as 服务端主循环
   participant Node as server_node_t
 
   Peer->>App: 收到请求数据包 (left=20, right=22)
-  App->>Node: 1. server_rx_packet(&server, data, len)
-  App->>Node: 2. server_step(&server, 0)
+  App->>Node: 1. 将数据包送入节点
+  App->>Node: 2. 调用 step 推进节点
   activate Node
   Node->>App: 3. 解码并调用 server_on_add(...)
   App-->>Node: 填写 sum = 42，返回 0
-  Node->>App: 4. 编码响应并调用 server_tx_write(...)
+  Node->>App: 4. 编码响应并经传输层写出
   deactivate Node
-  App->>Peer: 硬件驱动写出响应字节
+  App->>Peer: 发回响应字节
 ```
 
 <Challenge
   title="检查理解：server_on_add 会在接收中断里执行吗？"
-  prompt="如果应用程序在接收中断中调用 server_rx_packet(&server, data, len)，server_on_add 会在中断上下文中立即被调用吗？"
+  prompt="如果应用程序在接收中断中调用 wl_node_rx_packet(&server.node, data, len)，server_on_add 会在中断上下文中立即被调用吗？"
 >
   不会。
 
-  `server_rx_packet` 只负责将收到的数据拷贝到节点内部缓冲区并立即返回；解码数据包、调用 `server_on_add` 以及通过 `server_tx_write` 发送响应，全部在主循环调用 `server_step(&server, 0)` 时顺序执行。这使得业务回调始终运行在主循环上下文中。
+  `wl_node_rx_packet` 只负责将收到的数据拷贝到节点内部缓冲区并立即返回；解码数据包、调用 `server_on_add` 以及写出响应，全部在主循环调用 `wl_node_step(&server.node, now_ms)` 时顺序执行。这使得业务回调始终运行在主循环上下文中。
 </Challenge>
 
 ---
 
-## 第五步：构建并运行完整示例
+## 第五步：在两个终端运行服务端与客户端
 
-仓库中的 [`examples/01_rpc/`](https://github.com/starwey604/wirelink/tree/main/examples/01_rpc) 将上述服务端与一个本地客户端编译在同一个程序中，通过内存回环直接交换数据，便于在没有硬件外设的环境下验证行为。
-
-在仓库根目录执行：
+在仓库根目录编译 [`examples/01_rpc/`](https://github.com/starwey604/wirelink/tree/main/examples/01_rpc) 中的独立服务端与客户端（假设已按[快速开始](/wirelink/zh-cn/overview/quick-start/)配置好 `build/examples`）：
 
 ```sh
-cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
-cmake --build build/examples --target wirelink_calculator_demo
-./build/examples/examples/01_rpc/wirelink_calculator_demo
+cmake --build build/examples --target calculator_server calculator_client
 ```
 
-终端输出以下内容表示正常加法与溢出拒绝流程均已通过：
+打开两个终端分别启动两端（无参数时默认在 `127.0.0.1` 的 `50004` 与 `50003` 端口互通）：
+
+```sh
+# 终端 1：启动服务端
+./build/examples/examples/01_rpc/calculator_server
+```
+
+```sh
+# 终端 2：运行客户端
+./build/examples/examples/01_rpc/calculator_client
+```
+
+终端 2 输出以下结果，表示单次调用、并发调用与溢出拒绝均已通过：
 
 ```text
-four concurrent copied requests and business rejection passed
+20 + 22 = 42
+4 concurrent calls returned 42
+overflow rejected: status=1
 ```
 
 ---
@@ -234,11 +283,11 @@ four concurrent copied requests and business rejection passed
   progressTemplate="已完成 {done} / {total} 项"
   items={[
     "能够使用 message、rpc 与 node 编写基础的 .wl 文件。",
-    "能够运行 wlc compile --node <name> 生成单端 C 代码，并识别 <node>_node_t 与 <node>_on_<rpc> 等符号。",
-    "理解服务端回调返回 0 与非零值的区别，以及通过 step(now) 驱动节点的流程。"
+    "能够运行 wlc compile --node <name> 生成单端 C 代码，并识别 <node>_node_t、<node>_bind_sync 与 <node>_on_<rpc> 等符号。",
+    "理解服务端回调返回 0 与非零值的区别，并能在本地双终端运行 calculator_server 与 calculator_client。"
   ]}
 />
 
-本课实现的是需要一问一答的 RPC 服务。然而在设备通信中，很多数据只需要单向推送（例如周期性传感器采样或异步状态上报），并不需要每次等待对端回复。下一课将介绍单向消息（Telemetry），并说明它与 RPC 的区别与配合方式。
+本课实现的是需要一问一答的 RPC 服务。在设备通信中，很多数据只需要单向推送（例如周期性传感器采样或异步状态上报），并不需要每次等待对端回复。下一课将介绍单向消息（Telemetry），并说明它与 RPC 的区别与配合方式。
 
 下一课：[02 单向消息（Telemetry）与 RPC →](/wirelink/zh-cn/learn/02-telemetry/)

@@ -235,11 +235,11 @@ static wl_err_t device_call_configure_start(device_node_t *self, const configure
   if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
   if (timeout == 0U) timeout = 500U;
   uint8_t slot; uint8_t *payload; size_t capacity;
-  wl_err_t error = wl_endpoint_call_claim(&self->core, &slot, &payload, &capacity);
+  wl_err_t error = wl_endpoint_call_claim(&self->node.core, &slot, &payload, &capacity);
   if (error != WL_OK) return error;
   size_t length = 0U;
   if (configure_request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-  return wl_endpoint_call_commit(&self->core, slot, 5U, 6U, length, now, timeout, has_now, complete, callback, user, out);
+  return wl_endpoint_call_commit(&self->node.core, slot, 5U, 6U, length, now, timeout, has_now, complete, callback, user, out);
 }
 wl_err_t device_call_configure(device_node_t *self, const configure_request_t *request, device_configure_cb_t callback) {
   return device_call_configure_start(self, request, 0U, 0U, 0U, device_complete_configure, (void (*)(void))callback, self, NULL);
@@ -272,21 +272,17 @@ static wl_err_t device_call_get_info_start(device_node_t *self, const info_reque
   if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
   if (timeout == 0U) timeout = 500U;
   uint8_t slot; uint8_t *payload; size_t capacity;
-  wl_err_t error = wl_endpoint_call_claim(&self->core, &slot, &payload, &capacity);
+  wl_err_t error = wl_endpoint_call_claim(&self->node.core, &slot, &payload, &capacity);
   if (error != WL_OK) return error;
   size_t length = 0U;
   if (info_request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-  return wl_endpoint_call_commit(&self->core, slot, 2U, 4U, length, now, timeout, has_now, complete, callback, user, out);
+  return wl_endpoint_call_commit(&self->node.core, slot, 2U, 4U, length, now, timeout, has_now, complete, callback, user, out);
 }
 wl_err_t device_call_get_info(device_node_t *self, const info_request_t *request, device_get_info_cb_t callback) {
   return device_call_get_info_start(self, request, 0U, 0U, 0U, device_complete_get_info, (void (*)(void))callback, self, NULL);
 }
 wl_err_t device_call_get_info_ex(device_node_t *self, const info_request_t *request, uint32_t now, uint32_t timeout_ms, device_get_info_ex_cb_t callback, void *user, wl_call_handle_t *out) {
   return device_call_get_info_start(self, request, now, timeout_ms, 1U, device_complete_get_info_ex, (void (*)(void))callback, user, out);
-}
-static void device_error(void *user, uint16_t id, wl_err_t error) {
-  device_node_t *self = user;
-  if (self->on_error != NULL) self->on_error(self->user, id, error);
 }
 static wl_err_t device_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   device_node_t *self = (device_node_t *)core;
@@ -297,72 +293,42 @@ static wl_err_t device_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) 
   default: return WL_ERR_NOT_SUPPORTED;
   }
 }
-static wl_packet_submit_t device_submit(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
-  (void)token;
-  device_node_t *self = user;
-  wl_err_t error = self->tx_write(self, data, length);
-  if (error == WL_OK) return WL_PACKET_SENT;
-  return error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY ? WL_PACKET_BUSY : WL_PACKET_FAILED;
+static wl_err_t device_sync_write(wl_node_t *node, const uint8_t *data, size_t length) {
+  device_node_t *self = (device_node_t *)node;
+  return self->tx_write(self, data, length);
 }
-wl_err_t device_init_io(device_node_t *self, uint32_t instance, const wl_packet_io_t *io) {
-  if (self == NULL || io == NULL || io->submit == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_io_t binding = *io;
-  const int external_rx = binding.rx_storage != NULL || binding.rx_storage_size != 0U || binding.rx_unit_size != 0U;
-  if (external_rx && (binding.rx_storage == NULL || binding.rx_unit_size < DEVICE_RX_WIRE_MAX + 1U ||
-      binding.rx_unit_size > binding.rx_storage_size / WL_PACKET_RX_SLOTS)) return WL_ERR_INVALID_ARG;
-  wl_err_t error;
-  if (instance == 0U) {
-    error = wl_packet_instance_next(&instance);
-    if (error != WL_OK) return error;
-  }
-  memset(self, 0, sizeof(*self));
-  wl_packet_config_t packet = {.instance = instance,
-      .rx_storage = external_rx ? binding.rx_storage : &self->rx[0][0],
-      .rx_unit_size = external_rx ? binding.rx_unit_size : sizeof(self->rx[0]),
-      .rx_storage_size = external_rx ? binding.rx_storage_size : sizeof(self->rx),
-      .submit = binding.submit, .notify = binding.notify, .user = binding.user};
-  error = wl_packet_init(&self->port, &packet);
-  if (error != WL_OK) return error;
-  wl_endpoint_config_t config = {.port = &self->port, .route = device_route, .on_error = device_error, .user = self,
-      .storage = {
+static wl_err_t device_bind_impl(device_node_t *self, uint32_t instance, wl_transport_t *transport, device_tx_write_fn tx_write) {
+  if (self == NULL) return WL_ERR_INVALID_ARG;
+  if (transport == NULL && tx_write == NULL) return WL_ERR_INVALID_ARG;
+  self->tx_write = tx_write;
+  const wl_node_layout_t layout = {
+    .instance = instance, .has_tx = 1,
+    .route = device_route, .user = NULL,
+    .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
+    .rx_frame_max = DEVICE_RX_FRAME_MAX, .tx_frame_max = DEVICE_TX_FRAME_MAX,
+    .rx_wire_max = DEVICE_RX_WIRE_MAX, .tx_wire_max = DEVICE_TX_WIRE_MAX,
+    .storage = {
           .requests = &self->requests[0][0], .request_stride = 222U,
           .replies = NULL, .reply_stride = 0U,
           .message = NULL, .message_capacity = 0U,
-      }};
-  error = wl_endpoint_init(&self->core, &config);
-  if (error != WL_OK) wl_packet_stop(&self->port);
-  return error;
+    }
+  };
+  return transport != NULL ? wl_node_bind_transport(&self->node, &layout, transport)
+                           : wl_node_bind_sync(&self->node, &layout, device_sync_write);
 }
-static wl_err_t device_init_sync(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write) {
-  if (tx_write == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_io_t io = {.submit = device_submit, .user = self};
-  wl_err_t error = device_init_io(self, instance, &io);
-  if (error == WL_OK) self->tx_write = tx_write;
-  return error;
+wl_err_t device_bind(device_node_t *self, wl_transport_t *transport) {
+  if (transport == NULL) return WL_ERR_INVALID_ARG;
+  return device_bind_impl(self, 0U, transport, NULL);
 }
-wl_err_t device_init(device_node_t *self, device_tx_write_fn tx_write) {
-  return device_init_sync(self, 0U, tx_write);
-}
-wl_err_t device_init_with_instance(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write) {
+wl_err_t device_bind_instance(device_node_t *self, uint32_t instance, wl_transport_t *transport) {
   if (instance == 0U) return WL_ERR_INVALID_ARG;
-  return device_init_sync(self, instance, tx_write);
+  if (transport == NULL) return WL_ERR_INVALID_ARG;
+  return device_bind_impl(self, instance, transport, NULL);
 }
-wl_err_t device_rx_packet(device_node_t *self, const uint8_t *data, size_t length) {
-  if (self == NULL) return WL_ERR_INVALID_ARG;
-  if (length > DEVICE_RX_WIRE_MAX) return WL_ERR_BUF_TOO_SMALL;
-  return wl_packet_rx_push(&self->port, data, length);
+wl_err_t device_bind_sync(device_node_t *self, device_tx_write_fn tx_write) {
+  return device_bind_impl(self, 0U, NULL, tx_write);
 }
-wl_err_t device_step(device_node_t *self, uint32_t now) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_step(&self->core, now, WL_ENDPOINT_BUDGET);
-}
-wl_err_t device_close(device_node_t *self) {
-  if (self == NULL) return WL_ERR_INVALID_ARG;
-  wl_err_t error = wl_endpoint_close(&self->core);
-  return error;
-}
-int device_quiescent(const device_node_t *self) {
-  return self != NULL && wl_endpoint_quiescent(&self->core);
-}
-wl_err_t device_cancel(device_node_t *self, wl_call_handle_t handle) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_cancel(&self->core, handle);
+wl_err_t device_bind_sync_instance(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write) {
+  if (instance == 0U) return WL_ERR_INVALID_ARG;
+  return device_bind_impl(self, instance, NULL, tx_write);
 }

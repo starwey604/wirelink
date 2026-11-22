@@ -421,7 +421,9 @@ void run_wirelink_object(const Options &options) {
       bulk_chunk_t chunk{};
       chunk.has_transfer_id = chunk.has_offset = chunk.has_data = true;
       chunk.transfer_id = transfer; chunk.offset = offset;
-      chunk.data.data = object.data() + offset; chunk.data.length = size;
+      if (size > sizeof(chunk.data.data)) throw std::runtime_error("chunk exceeds codec capacity");
+      std::memcpy(chunk.data.data, object.data() + offset, size);
+      chunk.data.length = size;
       (void)sender.transact(BULK_CHUNK_MESSAGE_ID, chunk, bulk_chunk_encode,
         transfer, CONTROL_BULK_PHASE_CHUNK, offset + size, deadline);
       offset += size;

@@ -9,10 +9,10 @@ Wirelink 的 `src/` 核心不包含任何互斥锁、线程原语或系统时钟
 
 ## 单所有权契约（Single-Owner Contract）
 
-`wl_endpoint_t` 及其上层生成的 `<node>_node_t` 实例的所有公共操作（`init`、`send`、`call`、`cancel`、`step`、`ready`、`close`、`quiescent`）与用户回调（`on_<msg>`、`done`）都必须由**同一个执行上下文（Owner）**串行调用。
+`wl_endpoint_t` 及其上层生成的 `<node>_node_t` 实例的所有公共操作（`bind`、`send`、`call`、`cancel`、`step`、`ready`、`close`、`quiescent`）与用户回调（`on_<msg>`、`done`）都必须由**同一个执行上下文（Owner）**串行调用。
 
 - **I/O 生产者的边界**: 中断服务例程（ISR）或独立 DMA / Socket 线程**只能**操作底层 `wl_packet_port_t` 暴露的轻量级无锁接口（如 `wl_packet_rx_claim`、`wl_packet_rx_commit`、`wl_packet_tx_publish`、`wl_packet_activity`），禁止触碰 `wl_endpoint_t` 或触发编解码与业务回调。
-- **防重入保证**: `wl_endpoint_cancel` 与发送 API 不会在内部栈帧直接触发业务回调，所有解包投递、超时计算与取消通知都在 `wl_endpoint_step` 推进期间统一派发。
+- **防重入保证**: `wl_node_cancel` 与发送 API 不会在内部栈帧直接触发业务回调，所有解包投递、超时计算与取消通知都在 `wl_node_step` 推进期间统一派发。
 
 默认 embedded 的字节流喂入建议由同一 owner 处理；ISR 先写 FIFO。简化 call 不读系统时钟，超时从下一次 `step(now)` 开始。需要把提交后的排队时间计入预算时，用显式 now 的 `_ex`。
 
@@ -20,12 +20,12 @@ Wirelink 的 `src/` 核心不包含任何互斥锁、线程原语或系统时钟
 
 ### 1. 裸机前后台循环（Superloop）
 
-会发起 RPC 的节点在每次步进时传入同一单调毫秒时钟的当前值。下面的主循环用平台提供的 `board_millis()` 读取时钟。生成的 `step` 使用预算 16，直接调用 `wl_endpoint_step` 时可指定 `1 .. WL_ENDPOINT_BUDGET`。
+会发起 RPC 的节点在每次步进时传入同一单调毫秒时钟的当前值。下面的主循环用平台提供的 `board_millis()` 读取时钟。`wl_node_step` 使用预算 16，直接调用 `wl_endpoint_step` 时可指定 `1 .. WL_ENDPOINT_BUDGET`。
 
 ```c
 for (;;) {
   uint32_t now = board_millis();
-  wl_err_t err = my_proto_step(&endpoint, now);
+  wl_err_t err = wl_node_step(&endpoint.node, now);
   if (err != WL_OK && err != WL_ERR_WOULD_BLOCK) {
     /* 记录致命错误或触发重置 */
   }
@@ -37,18 +37,12 @@ for (;;) {
 
 ### 2. RTOS 阻塞等待与锁存唤醒（Latched Wake）
 
-为了避免 RTOS 线程空转浪费电量，可以结合 `wl_packet_config_t.notify` 回调和 `wl_endpoint_ready` 实现按需唤醒与精确超时休眠：
+驱动可提供 `notify`、`readiness` 和 `wait`。在 `notify` 中释放信号量或设置锁存事件，使等待前的通知也能唤醒 owner。owner 先调用 `wl_node_step`，处理完业务后重新读取单调时钟，然后调用 `wl_node_wait(&endpoint.node, now, max_ms)`。
 
-1. 在端口配置中注册 `notify` 回调，在其中释放信号量（例如 `k_sem_give`）或设置事件标志位（**锁存事件**）。
-2. 工作线程进入休眠前，从相同的单调时钟读取 `now`，再调用 `wl_endpoint_ready(&endpoint.core, now, &has_deadline, &deadline)`：
-   - 若返回非零，说明当前已有待处理事件，跳过休眠直接调用 `step`。
-   - 若返回 `0`，则根据 `has_deadline`（`1` 时剩余等待时间为 `(int32_t)(deadline - now)`，否则无限期等待）挂起信号量，被 `notify` 或超时唤醒后再调用 `step`。
+节点有可运行事件时，`wl_node_wait` 立即返回。否则等待上限取 `max_ms`、RPC 剩余时间、驱动截止时间三者的最小值。裸机轮询驱动可以省略 `wait`。
 
-## 优雅停机与复用（`close` → `quiescent`）
+## 关闭与复用
 
-在重启端口、重载配置或安全卸载线程前，绝对不能粗暴释放底层缓冲。请按以下四步排干状态：
+同步绑定的节点由应用先停止 RX 生产者。owner 调用 `wl_node_close(&endpoint.node, now)`，由节点请求驱动停机并派发终态回调。驱动停止后会释放流分帧器占用的半帧 RX 槽。
 
-1. 停止 RX 生产者并完成同步，再调用节点 `close` 或 `wl_endpoint_close(&core)` 进入关闭状态；external 驱动同时执行自身停机流程和 `wl_packet_stop(port)`。
-2. 对异步 external 驱动，等待适配器确认不再持有物理 TX 引用且不再写入 RX 槽位。
-3. 继续运行驱动循环调用 `wl_endpoint_step`，直到 `wl_endpoint_quiescent(&core)` 返回非零，确认所有在途调用的终态回调（如 `WL_RPC_CLOSED`）均已派发完毕。
-4. 确认 `wl_packet_quiescent(port)` 与适配器停机完成后，方可复用或销毁静态缓冲区。
+`WL_ERR_WOULD_BLOCK` 表示驱动尚在停机；`WL_ERR_BUSY` 表示节点尚在排空。保留节点和驱动缓冲，使用最新时刻重试关闭。硬件停机失败时，处理返回的错误并保持存储有效。`wl_node_quiescent(&endpoint.node)` 为真后，才能释放或复用存储。

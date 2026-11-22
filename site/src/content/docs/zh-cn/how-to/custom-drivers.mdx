@@ -1,22 +1,22 @@
 ---
 title: 接入物理链路：驱动移植指南
-description: 从最简单的默认 embedded 同步整帧钩子与串口字节流模板，到高级 external 异步零拷贝 DMA 租约协议。
+description: 从同步整帧发送钩子（bind_sync）与串口字节流模板，到异步零拷贝 DMA / USB 适配器接入（bind）与物理租约协议。
 sidebar:
   order: 2
 ---
 
-import { Aside, Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-要把生成的 Wirelink 节点接到你的板子上（无论是 UART 串口、USB Bulk、UDP 还是 SPI），首先需要决定使用哪种 I/O 模式：
+所有生成的 Wirelink 节点都统一内嵌了 `port`（`wl_packet_port_t`）与双 RX 接收槽，并在 C 初始化阶段提供两种接线方式，无需修改 `.wl` 文件：
 
-- 🌟 **90% 的场景首选默认的 `io = embedded`**（节点内嵌端口、双 RX 槽与流分帧器）：只要你的发送驱动可以**整帧同步写出**（或者把整帧 `memcpy` 进你自己的 UART/USB 发送环形缓冲区），用 `embedded` 只需写一个 `tx_write` 函数就能搞定！
-- ⚙️ **只有异步零拷贝 DMA 驱动才选 `io = external`**：当你的硬件驱动不想做任何额外内存拷贝，需要**直接拿着 Wirelink 节点内部缓冲区的指针去做异步 DMA 发送**，等 DMA 中断完成后再归还缓冲区所有权（Lease）时，才使用 `external`。
+- **同步整帧发送（`<node>_bind_sync`）**：当你的驱动可以整帧同步写出，或将整帧复制到自己的发送环形缓冲时，只需传入一个 `tx_write` 函数指针，并在收到数据时调用 `rx_packet` / `rx_feed`。
+- **异步零拷贝与官方适配器（`<node>_bind`）**：当你需要直接将节点内部缓冲指针交给异步 DMA 发送并保持租约至传输排空，或挂载桌面 UDP、USB 或串口适配器时，调用 `<node>_bind` 传入驱动的 `wl_transport_t *`。
 
 ---
 
-## 一、 默认 `io = embedded` 接入（推荐起步）
+## 一、 同步整帧发送接入（`<node>_bind_sync`）
 
-假设我们定义了一个走 UART 串口（`cobs_crc16`）的传感器节点：
+假设定义了一个使用 UART 串口（`cobs_crc16`）的传感器节点：
 
 ```wl
 message Sample @id(10) { uint32 value @id(1); }
@@ -27,15 +27,15 @@ node sensor {
 }
 ```
 
-### 1. 发送端：实现 `<node>_tx_write` 与恢复通知 `<node>_tx_ready`
+### 1. 发送钩子与恢复通知 `wl_node_tx_ready`
 
-当你在主循环调用 `sensor_step(&sensor, 0)` 时，节点会调用 `sensor_tx_write` 发送待发帧。这个传感器节点只有消息收发，时间参数传 `0`。
+将发送函数传给 `sensor_bind_sync(&sensor, sensor_tx_write)`。当主循环调用 `wl_node_step(&sensor.node, 0)` 时，节点通过该回调写出完整线缆帧（仅含单向消息时时间参数可传 `0`）：
 
 ```c
-wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length) {
+static wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length) {
   (void)self;
-  /* 规则：要么把整帧 length 个字节全部写入/拷入驱动队列并返回 WL_OK；
-   * 要么在外设空间不足以容纳整帧时，1 个字节都不要收，直接返回 WL_ERR_WOULD_BLOCK！ */
+  /* 要么将整帧 length 字节全部写入/拷入驱动发送队列并返回 WL_OK；
+   * 要么在剩余空间不足时 1 字节都不接收，直接返回 WL_ERR_WOULD_BLOCK。 */
   if (uart_tx_ring_free_space() < length) {
     return WL_ERR_WOULD_BLOCK;
   }
@@ -45,96 +45,88 @@ wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length
 }
 ```
 
-<Aside type="caution" title="物理发送钩子的三条铁律">
-1. **禁止跨返回借用指针**：一旦 `sensor_tx_write` 返回 `WL_OK`，节点立刻认为发送已完成并可能覆盖 `data` 指向的缓冲区。绝对不能在 `tx_write` 里启动异步 DMA 指向 `data` 就立刻返回 `WL_OK`！
-2. **禁止半帧接受**：不能只发了前 10 个字节就返回 `WL_ERR_WOULD_BLOCK`（如果底层硬件一次写不完，应由你的驱动环形缓冲暂存整帧，或者在适配层自己维护偏移）。
-3. **忙后恢复通知**：当 `tx_write` 返回了 `WL_ERR_WOULD_BLOCK` 或 `WL_ERR_BUSY` 后，待硬件发送队列腾出空间时，调用 **`sensor_tx_ready(&sensor)`**，让下一次 `sensor_step` 知道可以重试发送了。
+<Aside type="caution" title="同步发送钩子的三条约束">
+1. **禁止跨返回借用指针**：`tx_write` 返回 `WL_OK` 后，节点即认为该帧已完成并可能复用 `data` 指向的缓冲区。不可在同步 `tx_write` 中启动异步 DMA 指向 `data` 后立即返回 `WL_OK`。
+2. **禁止部分接收**：不可只写入部分字节后返回 `WL_ERR_WOULD_BLOCK`。
+3. **忙后恢复通知**：当 `tx_write` 返回 `WL_ERR_WOULD_BLOCK` 或 `WL_ERR_BUSY` 后，待外设发送队列腾出空间时调用 **`wl_node_tx_ready(&sensor.node)`**，通知下一次 `wl_node_step` 重试。
 </Aside>
 
-### 2. 接收端：完整包（`native`） vs 连续字节流（`cobs_crc16` / `length16`）
-
-根据你在 `node` 里选的 `framing`，接收入口分为两种模板：
+### 2. 接收端：完整包（`native`）与连续字节流（`cobs_crc16` / `length16`）
 
 <Tabs>
-  <TabItem label="模式 A：串口字节流 (cobs_crc16 / length16)">
-    最稳妥的裸机/RTOS 串口架构是：**UART RX 中断（ISR）只负责把收到的字节塞进一个轻量级 RingBuffer / FIFO；主循环（Owner）从 FIFO 取出字节喂给 `sensor_rx_feed`**：
+  <TabItem label="串口字节流 (cobs_crc16 / length16)">
+    建议 UART RX 中断仅将字节写入轻量级环形缓冲；主循环从环形缓冲取出数据喂给 `wl_node_rx_feed`：
 
     ```c
-    /* 在主循环 (Single Owner) 中执行： */
     uint8_t chunk[64];
     size_t avail = uart_rx_ring_peek(chunk, sizeof(chunk));
     if (avail > 0) {
       size_t consumed = 0;
-      wl_err_t err = sensor_rx_feed(&sensor, chunk, avail, &consumed);
+      (void)wl_node_rx_feed(&sensor.node, chunk, avail, &consumed);
 
-      /* 黄金法则：无论 err 是 WL_OK、WL_ERR_WOULD_BLOCK 还是坏帧错误，
-       * 前 consumed 个字节都已经被分帧器吃掉了，必须从环形缓冲里移走！
-       * 剩下的 (avail - consumed) 字节留在缓冲里，等下面 step 腾出 RX 槽后下次循环再喂。 */
+      /* 无论返回 WL_OK、WL_ERR_WOULD_BLOCK 还是坏帧错误，
+       * 前 consumed 个字节均已被分帧器处理，应从环形缓冲移走；
+       * 剩余未消费字节留待 step() 腾出 RX 槽后下一轮再喂入。 */
       if (consumed > 0) {
         uart_rx_ring_drop(consumed);
       }
     }
-    sensor_step(&sensor, 0);
+    wl_node_step(&sensor.node, 0);
     ```
   </TabItem>
 
-  <TabItem label="模式 B：天然带包边界 (native)">
-    对于 UDP 数据报或已经由底层按包收好的队列，直接调用 `<node>_rx_packet` 传入完整的一帧：
+  <TabItem label="自带包边界 (native)">
+    对于 UDP 数据报或已按包切分的队列，直接调用 `wl_node_rx_packet` 传入完整一帧：
 
     ```c
-    wl_err_t err = udp_node_rx_packet(&node, packet_bytes, packet_length);
-    /* 返回 WL_OK 代表该包已复制进节点的双 RX 槽之一；
-     * 返回 WL_ERR_WOULD_BLOCK 代表 2 个 RX 槽都满了，需等 step() 消费后再喂。 */
+    wl_err_t err = wl_node_rx_packet(&node.node, packet_bytes, packet_length);
+    /* WL_OK 表示已拷贝进双 RX 槽之一；
+     * WL_ERR_WOULD_BLOCK 表示双 RX 槽已满，需等 step() 消费后再试。 */
     ```
   </TabItem>
 </Tabs>
 
-### 3. `embedded` 节点的安全关闭四步曲
+### 3. 安全关闭四步骤
 
-当你需要重启通信端口或复用节点内存时，按以下顺序操作：
-1. **先停 RX 源头**：关闭接收中断或确认生产者不再调用 `rx_packet` / `rx_feed`。
-2. **发起关闭**：调用 `<node>_close(&node)`（会自动丢弃半帧拼包状态并拒绝新业务请求）。
-3. **排空状态**：继续调用 `<node>_step(&node, now_ms)`，直到 **`<node>_quiescent(&node)`** 返回 `true`（期间所有未决 RPC 都会收到 `WL_RPC_CLOSED` 完成回调）。
-4. **安全复用**：此时方可销毁节点或调用 `<node>_init_with_instance(&node, new_id)` 重新初始化。
+需要重启端口或复用节点内存时，按顺序执行：
+1. **停止 RX 源头**：关闭接收中断或确认生产者不再调用 `rx_packet` / `rx_feed`。
+2. **发起关闭**：调用 `wl_node_close(&node.node, now)`。
+3. **排空节点**：关闭返回 `WL_ERR_BUSY` 或 `WL_ERR_WOULD_BLOCK` 时，保留缓冲并重试关闭。关闭返回 `WL_OK` 时，终态回调和物理租约已排空。
+4. **安全复用**：此时方可销毁节点或重新初始化。
 
 ---
 
-## 二、 进阶 `io = external`：零拷贝异步 DMA 与现有适配器
+## 二、 异步零拷贝与适配器接入（`<node>_bind`）
 
-当你在 `.wl` 中显式声明 `io = external;` 时：
+生成的 `<node>_bind(&node, transport)` 会分配实例号；需要持久会话身份时用 `<node>_bind_instance(&node, instance, transport)`。
 
-```wl
-node dma_sensor {
-  io = external;
-  send Sample;
-  recv Sample;
-}
-```
+### 1. 驱动的装配顺序
 
-生成的节点不再内嵌 `port`，初始化函数变为 `dma_sensor_init(&node, &port)`，由你的驱动负责初始化并持有 `wl_packet_port_t`（完整示例见 [`docs/porting-adapters.md`](https://github.com/starwey604/wirelink/blob/main/docs/porting-adapters.md) 和 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters)）：
+节点先调用驱动可选的 `configure_rx` 取得外部 RX 槽。USB Bulk 可以在这里提供 64 或 512 字节对齐的缓冲，每槽容量至少达到回调传入的 `min_unit_size`。节点初始化端口和分帧器后调用 `attach`，驱动从参数取得端口、分帧模式及收发上限并启动 I/O。启动失败时，驱动应撤销已注册的硬件回调。
 
-### 1. 异步 TX 物理租约（`submit` 与 `wl_packet_tx_publish`）
+桌面 UDP 先调用 `wl_udp_open` 绑定套接字，再把 `wl_udp_transport(udp)` 传给生成的 `<node>_bind`。UDP 绑定和移植示例见[驱动移植指南](https://github.com/starwey604/wirelink/blob/main/docs/porting-adapters.md)。
 
-在 `external` 模式下，当内核需要发包时，会调用你注册在 `wl_packet_config_t.submit` 上的发送函数，并传入一个代表本次物理传输租约的 **`token`**：
+### 2. 异步 TX 物理租约（`submit` 与 `wl_packet_tx_publish`）
 
-| `submit` 返回值 | 物理所有权含义 | 驱动后续必须履行的义务 |
+当节点需要发包时，会调用 `transport->ops->submit` 并传入代表本次传输租约的 `token`：
+
+| `submit` 返回值 | 物理所有权含义 | 驱动后续义务 |
 | :--- | :--- | :--- |
-| **`WL_PACKET_SENT`** | 返回前已同步发完或复制完毕，**不再借用源缓冲区指针** | 无需再调任何完成通知 |
-| **`WL_PACKET_STARTED`** | **异步 DMA 已启动，硬件仍在直接读取节点源缓冲区指针！** | 必须在 DMA 完成中断/回调中调用 **`wl_packet_tx_publish(port, token, WL_PACKET_DRAINED)`**（或失败时传 `WL_PACKET_TX_ERROR`）归还租约！ |
-| **`WL_PACKET_BUSY`** | 硬件正忙，**未接受任何字节，也未借用指针** | 等外设恢复空闲时，调用 **`wl_packet_activity(port)`** 唤醒主循环重试 |
-| **`WL_PACKET_FAILED`** | 硬件发生确定性故障，未接受数据 | 无需调完成通知，内核会直接向对应请求报告本地 I/O 错误 |
+| **`WL_PACKET_SENT`** | 返回前已消费完整源帧并完成物理排空 | 无需后续通知 |
+| **`WL_PACKET_STARTED`** | 异步 DMA 已启动，硬件仍在读取节点源缓冲区 | 在 DMA 完成回调/中断中调用 `wl_packet_tx_publish(port, token, WL_PACKET_DRAINED)`（出错传 `WL_PACKET_TX_ERROR`）归还租约 |
+| **`WL_PACKET_BUSY`** | 硬件正忙，未接受任何字节也未借用指针 | 外设空闲后调用 `wl_packet_activity(port)` 唤醒主循环重试 |
+| **`WL_PACKET_FAILED`** | 硬件出现确定性故障，未接受数据 | 无需后续通知，内核向对应请求报告本地 I/O 错误 |
 
-<Aside type="caution" title="为什么物理租约（Lease）能防止 DMA 野指针崩溃？">
-在真实工程中，经常会出现“某个 RPC 请求在业务层已经超时或被取消了，但底层慢速 UART DMA 还在读取那块请求缓冲区”的极端竞态！
-在 Wirelink 的 `external` 租约机制下，即便上层 RPC 已经因为超时触发了 `done` 回调，**只要你的 DMA 驱动还没通过 `wl_packet_tx_publish` 归还该槽位的 `token`，内核就绝不会把这块物理缓冲区分配给新的请求覆盖掉**，从根源上杜绝了 DMA 读出半新半旧脏数据的隐患！
+<Aside type="caution" title="物理租约防止 DMA 内存覆写">
+即便上层 RPC 已因超时或取消触发完成回调，只要驱动尚未通过 `wl_packet_tx_publish` 归还该槽位的 `token`，内核就不会复用或覆写这块正在被 DMA 读取的缓冲区。
 </Aside>
 
-### 2. 对接现有异步适配器（如 Host / Zephyr UDP）
+### 3. 在主循环中步进适配器
 
-仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 目录已经提供了现成的 Zephyr（UART DMA/IRQ、USB Bulk）、Asio UDP、Astrial 串口/USB 适配器。在主循环中，通常只需将适配器的 `service()` 与内核 `wl_endpoint_step()` 放在同一个 Owner 函数中推进（源自 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)）：
+仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 提供了 Zephyr（UART DMA/IRQ、USB Bulk、UDP）、Asio UDP 与 Astrial 串口/USB 适配器。在主循环中只需在同一 Owner 上下文通过 `wl_node_step` 依次推进适配器和端点（源自 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)）：
 
 {/* [docs:udp_host_step] */}
 ```c
-if (wl_asio_udp_step_endpoint(udp, &server.core, now) != WL_OK) { status = 1; break; }
+if (wl_node_step(&server.node, now) != WL_OK) { status = 1; break; }
 ```
 {/* [/docs:udp_host_step] */}

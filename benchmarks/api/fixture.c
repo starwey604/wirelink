@@ -35,11 +35,10 @@ static void sample(void *user, const sample_t *view) {
 }
 void api_fixture_init(void) {
   memset(&fixture, 0, sizeof(fixture));
-  example_pair_init(&fixture.pair, &fixture.endpoints[0].core, &fixture.endpoints[1].core,
-      &fixture.endpoints[0].port, &fixture.endpoints[1].port);
+  example_pair_init(&fixture.pair, &fixture.endpoints[0].node, &fixture.endpoints[1].node);
   const endpoint_api_handlers_t handlers = {.on_query = query, .on_sample = sample};
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(endpoint_api_init_io(&fixture.endpoints[side], 0U, &fixture.pair.io[side], &handlers, NULL) == WL_OK);
+    EXAMPLE_REQUIRE(endpoint_api_bind(&fixture.endpoints[side], wl_packet_loopback_transport(&fixture.pair.cable, side), &handlers, NULL) == WL_OK);
 
   for (size_t i = 0; i < sizeof(fixture.sample.payload.data); ++i) fixture.sample.payload.data[i] = (uint8_t)i;
 }
@@ -66,7 +65,7 @@ void api_fixture_sample(size_t bytes) {
 }
 void api_fixture_idle(void) {
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(endpoint_api_step(&fixture.endpoints[side], fixture.pair.now) == WL_OK);
+    EXAMPLE_REQUIRE(wl_node_step(&fixture.endpoints[side].node, fixture.pair.now) == WL_OK);
 }
 void api_fixture_close(void) { example_pair_close(&fixture.pair); }
 size_t api_fixture_endpoint_bytes(void) { return sizeof(endpoint_api_node_t); }

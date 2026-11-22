@@ -3,7 +3,7 @@ description: Build the selected WLC ref and export its executable path
 inputs:
   ref:
     description: WLC branch or ref
-    default: main
+    required: false
 runs:
   using: composite
   steps:
@@ -13,7 +13,7 @@ runs:
     - uses: actions/checkout@v5
       with:
         repository: starwey604/wlc
-        ref: ${{ inputs.ref }}
+        ref: ${{ inputs.ref || vars.WLC_REF || 'main' }}
         path: .tools/wlc
     - name: Build WLC with stable Rust
       shell: bash

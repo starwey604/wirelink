@@ -8,7 +8,7 @@
 
 #include <zephyr/sys/atomic.h>
 
-#include "wirelink/packet_port.h"
+#include "wirelink/transport.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
@@ -33,8 +33,7 @@ typedef enum {
 } wl_zephyr_usb_rx_fault_t;
 
 typedef struct wl_zephyr_usb_bulk_config {
-  wl_packet_port_t *port;
-  size_t maximum_frame_size; /* Strictly less than the supplied RX unit size. */
+  wl_transport_rx_override_t rx; /* Caller-owned, MPS-sized RX slots. */
   /* Optional ISR-safe notification for the single Wirelink consumer. */
   void *wake_user_data;
   wl_zephyr_usb_bulk_wake_fn wake_consumer;
@@ -70,8 +69,10 @@ typedef struct wl_zephyr_usb_bulk_stats {
 } wl_zephyr_usb_bulk_stats_t;
 
 typedef struct wl_zephyr_usb_bulk {
+  wl_transport_t transport;
+  wl_zephyr_usb_bulk_config_t config;
   wl_packet_port_t *port;
-  size_t maximum_rx_size;
+  size_t maximum_rx_size, frame_limit;
   void *wake_user_data;
   wl_zephyr_usb_bulk_wake_fn wake_consumer;
   void *cycle_counter_user_data;
@@ -103,10 +104,11 @@ typedef struct wl_zephyr_usb_bulk {
   atomic_t rx_fault;
   atomic_t last_rx_fault;
 } wl_zephyr_usb_bulk_t;
+/* Bind the node before calling usbd_init()/usbd_enable(). The USB class
+ * supports one active binding. Keep the configured RX slots through close. */
+wl_transport_t *wl_zephyr_usb_bulk_transport(wl_zephyr_usb_bulk_t *adapter,
+    const wl_zephyr_usb_bulk_config_t *config);
 
-/* Init port first with submit/notify below and user=adapter, then bind before
- * usbd_init()/usbd_enable(). One instance. Does not initialize/clear RX storage.
- * The prototype shares the original USB class name, so compile only this adapter. */
 wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *, const uint8_t *, size_t,
                                             wl_packet_token_t);
 void wl_zephyr_usb_bulk_notify(void *);
@@ -118,9 +120,6 @@ void wl_zephyr_usb_bulk_notify(void *);
 int wl_zephyr_usb_bulk_stop(wl_zephyr_usb_bulk_t *);
 int wl_zephyr_usb_bulk_stopped(const wl_zephyr_usb_bulk_t *);
 int wl_zephyr_usb_bulk_deinit(wl_zephyr_usb_bulk_t *);
-
-int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
-                            const wl_zephyr_usb_bulk_config_t *config);
 
 /* Owner only; call before/after kernel step to publish resource progress. */
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter);

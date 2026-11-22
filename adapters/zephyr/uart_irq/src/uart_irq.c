@@ -6,6 +6,8 @@
 #include <string.h>
 #include <zephyr/drivers/uart.h>
 
+static const wl_transport_ops_t transport_ops;
+
 #ifndef WL_ZEPHYR_UART_IRQ_HOT_CODE
 #define WL_ZEPHYR_UART_IRQ_HOT_CODE
 #endif
@@ -57,10 +59,10 @@ wl_packet_submit_t wl_zephyr_uart_irq_submit(void *context, const uint8_t *data,
 }
 static unsigned WL_ZEPHYR_UART_IRQ_HOT_CODE receive_ready(wl_zephyr_uart_irq_t *adapter) {
   wl_span_t span;
-  int result = wl_byte_fifo_reserve(adapter->fifo, &span);
+  int result = wl_byte_fifo_reserve(&adapter->fifo, &span);
   if (result != WL_OK || span.length == 0U) {
     if (result == WL_OK)
-      (void)wl_byte_fifo_commit(adapter->fifo, 0U);
+      (void)wl_byte_fifo_commit(&adapter->fifo, 0U);
     adapter->private_uart_api->irq_rx_disable(adapter->uart);
     atomic_set_bit(&adapter->flags, RX_PAUSED);
     atomic_inc(&adapter->rx_pauses);
@@ -70,7 +72,7 @@ static unsigned WL_ZEPHYR_UART_IRQ_HOT_CODE receive_ready(wl_zephyr_uart_irq_t *
   size_t request = span.length > INT_MAX ? INT_MAX : span.length;
   int received = adapter->private_uart_api->fifo_read(adapter->uart, span.data, (int)request);
   if (received <= 0) {
-    (void)wl_byte_fifo_commit(adapter->fifo, 0U);
+    (void)wl_byte_fifo_commit(&adapter->fifo, 0U);
     if (received < 0) {
       atomic_inc(&adapter->errors);
       atomic_set(&adapter->error_pending, 1);
@@ -79,7 +81,7 @@ static unsigned WL_ZEPHYR_UART_IRQ_HOT_CODE receive_ready(wl_zephyr_uart_irq_t *
     }
     return 0U;
   }
-  if (wl_byte_fifo_commit(adapter->fifo, (size_t)received) != WL_OK)
+  if (wl_byte_fifo_commit(&adapter->fifo, (size_t)received) != WL_OK)
     atomic_inc(&adapter->errors);
   else
     atomic_add(&adapter->rx_bytes, received);
@@ -140,7 +142,7 @@ static void WL_ZEPHYR_UART_IRQ_HOT_CODE uart_callback(const struct device *devic
     if (api->err_check != NULL && api->err_check(adapter->uart) > 0) {
       atomic_inc(&adapter->errors);
       atomic_set(&adapter->error_pending, 1);
-      wl_byte_fifo_note_gap(adapter->fifo);
+      wl_byte_fifo_note_gap(&adapter->fifo);
       NOTE(adapter, publications);
       published |= IRQ_NOTIFY;
     }
@@ -169,19 +171,27 @@ static void WL_ZEPHYR_UART_IRQ_HOT_CODE uart_callback(const struct device *devic
 #endif
   k_spin_unlock(&callback_lock, key);
 }
-int wl_zephyr_uart_irq_init(wl_zephyr_uart_irq_t *adapter,
-                            const wl_zephyr_uart_irq_config_t *config) {
-  if (adapter == NULL || config == NULL || config->uart == NULL || config->port == NULL ||
-      config->fifo == NULL || config->stream == NULL || !device_is_ready(config->uart) ||
-      config->drain_check_ms > INT32_MAX)
-    return WL_ERR_INVALID_ARG;
-  const struct uart_driver_api *api = DEVICE_API_GET(uart, config->uart);
+wl_err_t wl_zephyr_uart_irq_probe(const struct device *uart) {
+  if (uart == NULL || !device_is_ready(uart)) return WL_ERR_INVALID_ARG;
+  const struct uart_driver_api *api = DEVICE_API_GET(uart, uart);
   if (api == NULL || api->irq_callback_set == NULL || api->irq_update == NULL ||
       api->irq_is_pending == NULL || api->irq_rx_ready == NULL || api->irq_tx_ready == NULL ||
       api->irq_rx_enable == NULL || api->irq_rx_disable == NULL || api->irq_tx_enable == NULL ||
       api->irq_tx_disable == NULL || api->fifo_read == NULL || api->fifo_fill == NULL ||
       api->irq_tx_complete == NULL)
     return WL_ERR_NOT_SUPPORTED;
+  return WL_OK;
+}
+static wl_err_t initialize(wl_zephyr_uart_irq_t *adapter,
+                            const wl_zephyr_uart_irq_config_t *config,
+    const wl_transport_attach_t *info) {
+  if (adapter == NULL || config == NULL || config->uart == NULL ||
+      !device_is_ready(config->uart) ||
+      config->drain_check_ms > INT32_MAX)
+    return WL_ERR_INVALID_ARG;
+  wl_err_t available = wl_zephyr_uart_irq_probe(config->uart);
+  if (available != WL_OK) return available;
+  const struct uart_driver_api *api = DEVICE_API_GET(uart, config->uart);
   k_spinlock_key_t key = k_spin_lock(&callback_lock);
   size_t binding = UART_BINDINGS;
   for (size_t i = 0U; i < UART_BINDINGS; ++i) {
@@ -197,10 +207,16 @@ int wl_zephyr_uart_irq_init(wl_zephyr_uart_irq_t *adapter,
     return WL_ERR_NO_SPACE;
   }
   memset(adapter, 0, sizeof(*adapter));
+  adapter->transport.ops = &transport_ops;
+  adapter->config = *config;
+  wl_err_t fifo_error = wl_byte_fifo_init(&adapter->fifo, config->fifo_storage, wl_zephyr_uart_irq_notify, adapter);
+  if (fifo_error != WL_OK) {
+    k_spin_unlock(&callback_lock, key);
+    return fifo_error;
+  }
   adapter->uart = config->uart;
-  adapter->port = config->port;
-  adapter->fifo = config->fifo;
-  adapter->stream = config->stream;
+  adapter->port = info->port;
+  adapter->stream = info->stream;
   adapter->private_uart_api = api;
   adapter->binding = (uint8_t)binding;
   adapter->wait_for_tx_idle = 1U;
@@ -216,7 +232,7 @@ int wl_zephyr_uart_irq_init(wl_zephyr_uart_irq_t *adapter,
   atomic_set_bit(&adapter->flags, INITIALIZED);
   return WL_OK;
 }
-int wl_zephyr_uart_irq_start(wl_zephyr_uart_irq_t *adapter) {
+static wl_err_t start(wl_zephyr_uart_irq_t *adapter) {
   if (adapter == NULL || !atomic_test_bit(&adapter->flags, INITIALIZED))
     return WL_ERR_INVALID_ARG;
   k_spinlock_key_t key = k_spin_lock(&callback_lock);
@@ -235,9 +251,9 @@ wl_io_readiness_t WL_ZEPHYR_UART_IRQ_HOT_CODE wl_zephyr_uart_irq_readiness(const
   if (!atomic_test_bit(&adapter->flags, STARTED))
     return value;
   value.runnable =
-      wl_byte_fifo_cobs_ready(adapter->fifo, adapter->stream) ||
+      wl_byte_fifo_cobs_ready(&adapter->fifo, adapter->stream) ||
       atomic_get(&adapter->error_pending) || atomic_get(&adapter->tx_completion) != TX_NONE ||
-      (atomic_test_bit(&adapter->flags, RX_PAUSED) && wl_byte_fifo_has_space(adapter->fifo));
+      (atomic_test_bit(&adapter->flags, RX_PAUSED) && wl_byte_fifo_has_space(&adapter->fifo));
   value.blocked =
       atomic_test_bit(&adapter->flags, TX_ACTIVE) || atomic_test_bit(&adapter->flags, RX_PAUSED);
   if (adapter->drain_pending) {
@@ -295,14 +311,14 @@ int WL_ZEPHYR_UART_IRQ_HOT_CODE wl_zephyr_uart_irq_service(wl_zephyr_uart_irq_t 
     } else
       adapter->drain_due = now_ms + adapter->drain_check_ms;
   }
-  if (atomic_test_bit(&adapter->flags, RX_PAUSED) && wl_byte_fifo_has_space(adapter->fifo)) {
+  if (atomic_test_bit(&adapter->flags, RX_PAUSED) && wl_byte_fifo_has_space(&adapter->fifo)) {
     k_spinlock_key_t key = k_spin_lock(&callback_lock);
     if (atomic_test_and_clear_bit(&adapter->flags, RX_PAUSED))
       adapter->private_uart_api->irq_rx_enable(adapter->uart);
     k_spin_unlock(&callback_lock, key);
     result = WL_OK;
   }
-  int input = wl_byte_fifo_to_cobs(adapter->fifo, adapter->stream, 16U);
+  int input = wl_byte_fifo_to_cobs(&adapter->fifo, adapter->stream, 16U);
   if (input != WL_OK && input != WL_ERR_WOULD_BLOCK)
     result = input;
   return result;
@@ -388,4 +404,51 @@ void wl_zephyr_uart_irq_get_stats(const wl_zephyr_uart_irq_t *adapter,
   out->started = atomic_test_bit(&adapter->flags, STARTED);
   out->rx_paused = atomic_test_bit(&adapter->flags, RX_PAUSED);
   out->tx_active = atomic_test_bit(&adapter->flags, TX_ACTIVE);
+}
+
+static wl_err_t transport_attach(wl_transport_t *transport, const wl_transport_attach_t *info) {
+  wl_zephyr_uart_irq_t *adapter = (wl_zephyr_uart_irq_t *)transport;
+  wl_zephyr_uart_irq_config_t config = adapter->config;
+  if (info->framing != WL_NODE_COBS_CRC16) return WL_ERR_INVALID_ARG;
+  wl_err_t error = initialize(adapter, &config, info);
+  if (error != WL_OK) return error;
+  error = start(adapter);
+  if (error != WL_OK) (void)wl_zephyr_uart_irq_stop(adapter);
+  return error;
+}
+
+static wl_packet_submit_t transport_submit(wl_transport_t *transport, const uint8_t *data,
+                                            size_t length, wl_packet_token_t token) {
+  return wl_zephyr_uart_irq_submit(transport, data, length, token);
+}
+static void transport_notify(wl_transport_t *transport) {
+  wl_zephyr_uart_irq_notify(transport);
+}
+static wl_err_t transport_service(wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_uart_irq_service((wl_zephyr_uart_irq_t *)transport, now);
+}
+static wl_io_readiness_t transport_readiness(const wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_uart_irq_readiness((const wl_zephyr_uart_irq_t *)transport, now);
+}
+static wl_err_t transport_wait(wl_transport_t *transport, uint32_t maximum_ms) {
+  return wl_zephyr_uart_irq_wait((wl_zephyr_uart_irq_t *)transport, wl_zephyr_timeout_ms(maximum_ms));
+}
+static wl_err_t transport_stop(wl_transport_t *transport) {
+  wl_zephyr_uart_irq_t *adapter = (wl_zephyr_uart_irq_t *)transport;
+  wl_zephyr_uart_irq_stop(adapter);
+  return WL_OK;
+}
+
+static const wl_transport_ops_t transport_ops = {
+  .attach = transport_attach, .submit = transport_submit, .notify = transport_notify,
+  .service = transport_service, .readiness = transport_readiness,
+  .wait = transport_wait, .stop = transport_stop,
+};
+
+wl_transport_t *wl_zephyr_uart_irq_transport(wl_zephyr_uart_irq_t *adapter,
+    const wl_zephyr_uart_irq_config_t *config) {
+  if (adapter == NULL || config == NULL) return NULL;
+  adapter->transport.ops = &transport_ops;
+  adapter->config = *config;
+  return &adapter->transport;
 }

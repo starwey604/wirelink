@@ -8,7 +8,7 @@ packet boundaries.
 
 ```sh
 cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_BUILD_ASIO_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
+  -DWIRELINK_BUILD_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
   -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching/wlc
 cmake --build build/udp --parallel
 ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
@@ -20,10 +20,9 @@ executable and swap the local and peer arguments between the two. The
 client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
 address/port across three new processes and verifies absent-peer timeout.
 
-A generated node owns the endpoint, port, and two RX units. The C program
-creates the UDP adapter with `wl_asio_udp_create` and binds it through
-`_init_io` with a fresh instance. The Asio adapter services I/O, advances
-the endpoint, and waits for endpoint or socket readiness on the owner.
+Open the socket with `wl_udp_open`, then bind the generated node to
+`wl_udp_transport(udp)`. The owner drives I/O and endpoint work with
+`wl_node_step` and waits with `wl_node_wait` using a freshly sampled clock.
 Admission encodes before
 return; completion copies the borrowed response. Close stops actual I/O, steps
 until physical quiescence, then frees socket resources.

@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "../fixtures/model_transport.h"
 #include "instrument.h"
 #include <stdlib.h>
 #include <string.h>
 #define CHECK(x) do { if (!(x)) abort(); } while (0)
 typedef struct peer {
   instrument_node_t endpoint;
+  model_transport_t transport;
   uint8_t rx[WL_PACKET_RX_SLOTS][256], frame[128];
   size_t length;
   unsigned received, errors;
@@ -28,20 +30,20 @@ static void error(void *user, uint16_t id, wl_err_t e) {
   peer_t *p = user; CHECK(id == 201 && e != WL_OK); ++p->errors;
 }
 static void init(peer_t *p, uint32_t instance) {
-  const wl_packet_io_t io = {.submit = sink, .user = p,
-    .rx_storage = &p->rx[0][0], .rx_storage_size = sizeof(p->rx),
-    .rx_unit_size = sizeof(p->rx[0])};
+  p->transport = (model_transport_t){.base = {&model_transport_ops},
+      .rx = {&p->rx[0][0], sizeof(p->rx), sizeof(p->rx[0])},
+      .sink = sink, .context = p};
   instrument_handlers_t h = {.on_reading = reading};
-  CHECK(instrument_init_io(&p->endpoint, instance, &io, &h, p) == WL_OK);
-  p->endpoint.on_error = error;
+  CHECK(instrument_bind_instance(&p->endpoint, instance, &p->transport.base, &h, p) == WL_OK);
+  p->endpoint.node.on_error = error;
 }
 static void inject(peer_t *to, const uint8_t *bytes, size_t length) {
   wl_packet_claim_t claim;
-  CHECK(wl_packet_rx_claim(&to->endpoint.port, length, &claim) == WL_OK);
+  CHECK(wl_packet_rx_claim(&to->endpoint.node.port, length, &claim) == WL_OK);
   memcpy(claim.span.data, bytes, length);
-  CHECK(wl_packet_rx_commit(&to->endpoint.port, &claim, length) == WL_OK);
+  CHECK(wl_packet_rx_commit(&to->endpoint.node.port, &claim, length) == WL_OK);
 }
-int main(void) {
+void test_instrument(void) {
   peer_t a = {0}, b = {0}; init(&a, 101); init(&b, 102);
   reading_t value = {.axis = {.coordinate = INT32_MIN, .label = {.length = 7, .data = {'a',0,'b','c','d','e','f'}}},
       .samples = {0,UINT32_MAX,42}, .has_note = true, .note = {.length = 17}};
@@ -51,20 +53,20 @@ int main(void) {
   CHECK(wl_wire_native_none_seal(golden, sizeof(golden), 201, n) == WL_OK);
   CHECK(instrument_send_reading(&a.endpoint, &value) == WL_OK);
   memset(&value, 0, sizeof(value));
-  CHECK(instrument_step(&a.endpoint, 0) == WL_OK);
+  CHECK(wl_node_step(&a.endpoint.node, 0) == WL_OK);
   CHECK(a.length == n + 4 && !memcmp(a.frame, golden, n + 4));
-  inject(&b, a.frame, a.length); CHECK(instrument_step(&b.endpoint, 0) == WL_OK);
+  inject(&b, a.frame, a.length); CHECK(wl_node_step(&b.endpoint.node, 0) == WL_OK);
   // Unknown optional field retained in input semantics, not a new value-domain limit.
   a.frame[a.length++] = 0x78; a.frame[a.length++] = 0x7f;
-  inject(&b, a.frame, a.length); CHECK(instrument_step(&b.endpoint, 0) == WL_OK);
+  inject(&b, a.frame, a.length); CHECK(wl_node_step(&b.endpoint.node, 0) == WL_OK);
   CHECK(b.received == 2);
   // Truncate inside the required nested message, then recover on the next packet.
-  inject(&b, a.frame, 6); CHECK(instrument_step(&b.endpoint, 0) != WL_OK);
+  inject(&b, a.frame, 6); CHECK(wl_node_step(&b.endpoint.node, 0) != WL_OK);
   CHECK(b.received == 2 && b.errors == 1);
-  inject(&b, golden, n + 4); CHECK(instrument_step(&b.endpoint, 0) == WL_OK);
-  inject(&a, golden, n + 4); CHECK(instrument_step(&a.endpoint, 0) == WL_OK);
+  inject(&b, golden, n + 4); CHECK(wl_node_step(&b.endpoint.node, 0) == WL_OK);
+  inject(&a, golden, n + 4); CHECK(wl_node_step(&a.endpoint.node, 0) == WL_OK);
   CHECK(b.received == 3 && a.received == 1 && INSTRUMENT_MESSAGE_FRAME_MAX == 54);
-  CHECK(wl_endpoint_close(&a.endpoint.core) == WL_OK && instrument_step(&a.endpoint, 0) == WL_OK);
-  CHECK(wl_endpoint_close(&b.endpoint.core) == WL_OK && instrument_step(&b.endpoint, 0) == WL_OK);
-  CHECK(wl_endpoint_quiescent(&a.endpoint.core) && wl_endpoint_quiescent(&b.endpoint.core));
+  CHECK(wl_endpoint_close(&a.endpoint.node.core) == WL_OK && wl_node_step(&a.endpoint.node, 0) == WL_OK);
+  CHECK(wl_endpoint_close(&b.endpoint.node.core) == WL_OK && wl_node_step(&b.endpoint.node, 0) == WL_OK);
+  CHECK(wl_endpoint_quiescent(&a.endpoint.node.core) && wl_endpoint_quiescent(&b.endpoint.node.core));
 }

@@ -1,9 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "wirelink/zephyr/detail/timeout.h"
 #include "wirelink/zephyr/uart_poll.h"
 #include <zephyr/drivers/uart.h>
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
+
+static const wl_transport_ops_t transport_ops;
 enum { READY, RUNNING, STOPPED };
 void wl_zephyr_uart_poll_notify(void *user) {
   wl_zephyr_uart_poll_t *a = user;
@@ -14,7 +17,7 @@ void wl_zephyr_uart_poll_notify(void *user) {
 static void error(wl_zephyr_uart_poll_t *a) {
   atomic_inc(&a->errors);
   atomic_set(&a->error_pending, 1);
-  wl_byte_fifo_note_gap(a->config.fifo);
+  wl_byte_fifo_note_gap(&a->fifo);
 }
 static void receive(void *user, void *unused1, void *unused2) {
   wl_zephyr_uart_poll_t *a = user;
@@ -27,7 +30,7 @@ static void receive(void *user, void *unused1, void *unused2) {
       published = true;
     }
     wl_span_t span;
-    if (wl_byte_fifo_reserve(a->config.fifo, &span) == WL_OK) {
+    if (wl_byte_fifo_reserve(&a->fifo, &span) == WL_OK) {
       size_t count = 0U, limit = MIN(span.length, 64U);
       while (count < limit && atomic_get(&a->running) == RUNNING) {
         int result = uart_poll_in(a->config.uart, span.data + count);
@@ -40,7 +43,7 @@ static void receive(void *user, void *unused1, void *unused2) {
         }
         ++count;
       }
-      if (wl_byte_fifo_commit(a->config.fifo, count) != WL_OK) {
+      if (wl_byte_fifo_commit(&a->fifo, count) != WL_OK) {
         error(a);
         published = true;
       }
@@ -54,9 +57,10 @@ static void receive(void *user, void *unused1, void *unused2) {
       (void)k_sem_take(&a->stop_wake, K_TICKS(1));
   }
 }
-int wl_zephyr_uart_poll_init(wl_zephyr_uart_poll_t *a, const wl_zephyr_uart_poll_config_t *c) {
-  if (a == NULL || c == NULL || c->uart == NULL || !device_is_ready(c->uart) || c->port == NULL ||
-      c->fifo == NULL || c->stream == NULL || c->stack == NULL || c->stack_size == 0U ||
+static wl_err_t initialize(wl_zephyr_uart_poll_t *a, const wl_zephyr_uart_poll_config_t *c,
+    const wl_transport_attach_t *info) {
+  if (a == NULL || c == NULL || c->uart == NULL || !device_is_ready(c->uart) ||
+      c->stack == NULL || c->stack_size == 0U ||
       c->tx_idle == NULL || c->drain_check_ms > INT32_MAX || c->priority < K_HIGHEST_THREAD_PRIO ||
       c->priority > K_LOWEST_APPLICATION_THREAD_PRIO)
     return WL_ERR_INVALID_ARG;
@@ -65,14 +69,19 @@ int wl_zephyr_uart_poll_init(wl_zephyr_uart_poll_t *a, const wl_zephyr_uart_poll
     return WL_ERR_NOT_SUPPORTED;
   const wl_zephyr_uart_poll_config_t saved = *c;
   memset(a, 0, sizeof(*a));
+  a->transport.ops = &transport_ops;
   a->config = saved;
+  a->port = info->port;
+  a->stream = info->stream;
+  wl_err_t error = wl_byte_fifo_init(&a->fifo, saved.fifo_storage, wl_zephyr_uart_poll_notify, a);
+  if (error != WL_OK) return error;
   k_sem_init(&a->wake, 0, 1);
   k_sem_init(&a->stop_wake, 0, 1);
   a->error_api_available = api->err_check != NULL;
   a->initialized = true;
   return WL_OK;
 }
-int wl_zephyr_uart_poll_start(wl_zephyr_uart_poll_t *a) {
+static wl_err_t start(wl_zephyr_uart_poll_t *a) {
   if (a == NULL || !a->initialized)
     return WL_ERR_INVALID_ARG;
   if (!atomic_cas(&a->running, READY, RUNNING))
@@ -100,7 +109,7 @@ wl_packet_submit_t wl_zephyr_uart_poll_submit(void *user, const uint8_t *bytes, 
   a->tx_active = true;
   a->tx_token = token;
   a->drain_due = k_uptime_get_32();
-  (void)wl_packet_tx_publish(a->config.port, token, WL_PACKET_CONSUMED);
+  (void)wl_packet_tx_publish(a->port, token, WL_PACKET_CONSUMED);
   return WL_PACKET_STARTED;
 }
 static int drain(wl_zephyr_uart_poll_t *a, uint32_t now) {
@@ -109,7 +118,7 @@ static int drain(wl_zephyr_uart_poll_t *a, uint32_t now) {
   int idle = a->config.tx_idle(a->config.uart);
   if (idle > 0) {
     a->tx_active = false;
-    return wl_packet_tx_publish(a->config.port, a->tx_token, WL_PACKET_DRAINED);
+    return wl_packet_tx_publish(a->port, a->tx_token, WL_PACKET_DRAINED);
   }
   a->drain_due = now + (a->config.drain_check_ms ? a->config.drain_check_ms : 1U);
   return idle < 0 ? WL_ERR_IO : WL_OK;
@@ -120,7 +129,8 @@ int wl_zephyr_uart_poll_service(wl_zephyr_uart_poll_t *a, uint32_t now) {
   (void)k_sem_take(&a->wake, K_NO_WAIT);
   int result = atomic_set(&a->error_pending, 0) ? WL_ERR_IO : WL_OK;
   int d = drain(a, now);
-  int input = wl_byte_fifo_to_cobs(a->config.fifo, a->config.stream, 16U);
+  if (atomic_get(&a->running) == STOPPED) return d;
+  int input = wl_byte_fifo_to_cobs(&a->fifo, a->stream, 16U);
   if (result == WL_OK && d != WL_OK)
     result = d;
   if (result == WL_OK && input != WL_ERR_WOULD_BLOCK)
@@ -130,7 +140,7 @@ int wl_zephyr_uart_poll_service(wl_zephyr_uart_poll_t *a, uint32_t now) {
 wl_io_readiness_t wl_zephyr_uart_poll_readiness(const wl_zephyr_uart_poll_t *a, uint32_t now) {
   wl_io_readiness_t r = wl_io_readiness_idle();
   r.runnable =
-      atomic_get(&a->error_pending) || wl_byte_fifo_cobs_ready(a->config.fifo, a->config.stream);
+      atomic_get(&a->error_pending) || wl_byte_fifo_cobs_ready(&a->fifo, a->stream);
   if (a->tx_active)
     wl_io_readiness_merge(
         &r, wl_io_readiness_at((int32_t)(now - a->drain_due) >= 0 ? 0U : a->drain_due - now));
@@ -156,7 +166,7 @@ int wl_zephyr_uart_poll_stop(wl_zephyr_uart_poll_t *a) {
     return WL_ERR_INVALID_ARG;
   __ASSERT(k_current_get() != &a->worker, "worker cannot join itself");
   wl_zephyr_uart_poll_request_stop(a);
-  wl_packet_stop(a->config.port);
+  wl_packet_stop(a->port);
   if (a->worker_created) {
     (void)k_thread_join(&a->worker, K_FOREVER);
     a->worker_created = false;
@@ -169,8 +179,54 @@ int wl_zephyr_uart_poll_stop(wl_zephyr_uart_poll_t *a) {
     if (a->tx_active)
       return WL_ERR_WOULD_BLOCK;
   }
-  (void)wl_packet_stream_abort_rx(a->config.stream);
+  (void)wl_packet_stream_abort_rx(a->stream);
   a->initialized = false;
   a->config.notify = NULL;
   return WL_OK;
+}
+
+static wl_err_t transport_attach(wl_transport_t *transport, const wl_transport_attach_t *info) {
+  wl_zephyr_uart_poll_t *adapter = (wl_zephyr_uart_poll_t *)transport;
+  wl_zephyr_uart_poll_config_t config = adapter->config;
+  if (info->framing != WL_NODE_COBS_CRC16) return WL_ERR_INVALID_ARG;
+  wl_err_t error = initialize(adapter, &config, info);
+  if (error != WL_OK) return error;
+  error = start(adapter);
+  if (error != WL_OK) (void)wl_zephyr_uart_poll_stop(adapter);
+  return error;
+}
+
+static wl_packet_submit_t transport_submit(wl_transport_t *transport, const uint8_t *data,
+                                            size_t length, wl_packet_token_t token) {
+  return wl_zephyr_uart_poll_submit(transport, data, length, token);
+}
+static void transport_notify(wl_transport_t *transport) {
+  wl_zephyr_uart_poll_notify(transport);
+}
+static wl_err_t transport_service(wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_uart_poll_service((wl_zephyr_uart_poll_t *)transport, now);
+}
+static wl_io_readiness_t transport_readiness(const wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_uart_poll_readiness((const wl_zephyr_uart_poll_t *)transport, now);
+}
+static wl_err_t transport_wait(wl_transport_t *transport, uint32_t maximum_ms) {
+  return wl_zephyr_uart_poll_wait((wl_zephyr_uart_poll_t *)transport, wl_zephyr_timeout_ms(maximum_ms));
+}
+static wl_err_t transport_stop(wl_transport_t *transport) {
+  wl_zephyr_uart_poll_t *adapter = (wl_zephyr_uart_poll_t *)transport;
+  return wl_zephyr_uart_poll_stop(adapter);
+}
+
+static const wl_transport_ops_t transport_ops = {
+  .attach = transport_attach, .submit = transport_submit, .notify = transport_notify,
+  .service = transport_service, .readiness = transport_readiness,
+  .wait = transport_wait, .stop = transport_stop,
+};
+
+wl_transport_t *wl_zephyr_uart_poll_transport(wl_zephyr_uart_poll_t *adapter,
+    const wl_zephyr_uart_poll_config_t *config) {
+  if (adapter == NULL || config == NULL) return NULL;
+  adapter->transport.ops = &transport_ops;
+  adapter->config = *config;
+  return &adapter->transport;
 }

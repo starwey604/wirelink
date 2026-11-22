@@ -2,6 +2,6 @@
 #ifndef WIRELINK_H_
 #define WIRELINK_H_
 #include "wirelink/version.h"
-#include "wirelink/endpoint.h"
+#include "wirelink/node.h"
 /* Include selected transport or stream connector headers explicitly. */
 #endif

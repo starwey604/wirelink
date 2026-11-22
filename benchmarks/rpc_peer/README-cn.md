@@ -1,4 +1,4 @@
-> replay-cache peer hook 基准已删除。peer identity 和旧响应隔离由 `tests/session` 验证，不再提供 cache hook。
+> replay-cache peer hook 基准已删除。peer identity 和旧响应隔离由 `tests/core/session_cases.c` 验证，不再提供 cache hook。
 
 # RPC peer 快路径基准
 

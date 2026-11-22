@@ -4,13 +4,15 @@
 #include <zephyr/net/socket.h>
 #include <limits.h>
 #include <string.h>
+
+static const wl_transport_ops_t transport_ops;
 static uint32_t remaining(const wl_zephyr_udp_t *a, uint32_t now) {
   return (int32_t)(now - a->retry_due) >= 0 ? 0U : a->retry_due - now;
 }
-wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *a, const wl_zephyr_udp_config_t *c) {
-  if (a == NULL || c == NULL || c->port == NULL || c->clock.now_ms == NULL ||
+static wl_err_t open_socket(wl_zephyr_udp_t *a, const wl_zephyr_udp_config_t *c, wl_packet_port_t *port) {
+  if (a == NULL || c == NULL || port == NULL || c->clock.now_ms == NULL ||
       c->maximum_datagram_size == 0U || c->maximum_datagram_size > 65507U ||
-      c->maximum_datagram_size >= wl_packet_rx_unit_size(c->port) || c->maximum_tx_datagram_size > 65507U ||
+      c->maximum_datagram_size >= wl_packet_rx_unit_size(port) || c->maximum_tx_datagram_size > 65507U ||
       c->service_budget == 0U ||
       c->service_budget > 16U || c->retry_ms > INT32_MAX)
     return WL_ERR_INVALID_ARG;
@@ -19,7 +21,9 @@ wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *a, const wl_zephyr_udp_config_t *c)
     return WL_ERR_INVALID_STATE;
   const wl_zephyr_udp_config_t saved = *c;
   memset(a, 0, sizeof(*a));
+  a->transport.ops = &transport_ops;
   a->config = saved;
+  a->port = port;
   if (a->config.maximum_tx_datagram_size == 0U)
     a->config.maximum_tx_datagram_size = saved.maximum_datagram_size;
   return wl_zephyr_udp_socket_open(&a->io, &saved.local, &saved.peer);
@@ -55,14 +59,14 @@ wl_err_t wl_zephyr_udp_service(wl_zephyr_udp_t *a, uint32_t now) {
   a->more_rx = false;
   if (a->retry_pending && remaining(a, now) == 0U) {
     a->retry_pending = false;
-    wl_packet_activity(a->config.port);
+    wl_packet_activity(a->port);
   }
   for (unsigned i = 0U; i < a->config.service_budget; ++i) {
     if (!wl_zephyr_udp_socket_readable(&a->io))
       return WL_OK;
     wl_packet_claim_t claim;
     wl_err_t error =
-        wl_packet_rx_claim(a->config.port, a->config.maximum_datagram_size + 1U, &claim);
+        wl_packet_rx_claim(a->port, a->config.maximum_datagram_size + 1U, &claim);
     if (error == WL_ERR_WOULD_BLOCK)
       return WL_OK;
     if (error != WL_OK)
@@ -72,15 +76,16 @@ wl_err_t wl_zephyr_udp_service(wl_zephyr_udp_t *a, uint32_t now) {
                                          a->config.maximum_datagram_size, &length);
     if (error == WL_OK && a->config.decode)
       error = a->config.decode(claim.span.data, length, &length);
+    if (error == WL_OK && length > a->rx_frame_max) error = WL_ERR_FRAME_TOO_LONG;
     if (error == WL_OK) {
-      error = wl_packet_rx_commit(a->config.port, &claim, length);
+      error = wl_packet_rx_commit(a->port, &claim, length);
       if (error != WL_OK) {
-        (void)wl_packet_rx_abort(a->config.port, &claim);
+        (void)wl_packet_rx_abort(a->port, &claim);
         return error;
       }
       ++a->received;
     } else {
-      (void)wl_packet_rx_abort(a->config.port, &claim);
+      (void)wl_packet_rx_abort(a->port, &claim);
       if (error == WL_ERR_NO_DATA)
         return WL_OK;
       if (error == WL_ERR_BAD_FRAME || error == WL_ERR_FRAME_TOO_LONG || error == WL_ERR_CRC ||
@@ -100,7 +105,7 @@ wl_io_readiness_t wl_zephyr_udp_readiness(const wl_zephyr_udp_t *a, uint32_t now
   if (a == NULL || !a->io.opened || atomic_get(&a->io.stopped))
     return r;
   if (a->more_rx || wl_zephyr_udp_socket_readable(&a->io)) {
-    r.runnable = wl_packet_rx_available(a->config.port);
+    r.runnable = wl_packet_rx_available(a->port);
     r.blocked = !r.runnable;
   }
   if (a->retry_pending)
@@ -117,7 +122,7 @@ wl_err_t wl_zephyr_udp_wait(wl_zephyr_udp_t *a, uint32_t maximum) {
     return WL_OK;
   if (r.next_deadline_ms < maximum)
     maximum = r.next_deadline_ms;
-  return wl_zephyr_udp_socket_wait(&a->io, wl_packet_rx_available(a->config.port), maximum);
+  return wl_zephyr_udp_socket_wait(&a->io, wl_packet_rx_available(a->port), maximum);
 }
 void wl_zephyr_udp_notify(void *user) {
   wl_zephyr_udp_t *a = user;
@@ -132,7 +137,7 @@ wl_err_t wl_zephyr_udp_close(wl_zephyr_udp_t *a) {
     return WL_ERR_INVALID_ARG;
   if (!a->io.opened)
     return WL_OK;
-  wl_packet_stop(a->config.port);
+  wl_packet_stop(a->port);
   return wl_zephyr_udp_socket_close(&a->io);
 }
 uint16_t wl_zephyr_udp_local_port(const wl_zephyr_udp_t *a) {
@@ -142,4 +147,59 @@ uint16_t wl_zephyr_udp_local_port(const wl_zephyr_udp_t *a) {
                  zsock_getsockname(a->io.socket_fd, (struct net_sockaddr *)&address, &length) == 0
              ? net_ntohs(address.sin_port)
              : 0U;
+}
+
+static wl_err_t transport_attach(wl_transport_t *transport, const wl_transport_attach_t *info) {
+  wl_zephyr_udp_t *adapter = (wl_zephyr_udp_t *)transport;
+  wl_zephyr_udp_config_t config = adapter->config;
+  if (info->framing == WL_NODE_LENGTH16) return WL_ERR_INVALID_ARG;
+  if (info->framing == WL_NODE_COBS_CRC16 && !config.decode) {
+#ifdef CONFIG_WIRELINK_STREAM_COBS_CRC16
+    config.decode = wl_packet_cobs_crc16_decode;
+#else
+    return WL_ERR_INVALID_ARG;
+#endif
+  }
+  if (!config.maximum_datagram_size) config.maximum_datagram_size = info->rx_wire_max;
+  if (!config.maximum_tx_datagram_size) config.maximum_tx_datagram_size = info->tx_wire_max;
+  if (config.maximum_datagram_size > info->rx_wire_max) return WL_ERR_INVALID_ARG;
+  wl_err_t error = open_socket(adapter, &config, info->port);
+  if (error == WL_OK) adapter->rx_frame_max = info->stream
+      ? info->stream->config.maximum_rx_frame_size : info->rx_wire_max;
+  return error;
+}
+
+static wl_packet_submit_t transport_submit(wl_transport_t *transport, const uint8_t *data,
+                                            size_t length, wl_packet_token_t token) {
+  return wl_zephyr_udp_submit(transport, data, length, token);
+}
+static void transport_notify(wl_transport_t *transport) {
+  wl_zephyr_udp_notify(transport);
+}
+static wl_err_t transport_service(wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_udp_service((wl_zephyr_udp_t *)transport, now);
+}
+static wl_io_readiness_t transport_readiness(const wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_udp_readiness((const wl_zephyr_udp_t *)transport, now);
+}
+static wl_err_t transport_wait(wl_transport_t *transport, uint32_t maximum_ms) {
+  return wl_zephyr_udp_wait((wl_zephyr_udp_t *)transport, maximum_ms);
+}
+static wl_err_t transport_stop(wl_transport_t *transport) {
+  wl_zephyr_udp_t *adapter = (wl_zephyr_udp_t *)transport;
+  return wl_zephyr_udp_close(adapter);
+}
+
+static const wl_transport_ops_t transport_ops = {
+  .attach = transport_attach, .submit = transport_submit, .notify = transport_notify,
+  .service = transport_service, .readiness = transport_readiness,
+  .wait = transport_wait, .stop = transport_stop,
+};
+
+wl_transport_t *wl_zephyr_udp_transport(wl_zephyr_udp_t *adapter,
+    const wl_zephyr_udp_config_t *config) {
+  if (adapter == NULL || config == NULL) return NULL;
+  adapter->transport.ops = &transport_ops;
+  adapter->config = *config;
+  return &adapter->transport;
 }

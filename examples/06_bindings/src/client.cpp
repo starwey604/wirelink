@@ -7,19 +7,18 @@
 namespace calculator {
 using namespace wlc_native;
 namespace {
-void destroy(void* pointer) noexcept {
-  ::operator delete(pointer, std::align_val_t(calculator_sdk_endpoint_alignment()));
+void destroy(wl_node_t* node) noexcept {
+  delete reinterpret_cast<calculator_node_t*>(node);
 }
-void* create(wl_host_endpoint_t& descriptor, wirelink::Error& error) {
-  std::unique_ptr<void, decltype(&destroy)> storage(
-      ::operator new(calculator_sdk_endpoint_size(), std::align_val_t(calculator_sdk_endpoint_alignment())), destroy);
-  const auto status = calculator_sdk_endpoint_prepare(storage.get(), &descriptor);
-  if (status != WL_OK) { error = wirelink::Error::local(status); return nullptr; }
-  return storage.release();
+wl_err_t create(uint32_t instance, wl_transport_t* transport, wl_node_t** out) {
+  auto owner = std::make_unique<calculator_node_t>();
+  const auto status = calculator_bind_instance(owner.get(), instance, transport);
+  if (status == WL_OK) *out = &owner.release()->node;
+  return status;
 }
 }
 wirelink::Result<Client> Client::connect(const wirelink::UdpOptions& options) {
-  auto session = wirelink::Session::connect(options, {create, calculator_sdk_endpoint_initialize, destroy});
+  auto session = wirelink::Session::connect(options, {create, destroy});
   if (!session) return session.error();
   return Client(std::move(session).value());
 }

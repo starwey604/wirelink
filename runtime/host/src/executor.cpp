@@ -9,11 +9,17 @@ namespace wirelink::host {
 Executor::~Executor() {
   if (stop() == WL_ERR_REENTRANT) std::terminate();
 }
-wl_err_t Executor::initialize(wl_endpoint_t &core, ExecutorIo io, wl_clock_t clock) {
+wl_err_t Executor::initialize(wl_node_t &node, wl_clock_t clock) {
   std::lock_guard lock(gate_);
-  if (state_ != State::uninitialized || !clock.now_ms ||
-      ((io.wait == nullptr) != (io.notify == nullptr))) return WL_ERR_INVALID_ARG;
-  core_ = &core; io_ = io; clock_ = clock; state_ = State::ready;
+  if (state_ != State::uninitialized || !clock.now_ms || !node.core.port)
+    return WL_ERR_INVALID_ARG;
+  if (node.transport && node.transport->ops->wait) {
+    if (!node.transport->ops->notify) return WL_ERR_INVALID_ARG;
+    waitable_ = node.transport;
+  }
+  node_ = &node;
+  clock_ = clock;
+  state_ = State::ready;
   return WL_OK;
 }
 wl_err_t Executor::start() {
@@ -32,8 +38,8 @@ wl_err_t Executor::start() {
   }
 }
 void Executor::wake_locked() noexcept {
-  if (io_.notify) io_.notify(io_.user);
-  else event_.notify();
+  event_.notify();
+  if (waitable_) waitable_->ops->notify(waitable_);
 }
 wl_err_t Executor::post(Work work, Reject reject) {
   if (!work) return WL_ERR_INVALID_ARG;
@@ -49,8 +55,7 @@ wl_err_t Executor::post(Work work, Reject reject) {
 void Executor::notify() noexcept {
   std::lock_guard lock(gate_);
   if (state_ == State::running || state_ == State::stopping) {
-    event_.notify();
-    if (io_.notify) io_.notify(io_.user);
+    wake_locked();
   }
 }
 void Executor::request_stop() noexcept {
@@ -65,7 +70,7 @@ wl_err_t Executor::stop() noexcept {
   std::lock_guard join(join_);
   request_stop();
   if (thread_.joinable()) thread_.join();
-  return WL_OK;
+  return close_result_;
 }
 bool Executor::on_owner_thread() const noexcept {
   std::lock_guard lock(gate_);
@@ -102,54 +107,45 @@ void Executor::run() noexcept {
     catch (const std::bad_alloc &) { return WL_ERR_NO_MEM; }
     catch (...) { return WL_ERR_IO; }
   };
-  auto wait = [&](uint32_t limit) -> wl_err_t {
-    try {
-      if (io_.wait) return io_.wait(io_.user, limit);
-      if (limit == UINT32_MAX) { event_.wait(); return WL_OK; }
-      return event_.wait_for(std::chrono::milliseconds(limit)) ? WL_OK : WL_ERR_NO_DATA;
-    } catch (...) { return failure(); }
+  auto wait = [&](uint32_t maximum) -> wl_err_t {
+    const auto sampled = now();
+    const auto readiness = wl_node_readiness(node_, sampled);
+    if (readiness.runnable) return WL_OK;
+    const auto current = now();
+    const auto limit = wl_wait_remaining(std::min(readiness.next_deadline_ms, maximum), sampled, current);
+    if (waitable_ && !node_->transport_stopped)
+      return wl_node_wait(node_, current, limit);
+    if (limit == UINT32_MAX) event_.wait();
+    else if (limit) (void)event_.wait_for(std::chrono::milliseconds(limit));
+    return WL_OK;
   };
   while (!stopping()) {
     bool more = commands(false);
-    uint32_t sampled = now();
-    wl_err_t error = WL_OK;
-    try { if (io_.service) error = io_.service(io_.user, sampled); }
+    wl_err_t error;
+    try { error = wl_node_step(node_, now()); }
     catch (...) { error = failure(); }
-    const auto core_error = wl_endpoint_step(core_, sampled, WL_ENDPOINT_BUDGET);
     if (error != WL_OK) last_error_.store(error);
-    if (core_error != WL_OK) last_error_.store(core_error);
-    if (error == WL_ERR_IO || error == WL_ERR_NO_MEM || core_error == WL_ERR_IO) { request_stop(); continue; }
-    sampled = now();
-    int have_deadline = 0; uint32_t deadline = 0;
-    bool ready = wl_endpoint_ready(core_, sampled, &have_deadline, &deadline) != 0;
-    auto io = wl_io_readiness_idle();
-    try { if (io_.readiness) io = io_.readiness(io_.user, sampled); }
-    catch (...) { last_error_.store(failure()); request_stop(); continue; }
-    uint32_t limit = have_deadline ? deadline - sampled : UINT32_MAX;
-    limit = std::min(limit, io.next_deadline_ms);
+    if (error == WL_ERR_IO || error == WL_ERR_NO_MEM) { request_stop(); continue; }
     { std::lock_guard lock(gate_); more |= !commands_.empty() || state_ != State::running; }
-    if (more || ready || io.runnable) continue;
-    error = wait(wl_wait_remaining(limit, sampled, now()));
-    if (error != WL_OK && error != WL_ERR_NO_DATA) {
-      last_error_.store(error); request_stop();
-    }
+    if (more) continue;
+    try { error = wait(UINT32_MAX); }
+    catch (...) { error = failure(); }
+    if (error != WL_OK) { last_error_.store(error); request_stop(); }
   }
   while (commands(true)) {}
-  (void)wl_endpoint_close(core_);
-  if (io_.stop) io_.stop(io_.user);
-  // Logical terminals and physical leases remain separate. Join cannot release
-  // storage while any real completion or RX borrow is still outstanding.
-  do {
-    const auto error = wl_endpoint_step(core_, now(), WL_ENDPOINT_BUDGET);
-    if (error != WL_OK) last_error_.store(error);
-    if (wl_endpoint_quiescent(core_)) break;
-    int have_deadline = 0; uint32_t deadline = 0;
-    if (wl_endpoint_ready(core_, now(), &have_deadline, &deadline)) continue;
-    // A stopped I/O wait can reject further socket operations. Keep storage
-    // alive and wait for a real producer notification rather than spinning.
-    const auto waited = wait(UINT32_MAX);
-    if (waited != WL_OK && waited != WL_ERR_NO_DATA) event_.wait();
-  } while (true);
+  for (;;) {
+    try { close_result_ = wl_node_close(node_, now()); }
+    catch (...) { close_result_ = failure(); }
+    if (close_result_ == WL_OK) break;
+    if (close_result_ != WL_ERR_BUSY && close_result_ != WL_ERR_WOULD_BLOCK) {
+      last_error_.store(close_result_);
+      break;
+    }
+    // Stop may publish the last physical completion from a different context.
+    try {
+      if (wait(1) != WL_OK) (void)event_.wait_for(std::chrono::milliseconds(1));
+    } catch (...) { last_error_.store(failure()); (void)event_.wait_for(std::chrono::milliseconds(1)); }
+  }
   { std::lock_guard lock(gate_); owner_ = {}; state_ = State::stopped; }
 }
 } // namespace wirelink::host

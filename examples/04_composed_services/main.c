@@ -162,10 +162,9 @@ static bulk_status_t exchange(uint32_t phase, uint32_t id, size_t offset, size_t
 }
 int main(void) {
   for (size_t i = 0; i < sizeof(source); ++i) source[i] = (uint8_t)(i * 17U + 3U);
-  example_pair_init(&pair, &endpoints[0].core, &endpoints[1].core,
-      &endpoints[0].port, &endpoints[1].port);
+  example_pair_init(&pair, &endpoints[0].node, &endpoints[1].node);
   for (unsigned side = 0; side < 2; ++side)
-    EXAMPLE_REQUIRE(product_init_io(&endpoints[side], 0U, &pair.io[side]) == WL_OK);
+    EXAMPLE_REQUIRE(product_bind(&endpoints[side], wl_packet_loopback_transport(&pair.cable, side)) == WL_OK);
   EXAMPLE_REQUIRE(exchange(PHASE_BEGIN, 1, 0, 0).code == STATUS_OK);
   for (size_t offset = 0; offset < sizeof(source); offset += 256) {
     bulk_status_t result = exchange(PHASE_CHUNK, 1, offset, 256);

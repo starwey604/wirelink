@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-add_library(device_test_service STATIC service.c server_bridge.c generated/peer.c)
+add_library(device_test_service STATIC service.c generated/peer.c)
 set_target_properties(device_test_service PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
 target_include_directories(device_test_service PUBLIC . generated ../generated ../src)
-target_link_libraries(device_test_service PUBLIC DeviceSdk::client Wirelink::asio_udp)
+target_link_libraries(device_test_service PUBLIC DeviceSdk::client Wirelink::udp)
 add_executable(device_cpp_tests client.cpp)
 target_link_libraries(device_cpp_tests PRIVATE device_test_service)
 add_test(NAME device_cpp COMMAND device_cpp_tests)

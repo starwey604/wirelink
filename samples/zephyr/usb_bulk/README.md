@@ -48,7 +48,7 @@ or the dedicated K4 RPC/Sample benchmark's workload. CPU-on and CPU-off builds
 must be measured independently. No Zephyr/Astrial vendor files are changed.
 
 Twister builds both ESP32-S3 observer configurations with matching local WLC.
-`tests/usb_sample` runs the actual application with the C kernel and a controlled
+`tests/core/usb_application.c` runs the actual application with the C kernel and a controlled
 physical driver, including full-size echo, retained-source completion/drain,
 ordered backpressure, no-spin BUSY, chunk duplicates, CRC, once-only commit,
 wrapped idle timeout and close. Builds and RAM-model tests do not qualify a

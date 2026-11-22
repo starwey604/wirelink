@@ -2,7 +2,7 @@
 
 [文档总览](README.md) · [节点与生成 API](../wlc/README.md) · [packet_port.h](../include/wirelink/packet_port.h) · [packet_stream.h](../include/wirelink/packet_stream.h)
 
-Wirelink 核心不读取时钟，也不运行线程、ISR、DMA 或 socket。节点内置端口、默认双 RX 槽和所选流连接器。同步发送使用 `_init` 绑定整帧写函数。异步驱动使用 `_init_io` 绑定提交和唤醒回调，USB Bulk 可指定满足硬件步长要求的外部 RX 槽。
+Wirelink 核心不读取时钟，也不运行线程、ISR、DMA 或 socket。节点内置端口、默认双 RX 槽和所选流连接器。同步发送使用 `<node>_bind_sync` 绑定整帧写函数。异步驱动使用 `<node>_bind` 绑定提交和唤醒回调，USB Bulk 可指定满足硬件步长要求的外部 RX 槽。
 
 ## 一、同步整帧收发
 
@@ -21,33 +21,33 @@ static sub_node_t subscriber;
 
 static wl_err_t pub_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
   (void)self;
-  return sub_rx_packet(&subscriber, data, length);
+  return wl_node_rx_packet(&subscriber.node, data, length);
 }
 ```
 
-调用 `pub_init(&publisher, pub_tx_write)` 和 `sub_init(&subscriber)` 并检查返回值。提交 `pub_send_telemetry()` 后，由 owner 推进 `pub_step()` 和 `sub_step()`。应用实现 `sub_on_telemetry()` 接收业务值。实际驱动把完整包交给 `<node>_rx_packet()`，返回成功表示完整包已复制到节点 RX 槽，回调随后由 owner 执行。
+调用 `pub_bind_sync(&publisher, pub_tx_write)` 和 `sub_bind_sync(&subscriber)` 并检查返回值。提交 `pub_send_telemetry()` 后，owner 分别调用 `wl_node_step(&publisher.node, now)` 和 `wl_node_step(&subscriber.node, now)`。应用实现 `sub_on_telemetry()` 接收业务值。实际驱动把完整包交给 `wl_node_rx_packet()`，返回成功表示完整包已复制到节点 RX 槽，回调随后由 owner 执行。
 
-默认初始化通过进程级 `wl_packet_instance_next()` 分配非零、不会回绕的实例号，分配失败会传递给调用者。它保证本进程内自动分配之间唯一。链路可能残留重启前旧包时，用 `pub_init_with_instance(&publisher, id, pub_tx_write)` 接入应用的持久会话身份策略，并避免显式 ID 与自动 ID 冲突。
+默认初始化通过进程级 `wl_packet_instance_next()` 分配非零、不会回绕的实例号，分配失败会传递给调用者。它保证本进程内自动分配之间唯一。链路可能残留重启前旧包时，用 `pub_bind_sync_instance(&publisher, id, pub_tx_write)` 接入应用的持久会话身份策略，并避免显式 ID 与自动 ID 冲突。
 
 ### TX 是整帧事务，忙后必须通知恢复
 
 owner 步进时调用初始化中传入的 `tx_write(self, bytes, length)`：
 
 - 返回 `WL_OK`：已在返回前同步消费并完成整帧物理发送，之后不再保留此指针。
-- 返回 `WL_ERR_WOULD_BLOCK` 或 `WL_ERR_BUSY`：没有接受任何字节。待硬件或对端 RX 槽恢复可用后，调用 `<node>_tx_ready(self)`，让 owner 重试。
+- 返回 `WL_ERR_WOULD_BLOCK` 或 `WL_ERR_BUSY`：没有接受任何字节。待硬件或对端 RX 槽恢复可用后，调用 `wl_node_tx_ready(&self->node)`，让 owner 重试。
 - 其他错误：发送失败，按节点错误/调用完成路径报告。
 
-如果物理设备需要部分写入或异步持有指针，使用 `_init_io` 绑定驱动，由驱动管理物理租约。
+如果物理设备需要部分写入或异步持有指针，使用 `<node>_bind` 绑定驱动，由驱动管理物理租约。
 
 回环中的可写条件是对端 RX 有空槽：owner 消费完接收包后通知发送端 `tx_ready()`。单次普通消息提交成功不等于槽位已可复用；后续提交背压时保留业务值，待步进/恢复事件后再试。
 
 ### 流接收必须保留 consumed 之外的尾部
 
-在节点中选择 `framing = cobs_crc16` 或 `framing = length16` 后，生成入口改为：
+在节点中选择 `framing = cobs_crc16` 或 `framing = length16` 后，用以下入口喂入字节流：
 
 ```c
 size_t consumed = 0;
-wl_err_t error = sensor_rx_feed(&sensor, bytes, length, &consumed);
+wl_err_t error = wl_node_rx_feed(&sensor.node, bytes, length, &consumed);
 ```
 
 这里假定节点名为 `sensor`。返回值 `error` 是 `wl_err_t` 状态，`consumed` 输出已消费字节数。无论返回成功、背压还是坏帧，都按 `consumed` 推进输入；只重试 `bytes + consumed` 之后的尾部。RX 暂满时等待 owner 释放槽位再继续，不能丢尾部、重复喂入前缀或原地忙循环。`rx_feed` 的生产者必须串行；若 ISR 无法保留尾部，先通过 SPSC 字节 FIFO 交给 owner，再由 owner 喂入。字节确实丢失时应走所用连接器的断流/重同步路径，不能当作成功接收。
@@ -55,27 +55,26 @@ wl_err_t error = sensor_rx_feed(&sensor, bytes, length, &consumed);
 ### 关闭顺序
 
 1. 停止并确认 RX 生产者不再调用 `rx_packet()` / `rx_feed()`。
-2. owner 调用 `<node>_close()`。流式节点会撤销尚未完成的半帧 RX claim。
-3. 继续 `<node>_step(now)`，直到 `<node>_quiescent()` 为真，再释放或重新初始化节点存储。
+2. owner 调用 `wl_node_close(&self->node, now)`。流式节点会撤销尚未完成的半帧 RX claim。
+3. 遇到 `WL_ERR_BUSY` 或 `WL_ERR_WOULD_BLOCK` 时重新采时并重试关闭，直到 `wl_node_quiescent(&self->node)` 为真，再释放或重新初始化节点存储。
 
 ## 二、绑定异步驱动与物理租约
 
-驱动使用节点的 `&node.port`，流式驱动使用 `&node.stream`。适配器先保存引用，再调用 `n_init_io(&node, instance, &io)`，最后启动收发。`handlers = dynamic` 节点在初始化时追加回调表与用户指针。下段来自 [裸机回环](../examples/bare_metal_loopback.c)。
+应用先准备驱动，再调用生成的 `<node>_bind`。绑定期间，节点通过 `attach` 向驱动提供已初始化的端口、流和收发上限。动态处理器节点在绑定时追加回调表与用户指针。下段来自 [裸机回环](../examples/bare_metal_loopback.c)。
 
 <!-- [docs:loopback_setup] -->
 ```c
-const wl_packet_io_t config = {.submit = wl_packet_loopback_submit, .notify = wl_packet_loopback_notify,
-    .user = &transport.directions[side]};
+wl_transport_t *link = wl_packet_loopback_transport(&transport, side);
 demo_handlers_t handlers = {.on_execute = execute, .on_event = received};
-require(demo_init_io(&endpoints[side], 1001U + side, &config, &handlers, NULL) == WL_OK);
+require(demo_bind_instance(&endpoints[side], 1001U + side, link, &handlers, NULL) == WL_OK);
 ```
 <!-- [/docs:loopback_setup] -->
 
-`instance` 为零时自动分配实例号。默认两个 RX 槽的单槽大小为 `<N>_RX_WIRE_MAX + 1U`，多出的字节用于识别超长报文。USB Bulk 等硬件需要特定步长或对齐时，可在 `wl_packet_io_t` 中同时填写 `rx_storage`、`rx_storage_size` 和 `rx_unit_size`。每槽至少为 `<N>_RX_WIRE_MAX + 1U`，总容量至少为 `WL_PACKET_RX_SLOTS * rx_unit_size`。
+`instance` 为零时自动分配实例号。默认两个 RX 槽的单槽大小为 `<N>_RX_WIRE_MAX + 1U`，多出的字节用于识别超长报文。USB Bulk 等硬件需要特定步长或对齐时，可通过驱动的 `configure_rx` 回调同时填写 `rx_storage`、`rx_storage_size` 和 `rx_unit_size`。每槽至少为 `<N>_RX_WIRE_MAX + 1U`，总容量至少为 `WL_PACKET_RX_SLOTS * rx_unit_size`。
 
 ### 异步 TX：submit 与 completion
 
-owner 调用 `wl_packet_sink_fn`。驱动返回值决定是否持有传入的数据指针和 token：
+owner 调用 transport 的 `submit` 回调。驱动返回值决定是否持有传入的数据指针和 token：
 
 | 返回值 | 接受状态 | 后续义务 |
 | --- | --- | --- |
@@ -108,22 +107,21 @@ UART 等流式链路使用节点内的 `wl_packet_stream_t`，可按需增加 `w
 
 异步驱动按以下顺序关闭：
 
-1. 停止 RX 生产者并等待其退出。
-2. owner 调用节点 `close()`，停止新业务提交并安排 `WL_RPC_CLOSED` 完成回调。
-3. 停止/排空物理驱动，让所有异步 TX 发布最终状态；继续 owner `step(now)`，直至节点 quiescent 且驱动确认不再访问存储。
-4. 释放节点、FIFO 与驱动缓冲，或用新实例号重新初始化。
+1. owner 调用 `wl_node_close(&self->node, now)` 停止新提交并请求驱动停机。
+2. 若返回 `WL_ERR_WOULD_BLOCK`，驱动仍在停机；若返回 `WL_ERR_BUSY`，节点仍在排空。保持缓冲有效，待进展后用最新时间重试关闭。
+3. 硬件错误传给调用方处理。关闭返回 `WL_OK` 后，驱动已停止，半帧 RX、物理租约与终态回调均已清理，可以释放或重用存储。
 
 ## 三、Host / RTOS 事件循环
 
-桌面 UDP 程序包含 `<wirelink/asio/packet_udp.h>` 并链接 `Wirelink::asio_udp`。CMake 工程启用 C 和 CXX，应用源文件按 C11 编译，由 C++ 链接器链接 Asio 库。
+桌面 UDP 程序包含 `<wirelink/udp.h>` 并链接 `Wirelink::udp`。CMake 工程启用 C 和 CXX，应用源文件按 C11 编译，由 C++ 链接器链接 Asio 库。
 
-调用 `wl_asio_udp_create(&node.port)` 和 `wl_asio_udp_io(udp)` 取得绑定，用 `_init_io` 初始化节点，再调用 `wl_asio_udp_start`。owner 调用 `wl_asio_udp_step_endpoint` 推进收发和端点，通过 `wl_asio_udp_wait_endpoint` 合并端点截止时间与等待上限。关停时调用 `wl_asio_udp_close_endpoint`，确认端点 quiescent 后销毁适配器。以下循环来自 [Host UDP 示例](../examples/05_zephyr_udp/)。
+调用 `wl_udp_open(&udp, &config, &os_error)` 绑定套接字，再通过 `<node>_bind(&self, wl_udp_transport(udp))` 启动节点 I/O。默认收发上限来自所绑定的节点。owner 在 `wl_node_step` 后重新采时，再调用 `wl_node_wait`；节点关闭成功后调用 `wl_udp_close`。以下循环来自 [Host UDP 示例](../examples/05_zephyr_udp/)。
 
 <!-- [docs:udp_server_loop] -->
 ```c
 while (example_running()) {
   uint32_t now = example_now_ms();
-  if (wl_asio_udp_step_endpoint(udp, &server.core, now) != WL_OK) { status = 1; break; }
+  if (wl_node_step(&server.node, now) != WL_OK) { status = 1; break; }
   if ((int32_t)(now - due) >= 0) {
     telemetry_t sample = {.sample = ++sequence};
     const wl_err_t error = udp_server_send_telemetry(&server, &sample);
@@ -132,7 +130,7 @@ while (example_running()) {
   }
   now = example_now_ms();
   uint32_t wait = (int32_t)(due - now) > 0 ? due - now : 0;
-  if (wl_asio_udp_wait_endpoint(udp, &server.core, now, wait) != WL_OK) { status = 1; break; }
+  if (wl_node_wait(&server.node, now, wait) != WL_OK) { status = 1; break; }
 }
 ```
 <!-- [/docs:udp_server_loop] -->

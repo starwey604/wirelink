@@ -5,6 +5,10 @@ on:
     branches: ["**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      wlc_ref:
+        description: Paired WLC branch or ref
+        type: string
 
 permissions:
   contents: read
@@ -28,6 +32,8 @@ jobs:
           ref: bbecff21a23b97c34641f0f1f08b28c91b9c77cf
           path: .tools/asio
       - uses: ./.github/actions/setup-wlc
+        with:
+          ref: ${{ inputs.wlc_ref }}
       - name: Build native support with Clang ASan/UBSan
         run: |
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS=-fsanitize=address,undefined -DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DWIRELINK_WLC_EXECUTABLE=${{ env.WIRELINK_WLC_EXECUTABLE }} -DWIRELINK_BUILD_CPP_BINDINGS=ON -DWIRELINK_BUILD_PLATFORM=ON -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_ASIO_INCLUDE_DIR=${{ github.workspace }}/.tools/asio/asio/include -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
@@ -61,6 +67,8 @@ jobs:
       - name: Build dependencies
         run: python -m pip install build "nanobind>=3.0,<4" "scikit-build-core>=1.0,<2" pytest
       - uses: ./.github/actions/setup-wlc
+        with:
+          ref: ${{ inputs.wlc_ref }}
       - name: Configure native support
         run: >-
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=Release

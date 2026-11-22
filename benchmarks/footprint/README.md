@@ -16,14 +16,13 @@ python benchmarks/footprint/compare.py before.json after.json
 ```
 
 The C probe uses the checked-in generated demo node's actual layout, plus
-packet port, stream, byte FIFO and call-handle sizes. Three explicit example
-assemblies show endpoint, port, two RX units, optional stream TX/object and
-optional byte staging budgets. Every storage number is bytes. Generated endpoint
-size already includes kernel metadata, four request snapshots, three reply
-snapshots, one ordinary snapshot and typed reply scratch. Do not add these twice.
-Native USB reserves one byte beyond its maximum frame. Stream budgets use the
-actual selected connector bound. Byte staging uses a caller-selected sample
-budget, not a universal library requirement. Driver objects and padding in an
+packet port, stream, byte FIFO and call-handle sizes. Three representative assemblies split the node's bytes into port, RX slots,
+stream object, TX wire buffer and remaining node storage (including ABI
+padding). The native total uses `sizeof(demo_node_t)`. The stream layouts use
+the generated prefix and the selected connector's bounds, including the
+extra byte per RX slot and the ABI alignment of each trailing member.
+The COBS assembly also includes a caller-selected FIFO and staging buffer.
+Driver objects and padding in an
 application's enclosing structure are excluded.
 
 The standalone probe does not compile the demo codec into the source-object sum.

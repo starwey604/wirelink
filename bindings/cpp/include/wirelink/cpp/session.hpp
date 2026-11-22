@@ -17,11 +17,10 @@ struct UdpOptions {
   wl_environment_t environment{wl_platform_environment()};
 };
 struct EndpointFactory {
-  // Prepare stable C-owned port storage/descriptor, without starting I/O.
-  void *(*create)(wl_host_endpoint_t &, Error &);
-  wl_err_t (*initialize)(void *, uint32_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
-  // Called only after logical callbacks and real physical leases quiesce.
-  void (*destroy)(void *) noexcept;
+  // Success transfers a bound node to the session. On failure the factory
+  // releases its allocations and leaves out null.
+  wl_err_t (*create)(uint32_t instance, wl_transport_t *transport, wl_node_t **out);
+  void (*destroy)(wl_node_t *) noexcept;
 };
 class Session {
 public:

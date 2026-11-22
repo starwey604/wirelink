@@ -1,11 +1,11 @@
 ---
-title: 04 接上真实物理链路：UART 串口与 UDP 上位机联调
-description: 为 UART 串口或 UDP 网络选择正确的 node framing，掌握串口 rx_feed 粘包拆包留尾规则，并与上位机 Python / C++20 SDK 联调。
+title: 04 字符串、字节数组、可选字段与多文件组合
+description: 使用有界 string<N>、bytes<N>、optional 与 import 编写真实业务协议，掌握接收回调中按值拷贝结构体的内存生命周期规则。
 sidebar:
   order: 4
 ---
 
-import { Aside, Steps, Tabs, TabItem, FileTree } from '@astrojs/starlight/components';
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
 import Challenge from '../../../../components/tutorial/Challenge.astro';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
@@ -13,235 +13,245 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 <LessonHeader
   unit={4}
-  duration="8 分钟"
-  examplePath="examples/05_zephyr_udp"
+  duration="7 分钟"
+  examplePath="examples/02_device_info"
   goals={[
-    '根据物理硬件链路，在 node 中正确选择 cobs_crc16（串口字节流）或 native（UDP/数据包）分帧',
-    '掌握 UART 串口接入模板与 rx_feed(..., &consumed) 的留尾法则，轻松应对粘包与半帧断包',
-    '看懂真实设备端“一面响应 RPC、一面定时推遥测”的事件循环，并与上位机 Python / C++20 SDK 联调',
+    '使用有界 string<N> 与 bytes<N> 在无动态内存分配的前提下传输变长字符串与字节块',
+    '掌握接收回调中 response 指针的生命周期：通过结构体按值赋值（saved = *response）安全保存数据',
+    '了解 optional 可选字段、定长数组与枚举，并学会用 import 组合多个 .wl 文件',
   ]}
 />
 
-在前三课里，我们已经学会了定义 `.wl`、搭配 Telemetry 与 RPC、以及处理字符串结构体。现在，我们要把生成的节点真正接到硬件外设上！
+在嵌入式 C 开发中，一旦协议出现变长字符串（如设备名称、固件版本号）或变长字节块（如传感器原始载荷），通常需要处理两个问题：如何避免动态申请 `malloc/free`，以及如何在接收回调返回后安全保留解码结果。
 
-走向真实物理链路时，你只需要解决两个问题：
-1. **串口没有包边界怎么办？** UDP 每次收发天然是一个完整数据包；但 **UART 串口（或 USB CDC 虚拟串口）是一条连续不断的字节流**——一次接收中断可能只收到半个包，也可能一口气粘着收到两个半包，而且线路上还可能出现电磁干扰导致比特翻转。
-2. **设备端如何一边响应上位机命令、一边定时推遥测？**
-
-这一课我们就手把手把这两个问题彻底搞定。
+本课结合双进程示例 [`examples/02_device_info/`](https://github.com/starwey604/wirelink/tree/main/examples/02_device_info) 与多模块协议 [`examples/04_composed_services/`](https://github.com/starwey604/wirelink/tree/main/examples/04_composed_services)，介绍 Wirelink 的数据建模方式与回调生命周期规则。
 
 ---
 
-## 第一步：在 `node` 里用一行 `framing` 搞定物理分帧
+## 第一步：用 `string<N>` 定义有界字符串
 
-在 Wirelink 中，你**不需要改任何业务数据结构或业务处理函数**，只需要在 `.wl` 的 `node` 块里写一行 `framing = ...;`，编译器就会自动为你接入对应的分帧与校验状态机：
+节点使用的消息需要具备编译期确定的最大字节长度，因此字符串和字节数组通过 `<N>` 指定上限（例如 `string<31>`、`bytes<64>`）。编译器会将它们的存储直接内联在生成的 C 结构体内部。
 
-| `node` 中的配置 | 适用物理链路 | 线缆上的封装格式 | 生成的接收入口函数 |
-| :--- | :--- | :--- | :--- |
-| **`framing = cobs_crc16;`** | **UART 串口**、RS-485、USB CDC 虚拟串口等连续字节流 | `COBS(规范帧 + CRC16) + 0x00`<br/>*(自动用 `0x00` 找包边界并校验 CRC-16/CCITT-FALSE)* | **`<node>_rx_feed(&node, bytes, len, &consumed)`**<br/>*(可喂入任意长度的碎片或粘包字节流)* |
-| **`framing = native;`**（默认） | **UDP 网络数据报**、RTOS 消息队列、自带包边界的 USB Bulk | 直接传输规范帧（4B 帧头 + Payload） | **`<node>_rx_packet(&node, data, len)`**<br/>*(每次传入完整的一帧数据包)* |
-| **`framing = length16;`** | 板内受控 SPI / IPC 等可靠字节流通道 | `2B 小端长度头 + 规范帧`（无 CRC 开销） | **`<node>_rx_feed(&node, bytes, len, &consumed)`** |
-
----
-
-## 第二步：UART 串口（`cobs_crc16`）接入模板
-
-假设你的 MCU 通过 UART 串口与上位机通信，先在 `.wl` 里给节点加上 `framing = cobs_crc16;`：
-
-```wl
-node serial_device {
-  framing = cobs_crc16;
-  serve Add;
-  send Telemetry;
-}
-```
-
-### 1. 串口接收：`rx_feed` 与 `consumed` 留尾黄金法则
-
-当你使用 `framing = cobs_crc16;` 时，生成的接收函数是 `serial_device_rx_feed(&dev, buf, len, &consumed)`。为什么它多了一个输出参数 `size_t *consumed`？
-
-**想一个真实场景**：你的串口 RingBuffer 里攒了 **100 个字节**，里面正好粘着 **3 个完整帧**。而为了严控 RAM，每个节点的内部接收槽固定只有 **2 个 RX 槽**！当你把 100 字节喂给 `rx_feed` 时，它会自动解码并吃掉前两帧（比如消耗了前 68 个字节，填满 2 个 RX 槽），然后停下来返回 `WL_ERR_WOULD_BLOCK`，并把 `consumed` 设为 **`68`**。
-
-因此，串口接收只需遵守一条黄金法则——**“永远从串口缓冲移走前 `consumed` 个字节，剩下的尾巴留到 `step()` 之后下一轮再喂”**：
-
-```c
-/* 推荐架构：UART RX 中断只负责把字节塞进环形缓冲 uart_rx_ring；
- * 主循环 (Single Owner) 从环形缓冲取出字节喂给节点： */
-void poll_uart_and_step(void) {
-  uint8_t chunk[64];
-  size_t avail = uart_rx_ring_peek(chunk, sizeof(chunk));
-
-  if (avail > 0) {
-    size_t consumed = 0;
-    wl_err_t err = serial_device_rx_feed(&dev, chunk, avail, &consumed);
-
-    /* 无论 err 是 WL_OK、WL_ERR_WOULD_BLOCK 还是 CRC 校验失败，
-     * 前 consumed 个字节都已经被分帧器处理完毕，直接从环形缓冲移走！ */
-    if (consumed > 0) {
-      uart_rx_ring_drop(consumed);
-    }
-  }
-
-  /* 紧接着推进 step，消费掉 RX 槽里的完整帧（触发业务回调），腾出空槽给剩下的尾巴 */
-  serial_device_step(&dev, 0);
-}
-```
-
-该节点只提供 RPC 服务并发送遥测，`step` 可以传 `0`。
-
-### 2. 串口发送：`tx_write` 的整帧规则
-
-当 `serial_device_step` 需要发包时，它会把已经做好 COBS 转义、附带 CRC16 和末尾 `0x00` 的完整线缆帧传给你的 `serial_device_tx_write(self, data, length)`：
-
-```c
-wl_err_t serial_device_tx_write(serial_device_node_t *self, const uint8_t *data, size_t length) {
-  (void)self;
-  /* 铁律：要么把整帧 length 个字节全部拷进你的串口发送队列并返回 WL_OK；
-   * 要么在发送队列剩余空间不足 length 时，1 个字节都不收，直接返回 WL_ERR_WOULD_BLOCK！ */
-  if (uart_tx_ring_free_space() < length) {
-    return WL_ERR_WOULD_BLOCK; /* 等串口发空后再调 serial_device_tx_ready(&dev) 通知重试 */
-  }
-  uart_tx_ring_push(data, length);
-  return WL_OK;
-}
-```
-
----
-
-## 第三步：UDP 服务端事件循环与上位机 Python / C++20 SDK 联调
-
-如果下位机走的是 UDP 网络（或者由网关将串口转成了 UDP，见 [`examples/05_zephyr_udp/`](https://github.com/starwey604/wirelink/tree/main/examples/05_zephyr_udp)），设备端的主循环是如何把 **RPC 服务** 与 **20ms 定时遥测推送** 结合在一起的？
-
-来看 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c) 的真实主循环：
-
-{/* [docs:udp_server_loop] */}
-```c
-while (example_running()) {
-  uint32_t now = example_now_ms();
-  if (wl_asio_udp_step_endpoint(udp, &server.core, now) != WL_OK) { status = 1; break; }
-  if ((int32_t)(now - due) >= 0) {
-    telemetry_t sample = {.sample = ++sequence};
-    const wl_err_t error = udp_server_send_telemetry(&server, &sample);
-    if (error != WL_OK && error != WL_ERR_WOULD_BLOCK) { status = 1; break; }
-    due = now + 20;
-  }
-  now = example_now_ms();
-  uint32_t wait = (int32_t)(due - now) > 0 ? due - now : 0;
-  if (wl_asio_udp_wait_endpoint(udp, &server.core, now, wait) != WL_OK) { status = 1; break; }
-}
-```
-{/* [/docs:udp_server_loop] */}
-
-这段不到 15 行的主循环展示了三个非常实用的工程技巧：
-1. **每次循环先跑 `step`**：处理所有新收到的上位机 RPC 请求并把排队中的帧发出去。
-2. **非阻塞定时发遥测**：每满 20ms（`(int32_t)(now - due) >= 0`）就调用 `udp_server_send_telemetry` 发送一条最新采样。
-3. **无事可做时精确休眠（`wait`）**：算出距离下一次 20ms 采样还差多少毫秒 `wait`，在没有网络包到来前挂起等待，既不空转占满 CPU，又能随时被新到达的上位机请求立刻唤醒！
-
-### 上位机用 `wlc sdk` 一键对接
-
-当设备端跑起来后，上位机只需用 `wlc sdk` 生成客户端工程（参考 [`examples/06_bindings/`](https://github.com/starwey604/wirelink/tree/main/examples/06_bindings)）：
+对比 [`examples/02_device_info/device_info.wl`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/device_info.wl) 与它生成的 C11 结构体：
 
 <Tabs>
-  <TabItem label="1. Python 客户端 (同步 & asyncio)">
-    安装生成的 Python 包（`pip install ./build/calculator-sdk`）后，底层自带独立的高性能 C++ I/O 会话线程，不会卡住你的 Python 主线程或 UI：
+  <TabItem label="1. 协议定义 (device_info.wl)">
+    {/* [docs:device_info_schema] */}
+    ```wl
+    version 1;
 
-    {/* [docs:python_sdk_client] */}
-    ```python
-    with Client.connect(Udp(peer=('127.0.0.1', port))) as client:
-        saved = client.add(left=20, right=22)
-        assert saved.sum == 42
-        try:
-            client.add(left=2**31 - 1, right=1)
-        except RejectedError as error:
-            assert error.status == 1
-    ```
-    {/* [/docs:python_sdk_client] */}
+    message InfoRequest @id(30) {}
 
-    *(若在 `asyncio` 协程中使用，直接用同包导出的 `AsyncClient.connect(...)` 并 `await client.add(...)` 即可。)*
-  </TabItem>
-
-  <TabItem label="2. C++20 客户端">
-    对于上位机 C++ 服务、Qt 桌面程序或 ROS 2 节点，生成的 SDK 提供了无异常的 `wirelink::Result<T>` 同步接口与 `wirelink::Operation<T>` 异步句柄：
-
-    ```cpp
-    #include <calculator/client.hpp>
-
-    auto client = calculator::Client::connect(wirelink::cpp::host::UdpOptions{
-        .peer_address = "127.0.0.1", .peer_port = port}).value();
-
-    // 同步调用
-    auto res = client.add({.left = 20, .right = 22});
-    if (res.has_value()) {
-      int32_t sum = res->sum; // 42
+    message InfoResponse @id(31) {
+      string<31> name @id(1);
+      string<15> firmware @id(2);
+      uint32 query_count @id(3);
     }
 
-    // 异步调用并支持主动 cancel()
-    auto op = client.add_async({.left = 10, .right = 32}).value();
-    auto async_res = op.wait();
+    rpc GetInfo(InfoRequest) -> InfoResponse;
+    node info_client { call GetInfo; }
+    node info_server { serve GetInfo; }
     ```
+    {/* [/docs:device_info_schema] */}
   </TabItem>
 
-  <TabItem label="3. 免编译器分发给测试同事">
-    <FileTree>
-    - calculator-sdk/
-      - CMakeLists.txt C++20 库与 nanobind Python 扩展构建脚本
-      - pyproject.toml 标准 Python 打包配置（支持 pip wheel）
-      - include/calculator/
-        - **client.hpp** C++20 Client API
-        - **types.hpp** C++20 消息结构体定义
-      - python/calculator_sdk/
-        - **__init__.py** 导出 Client, AsyncClient, Udp 与异常类型
-        - **_native.pyi** 完整的 IDE 自动补全类型提示
-    </FileTree>
-    用 `python -m build --wheel` 打包出 `.whl` 文件后，发给测试或上位机同事，他们的电脑上**不需要安装 Rust、`wlc` 或 C++ 编译器**，`pip install` 就能直接连上设备测试！
+  <TabItem label="2. 生成的 C11 结构体与安全 Setter">
+    生成的 `info_response_t` 不含任何外部指针，字符串字节数组直接内联在结构体中：
+
+    ```c
+    struct info_response {
+      struct {
+        size_t length;
+        char data[32]; /* string<31> 分配 31 + 1 字节，末尾自动补 '\0' */
+      } name;
+      struct {
+        size_t length;
+        char data[16]; /* string<15> 分配 15 + 1 字节 */
+      } firmware;
+      uint32_t query_count;
+    };
+
+    /* 生成的辅助 setter：校验长度不超过上限、复制内容并补 '\0'，超长返回 false */
+    bool info_response_set_name(info_response_t *msg, const char *value);
+    bool info_response_set_firmware(info_response_t *msg, const char *value);
+    ```
   </TabItem>
 </Tabs>
 
-<Challenge
-  title="切换物理链路的代价有多小？"
-  prompt="如果硬件改版，把两块板子之间的通信从 UART 串口换成了 UDP 网口（或者反过来），你的 .wl 消息定义和业务函数（如 on_add）需要改吗？"
->
-  **业务数据结构和业务函数一行都不用改！**
+### 常用数据类型速览
 
-  在 Wirelink 中，业务层（`message` / `rpc`）与物理分帧层（`node` 里的 `framing`）是彻底解耦的：
-  1. 你只需要在 `node` 里把 `framing = cobs_crc16;` 改成 `framing = native;`；
-  2. 把底层的串口 `rx_feed` 换成收 UDP 包的 `rx_packet`，上层所有的 `on_add`、`send_telemetry` 业务代码原封不动！
+除了整数与 `string<N>`，`.wl` 还支持以下常用类型（完整列表见 [.wl 协议语法手册](/wirelink/zh-cn/concepts/schema-language/)）：
+
+| 数据类型 | `.wl` 写法 | 生成的 C11 成员 |
+| :--- | :--- | :--- |
+| **有界 UTF-8 字符串** | `string<31> name @id(1);` | `struct { size_t length; char data[32]; }`（线缆上只传输实际 `length` 字节，解码后在 `data[length]` 补 `'\0'`） |
+| **有界原始字节块** | `bytes<64> payload @id(2);` | `struct { size_t length; uint8_t data[64]; }`（可包含任意二进制数据） |
+| **定长紧凑数组** | `packed float32 accel[3] @id(3);` | `float accel[3];` |
+| **枚举类型** | `enum Mode @id(1) { IDLE = 0; RUN = 1; }` | 强类型 C `enum`，解码时自动拒绝未定义枚举值 |
+| **可选字段** | `optional int32 temp @id(4);` | `bool has_temp;` + `int32_t temp;`（未传时 `has_temp` 为 `false`，便于协议向后兼容演进） |
+
+---
+
+## 第二步：服务端写入字符串与客户端按值拷贝
+
+由于 `info_response_t` 中的字符串是内联数组而非外部指针，在接收回调中直接执行一次结构体赋值 **`saved = *response;`** 即可完整深拷贝所有字段（包括字符串内容）。
+
+<Tabs>
+  <TabItem label="1. 服务端填写响应 (server.c)">
+    在 [`examples/02_device_info/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/server.c) 中，服务端直接写入 `length` 与 `data`（注意 `name` 中演示了允许内嵌 `'\0'` 字节的定长二进制安全 UTF-8；普通 C 字符串也可以直接调用生成的 `info_response_set_name`）：
+
+    {/* [docs:device_info_server] */}
+    ```c
+    int32_t info_server_on_get_info(info_server_node_t *self, const info_request_t *request, info_response_t *response) {
+      (void)request;
+      unsigned *queries = self->node.user;
+      response->name.length = 11; memcpy(response->name.data, "workbench\0x", 11);
+      response->firmware.length = 6; memcpy(response->firmware.data, "0.0.99", 6);
+      response->query_count = ++*queries;
+      return 0;
+    }
+    ```
+    {/* [/docs:device_info_server] */}
+  </TabItem>
+
+  <TabItem label="2. 客户端回调按值拷贝 (client.c)">
+    在 [`examples/02_device_info/client.c`](https://github.com/starwey604/wirelink/blob/main/examples/02_device_info/client.c) 中，`done` 回调将 `*response` 整体拷贝到静态变量 `saved` 中，而不是保存 `response` 指针：
+
+    {/* [docs:device_info_done] */}
+    ```c
+    static void done(info_client_node_t *self, wl_rpc_result_t outcome, const info_response_t *response) {
+      (void)self;
+      result = outcome;
+      if (response != NULL) saved = *response;
+      ++completed;
+    }
+    ```
+    {/* [/docs:device_info_done] */}
+  </TabItem>
+
+  <TabItem label="3. 客户端发起调用 (client.c)">
+    客户端发出空请求 `InfoRequest` 并推进主循环直到回调完成；即使随后关闭节点，先前拷贝到 `saved` 中的字符串与 `query_count` 依然完好可用：
+
+    {/* [docs:device_info_client] */}
+    ```c
+    static wl_err_t read_device_info(info_client_node_t *client) {
+      wl_err_t error = info_client_call_get_info(client, &(info_request_t){0}, done);
+      while (error == WL_OK && example_running() && !completed) {
+        error = wl_node_step(&client->node, example_now_ms());
+        if (error == WL_OK && !completed)
+          error = wl_node_wait(&client->node, example_now_ms(), 100U);
+      }
+      return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
+    }
+    ```
+    {/* [/docs:device_info_client] */}
+  </TabItem>
+</Tabs>
+
+<Aside type="caution" title="回调中的指针生命周期规则">
+- 无论是单向消息的 `const <msg>_t *message`，还是 RPC 的 `const <resp>_t *response`，指针所指向的内部解码缓冲区**仅在当前回调函数返回前有效**。
+- **不要保存指针**（例如 `global_ptr = response;` 或 `global_str = response->name.data;`）。
+- **应按值拷贝**（例如 `saved = *response;`），所有内联字符串和字节数组会随结构体一并安全复制。
+</Aside>
+
+---
+
+## 第三步：运行双进程示例
+
+构建并在两个终端分别运行 [`examples/02_device_info/`](https://github.com/starwey604/wirelink/tree/main/examples/02_device_info) 的服务端与客户端（默认端口 `50006` 与 `50005`）：
+
+```sh
+cmake --build build/examples --target device_info_server device_info_client
+```
+
+```sh
+# 终端 1：启动设备信息服务端
+./build/examples/examples/02_device_info/device_info_server
+```
+
+```sh
+# 终端 2：运行查询客户端（可多次运行观察 query_count 递增）
+./build/examples/examples/02_device_info/device_info_client
+```
+
+客户端在关闭连接后会打印已保留的字段：
+
+```text
+name=workbenchx firmware=0.0.99 query_count=1
+```
+
+---
+
+## 第四步：使用 `import` 拆分大型协议
+
+当设备同时包含多个子系统（例如运动控制、传感器遥测、固件升级）时，不必把所有消息塞进同一份 `.wl` 文件。可以在子文件中分别定义各自的 `message` 与 `rpc`，再在顶层产品文件中使用 `import` 组合到一个或多个 `node` 中。
+
+查看 [`examples/04_composed_services/product.wl`](https://github.com/starwey604/wirelink/blob/main/examples/04_composed_services/product.wl)：
+
+{/* [docs:composed_product_schema] */}
+```wl
+version 1;
+import "arm.wl";
+import "upgrade.wl";
+
+node product {
+  send Telemetry; recv Telemetry;
+  send BulkCommand; recv BulkCommand;
+  send BulkStatus; recv BulkStatus;
+  call Query; serve Query;
+  call Reboot; serve Reboot;
+}
+```
+{/* [/docs:composed_product_schema] */}
+
+使用 CMake 的 `wirelink_wlc_generate` 时，构建系统会自动调用 `wlc dependencies` 追踪所有被 `import` 的文件——只要任意子文件有修改，下次构建都会自动重新生成 C 代码。
+
+<Challenge
+  title="检查理解：为什么 string<31> 可以用 saved = *response 安全跨回调保存？"
+  prompt="在 C 语言中，如果结构体里存的是 const char *name，直接做结构体赋值 saved = *response 通常不安全；为什么 Wirelink 生成的 info_response_t 可以直接赋值？"
+>
+  因为 Wirelink 为 `string<31>` 生成的成员不是 `const char *` 指针，而是直接内嵌在结构体内部的定长数组 `char data[32]` 和长度字段 `size_t length`。执行 `saved = *response;` 时，C 编译器会按值把数组里的全部字节一起复制过去，不依赖任何临时缓冲区或堆内存。
 </Challenge>
 
 ---
 
-## 本课小测验
+## 小测验
 
 <MultipleChoice
-  id="lesson-04-framing"
-  question="当你的 MCU 通过裸 UART 串口收发数据（中断每次收到的可能是半个帧，也可能是粘在一起的两个帧）时，应该怎么配置和喂数据？"
+  id="lesson-04-lifetime"
+  question="在 info_client 的完成回调 done(self, outcome, response) 中，想在回调返回后继续使用收到的设备名称与版本号，以下哪种写法是正确的？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "在 node 中配置 framing = cobs_crc16; 并调用 <node>_rx_feed(..., &consumed)，每次移走前 consumed 个已消费字节、保留未消费尾部。",
+    "label": "检查 outcome.outcome == WL_RPC_SUCCESS && response != NULL 后，直接按值拷贝整个结构体：saved = *response;。",
     "correct": true,
-    "feedback": "完全正确！cobs_crc16 会自动用 0x00 分隔符断包并校验 CRC-16/CCITT-FALSE；按 consumed 移走已消费前缀即可完美处理半帧与粘包。"
+    "feedback": "正确。因为字符串和字节数组内联在结构体内部，按值拷贝即可完整保留数据，即使后续关闭节点依然有效。"
   },
   {
-    "label": "使用默认的 framing = native; 把每次 UART 接收中断拿到的字节直接传给 <node>_rx_packet。",
+    "label": "把指针直接存下来：static const char *cached_name = response->name.data;。",
     "correct": false,
-    "feedback": "错误！native 要求每次 rx_packet 传入的必须是整整齐齐的一帧，而 UART 中断批次没有包边界，直接传给 rx_packet 会导致解包失败。"
+    "feedback": "不安全。回调返回后底层解码缓冲区会被后续帧复用，保存内部指针会导致悬空引用或数据被覆盖。"
+  },
+  {
+    "label": "在回调里调用 free(response) 防止内存泄漏。",
+    "correct": false,
+    "feedback": "Wirelink 核心不使用 malloc/free，response 指向的是节点内部的静态缓冲，切勿对其调用 free。"
   }
 ]}
 />
 
 <Checklist
   id="checklist-04"
-  title="本课掌握清单"
+  title="本课检查清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "能根据链路特性为 UART 串口选 framing = cobs_crc16，为 UDP/数据包通道选 framing = native。",
-    "掌握串口 rx_feed 的 consumed 留尾规则，以及 tx_write“整帧接受或整帧返回 WOULD_BLOCK”的发送契约。",
-    "会用 wlc sdk 生成上位机 Python / C++20 客户端，并理解设备端“响应 RPC + 定时发遥测”的主循环结构。"
+    "能够使用 string<N>、bytes<N>、optional、packed 数组与枚举定义业务消息。",
+    "理解回调中指针仅在回调期间有效，掌握通过结构体按值拷贝保存数据的做法。",
+    "知道如何用 import 将多个子模块的 .wl 文件组合到产品节点中。"
   ]}
 />
 
-现在你的上下位机已经在真实链路上跑起来了！接下来我们要往深处走一步：**如果上位机一口气并发塞过来好几个 RPC 请求，或者串口发送较慢导致发送槽满了（返回 `WL_ERR_WOULD_BLOCK`），怎么控流才不会丢关键数据？怎么主动取消一个在途请求？**
+当通信从单次请求走向真实负载时，很快会遇到多路并发请求、自定义超时与中途取消，以及发送过快返回 `WL_ERR_WOULD_BLOCK` 的情况。下一课将集中讲解这些运行时控制手段。
 
-下一课：[05 并发调用、超时取消与发送背压控制 →](/wirelink/zh-cn/learn/05-concurrency-backpressure/)
+下一课：[05 并发调用、超时取消与发送队列控制 →](/wirelink/zh-cn/learn/05-concurrency-backpressure/)

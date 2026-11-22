@@ -1,11 +1,11 @@
 ---
 title: 02 单向消息（Telemetry）与 RPC
-description: 编写单向遥测消息节点，理解 Telemetry（send/recv）与 RPC（call/serve）的分工，并掌握两者配合处理耗时任务的方法。
+description: 编写独立的单向遥测发布端与订阅端，理解 Telemetry（send/recv）与 RPC（call/serve）的分工，并掌握两者配合处理耗时任务的方法。
 sidebar:
   order: 2
 ---
 
-import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
 import Challenge from '../../../../components/tutorial/Challenge.astro';
 import Checklist from '../../../../components/tutorial/Checklist.astro';
@@ -16,15 +16,15 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
   duration="7 分钟"
   examplePath="examples/00_telemetry"
   goals={[
-    '使用 send 与 recv 定义并运行单向遥测消息（Telemetry）',
+    '使用 send 与 recv 定义单向遥测消息，并分别编译独立的发布端与订阅端',
     '厘清 Telemetry 与 RPC 的适用边界',
     '掌握“短 RPC 启动任务 + 单向消息上报进度”的组合模式',
   ]}
 />
 
-第 01 课实现了需要请求与响应配对的 RPC 服务。然而在设备通信中，很多数据属于单向推送——例如传感器以固定频率上报温度、姿态或电压——发送端并不需要每次都等待对端回复。
+第 01 课实现了需要请求与响应配对的 RPC 服务。在设备通信中，另一类常见需求是单向推送——例如传感器以固定频率上报温度、姿态或电压——发送端并不需要每次都等待对端回复。
 
-Wirelink 通过**单向消息（Telemetry）**支持这类场景。本课先通过一个温度上报示例演示单向消息的写法，再对照 RPC 说明两者的分工与配合方式。
+Wirelink 通过**单向消息（Telemetry）**支持这类场景。本课先通过独立的双进程温度上报示例演示单向消息的写法，再对照 RPC 说明两者的分工与配合方式。
 
 ---
 
@@ -44,41 +44,38 @@ node sub { recv Telemetry; }
 {/* [/docs:telemetry_schema] */}
 
 与第 01 课的 `calculator.wl` 相比，这里没有 `rpc` 声明，而是直接在节点中指定消息方向：
-- `node pub { send Telemetry; }`：发送端声明可以主动发送 `Telemetry` 消息，编译器会生成发送函数 `pub_send_telemetry`。
-- `node sub { recv Telemetry; }`：接收端声明可以接收 `Telemetry` 消息，编译器会要求你实现接收回调 `sub_on_telemetry`。
+- `node pub { send Telemetry; }`：发布端声明可以发送 `Telemetry` 消息，编译器会生成发送函数 `pub_send_telemetry`。
+- `node sub { recv Telemetry; }`：订阅端声明可以接收 `Telemetry` 消息，编译器会要求你实现接收回调 `sub_on_telemetry`。
 
-如果需要在同一个 C 程序里同时使用 `pub` 和 `sub`（例如编写本地回环测试），生成代码时将 `--node <name>` 替换为 `--all-nodes` 即可：
+由于发布端和订阅端通常是两个独立程序，编译时分别用 `--node pub` 和 `--node sub` 生成各自的代码：
 
 ```sh
-wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
-  --all-nodes --out-dir build/telemetry
+wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl --node pub --out-dir build/pub
+wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl --node sub --out-dir build/sub
 ```
 
 ---
 
-## 第二步：实现发送与接收
+## 第二步：分别实现发布端与订阅端
 
-在 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 中，`pub` 和 `sub` 位于同一个 C 程序。`pub_tx_write` 将整帧交给 `sub_rx_packet`，在内存中模拟链路。
+在 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 中，[`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c) 与 [`subscriber.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c) 是两个互不依赖的独立进程，直接使用 `<wirelink/udp.h>` 提供的 `wl_udp_*` C API 在 `50001` 与 `50002` 端口间通信。
 
 <Tabs>
-  <TabItem label="1. 连接收发 (publisher.c)">
-    发送端的物理发送钩子将字节直接送入接收端：
+  <TabItem label="1. 发布端初始化 (publisher.c)">
+    发布端创建本地 UDP 适配器并调用 `pub_bind` 绑定到发布节点：
 
     {/* [docs:telemetry_tx_write] */}
     ```c
-    static wl_asio_udp_t *open_publisher(int argc, char **argv) {
-      wl_asio_udp_config_t config = {
+    static wl_udp_t *open_publisher(int argc, char **argv) {
+      wl_udp_config_t config = {
         .bind_address = "127.0.0.1", .bind_port = 50001,
-        .peer_address = "127.0.0.1", .peer_port = 50002,
-        .maximum_tx_datagram_size = PUB_TX_WIRE_MAX
+        .peer_address = "127.0.0.1", .peer_port = 50002
       };
       if (!example_udp_args(argc, argv, &config)) return NULL;
-      wl_asio_udp_t *udp = wl_asio_udp_create(&publisher.port);
-      if (!udp) return NULL;
-      const wl_packet_io_t io = wl_asio_udp_io(udp);
-      if (pub_init_io(&publisher, 0U, &io) != WL_OK ||
-          wl_asio_udp_start(udp, &config) != WL_OK) {
-        wl_asio_udp_destroy(udp);
+      wl_udp_t *udp = NULL;
+      if (wl_udp_open(&udp, &config, NULL) != WL_OK) return NULL;
+      if (pub_bind(&publisher, wl_udp_transport(udp)) != WL_OK) {
+        wl_udp_close(udp);
         return NULL;
       }
       example_install_signals();
@@ -88,8 +85,23 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
     {/* [/docs:telemetry_tx_write] */}
   </TabItem>
 
-  <TabItem label="2. 接收回调 (subscriber.c)">
-    `sub_on_telemetry` 在接收端解码消息后运行，并按值保存最新采样。单向消息的回调返回 `void`。
+  <TabItem label="2. 发布端发送采样 (publisher.c)">
+    主循环每隔 200 毫秒调用一次 `publish_sample`。`pub_send_telemetry` 返回 `WL_OK` 时，结构体内容已编码并复制到节点发送缓冲区，随后由 `wl_node_step` 写出帧字节：
+
+    {/* [docs:telemetry_publish] */}
+    ```c
+    static wl_err_t publish_sample(uint32_t sequence) {
+      telemetry_t sample = {.sample = sequence, .temperature_centi_c = -1234};
+      wl_err_t error = pub_send_telemetry(&publisher, &sample);
+      if (error != WL_OK) return error;
+      return wl_node_step(&publisher.node, 0U);
+    }
+    ```
+    {/* [/docs:telemetry_publish] */}
+  </TabItem>
+
+  <TabItem label="3. 订阅端接收回调 (subscriber.c)">
+    订阅端只需实现 `sub_on_telemetry` 并在主循环中等待与推进。由于单向消息不需要回复，回调返回类型为 `void`：
 
     {/* [docs:telemetry_receive] */}
     ```c
@@ -102,43 +114,37 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
     ```
     {/* [/docs:telemetry_receive] */}
   </TabItem>
-
-  <TabItem label="3. 发送采样 (publisher.c)">
-    初始化两端后，调用 `pub_send_telemetry` 提交采样，再用 `pub_step` 和 `sub_step` 分别推进发送与接收。两个节点都没有出站 RPC，`step` 的时间参数传 `0`。
-
-    {/* [docs:telemetry_publish] */}
-    ```c
-    static wl_err_t publish_sample(wl_asio_udp_t *udp, uint32_t sequence) {
-      telemetry_t sample = {.sample = sequence, .temperature_centi_c = -1234};
-      wl_err_t error = pub_send_telemetry(&publisher, &sample);
-      if (error != WL_OK) return error;
-      return wl_asio_udp_step_endpoint(udp, &publisher.core, 0U);
-    }
-    ```
-    {/* [/docs:telemetry_publish] */}
-  </TabItem>
 </Tabs>
 
-注意 `pub_send_telemetry` 中传入的是一个栈上临时结构体 `&(telemetry_t){ ... }`。调用 `pub_send_telemetry` 返回 `WL_OK` 时，数据已经被编码并复制到节点内部缓冲区，因此调用结束后无需再维持该临时变量的生命周期。
-
-在仓库根目录构建并运行该示例：
+构建并在两个终端中分别运行订阅端与发布端（按 `Ctrl-C` 退出）：
 
 ```sh
-cmake --build build/examples --target wirelink_telemetry_demo
-./build/examples/examples/00_telemetry/wirelink_telemetry_demo
+cmake --build build/examples --target telemetry_subscriber telemetry_publisher
 ```
 
-预期输出：
+```sh
+# 终端 1：先启动订阅端等待采样
+./build/examples/examples/00_telemetry/telemetry_subscriber
+```
+
+```sh
+# 终端 2：启动发布端周期发送
+./build/examples/examples/00_telemetry/telemetry_publisher
+```
+
+终端 1 会按 200 毫秒间隔实时打印收到的采样：
 
 ```text
-12 ordinary telemetry messages received; both endpoints quiescent
+sample=1 temperature_centi_c=-1234
+sample=2 temperature_centi_c=-1234
+sample=3 temperature_centi_c=-1234
 ```
 
 ---
 
 ## 第三步：何时选择单向消息，何时选择 RPC？
 
-单向消息与 RPC 可以在同一个节点上共存。设计协议时，可以按是否需要明确的“调用结果”来区分：
+单向消息与 RPC 可以在同一个节点上共存。设计协议时，可以按是否需要明确的调用结果来区分：
 
 | 对比维度 | 单向消息（Telemetry / Event） | 双向调用（RPC） |
 | :--- | :--- | :--- |
@@ -174,7 +180,7 @@ sequenceDiagram
     ```c
     int32_t device_server_on_start_self_test(device_server_node_t *self, const start_self_test_request_t *request,
                          start_self_test_response_t *response) {
-      device_service_t *state = self->user;
+      device_service_t *state = self->node.user;
       if (state->job_pending || state->next_job == UINT32_MAX) return DEVICE_BUSY;
       state->job_id = ++state->next_job;
       state->pattern = request->pattern;
@@ -188,7 +194,7 @@ sequenceDiagram
   </TabItem>
 
   <TabItem label="2. 主循环完成后发送单向进度消息">
-    主循环每次轮询 `self_test_poll`，待硬件任务到达完成条件后，调用 `device_server_send_self_test_progress` 将结果推送给上位机。如果此时发送缓冲区暂满（返回 `WL_ERR_WOULD_BLOCK`），则保留 `job_pending` 标志，留待下一轮主循环继续发送：
+    主循环每次轮询 `self_test_poll`，待硬件任务到达完成条件后，调用 `device_server_send_self_test_progress` 将结果推送给对端。如果此时发送缓冲区暂满（返回 `WL_ERR_WOULD_BLOCK`），则保留 `job_pending` 标志，留待下一轮主循环继续发送：
 
     {/* [docs:device_job_poll] */}
     ```c
@@ -251,12 +257,12 @@ sequenceDiagram
   title="本课检查清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "能够使用 send 与 recv 定义单向消息，并实现接收端 on_<message> 回调。",
+    "能够使用 send 与 recv 定义单向消息，并分别用 --node pub / --node sub 编译运行独立发布端与订阅端。",
     "理解单向消息与 RPC 的区别，能为不同业务场景选择合适的通信模式。",
     "掌握“短 RPC 返回任务号 + 单向消息上报结果”的组合方式，避免阻塞主循环。"
   ]}
 />
 
-前两课分别演示了 RPC 服务端与单向消息的收发。在 C 语言中，如果当前设备需要作为**调用方**主动发起一次 RPC，该如何传入请求并区分成功响应与服务端拒绝？
+前两课分别演示了 RPC 服务端与单向消息的收发。下一课回到 RPC 的另一端——看看在独立的 C 客户端中如何发起调用，并在回调中区分成功响应、服务端拒绝与超时错误。
 
 下一课：[03 C 语言客户端调用与错误处理 →](/wirelink/zh-cn/learn/03-rpc-basics/)

@@ -22,7 +22,7 @@ int32_t device_server_on_scale(device_server_node_t *self, const scale_request_t
 
 int32_t device_server_on_get_limits(device_server_node_t *self, const get_limits_request_t *request,
                           get_limits_response_t *response) {
-  const device_service_t *device = self->user;
+  const device_service_t *device = self->node.user;
   (void)request;
   response->lower = device->lower;
   response->upper = device->upper;
@@ -31,7 +31,7 @@ int32_t device_server_on_get_limits(device_server_node_t *self, const get_limits
 
 int32_t device_server_on_set_limits(device_server_node_t *self, const set_limits_request_t *request,
                           set_limits_response_t *response) {
-  device_service_t *device = self->user;
+  device_service_t *device = self->node.user;
   (void)response;
   if (request->lower > request->upper) return DEVICE_INVALID_ARGUMENT;
   device->lower = request->lower;

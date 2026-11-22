@@ -2,7 +2,7 @@
 #include <zephyr/ztest.h>
 #include <zephyr/net/socket.h>
 #include "business.h"
-#include "zephyr_owner.h"
+#include "wirelink/zephyr/udp.h"
 #include <string.h>
 /* Real generated RPCs over two real Zephyr UDP sockets. */
 static udp_validation_node_t endpoints[2];
@@ -25,25 +25,23 @@ static void setup(void) {
   const uint16_t base = 49200;
   for (unsigned side = 0; side < 2; ++side) {
     memset(&adapters[side], 0, sizeof(adapters[side]));
-    const wl_packet_io_t io = {.submit = wl_zephyr_udp_submit,
-      .notify = wl_zephyr_udp_notify, .user = &adapters[side]};
     const udp_validation_handlers_t handlers = {.on_add = add, .on_telemetry = peer_sample};
-    zassert_ok(udp_validation_init_io(&endpoints[side], ++incarnation, &io, &handlers, &states[side]));
-    wl_zephyr_udp_config_t config = {.port = &endpoints[side].port, .local = address(base + side),
-      .peer = address(base + 1U - side), .maximum_datagram_size = UDP_VALIDATION_RX_WIRE_MAX,
-      .maximum_tx_datagram_size = UDP_VALIDATION_TX_WIRE_MAX, .service_budget = 8,
+    wl_zephyr_udp_config_t config = {.local = address(base + side),
+      .peer = address(base + 1U - side),
+      .service_budget = 8,
       .clock = {clock_read, NULL}};
-    zassert_ok(wl_zephyr_udp_open(&adapters[side], &config));
+    zassert_ok(udp_validation_bind_instance(&endpoints[side], ++incarnation,
+        wl_zephyr_udp_transport(&adapters[side], &config), &handlers, &states[side]));
   }
 }
 static void pass(void) {
-  for (unsigned side = 0; side < 2; ++side) zassert_ok(peer_z_step(&adapters[side], &endpoints[side].core, tick));
+  for (unsigned side = 0; side < 2; ++side) zassert_ok(wl_node_step(&endpoints[side].node, tick));
   ++tick; k_sleep(K_MSEC(1)); /* Give the real network RX thread CPU. */
 }
 static void close_pair(void) {
   for (unsigned side = 0; side < 2; ++side) {
-    zassert_ok(peer_z_close(&adapters[side], &endpoints[side].core));
-    zassert_true(wl_endpoint_quiescent(&endpoints[side].core));
+    zassert_ok(wl_node_close(&endpoints[side].node, tick));
+    zassert_true(wl_node_quiescent(&endpoints[side].node));
   }
 }
 static add_request_t request(int32_t left, int32_t right) {
@@ -85,11 +83,11 @@ ZTEST(udp_validation, test_business_rejection_cancel_timeout_wrap_and_close) {
   wl_call_handle_t timed, cancelled;
   zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 5, peer_completed, &states[0], &timed));
   zassert_ok(udp_validation_call_add_ex(&endpoints[0], &value, tick, 500, peer_completed, &states[0], &cancelled));
-  zassert_ok(wl_endpoint_cancel(&endpoints[0].core, cancelled));
-  zassert_ok(peer_z_step(&adapters[0], &endpoints[0].core, tick));
+  zassert_ok(wl_node_cancel(&endpoints[0].node, cancelled));
+  zassert_ok(wl_node_step(&endpoints[0].node, tick));
   zassert_equal(states[0].completions, 2); zassert_equal(states[0].result.outcome, WL_RPC_CANCELLED);
   tick += 5;
-  zassert_ok(peer_z_step(&adapters[0], &endpoints[0].core, tick));
+  zassert_ok(wl_node_step(&endpoints[0].node, tick));
   zassert_equal(states[0].completions, 3); zassert_equal(states[0].result.outcome, WL_RPC_TIMED_OUT);
   /* The timed-out request may still execute remotely; its late response cannot
    * create a second local completion. The kernel does not roll back side effects. */
@@ -99,7 +97,7 @@ ZTEST(udp_validation, test_business_rejection_cancel_timeout_wrap_and_close) {
   close_pair();
   zassert_equal(states[0].completions, 4); zassert_equal(states[0].result.outcome, WL_RPC_CLOSED);
   setup();
-  zassert_not_equal(wl_endpoint_cancel(&endpoints[0].core, handle), WL_OK);
+  zassert_not_equal(wl_node_cancel(&endpoints[0].node, handle), WL_OK);
   close_pair();
 }
 ZTEST(udp_validation, test_finite_idle_wait_then_progress_after_notification) {
@@ -107,11 +105,11 @@ ZTEST(udp_validation, test_finite_idle_wait_then_progress_after_notification) {
   /* Drain initialization's latched publications. */
   while (wl_zephyr_udp_wait(&adapters[0], 0) == WL_OK) { }
   uint32_t began = k_uptime_get_32();
-  zassert_ok(peer_z_wait(&adapters[0], &endpoints[0].core, 15));
+  zassert_ok(wl_node_wait(&endpoints[0].node, tick, 15));
   zassert_true(k_uptime_get_32() - began >= 10);
   wl_zephyr_udp_notify(&adapters[0]);
   began = k_uptime_get_32();
-  zassert_ok(peer_z_wait(&adapters[0], &endpoints[0].core, 500));
+  zassert_ok(wl_node_wait(&endpoints[0].node, tick, 500));
   zassert_true(k_uptime_get_32() - began < 250);
   close_pair();
 }

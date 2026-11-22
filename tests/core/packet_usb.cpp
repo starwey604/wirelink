@@ -3,11 +3,10 @@
  * libusb/USB driver implementation is unchanged and is qualified separately. */
 #include "wirelink/astrial/packet_usb.hpp"
 #include <cassert>
+#include "wirelink/node.h"
 #include <cstring>
 #include <utility>
 
-extern "C" wl_packet_port_t *packet_usb_test_storage();
-extern "C" int packet_usb_test_init(uint32_t, wl_packet_sink_fn, wl_packet_notify_fn, void *);
 namespace {
 UsbBulkDevice::ReadBufferProvider provider;
 UsbBulkDevice::ReadCallback read_done;
@@ -66,17 +65,24 @@ tl::expected<void, std::error_code> UsbBulkDevice::async_write_borrowed(
 
 int main() {
   using namespace wirelink::astrial;
-  auto *port = packet_usb_test_storage();
-  PacketUsbConfig config; config.maximum_frame_size = 1036;
+  wl_node_t node{};
+  wl_packet_port_t *port = &node.port;
+  uint8_t rx[2][2048]{};
+  PacketUsbConfig config;
+  config.rx = {rx[0], sizeof(rx), sizeof(rx[0])};
   wl_packet_token_t old_token{};
   for (uint32_t generation = 1; generation <= 3; ++generation) {
-    PacketUsbAdapter adapter(*port);
-    assert(packet_usb_test_init(generation, PacketUsbAdapter::submit,
-        PacketUsbAdapter::notify, &adapter) == WL_OK);
-    auto bad = config; bad.maximum_frame_size = 2048;
-    assert(adapter.start(bad) == WL_ERR_INVALID_ARG);
-    assert(adapter.start(config) == WL_OK);
-    assert(adapter.start(config) == WL_ERR_INVALID_STATE);
+    PacketUsbAdapter adapter(config);
+    wl_node_layout_t layout{};
+    layout.instance = generation;
+    layout.rx_frame_max = layout.rx_wire_max = 2048;
+    layout.tx_frame_max = layout.tx_wire_max = 1036;
+    layout.rx_storage = rx[0];
+    layout.rx_storage_size = sizeof(rx);
+    layout.has_tx = 1;
+    assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_ERR_INVALID_ARG);
+    layout.rx_frame_max = layout.rx_wire_max = 1036;
+    assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_OK);
     assert(active.bytes.size() == 2048);
     if (generation == 1) {
       // Empty completion, latched notify-before-query and query-before-wait.
@@ -134,7 +140,8 @@ int main() {
       assert(before == resumes && adapter.stats().errors == 1);
       adapter.stop();
     }
-    assert(adapter.stopped() && wl_packet_quiescent(port));
+    assert(wl_node_close(&node, 0) == WL_OK);
+    assert(adapter.stopped() && wl_node_quiescent(&node));
     wl_packet_claim_t claim{};
     assert(wl_packet_rx_claim(port, 1, &claim) == WL_ERR_INVALID_STATE);
   }

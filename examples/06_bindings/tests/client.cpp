@@ -78,32 +78,20 @@ static void timeout_and_reuse() {
   CHECK(next && next.value().sum == 42);
 }
 
-static unsigned allocations, frees;
 static void rollback() {
-  const wirelink::EndpointFactory factory{
-    [](wl_host_endpoint_t& descriptor, wirelink::Error& error) -> void* {
-      void* storage=::operator new(calculator_test_server_size(),std::align_val_t(calculator_test_server_alignment()));
-      ++allocations;
-      if(calculator_test_server_prepare(storage,&descriptor)!=WL_OK) {
-        ::operator delete(storage,std::align_val_t(calculator_test_server_alignment()));++frees;
-        error=wirelink::Error::local(WL_ERR_INVALID_STATE);return nullptr;
-      }
-      return storage;
-    }, calculator_test_server_initialize, [](void* storage) noexcept {
-      ::operator delete(storage,std::align_val_t(calculator_test_server_alignment()));++frees;
-    }};
-  CHECK(!wirelink::Session::connect({.peer_port=1,.bind_address="invalid"},factory));
-  CHECK(allocations==1 && frees==1);
-  CHECK(!wirelink::Session::connect({.peer_address="invalid",.peer_port=1},factory));
-  CHECK(allocations==2 && frees==2);
-  Server server;
-  CHECK(!wirelink::Session::connect({.peer_port=1,.bind_port=server.port()},factory));
-  CHECK(allocations==3 && frees==3);
+  static unsigned create_calls;
   const wirelink::EndpointFactory failing{
-    [](wl_host_endpoint_t&,wirelink::Error& error)->void* {error=wirelink::Error::local(WL_ERR_NO_MEM);return nullptr;},
-    calculator_test_server_initialize,[](void*)noexcept{std::abort();}};
-  const auto failed=wirelink::Session::connect({.peer_port=1},failing);
-  CHECK(!failed && failed.error().kind==ErrorKind::out_of_memory);
+    [](uint32_t, wl_transport_t *, wl_node_t **) -> wl_err_t { ++create_calls; return WL_ERR_NO_MEM; },
+    [](wl_node_t *) noexcept { std::abort(); }
+  };
+  CHECK(!wirelink::Session::connect({.peer_port=1,.bind_address="invalid"}, failing));
+  CHECK(!wirelink::Session::connect({.peer_address="invalid",.peer_port=1}, failing));
+  Server server;
+  auto collision = wirelink::Session::connect({.peer_port=1,.bind_port=server.port()}, failing);
+  CHECK(!collision && collision.error().kind == ErrorKind::transport && collision.error().system_error);
+  CHECK(create_calls == 0);
+  auto failed = wirelink::Session::connect({.peer_port=1}, failing);
+  CHECK(!failed && failed.error().kind == ErrorKind::out_of_memory && create_calls == 1);
 }
 
 int main() {

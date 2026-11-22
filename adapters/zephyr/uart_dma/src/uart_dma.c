@@ -9,6 +9,8 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
+static const wl_transport_ops_t transport_ops;
+
 enum {
   TX_COMPLETION_NONE = 0,
   TX_COMPLETION_DONE,
@@ -128,12 +130,12 @@ static int drain_ready_slots_locked(wl_zephyr_uart_dma_t *adapter) {
     if (slot == NULL) {
       return WL_OK;
     }
-    ret = wl_byte_fifo_reserve(adapter->config.fifo, &span);
+    ret = wl_byte_fifo_reserve(&adapter->fifo, &span);
     if (ret != WL_OK) {
       return ret;
     }
     if (span.length == 0U) {
-      (void)wl_byte_fifo_commit(adapter->config.fifo, 0U);
+      (void)wl_byte_fifo_commit(&adapter->fifo, 0U);
       return WL_ERR_WOULD_BLOCK;
     }
     length = slot->received - slot->forwarded;
@@ -141,7 +143,7 @@ static int drain_ready_slots_locked(wl_zephyr_uart_dma_t *adapter) {
       length = span.length;
     }
     memcpy(span.data, slot->buffer.data + slot->forwarded, length);
-    ret = wl_byte_fifo_commit(adapter->config.fifo, length);
+    ret = wl_byte_fifo_commit(&adapter->fifo, length);
     if (ret != WL_OK) {
       return ret;
     }
@@ -291,14 +293,14 @@ static int service_tx_completion(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms)
     }
     k_spin_unlock(&adapter->tx_lock, tx_key);
     ret = wl_packet_tx_publish(
-        adapter->config.port, token,
+        adapter->port, token,
         completion == TX_COMPLETION_DONE
             ? (adapter->config.wait_for_tx_idle ? WL_PACKET_CONSUMED : WL_PACKET_DRAINED)
             : WL_PACKET_TX_ERROR);
     /* A stop can retire memory without needing an unavailable physical idle. */
     if (completion == TX_COMPLETION_DONE && adapter->config.wait_for_tx_idle &&
         atomic_get(&adapter->stopping))
-      (void)wl_packet_tx_publish(adapter->config.port, token, WL_PACKET_TX_ERROR);
+      (void)wl_packet_tx_publish(adapter->port, token, WL_PACKET_TX_ERROR);
   } else {
     k_spin_unlock(&adapter->tx_lock, tx_key);
   }
@@ -314,7 +316,7 @@ static int service_tx_completion(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms)
       adapter->drain_pending = 0U;
       adapter->tx_token = (wl_packet_token_t){0};
       atomic_set(&adapter->tx_active, 0);
-      ret = wl_packet_tx_publish(adapter->config.port, token,
+      ret = wl_packet_tx_publish(adapter->port, token,
                                  idle > 0 ? WL_PACKET_DRAINED : WL_PACKET_TX_ERROR);
     }
   }
@@ -495,12 +497,13 @@ static void uart_dma_dispatch(const struct device *dev, struct uart_event *event
   k_spin_unlock(&dma_binding_lock, key);
 }
 
-int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
-                            const wl_zephyr_uart_dma_config_t *config) {
+static wl_err_t initialize(wl_zephyr_uart_dma_t *adapter,
+                            const wl_zephyr_uart_dma_config_t *config,
+    const wl_transport_attach_t *info) {
   int ret;
 
-  if (adapter == NULL || config == NULL || config->uart == NULL || config->port == NULL ||
-      config->fifo == NULL || config->stream == NULL || config->rx_buffers[0].data == NULL ||
+  if (adapter == NULL || config == NULL || config->uart == NULL ||
+      config->rx_buffers[0].data == NULL ||
       config->rx_buffers[0].length == 0U || config->rx_buffers[1].data == NULL ||
       config->rx_buffers[1].length == 0U ||
       spans_overlap(&config->rx_buffers[0], &config->rx_buffers[1]) ||
@@ -525,10 +528,18 @@ int wl_zephyr_uart_dma_init(wl_zephyr_uart_dma_t *adapter,
     return WL_ERR_NO_SPACE;
   }
   memset(adapter, 0, sizeof(*adapter));
+  adapter->transport.ops = &transport_ops;
+  wl_err_t fifo_error = wl_byte_fifo_init(&adapter->fifo, config->fifo_storage, wl_zephyr_uart_dma_notify, adapter);
+  if (fifo_error != WL_OK) {
+    k_spin_unlock(&dma_binding_lock, bind_key);
+    return fifo_error;
+  }
   adapter->binding = (uint8_t)binding;
   k_sem_init(&adapter->wake, 0, 1);
   k_sem_init(&dma_bindings[binding].idle, 0, 1);
   adapter->config = *config;
+  adapter->port = info->port;
+  adapter->stream = info->stream;
   adapter->slots[0].buffer = config->rx_buffers[0];
   adapter->slots[1].buffer = config->rx_buffers[1];
   dma_bindings[binding].adapter = adapter;
@@ -593,10 +604,10 @@ static int start_rx(wl_zephyr_uart_dma_t *adapter) {
   return WL_OK;
 }
 
-int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
+static wl_err_t start(wl_zephyr_uart_dma_t *adapter) {
   int ret;
 
-  if (adapter == NULL || adapter->config.port == NULL || adapter->detached) {
+  if (adapter == NULL || adapter->port == NULL || adapter->detached) {
     return WL_ERR_INVALID_ARG;
   }
   if (atomic_get(&adapter->started) != 0 || atomic_get(&adapter->stopping) != 0) {
@@ -613,7 +624,7 @@ int wl_zephyr_uart_dma_start(wl_zephyr_uart_dma_t *adapter) {
 int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter) {
   int ret;
 
-  if (adapter == NULL || adapter->config.port == NULL || adapter->detached) {
+  if (adapter == NULL || adapter->port == NULL || adapter->detached) {
     return WL_ERR_INVALID_ARG;
   }
   if (atomic_get(&adapter->started) == 0 && atomic_get(&adapter->stopping) == 0) {
@@ -659,14 +670,14 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
   k_spinlock_key_t key;
   int ret;
 
-  if (adapter == NULL || adapter->config.port == NULL) {
+  if (adapter == NULL || adapter->port == NULL) {
     return WL_ERR_INVALID_ARG;
   }
   (void)k_sem_take(&adapter->wake, K_NO_WAIT);
   atomic_set(&adapter->service_pending, 0);
   if (adapter->tx_retry_pending && (int32_t)(now_ms - adapter->tx_retry_due) >= 0) {
     adapter->tx_retry_pending = 0U;
-    wl_packet_activity(adapter->config.port);
+    wl_packet_activity(adapter->port);
   }
   ret = service_tx_completion(adapter, now_ms);
   if (ret != WL_OK) {
@@ -716,7 +727,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
     }
     adapter->buffer_request_pending = 0U;
     k_spin_unlock(&adapter->rx_lock, key);
-    wl_byte_fifo_note_gap(adapter->config.fifo);
+    wl_byte_fifo_note_gap(&adapter->fifo);
     atomic_set(&adapter->abort_pending, 0);
     atomic_set(&adapter->abort_disable_requested, 0);
     atomic_set(&adapter->expected_disabled, 0);
@@ -725,7 +736,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
     atomic_set(&adapter->service_pending, 1);
     return WL_ERR_WOULD_BLOCK;
   }
-  int input = wl_byte_fifo_to_cobs(adapter->config.fifo, adapter->config.stream, 16U);
+  int input = wl_byte_fifo_to_cobs(&adapter->fifo, adapter->stream, 16U);
   if (input != WL_OK && input != WL_ERR_WOULD_BLOCK)
     return input;
   key = k_spin_lock(&adapter->rx_lock);
@@ -751,7 +762,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
       return WL_ERR_WOULD_BLOCK;
     }
     if (atomic_set(&adapter->gap_pending, 0) != 0) {
-      wl_byte_fifo_note_gap(adapter->config.fifo);
+      wl_byte_fifo_note_gap(&adapter->fifo);
       atomic_set(&adapter->recovery_barrier, 1);
       atomic_set(&adapter->service_pending, 1);
       return WL_ERR_WOULD_BLOCK;
@@ -764,7 +775,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
 wl_io_readiness_t wl_zephyr_uart_dma_readiness(const void *context, uint32_t now_ms) {
   const wl_zephyr_uart_dma_t *adapter = context;
   wl_io_readiness_t value = wl_io_readiness_idle();
-  value.runnable = wl_byte_fifo_cobs_ready(adapter->config.fifo, adapter->config.stream) ||
+  value.runnable = wl_byte_fifo_cobs_ready(&adapter->fifo, adapter->stream) ||
                    atomic_get(&adapter->service_pending) ||
                    atomic_get(&adapter->tx_completion) != TX_COMPLETION_NONE;
   value.blocked = atomic_get(&adapter->tx_active) || atomic_get(&adapter->paused) ||
@@ -790,7 +801,7 @@ wl_io_readiness_t wl_zephyr_uart_dma_readiness(const void *context, uint32_t now
         !atomic_get(&adapter->running) && !atomic_get(&adapter->tx_active) && !slots_owned;
   } else if (atomic_get(&adapter->abort_pending)) {
     value.runnable |= !atomic_get(&adapter->running) && !slots_owned;
-  } else if (wl_byte_fifo_has_space(adapter->config.fifo) &&
+  } else if (wl_byte_fifo_has_space(&adapter->fifo) &&
              (waiting_bytes || (atomic_get(&adapter->started) && atomic_get(&adapter->paused) &&
                                 !atomic_get(&adapter->running) && !slots_active)))
     value.runnable = 1U;
@@ -815,9 +826,9 @@ void wl_zephyr_uart_dma_notify(void *context) {
   k_sem_give(&((wl_zephyr_uart_dma_t *)context)->wake);
 }
 void wl_zephyr_uart_dma_quiesce(wl_zephyr_uart_dma_t *adapter) {
-  if (adapter == NULL || adapter->config.port == NULL || adapter->detached)
+  if (adapter == NULL || adapter->port == NULL || adapter->detached)
     return;
-  wl_packet_stop(adapter->config.port);
+  wl_packet_stop(adapter->port);
   (void)wl_zephyr_uart_dma_stop(adapter);
   while (atomic_get(&adapter->started) || atomic_get(&adapter->stopping)) {
     uint32_t now = k_uptime_get_32();
@@ -840,7 +851,7 @@ void wl_zephyr_uart_dma_quiesce(wl_zephyr_uart_dma_t *adapter) {
     pending = dma_bindings[binding].callbacks;
     k_spin_unlock(&dma_binding_lock, key);
   }
-  (void)wl_packet_stream_abort_rx(adapter->config.stream);
+  (void)wl_packet_stream_abort_rx(adapter->stream);
   adapter->config.notify = NULL;
   adapter->detached = 1U;
 }
@@ -881,4 +892,58 @@ void wl_zephyr_uart_dma_get_stats(const wl_zephyr_uart_dma_t *adapter,
       .paused = atomic_get(&adapter->paused) != 0 ? 1U : 0U,
       .tx_active = atomic_get(&adapter->tx_active) != 0 ? 1U : 0U,
   };
+}
+
+static wl_err_t transport_attach(wl_transport_t *transport, const wl_transport_attach_t *info) {
+  wl_zephyr_uart_dma_t *adapter = (wl_zephyr_uart_dma_t *)transport;
+  wl_zephyr_uart_dma_config_t config = adapter->config;
+  if (info->framing != WL_NODE_COBS_CRC16) return WL_ERR_INVALID_ARG;
+  wl_err_t error = initialize(adapter, &config, info);
+  if (error != WL_OK) return error;
+  error = start(adapter);
+  if (error != WL_OK) (void)wl_zephyr_uart_dma_quiesce(adapter);
+  return error;
+}
+
+static wl_packet_submit_t transport_submit(wl_transport_t *transport, const uint8_t *data,
+                                            size_t length, wl_packet_token_t token) {
+  return wl_zephyr_uart_dma_submit(transport, data, length, token);
+}
+static void transport_notify(wl_transport_t *transport) {
+  wl_zephyr_uart_dma_notify(transport);
+}
+static wl_err_t transport_service(wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_uart_dma_service((wl_zephyr_uart_dma_t *)transport, now);
+}
+static wl_io_readiness_t transport_readiness(const wl_transport_t *transport, uint32_t now) {
+  return wl_zephyr_uart_dma_readiness((const wl_zephyr_uart_dma_t *)transport, now);
+}
+static wl_err_t transport_wait(wl_transport_t *transport, uint32_t maximum_ms) {
+  return wl_zephyr_uart_dma_wait((wl_zephyr_uart_dma_t *)transport, wl_zephyr_timeout_ms(maximum_ms));
+}
+static wl_err_t transport_stop(wl_transport_t *transport) {
+  wl_zephyr_uart_dma_t *adapter = (wl_zephyr_uart_dma_t *)transport;
+  if (atomic_get(&adapter->started) && !adapter->stop_requested) {
+    wl_err_t error = wl_zephyr_uart_dma_stop(adapter);
+    if (error != WL_OK) return error;
+    adapter->stop_requested = 1U;
+  }
+  if (atomic_get(&adapter->started) || atomic_get(&adapter->stopping))
+    return WL_ERR_WOULD_BLOCK;
+  wl_zephyr_uart_dma_quiesce(adapter);
+  return WL_OK;
+}
+
+static const wl_transport_ops_t transport_ops = {
+  .attach = transport_attach, .submit = transport_submit, .notify = transport_notify,
+  .service = transport_service, .readiness = transport_readiness,
+  .wait = transport_wait, .stop = transport_stop,
+};
+
+wl_transport_t *wl_zephyr_uart_dma_transport(wl_zephyr_uart_dma_t *adapter,
+    const wl_zephyr_uart_dma_config_t *config) {
+  if (adapter == NULL || config == NULL) return NULL;
+  adapter->transport.ops = &transport_ops;
+  adapter->config = *config;
+  return &adapter->transport;
 }

@@ -3,6 +3,7 @@
 #include <string.h>
 #include <zephyr/drivers/uart.h>
 #include <zephyr/ztest.h>
+#include "fixture.h"
 #include "wirelink/wire.h"
 #include "wirelink/endpoint.h"
 #include "wirelink/zephyr/uart_irq.h"
@@ -133,35 +134,17 @@ DEVICE_DEFINE(fake_uart_no_callback, "fake_uart_no_callback", fake_init, NULL, &
               NULL, POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &no_callback_api);
 
 static wl_zephyr_uart_irq_t adapter;
-static wl_packet_port_t port;
+static wl_node_t node;
 static wl_packet_stream_t stream;
-static wl_byte_fifo_t fifo;
 static uint8_t rx[2][96], tx[96], bytes[16];
 static uint32_t instance;
 static void setup_interval(uint32_t interval) {
   memset(&full_data, 0, sizeof(full_data));
   full_data.line_idle = 1;
-  zassert_ok(wl_byte_fifo_init(&fifo, (wl_span_t){bytes, sizeof(bytes)}, wl_zephyr_uart_irq_notify,
-                               &adapter));
-  wl_packet_config_t pc = {.instance = ++instance,
-                           .rx_storage = &rx[0][0],
-                           .rx_unit_size = 96,
-                           .rx_storage_size = sizeof(rx),
-                           .submit = wl_packet_stream_cobs_crc16_submit,
-                           .notify = wl_packet_stream_notify,
-                           .user = &stream};
-  zassert_ok(wl_packet_init(&port, &pc));
-  wl_packet_stream_config_t sc = {.port = &port,
-                                  .tx_storage = {tx, sizeof(tx)},
-                                  .maximum_frame_size = 64,
-                                  .physical_submit = wl_zephyr_uart_irq_submit,
-                                  .notify = wl_zephyr_uart_irq_notify,
-                                  .user = &adapter};
-  zassert_ok(wl_packet_stream_cobs_crc16_init(&stream, &sc));
   wl_zephyr_uart_irq_config_t config = {
-      .uart = DEVICE_GET(fake_uart_full), .port = &port, .fifo = &fifo, .stream = &stream, .drain_check_ms = interval};
-  zassert_ok(wl_zephyr_uart_irq_init(&adapter, &config));
-  zassert_ok(wl_zephyr_uart_irq_start(&adapter));
+      .uart = DEVICE_GET(fake_uart_full), .fifo_storage = {bytes, sizeof(bytes)}, .drain_check_ms = interval};
+  zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)));
 }
 static void setup(void) { setup_interval(0); }
 static void fire(void) {
@@ -174,65 +157,68 @@ ZTEST(static_uart_irq, test_staged_rx_physical_tx_and_old_callback) {
   memset(packet + 4, 55, 37);
   zassert_ok(wl_wire_native_none_seal(packet, sizeof(packet), 22, 37));
   wl_packet_token_t token;
-  zassert_ok(wl_packet_tx_submit(&port, packet, sizeof(packet), &token));
+  zassert_ok(wl_packet_tx_submit(&node.port, packet, sizeof(packet), &token));
   full_data.line_idle = 0;
   fire();
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
-  zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_CONSUMED);
-  zassert_true(wl_packet_tx_active(&port));
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_CONSUMED);
+  zassert_true(wl_packet_tx_active(&node.port));
   zassert_false(full_data.tx_enabled);
   full_data.line_idle = 1;
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 1));
-  zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_DRAINED);
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_DRAINED);
   memcpy(full_data.rx, full_data.tx, full_data.tx_length);
   full_data.rx_length = full_data.tx_length;
   fire();
-  zassert_false(wl_packet_rx_ready(&port)); // IRQ staged bytes, no framing/parser.
-  for (unsigned i = 0; i < 20 && !wl_packet_rx_ready(&port); ++i) {
+  zassert_false(wl_packet_rx_ready(&node.port)); // IRQ staged bytes, no framing/parser.
+  for (unsigned i = 0; i < 20 && !wl_packet_rx_ready(&node.port); ++i) {
     zassert_ok(wl_zephyr_uart_irq_service(&adapter, i + 2));
     fire();
   }
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 24));
   wl_packet_borrow_t borrow;
-  zassert_ok(wl_packet_rx_borrow(&port, &borrow));
+  zassert_ok(wl_packet_rx_borrow(&node.port, &borrow));
   zassert_equal(borrow.length, sizeof(packet));
   zassert_mem_equal(borrow.data, packet, sizeof(packet));
-  zassert_ok(wl_packet_rx_release(&port, &borrow));
+  zassert_ok(wl_packet_rx_release(&node.port, &borrow));
   uart_irq_callback_user_data_t old = full_data.callback;
   void *old_user = full_data.user_data;
-  wl_zephyr_uart_irq_stop(&adapter);
-  zassert_true(wl_packet_quiescent(&port));
+  zassert_ok(wl_node_close(&node, 0));
+  zassert_true(wl_packet_quiescent(&node.port));
   setup();
   old(DEVICE_GET(fake_uart_full), old_user);
-  zassert_false(wl_byte_fifo_readable(&fifo));
-  wl_zephyr_uart_irq_stop(&adapter);
-  zassert_true(wl_packet_quiescent(&port));
+  zassert_false(wl_byte_fifo_readable(&adapter.fifo));
+  zassert_ok(wl_node_close(&node, 0));
+  zassert_true(wl_packet_quiescent(&node.port));
 }
 ZTEST(static_uart_irq, test_rejects_cdc_without_physical_completion) {
   setup();
-  wl_zephyr_uart_irq_stop(&adapter);
+  zassert_ok(wl_node_close(&node, 0));
   wl_zephyr_uart_irq_config_t config = {.uart = DEVICE_GET(fake_uart_cdc),
-    .port = &port, .fifo = &fifo, .stream = &stream};
-  zassert_equal(wl_zephyr_uart_irq_init(&adapter, &config), WL_ERR_NOT_SUPPORTED);
+    .fifo_storage = {bytes, sizeof(bytes)}};
+  zassert_equal(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)), WL_ERR_NOT_SUPPORTED);
   zassert_is_null(cdc_data.callback);
   config.uart = DEVICE_GET(fake_uart_missing);
-  zassert_equal(wl_zephyr_uart_irq_init(&adapter, &config), WL_ERR_NOT_SUPPORTED);
+  zassert_equal(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)), WL_ERR_NOT_SUPPORTED);
   config.uart = DEVICE_GET(fake_uart_no_callback);
-  zassert_equal(wl_zephyr_uart_irq_init(&adapter, &config), WL_ERR_NOT_SUPPORTED);
+  zassert_equal(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)), WL_ERR_NOT_SUPPORTED);
   /* Failed admission cannot consume a binding or prevent a later real UART. */
   setup();
-  wl_zephyr_uart_irq_stop(&adapter);
+  zassert_ok(wl_node_close(&node, 0));
 }
 static uint8_t short_packet[8];
 static wl_packet_token_t pending_tx(uint32_t now) {
   memset(short_packet, 0, sizeof(short_packet));
   zassert_ok(wl_wire_native_none_seal(short_packet, sizeof(short_packet), 22, 4));
   wl_packet_token_t token;
-  zassert_ok(wl_packet_tx_submit(&port, short_packet, sizeof(short_packet), &token));
+  zassert_ok(wl_packet_tx_submit(&node.port, short_packet, sizeof(short_packet), &token));
   full_data.line_idle = 0;
   fire();
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, now));
-  zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_CONSUMED);
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_CONSUMED);
   zassert_equal(full_data.complete_queries, 1);
   return token;
 }
@@ -242,9 +228,9 @@ static void receive_byte(uint8_t byte) {
   fire();
 }
 static void finish_pending(wl_packet_token_t *token) {
-  wl_zephyr_uart_irq_stop(&adapter);
-  (void)wl_packet_tx_take(&port, token);
-  zassert_true(wl_packet_quiescent(&port));
+  zassert_ok(wl_node_close(&node, 0));
+  (void)wl_packet_tx_take(&node.port, token);
+  zassert_true(wl_packet_quiescent(&node.port));
 }
 ZTEST(static_uart_irq, test_no_progress_no_poll_and_notify_is_not_hint) {
   setup_interval(5);
@@ -262,9 +248,9 @@ ZTEST(static_uart_irq, test_no_progress_no_poll_and_notify_is_not_hint) {
   zassert_equal(full_data.complete_queries, 1);
   /* Full FIFO containing old delimiters: pause/resume is not RX progress. */
   wl_span_t room;
-  zassert_ok(wl_byte_fifo_reserve(&fifo, &room));
+  zassert_ok(wl_byte_fifo_reserve(&adapter.fifo, &room));
   memset(room.data, 0, room.length);
-  zassert_ok(wl_byte_fifo_commit(&fifo, room.length));
+  zassert_ok(wl_byte_fifo_commit(&adapter.fifo, room.length));
   full_data.read_zero = false;
   fire();
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 10));
@@ -286,7 +272,7 @@ ZTEST(static_uart_irq, test_callback_tail_wake_survives_early_fifo_ack) {
   setup();
   tail_notifications = early_notifications = 0;
   adapter.notify = observe_tail;
-  fifo.notify = consume_early_fifo_wake;
+  adapter.fifo.notify = consume_early_fifo_wake;
   for (unsigned i = 0; i < 2; ++i) {
     receive_byte(0); /* Each callback tail must still give. */
     zassert_equal(tail_notifications, i + 1);
@@ -296,7 +282,7 @@ ZTEST(static_uart_irq, test_callback_tail_wake_survives_early_fifo_ack) {
   }
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
   zassert_equal(full_data.complete_queries, 0);
-  wl_zephyr_uart_irq_stop(&adapter);
+  zassert_ok(wl_node_close(&node, 0));
 }
 ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   setup(); wl_packet_token_t token = pending_tx(0);
@@ -314,11 +300,8 @@ ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   zassert_equal(full_data.complete_queries, 1);
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 989));
   zassert_equal(full_data.complete_queries, 2);
-  zassert_equal(wl_packet_tx_take(&port, &token), WL_PACKET_DRAINED);
-  wl_zephyr_uart_irq_stop(&adapter);
-}
-static wl_err_t unused_route(wl_endpoint_t *k, const wl_wire_frame_t *f) {
-  (void)k; (void)f; return WL_OK;
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_DRAINED);
+  zassert_ok(wl_node_close(&node, 0));
 }
 static void unused_callback(void) {}
 static void completed_call(wl_endpoint_t *k, const wl_endpoint_call_t *c, wl_rpc_result_t r,
@@ -327,47 +310,40 @@ static void completed_call(wl_endpoint_t *k, const wl_endpoint_call_t *c, wl_rpc
 }
 ZTEST(static_uart_irq, test_endpoint_queued_frame_waits_for_real_drain) {
   setup();
-  wl_endpoint_t core;
-  uint8_t snapshots[WL_ENDPOINT_TX_COUNT][32], value[4] = {1, 2, 3, 4};
-  wl_endpoint_config_t config = {.port = &port,
-    .storage = wl_endpoint_storage_uniform(&snapshots[0][0], sizeof(snapshots[0])),
-    .route = unused_route};
-  zassert_ok(wl_endpoint_init(&core, &config));
+  uint8_t value[4] = {1, 2, 3, 4};
   uint8_t *frame;
   size_t capacity = 0U;
-  zassert_ok(wl_endpoint_msg_claim(&core, &frame, &capacity));
+  zassert_ok(wl_endpoint_msg_claim(&node.core, &frame, &capacity));
   zassert_true(capacity >= WL_WIRE_NATIVE_HEADER + 4U);
   memcpy(frame + WL_WIRE_NATIVE_HEADER, value, 4U);
   zassert_ok(wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, 22U, 4U));
-  zassert_ok(wl_endpoint_msg_commit(&core, WL_WIRE_NATIVE_HEADER + 4U));
-  zassert_ok(wl_endpoint_step(&core, 0, 16));
+  zassert_ok(wl_endpoint_msg_commit(&node.core, WL_WIRE_NATIVE_HEADER + 4U));
+  zassert_ok(wl_endpoint_step(&node.core, 0, 16));
   full_data.line_idle = 0; fire();
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
-  zassert_ok(wl_endpoint_step(&core, 0, 16)); /* Consumes CONSUMED, not DRAINED. */
+  zassert_ok(wl_endpoint_step(&node.core, 0, 16)); /* Consumes CONSUMED, not DRAINED. */
   uint8_t slot;
   uint8_t *payload;
-  zassert_ok(wl_endpoint_call_claim(&core, &slot, &payload, &capacity));
+  zassert_ok(wl_endpoint_call_claim(&node.core, &slot, &payload, &capacity));
   zassert_true(capacity >= 4U);
   memcpy(payload, value, 4U);
   wl_call_handle_t h;
-  zassert_ok(wl_endpoint_call_commit(&core, slot, 23U, 24U, 4U, 0U, 2000U, 1U,
+  zassert_ok(wl_endpoint_call_commit(&node.core, slot, 23U, 24U, 4U, 0U, 2000U, 1U,
     completed_call, unused_callback, NULL, &h));
-  zassert_ok(wl_endpoint_step(&core, 0, 16));
-  zassert_equal(port.tx_sequence, 1);
+  zassert_ok(wl_endpoint_step(&node.core, 0, 16));
+  zassert_equal(node.port.tx_sequence, 1);
   full_data.line_idle = 1; /* No new RX: both policies must retain fallback. */
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
-  zassert_equal(port.tx_sequence, 1); /* Port is active until core takes DRAINED. */
-  zassert_ok(wl_endpoint_step(&core, 0, 16));
-  zassert_equal(port.tx_sequence, 1);
+  zassert_equal(node.port.tx_sequence, 1); /* Port is active until core takes DRAINED. */
+  zassert_ok(wl_endpoint_step(&node.core, 0, 16));
+  zassert_equal(node.port.tx_sequence, 1);
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 1));
-  zassert_ok(wl_endpoint_step(&core, 1, 16));
-  zassert_equal(port.tx_sequence, 2);
+  zassert_ok(wl_endpoint_step(&node.core, 1, 16));
+  zassert_equal(node.port.tx_sequence, 2);
   fire(); zassert_ok(wl_zephyr_uart_irq_service(&adapter, 1));
-  zassert_ok(wl_endpoint_step(&core, 1, 16));
-  zassert_ok(wl_endpoint_close(&core));
-  wl_zephyr_uart_irq_stop(&adapter);
-  zassert_ok(wl_endpoint_step(&core, 1, 16));
-  zassert_true(wl_endpoint_quiescent(&core));
-  zassert_true(wl_packet_quiescent(&port));
+  zassert_ok(wl_endpoint_step(&node.core, 1, 16));
+  zassert_ok(wl_node_close(&node, 1));
+  zassert_true(wl_endpoint_quiescent(&node.core));
+  zassert_true(wl_packet_quiescent(&node.port));
 }
 ZTEST_SUITE(static_uart_irq, NULL, NULL, NULL, NULL, NULL);

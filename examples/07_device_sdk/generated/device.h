@@ -205,7 +205,7 @@ size_t numbers_encoded_size(const numbers_t *value);
 wl_codec_status_t numbers_encode(const numbers_t *value, uint8_t *out, size_t out_capacity, size_t *out_length);
 wl_codec_status_t numbers_decode(const uint8_t *input, size_t input_length, numbers_t *out);
 
-#include <wirelink/endpoint.h>
+#include <wirelink/node.h>
 #include <wirelink/version.h>
 #if WIRELINK_CODEGEN_CONTRACT != 1
 #error "WLC requires generated-code contract 1"
@@ -222,27 +222,16 @@ typedef struct device_node device_node_t;
 /* Accept and drain the whole frame, or reject it without consuming bytes. */
 typedef wl_err_t (*device_tx_write_fn)(device_node_t *self, const uint8_t *data, size_t length);
 struct device_node {
-  wl_endpoint_t core;
-  void *user;
-  wl_endpoint_error_fn on_error;
+  wl_node_t node;
   uint8_t requests[WL_ENDPOINT_CALLS][222];
-  wl_packet_port_t port;
   uint8_t rx[WL_PACKET_RX_SLOTS][DEVICE_RX_WIRE_MAX + 1U];
   device_tx_write_fn tx_write;
 };
-/* Automatic instances are unique only within this process lifetime.
- * Stop I/O before reinitialization; persistent links should supply an instance. */
-wl_err_t device_init(device_node_t *self, device_tx_write_fn tx_write);
-wl_err_t device_init_with_instance(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write);
-/* Instance zero requests an automatic instance. */
-wl_err_t device_init_io(device_node_t *self, uint32_t instance, const wl_packet_io_t *io);
-static inline void device_tx_ready(device_node_t *self) { wl_packet_activity(&self->port); }
-wl_err_t device_rx_packet(device_node_t *self, const uint8_t *data, size_t length);
-wl_err_t device_step(device_node_t *self, uint32_t now);
-/* Stop the RX producer before close, then step until quiescent. */
-wl_err_t device_close(device_node_t *self);
-int device_quiescent(const device_node_t *self);
-wl_err_t device_cancel(device_node_t *self, wl_call_handle_t handle);
+/* Explicit instance IDs must be nonzero. Rebind only after close completes. */
+wl_err_t device_bind(device_node_t *self, wl_transport_t *transport);
+wl_err_t device_bind_instance(device_node_t *self, uint32_t instance, wl_transport_t *transport);
+wl_err_t device_bind_sync(device_node_t *self, device_tx_write_fn tx_write);
+wl_err_t device_bind_sync_instance(device_node_t *self, uint32_t instance, device_tx_write_fn tx_write);
 typedef void (*device_configure_cb_t)(device_node_t *, wl_rpc_result_t, const configure_response_t *);
 typedef void (*device_configure_ex_cb_t)(void *, wl_rpc_result_t, const configure_response_t *);
 /* Simplified calls start their timeout on the next step(now). */

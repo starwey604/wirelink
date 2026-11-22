@@ -6,7 +6,7 @@ zephyr_include_directories(${_wl}/include ${_wl}/runtime/zephyr/include
   ${_wl}/adapters/zephyr/uart_poll/include ${_wl}/adapters/zephyr/usb_bulk/include
   ${_wl}/adapters/zephyr/udp/include)
 if(CONFIG_WIRELINK)
-  set(_core ${_wl}/src/endpoint.c ${_wl}/src/packet_port.c ${_wl}/src/types.c ${_wl}/src/codec.c)
+  set(_core ${_wl}/src/node.c ${_wl}/src/endpoint.c ${_wl}/src/packet_port.c ${_wl}/src/types.c ${_wl}/src/codec.c)
   zephyr_library_sources(${_core})
   zephyr_library_compile_options(-std=c11)
   if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

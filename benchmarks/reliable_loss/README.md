@@ -1,4 +1,4 @@
-> The ARQ engine workload has been retired. This directory retains historical report readers/tests only. Current explicit application retries are covered by `../mixed_traffic` and `tests/session`; captures are different workloads.
+> The ARQ engine workload has been retired. This directory retains historical report readers/tests only. Current explicit application retries are covered by `../mixed_traffic` and `tests/core/session_cases.c`; captures are different workloads.
 
 # Reliable-path packet-loss benchmark
 
@@ -35,7 +35,7 @@ the channel is synthetic.
 - The RNG is seeded, so the same arguments always produce the same report. With
   all fault knobs at zero the channel is only independent loss.
 
-This complements [`tests/tutorials/udp_processes.py`](../../tests/tutorials/udp_processes.py),
+This complements [`tests/tutorials/udp_peer.py`](../../tests/tutorials/udp_peer.py),
 which exercises the same paths over real UDP for correctness, and
 [`mixed_traffic`](../mixed_traffic/README.md), which measures application-level
 ACK loss and telemetry age.

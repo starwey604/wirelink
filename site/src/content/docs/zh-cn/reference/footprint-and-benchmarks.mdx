@@ -15,26 +15,27 @@ import { Aside } from '@astrojs/starlight/components';
 
 ## 一、 核心库各编译单元体积（`.text` / `.rodata` / `.bss`）
 
-下表将 `src/*.c` 的 12 个核心源文件单独编译后列出（包含所有可选流连接器与辅助模块，不含生成的业务消息编解码器）。在实际固件链接时，开启 `--gc-sections` 会自动裁剪掉未使用的模块（例如用 `native` 时不会链接 COBS 和 CRC）：
+下表将 `src/*.c` 的 13 个核心源文件单独编译后列出（包含所有可选流连接器与辅助模块，不含生成的业务消息编解码器）。在实际固件链接时，开启 `--gc-sections` 会自动裁剪掉未使用的模块（例如用 `native` 时不会链接 COBS 和 CRC）：
 
 | 核心编译单元 | 模块职责 | `.text` (Flash 代码) | `.rodata` (只读常量) | `.data` | `.bss` (全局静态 RAM) |
 | :--- | :--- | ---: | ---: | ---: | ---: |
 | `src/codec.c` | TLV / Positional / Varint / UTF-8 编解码基础原语 | 6,300 B | 232 B | 0 B | 0 B |
 | `src/endpoint.c` | RPC 状态机、超时调度、消息路由与步进引擎 | 4,581 B | 0 B | 0 B | 0 B |
-| `src/packet_port.c` | 双槽 RX 原子交换、异步 TX 租约与实例号分配 | 1,513 B | 0 B | 0 B | **4 B** |
+| `src/node.c` | 节点绑定、等待、关闭与驱动生命周期 | 2,045 B | 0 B | 0 B | 0 B |
+| `src/packet_port.c` | 双槽 RX 原子交换、异步 TX 租约与实例号分配 | 1,513 B | 0 B | 0 B | 4 B |
 | `src/cobs_crc16_stream.c` | COBS + CRC16 流式封包与增量断包状态机 | 1,493 B | 0 B | 0 B | 0 B |
 | `src/length16_none_stream.c` | 2B 小端长度头流式封包与增量断包状态机 | 1,078 B | 0 B | 0 B | 0 B |
-| `src/packet_loopback.c` | 内存回环测试传输辅助器 | 727 B | 0 B | 0 B | 0 B |
+| `src/packet_loopback.c` | 内存回环测试传输辅助器 | 938 B | 0 B | 64 B | 0 B |
 | `src/cobs.c` | 零字节逃逸 COBS 编码与解码算法 | 586 B | 0 B | 0 B | 0 B |
 | `src/byte_fifo.c` | 隔离 ISR 与主循环的单生产者单消费者字节 FIFO | 489 B | 0 B | 0 B | 0 B |
 | `src/byte_fifo_cobs.c` | 从字节 FIFO 到 COBS 流的高效桥接器 | 278 B | 0 B | 0 B | 0 B |
 | `src/types.c` | `wl_err_str()` 错误码可读字符串表 | 244 B | 1,260 B | 0 B | 0 B |
 | `src/crc.c` | 半字节查表法 CRC-16/CCITT-FALSE（仅 32B 表） | 105 B | 32 B | 0 B | 0 B |
 | `src/packet_stream.c` | 字节流连接器通用虚表接口 | 80 B | 0 B | 0 B | 0 B |
-| **12 个目标文件合计** | *(未经过链接器 `--gc-sections` 裁剪的总和)* | **17,474 B** | **1,524 B** | **0 B** | **4 B** |
+| **13 个目标文件合计** | 链接器裁剪前 | 19,730 B | 1,524 B | 64 B | 4 B |
 
 <Aside type="note" title="那 4 字节的 .bss 全局变量是什么？">
-这唯一的 4 字节 `.bss` 是 `src/packet_port.c` 中的进程级自动实例号分配计数器（供 `<node>_init()` 自动生成不重复的非零 `instance` ID）。**“零堆分配（0 `malloc`）”代表运行时绝不动态申请堆内存**，所有节点状态都存放在应用声明的静态或栈结构体中。
+这唯一的 4 字节 `.bss` 是 `src/packet_port.c` 中的进程级自动实例号分配计数器（供 `<node>_bind_sync()` 自动生成不重复的非零 `instance` ID）。**“零堆分配（0 `malloc`）”代表运行时绝不动态申请堆内存**，所有节点状态都存放在应用声明的静态或栈结构体中。
 </Aside>
 
 ---
@@ -45,13 +46,13 @@ import { Aside } from '@astrojs/starlight/components';
 
 | 完整通信装配方案 | 实测总 RAM | 包含的静态存储组件明细 |
 | :--- | ---: | :--- |
-| **`native` 分帧装配** | **790 B** | 节点结构体 (`624 B`) + 端口 + 双 RX 接收槽（每槽保留最大帧 + 1B） |
-| **`length16` 分帧装配** | **932 B** | 上述基础装配 + `length16` 流连接器对象与拼包缓冲 |
-| **`cobs_crc16` 串口装配** | **1,054 B** | 上述基础装配 + COBS/CRC16 流连接器 + ISR 隔离字节 FIFO 缓冲 |
+| **`native` 分帧装配** | **832 B** | `sizeof(demo_node_t)`，含端口与双 RX 槽（每槽保留最大帧 + 1B） |
+| **`length16` 分帧装配** | **984 B** | `length16` 节点，含流连接器与收发缓冲 |
+| **`cobs_crc16` 串口装配** | **1,100 B** | COBS 节点 984 B，另有 FIFO 对象 72 B 和 FIFO 暂存 44 B |
 
 ### 按角色裁剪如何节省 RAM？
 
-上面的 `demo_node_t`（624 B，其中 `wl_endpoint_t` 440 B、`wl_packet_port_t` 128 B、`wl_packet_stream_t` 120 B，基于 64 位 x86-64 ABI 测量；在 32 位 ARM Cortex-M 上指针减半还会更小）是因为它**同时开启了所有 4 种方向角色**。
+双向 demo 同时启用四种角色，832 B 的 native 节点内含 `wl_endpoint_t`（440 B）和 `wl_packet_port_t`（128 B）。以上数字采用 x86-64 ABI；可在目标平台重新测量。
 
 在你的实际固件中，只要在 `node` 里只声明真正用到的方向，未使用的字节池就会直接裁剪为 0：
 - **纯传感器发布节点（仅 `send`）**：不分配 4 个 RPC 请求槽和 3 个 RPC 回复槽。

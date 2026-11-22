@@ -152,12 +152,12 @@ wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_
 wl_err_t demo_send_event(demo_node_t *self, const event_t *message) {
   if (self == NULL || message == NULL) return WL_ERR_INVALID_ARG;
   uint8_t *frame; size_t capacity;
-  wl_err_t error = wl_endpoint_msg_claim(&self->core, &frame, &capacity);
+  wl_err_t error = wl_endpoint_msg_claim(&self->node.core, &frame, &capacity);
   if (error != WL_OK) return error;
   size_t length = 0U;
   if (event_encode(message, frame + 4U, capacity - 4U, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
   error = wl_wire_frame_seal(frame, capacity, WL_WIRE_MSG, 42U, length);
-  return error == WL_OK ? wl_endpoint_msg_commit(&self->core, length + 4U) : error;
+  return error == WL_OK ? wl_endpoint_msg_commit(&self->node.core, length + 4U) : error;
 }
 static void demo_complete_execute(wl_endpoint_t *core, const wl_endpoint_call_t *call, wl_rpc_result_t result, const uint8_t *body, size_t length) {
   (void)core;
@@ -184,21 +184,17 @@ static wl_err_t demo_call_execute_start(demo_node_t *self, const request_t *requ
   if (self == NULL || request == NULL || callback == NULL || timeout > INT32_MAX) return WL_ERR_INVALID_ARG;
   if (timeout == 0U) timeout = 500U;
   uint8_t slot; uint8_t *payload; size_t capacity;
-  wl_err_t error = wl_endpoint_call_claim(&self->core, &slot, &payload, &capacity);
+  wl_err_t error = wl_endpoint_call_claim(&self->node.core, &slot, &payload, &capacity);
   if (error != WL_OK) return error;
   size_t length = 0U;
   if (request_encode(request, payload, capacity, &length) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-  return wl_endpoint_call_commit(&self->core, slot, 40U, 41U, length, now, timeout, has_now, complete, callback, user, out);
+  return wl_endpoint_call_commit(&self->node.core, slot, 40U, 41U, length, now, timeout, has_now, complete, callback, user, out);
 }
 wl_err_t demo_call_execute(demo_node_t *self, const request_t *request, demo_execute_cb_t callback) {
   return demo_call_execute_start(self, request, 0U, 0U, 0U, demo_complete_execute, (void (*)(void))callback, self, NULL);
 }
 wl_err_t demo_call_execute_ex(demo_node_t *self, const request_t *request, uint32_t now, uint32_t timeout_ms, demo_execute_ex_cb_t callback, void *user, wl_call_handle_t *out) {
   return demo_call_execute_start(self, request, now, timeout_ms, 1U, demo_complete_execute_ex, (void (*)(void))callback, user, out);
-}
-static void demo_error(void *user, uint16_t id, wl_err_t error) {
-  demo_node_t *self = user;
-  if (self->on_error != NULL) self->on_error(self->user, id, error);
 }
 static wl_err_t demo_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   demo_node_t *self = (demo_node_t *)core;
@@ -219,7 +215,7 @@ static wl_err_t demo_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
       wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
     response_clear(&self->reply.execute);
-    int32_t status = self->handlers.on_execute(self->user, &request, &self->reply.execute);
+    int32_t status = self->handlers.on_execute(self->node.user, &request, &self->reply.execute);
     if (status != 0) return wl_endpoint_reply_error(core, slot, status);
     size_t length = 0U;
     if (response_encode(&self->reply.execute, payload, capacity, &length) != WL_CODEC_OK) {
@@ -231,81 +227,50 @@ static wl_err_t demo_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
     if (frame->kind != WL_WIRE_MSG) return WL_ERR_CORRUPT_PAYLOAD;
     event_t message;
     if (event_decode(frame->payload, frame->length, &message) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
-    if (self->handlers.on_event != NULL) self->handlers.on_event(self->user, &message);
+    if (self->handlers.on_event != NULL) self->handlers.on_event(self->node.user, &message);
     return WL_OK;
   }
   default: return WL_ERR_NOT_SUPPORTED;
   }
 }
-static wl_packet_submit_t demo_submit(void *user, const uint8_t *data, size_t length, wl_packet_token_t token) {
-  (void)token;
-  demo_node_t *self = user;
-  wl_err_t error = self->tx_write(self, data, length);
-  if (error == WL_OK) return WL_PACKET_SENT;
-  return error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY ? WL_PACKET_BUSY : WL_PACKET_FAILED;
+static wl_err_t demo_sync_write(wl_node_t *node, const uint8_t *data, size_t length) {
+  demo_node_t *self = (demo_node_t *)node;
+  return self->tx_write(self, data, length);
 }
-wl_err_t demo_init_io(demo_node_t *self, uint32_t instance, const wl_packet_io_t *io, const demo_handlers_t *handlers, void *user) {
-  if (self == NULL || io == NULL || io->submit == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_io_t binding = *io;
-  const int external_rx = binding.rx_storage != NULL || binding.rx_storage_size != 0U || binding.rx_unit_size != 0U;
-  if (external_rx && (binding.rx_storage == NULL || binding.rx_unit_size < DEMO_RX_WIRE_MAX + 1U ||
-      binding.rx_unit_size > binding.rx_storage_size / WL_PACKET_RX_SLOTS)) return WL_ERR_INVALID_ARG;
+static wl_err_t demo_bind_impl(demo_node_t *self, uint32_t instance, wl_transport_t *transport, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user) {
+  if (self == NULL) return WL_ERR_INVALID_ARG;
+  if (transport == NULL && tx_write == NULL) return WL_ERR_INVALID_ARG;
   if (handlers == NULL) return WL_ERR_INVALID_ARG;
-  const demo_handlers_t saved = *handlers;
-  wl_err_t error;
-  if (instance == 0U) {
-    error = wl_packet_instance_next(&instance);
-    if (error != WL_OK) return error;
-  }
-  memset(self, 0, sizeof(*self));
-  self->handlers = saved; self->user = user;
-  wl_packet_config_t packet = {.instance = instance,
-      .rx_storage = external_rx ? binding.rx_storage : &self->rx[0][0],
-      .rx_unit_size = external_rx ? binding.rx_unit_size : sizeof(self->rx[0]),
-      .rx_storage_size = external_rx ? binding.rx_storage_size : sizeof(self->rx),
-      .submit = binding.submit, .notify = binding.notify, .user = binding.user};
-  error = wl_packet_init(&self->port, &packet);
-  if (error != WL_OK) return error;
-  wl_endpoint_config_t config = {.port = &self->port, .route = demo_route, .on_error = demo_error, .user = self,
-      .storage = {
+  self->handlers = *handlers;
+  self->tx_write = tx_write;
+  const wl_node_layout_t layout = {
+    .instance = instance, .has_tx = 1,
+    .route = demo_route, .user = user,
+    .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
+    .rx_frame_max = DEMO_RX_FRAME_MAX, .tx_frame_max = DEMO_TX_FRAME_MAX,
+    .rx_wire_max = DEMO_RX_WIRE_MAX, .tx_wire_max = DEMO_TX_WIRE_MAX,
+    .storage = {
           .requests = &self->requests[0][0], .request_stride = 18U,
           .replies = &self->replies[0][0], .reply_stride = 18U,
           .message = self->message, .message_capacity = 15U,
-      }};
-  error = wl_endpoint_init(&self->core, &config);
-  if (error != WL_OK) wl_packet_stop(&self->port);
-  return error;
+    }
+  };
+  return transport != NULL ? wl_node_bind_transport(&self->node, &layout, transport)
+                           : wl_node_bind_sync(&self->node, &layout, demo_sync_write);
 }
-static wl_err_t demo_init_sync(demo_node_t *self, uint32_t instance, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user) {
-  if (tx_write == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_io_t io = {.submit = demo_submit, .user = self};
-  wl_err_t error = demo_init_io(self, instance, &io, handlers, user);
-  if (error == WL_OK) self->tx_write = tx_write;
-  return error;
+wl_err_t demo_bind(demo_node_t *self, wl_transport_t *transport, const demo_handlers_t *handlers, void *user) {
+  if (transport == NULL) return WL_ERR_INVALID_ARG;
+  return demo_bind_impl(self, 0U, transport, NULL, handlers, user);
 }
-wl_err_t demo_init(demo_node_t *self, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user) {
-  return demo_init_sync(self, 0U, tx_write, handlers, user);
-}
-wl_err_t demo_init_with_instance(demo_node_t *self, uint32_t instance, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user) {
+wl_err_t demo_bind_instance(demo_node_t *self, uint32_t instance, wl_transport_t *transport, const demo_handlers_t *handlers, void *user) {
   if (instance == 0U) return WL_ERR_INVALID_ARG;
-  return demo_init_sync(self, instance, tx_write, handlers, user);
+  if (transport == NULL) return WL_ERR_INVALID_ARG;
+  return demo_bind_impl(self, instance, transport, NULL, handlers, user);
 }
-wl_err_t demo_rx_packet(demo_node_t *self, const uint8_t *data, size_t length) {
-  if (self == NULL) return WL_ERR_INVALID_ARG;
-  if (length > DEMO_RX_WIRE_MAX) return WL_ERR_BUF_TOO_SMALL;
-  return wl_packet_rx_push(&self->port, data, length);
+wl_err_t demo_bind_sync(demo_node_t *self, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user) {
+  return demo_bind_impl(self, 0U, NULL, tx_write, handlers, user);
 }
-wl_err_t demo_step(demo_node_t *self, uint32_t now) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_step(&self->core, now, WL_ENDPOINT_BUDGET);
-}
-wl_err_t demo_close(demo_node_t *self) {
-  if (self == NULL) return WL_ERR_INVALID_ARG;
-  wl_err_t error = wl_endpoint_close(&self->core);
-  return error;
-}
-int demo_quiescent(const demo_node_t *self) {
-  return self != NULL && wl_endpoint_quiescent(&self->core);
-}
-wl_err_t demo_cancel(demo_node_t *self, wl_call_handle_t handle) {
-  return self == NULL ? WL_ERR_INVALID_ARG : wl_endpoint_cancel(&self->core, handle);
+wl_err_t demo_bind_sync_instance(demo_node_t *self, uint32_t instance, demo_tx_write_fn tx_write, const demo_handlers_t *handlers, void *user) {
+  if (instance == 0U) return WL_ERR_INVALID_ARG;
+  return demo_bind_impl(self, instance, NULL, tx_write, handlers, user);
 }

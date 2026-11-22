@@ -8,11 +8,7 @@ hash；普通尺寸比较使用 `--no-digests` 省略完整性摘要。
 不能因可选对象存在就认为 native 内核仍承担旧执行成本。
 
 C 探针读取已提交生成的 demo node 实际布局，以及 port、stream、byte FIFO、
-call handle 尺寸。三种明确的示例组合列出 endpoint、port、两个 RX unit 和可选
-stream／byte 暂存预算，所有 storage 字段单位均为字节。endpoint 已含内核元数据、
-四个 request snapshot、三个 reply snapshot、一个 ordinary snapshot 和类型化 reply
-scratch，不能重复加算。native USB 留出大于最大帧的一字节空间；stream 使用实际
-连接器上界。byte staging 是调用方示例预算，不是库对所有应用的统一要求。
+call handle 尺寸。三种示例装配将节点字节分到 port、双 RX 槽、stream、TX 缓冲和节点其余存储（含成员对齐填充）。native 直接采用 `sizeof(demo_node_t)`。流节点按生成布局的相同前缀、所选连接器的收发上限与各成员的 ABI 对齐要求计算；每个 RX 槽多留一个字节。串口示例另外计入 FIFO 对象和字节暂存。
 外层结构 padding、驱动对象不计入这些分项。
 
 探针的源码对象总和不含 demo codec 的代码。实际产品 text／rodata／RAM 和全程序

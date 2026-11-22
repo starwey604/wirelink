@@ -1,16 +1,61 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "wirelink/asio/packet_udp.hpp"
-#include "wirelink/packet_stream.h"
+#include "wirelink/udp.h"
+#include "wirelink/node.h"
 #include <cassert>
+#include <chrono>
 #include <cstring>
 #include <thread>
-extern "C" wl_packet_port_t *packet_udp_test_port(unsigned);
-extern "C" int packet_udp_test_init(unsigned, wl_packet_sink_fn, wl_packet_notify_fn, void *);
-extern "C" void packet_udp_test_c_api(void);
+
+struct Peer {
+  wl_node_t node{};
+  wl_packet_stream_t stream{};
+  uint8_t rx[2][256]{}, tx_wire[256]{};
+  wl_udp_t *udp{};
+  wl_transport_t *transport{};
+  explicit Peer(const wl_udp_config_t &config, bool cobs = false) {
+    assert(wl_udp_open(&udp, &config, nullptr) == WL_OK && wl_udp_local_port(udp));
+    transport = wl_udp_transport(udp);
+    wl_node_layout_t layout{};
+    layout.rx_storage = &rx[0][0];
+    layout.rx_storage_size = sizeof(rx);
+    layout.rx_frame_max = 200;
+    layout.rx_wire_max = 200;
+    layout.tx_frame_max = 250;
+    layout.tx_wire_max = 250;
+    layout.has_tx = 1;
+    static const wl_node_stream_ops_t cobs_ops{
+      wl_packet_stream_cobs_crc16_init, wl_packet_stream_cobs_crc16_submit,
+      wl_packet_stream_cobs_crc16_feed, wl_packet_stream_abort_rx, wl_packet_stream_notify,
+      WL_NODE_COBS_CRC16
+    };
+    if (cobs) {
+      layout.stream = &stream;
+      layout.stream_ops = &cobs_ops;
+      layout.stream_tx_wire = {tx_wire, sizeof(tx_wire)};
+      layout.rx_wire_max = wl_packet_stream_cobs_crc16_bound(layout.rx_frame_max);
+      layout.tx_wire_max = wl_packet_stream_cobs_crc16_bound(layout.tx_frame_max);
+    }
+    assert(wl_node_bind_transport(&node, &layout, transport) == WL_OK);
+  }
+  ~Peer() {
+    assert(wl_node_close(&node, 0) == WL_OK && wl_node_quiescent(&node));
+    wl_udp_close(udp);
+  }
+  wl_err_t service() { return transport->ops->service(transport, 0); }
+  void notify() { transport->ops->notify(transport); }
+  wl_err_t wait_for_activity(std::chrono::milliseconds limit) {
+    return transport->ops->wait(transport, static_cast<uint32_t>(limit.count()));
+  }
+  bool ready() { return transport->ops->readiness(transport, 0).runnable != 0; }
+  wl_udp_stats_t stats() const { return wl_udp_stats(udp); }
+  void connect(Peer &other) {
+    assert(wl_udp_set_peer(udp, "127.0.0.1", wl_udp_local_port(other.udp)) == WL_OK);
+  }
+};
 // Activity includes configuration/resource notifications, not just datagrams.
 // Keep servicing until the observable receive condition, with one real deadline.
 template <typename Predicate>
-static void service_until(wirelink::asio::PacketUdpAdapter &adapter, Predicate done) {
+static void service_until(Peer &adapter, Predicate done) {
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
   for (;;) {
     assert(adapter.service() == WL_OK);
@@ -23,29 +68,28 @@ static void service_until(wirelink::asio::PacketUdpAdapter &adapter, Predicate d
   }
 }
 int main() {
-  packet_udp_test_c_api();
   using namespace std::chrono_literals;
-  using wirelink::asio::PacketUdpAdapter;
-  using wirelink::asio::PacketUdpConfig;
-  auto *a = packet_udp_test_port(0), *b = packet_udp_test_port(1), *c = packet_udp_test_port(2);
-  PacketUdpAdapter aa(*a), bb(*b), cc(*c);
-  assert(packet_udp_test_init(0, PacketUdpAdapter::submit, PacketUdpAdapter::notify, &aa) == WL_OK);
-  assert(packet_udp_test_init(1, PacketUdpAdapter::submit, PacketUdpAdapter::notify, &bb) == WL_OK);
-  assert(packet_udp_test_init(2, PacketUdpAdapter::submit, PacketUdpAdapter::notify, &cc) == WL_OK);
-  PacketUdpConfig config;
+  wl_udp_config_t config{};
   config.bind_address = "127.0.0.1";
-  config.maximum_datagram_size = 200;
-  std::error_code error;
-  assert(aa.start(config, error) == WL_OK && bb.start(config, error) == WL_OK &&
-         cc.start(config, error) == WL_OK);
-  assert(aa.set_peer("127.0.0.1", bb.local_port()) == WL_OK);
-  assert(bb.set_peer("127.0.0.1", aa.local_port()) == WL_OK);
-  assert(cc.set_peer("127.0.0.1", bb.local_port()) == WL_OK);
+  wl_udp_t *bad = nullptr;
+  int os_error = -1;
+  config.peer_port = 7;
+  assert(wl_udp_open(&bad, &config, &os_error) == WL_ERR_INVALID_ARG && !bad && os_error == 0);
+  config.peer_address = "invalid";
+  assert(wl_udp_open(&bad, &config, nullptr) == WL_ERR_INVALID_ARG && !bad);
+  config.peer_address = nullptr;
+  config.peer_port = 0;
+  Peer aa(config), bb(config), cc(config);
+  config.bind_port = wl_udp_local_port(aa.udp);
+  assert(wl_udp_open(&bad, &config, &os_error) == WL_ERR_IO && !bad && os_error);
+  config.bind_port = 0;
+  aa.connect(bb); bb.connect(aa); cc.connect(bb);
+  auto *a = &aa.node.port, *b = &bb.node.port, *c = &cc.node.port;
   uint8_t message[] = {0x57, 0, 8, 0, 1, 2, 3};
   wl_packet_token_t token{};
   // A latched wake must not be mistaken for receipt (even on synchronous
   // loopback implementations). No sender has submitted a datagram yet.
-  PacketUdpAdapter::notify(&bb);
+  bb.notify();
   assert(bb.wait_for_activity(100ms) == WL_OK);
   assert(bb.service() == WL_OK && !wl_packet_rx_ready(b) && bb.stats().received == 0);
   // Foreign source is consumed but never published.
@@ -75,46 +119,30 @@ int main() {
   for (unsigned i = 0; i < 3; ++i)
     (void)bb.wait_for_activity(0ms);
   assert(bb.service() == WL_OK && bb.wait_for_activity(2ms) == WL_ERR_NO_DATA);
-  PacketUdpAdapter::notify(&bb);
+  bb.notify();
   assert(bb.wait_for_activity(100ms) == WL_OK);
   assert(bb.service() == WL_OK);
   assert(bb.wait_for_activity(2ms) == WL_ERR_NO_DATA);
   std::thread producer([&] {
     std::this_thread::sleep_for(5ms);
-    PacketUdpAdapter::notify(&bb);
+    bb.notify();
   });
   assert(bb.wait_for_activity(100ms) == WL_OK);
   producer.join();
-  aa.stop();
-  bb.stop();
-  cc.stop();
-  assert(wl_packet_quiescent(a) && wl_packet_quiescent(b) && wl_packet_quiescent(c));
-  // Explicit COBS framing on the same datagram adapter; no old engine.
-  PacketUdpAdapter ab(*a), ba(*b);
-  wl_packet_stream_t stream{};
-  uint8_t wire[256];
-  assert(packet_udp_test_init(0, wl_packet_stream_cobs_crc16_submit, wl_packet_stream_notify,
-                              &stream) == WL_OK);
-  assert(packet_udp_test_init(1, PacketUdpAdapter::submit, PacketUdpAdapter::notify, &ba) == WL_OK);
+  // Independent RX and TX limits let this sender submit a frame above its RX maximum.
+  uint8_t large[235]{};
+  assert(wl_packet_tx_submit(a, large, sizeof(large), &token) == WL_OK);
+  assert(wl_packet_tx_take(a, &token) & WL_PACKET_DRAINED);
+  service_until(bb, [&] { return bb.stats().rejected == 2; });
+
   config.decode = wl_packet_cobs_crc16_decode;
-  assert(ab.start(config, error) == WL_OK && ba.start(config, error) == WL_OK);
-  assert(ab.set_peer("127.0.0.1", ba.local_port()) == WL_OK &&
-         ba.set_peer("127.0.0.1", ab.local_port()) == WL_OK);
-  wl_packet_stream_config_t sc{};
-  sc.port = a;
-  sc.tx_storage = {wire, sizeof(wire)};
-  sc.maximum_frame_size = 100;
-  sc.physical_submit = PacketUdpAdapter::submit;
-  sc.notify = PacketUdpAdapter::notify;
-  sc.user = &ab;
-  assert(wl_packet_stream_cobs_crc16_init(&stream, &sc) == WL_OK);
+  Peer ab(config, true), ba(config, true);
+  ab.connect(ba); ba.connect(ab);
+  a = &ab.node.port; b = &ba.node.port;
   assert(wl_packet_tx_submit(a, message, sizeof(message), &token) == WL_OK);
   (void)wl_packet_tx_take(a, &token);
   service_until(ba, [&] { return ba.stats().received == 1; });
   assert(wl_packet_rx_borrow(b, &borrow) == WL_OK && borrow.length == sizeof(message));
   assert(!std::memcmp(borrow.data, message, sizeof(message)));
   assert(wl_packet_rx_release(b, &borrow) == WL_OK);
-  ab.stop();
-  ba.stop();
-  assert(wl_packet_quiescent(a) && wl_packet_quiescent(b));
 }

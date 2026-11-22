@@ -1,7 +1,7 @@
 # Explicit communication instances
 
 This standalone sample runs the same generated native packet kernel and cases as
-`tests/session`. The owner obtains a fresh nonzero identity before initializing
+`tests/core/session_cases.c`. The owner obtains a fresh nonzero identity before initializing
 its packet port and kernel. The kernel never calls an identity source or clock.
 
 Cases cover source failure, zero and repetition (with output unchanged), distinct

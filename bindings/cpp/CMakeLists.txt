@@ -10,7 +10,7 @@ target_link_libraries(wirelink_cpp INTERFACE wirelink_endpoint wirelink_host)
 add_library(wirelink_cpp_host STATIC src/session.cpp)
 add_library(Wirelink::cpp_host ALIAS wirelink_cpp_host)
 set_target_properties(wirelink_cpp_host PROPERTIES EXPORT_NAME cpp_host POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(wirelink_cpp_host PUBLIC wirelink_cpp wirelink_platform PRIVATE wirelink_asio_udp)
+target_link_libraries(wirelink_cpp_host PUBLIC wirelink_cpp wirelink_platform PRIVATE wirelink_udp)
 wl_warnings(wirelink_cpp_host PRIVATE -Wall -Wextra -Wpedantic -Werror)
 if(WIRELINK_INSTALL)
   install(TARGETS wirelink_cpp wirelink_cpp_host EXPORT Wirelink_cpp_hostTargets

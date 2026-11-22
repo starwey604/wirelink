@@ -13,6 +13,8 @@
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/usb/usbd.h>
 
+static const wl_transport_ops_t transport_ops;
+
 #define WL_USB_FS_MPS 64U
 #define WL_USB_HS_MPS 512U
 
@@ -270,7 +272,8 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
       latch_rx_fault(adapter, error != 0 ? WL_ZEPHYR_USB_RX_FAULT_TRANSFER
                                          : WL_ZEPHYR_USB_RX_FAULT_BOUNDARY_LOST);
     }
-  } else if (buffer->len == 0U) {
+  } else if (buffer->len == 0U || buffer->len > adapter->frame_limit) {
+    if (buffer->len > adapter->frame_limit) atomic_inc(&adapter->errors);
     (void)wl_packet_rx_abort(adapter->port, &adapter->rx_unit_claim);
   } else if (wl_packet_rx_commit(adapter->port, &adapter->rx_unit_claim,
                                buffer->len) != WL_OK) {
@@ -504,21 +507,20 @@ static int queue_out(struct usbd_class_data *class_data,
   return WL_OK;
 }
 
-int wl_zephyr_usb_bulk_init(wl_zephyr_usb_bulk_t *adapter,
-                            const wl_zephyr_usb_bulk_config_t *config) {
+static wl_err_t initialize(wl_zephyr_usb_bulk_t *adapter, const wl_zephyr_usb_bulk_config_t *config,
+                           const wl_transport_attach_t *info) {
 
-  if (adapter == NULL || config == NULL || config->port == NULL ||
-      private_data.adapter != NULL || config->maximum_frame_size < 4U ||
-      config->maximum_frame_size >= config->port->config.rx_unit_size ||
-      config->port->config.submit != wl_zephyr_usb_bulk_submit ||
-      config->port->config.user != adapter ||
-      !atomic_load_explicit(&config->port->running, memory_order_acquire)) {
+  if (private_data.adapter != NULL || info->rx_wire_max < 4U ||
+      info->rx_wire_max >= wl_packet_rx_unit_size(info->port)) {
     return WL_ERR_INVALID_ARG;
   }
   const wl_zephyr_usb_bulk_config_t value = *config;
   memset(adapter, 0, sizeof(*adapter));
-  adapter->port = value.port;
-  adapter->maximum_rx_size = value.port->config.rx_unit_size;
+  adapter->transport.ops = &transport_ops;
+  adapter->config = value;
+  adapter->port = info->port;
+  adapter->frame_limit = info->rx_wire_max;
+  adapter->maximum_rx_size = wl_packet_rx_unit_size(info->port);
   adapter->wake_user_data = value.wake_user_data;
   adapter->wake_consumer = value.wake_consumer;
   adapter->cycle_counter_user_data = value.cycle_counter_user_data;
@@ -576,9 +578,10 @@ int wl_zephyr_usb_bulk_stop(wl_zephyr_usb_bulk_t *adapter) {
   atomic_set_bit(&adapter->flags, ADAPTER_STOPPING);
   wl_packet_stop(adapter->port);
   struct usbd_context *context = usbd_class_get_ctx(wl_usb_bulk_class_data());
-  if (context == NULL) return WL_ERR_NOT_INITIALIZED;
-  if (atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) && usbd_disable(context) != 0)
-    return WL_ERR_IO;
+  if (atomic_test_bit(&adapter->flags, ADAPTER_ENABLED)) {
+    if (context == NULL) return WL_ERR_NOT_INITIALIZED;
+    if (usbd_disable(context) != 0) return WL_ERR_IO;
+  }
   return wl_zephyr_usb_bulk_stopped(adapter) ? WL_OK : WL_ERR_WOULD_BLOCK;
 }
 
@@ -692,4 +695,62 @@ void wl_zephyr_usb_bulk_get_stats(const wl_zephyr_usb_bulk_t *adapter,
   out_stats->rx_fault = wl_zephyr_usb_bulk_rx_fault(adapter);
   out_stats->last_rx_fault = (wl_zephyr_usb_rx_fault_t)atomic_get(&adapter->last_rx_fault);
   out_stats->recovering = atomic_test_bit(&adapter->flags, ADAPTER_RECOVERY_REQUESTED);
+}
+
+static wl_err_t transport_configure_rx(wl_transport_t *transport, size_t minimum,
+                                        wl_transport_rx_override_t *out) {
+  wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
+  *out = adapter->config.rx;
+  const size_t mps = USBD_SUPPORTS_HIGH_SPEED ? WL_USB_HS_MPS : WL_USB_FS_MPS;
+  if (out->rx_unit_size < minimum || out->rx_unit_size % mps != 0U)
+    return WL_ERR_INVALID_ARG;
+  return WL_OK;
+}
+
+static wl_err_t transport_attach(wl_transport_t *transport, const wl_transport_attach_t *info) {
+  wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
+  wl_zephyr_usb_bulk_config_t config = adapter->config;
+  if (info->framing != WL_NODE_NATIVE) return WL_ERR_INVALID_ARG;
+  return initialize(adapter, &config, info);
+}
+
+static wl_packet_submit_t transport_submit(wl_transport_t *transport, const uint8_t *data,
+                                            size_t length, wl_packet_token_t token) {
+  return wl_zephyr_usb_bulk_submit(transport, data, length, token);
+}
+static void transport_notify(wl_transport_t *transport) {
+  wl_zephyr_usb_bulk_notify(transport);
+}
+static wl_err_t transport_service(wl_transport_t *transport, uint32_t now) {
+  (void)now;
+  wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
+  return atomic_test_bit(&adapter->flags, ADAPTER_STOPPING) ? WL_OK
+      : wl_zephyr_usb_bulk_service(adapter);
+}
+static wl_io_readiness_t transport_readiness(const wl_transport_t *transport, uint32_t now) {
+  (void)now;
+  return wl_io_readiness_at(wl_zephyr_usb_bulk_ready((const wl_zephyr_usb_bulk_t *)transport) ? 0U : UINT32_MAX);
+}
+static wl_err_t transport_stop(wl_transport_t *transport) {
+  wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
+  wl_err_t error = wl_zephyr_usb_bulk_stop(adapter);
+  if (error != WL_OK) return error;
+  private_data.adapter = NULL;
+  atomic_clear_bit(&adapter->flags, ADAPTER_INITIALIZED);
+  return WL_OK;
+}
+
+static const wl_transport_ops_t transport_ops = {
+  .configure_rx = transport_configure_rx,
+  .attach = transport_attach, .submit = transport_submit, .notify = transport_notify,
+  .service = transport_service, .readiness = transport_readiness,
+  .stop = transport_stop,
+};
+
+wl_transport_t *wl_zephyr_usb_bulk_transport(wl_zephyr_usb_bulk_t *adapter,
+    const wl_zephyr_usb_bulk_config_t *config) {
+  if (adapter == NULL || config == NULL) return NULL;
+  adapter->transport.ops = &transport_ops;
+  adapter->config = *config;
+  return &adapter->transport;
 }

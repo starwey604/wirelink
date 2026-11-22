@@ -1,4 +1,4 @@
-> ARQ 执行引擎基准已删除。本目录仅保留历史报告读取器与测试。新合同的显式应用重试见 `../mixed_traffic` 和 `tests/session`，两类采集不能混比。
+> ARQ 执行引擎基准已删除。本目录仅保留历史报告读取器与测试。新合同的显式应用重试见 `../mixed_traffic` 和 `tests/core/session_cases.c`，两类采集不能混比。
 
 # 可靠路径丢包基准
 
@@ -28,7 +28,7 @@
 - RNG 有种子，同样的参数永远产生同样的报告。所有故障开关为 0 时，信道等价于纯
   独立丢包。
 
-它和 [`tests/tutorials/udp_processes.py`](../../tests/tutorials/udp_processes.py)
+它和 [`tests/tutorials/udp_peer.py`](../../tests/tutorials/udp_peer.py)
 （真实 UDP、验正确性）、[`mixed_traffic`](../mixed_traffic/README-cn.md)
 （应用层 ACK 丢包与 telemetry age）互补。
 

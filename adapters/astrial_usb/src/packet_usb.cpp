@@ -2,12 +2,12 @@
 #include "wirelink/astrial/packet_usb.hpp"
 #include "wirelink/detail/coalescing_event.hpp"
 #include <atomic>
+#include <system_error>
 #include <utility>
-
 namespace wirelink::astrial {
 class PacketUsbAdapter::Impl {
 public:
-  explicit Impl(wl_packet_port_t &value) : port(value) {}
+  explicit Impl(PacketUsbConfig value) : config(std::move(value)) {}
   void wake() {
     activity.notify();
     if (config.wake) config.wake(config.wake_user);
@@ -17,7 +17,7 @@ public:
     if (fault.compare_exchange_strong(expected, reason, std::memory_order_acq_rel)) {
       ++errors;
       fault_pending.store(true, std::memory_order_release);
-      wl_packet_activity(&port);
+      wl_packet_activity(port);
     }
   }
   UsbBorrowedBuffer acquire() {
@@ -25,7 +25,7 @@ public:
       return {};
     if (claimed) { fail(PacketUsbFault::invalid_completion); return {}; }
     wl_packet_claim_t next{};
-    auto error = wl_packet_rx_claim(&port, read_size, &next);
+    auto error = wl_packet_rx_claim(port, read_size, &next);
     if (error != WL_OK) {
       if (error != WL_ERR_WOULD_BLOCK) fail(PacketUsbFault::invalid_completion);
       if (!paused.exchange(true, std::memory_order_acq_rel)) wake();
@@ -46,13 +46,19 @@ public:
     const bool cancel = stopping.load(std::memory_order_acquire) &&
         error == make_error_code(UsbError::TransferCancelled);
     if (error || length >= claim.span.length || !length) {
-      (void)wl_packet_rx_abort(&port, &claim);
+      (void)wl_packet_rx_abort(port, &claim);
       claimed = false;
       if (!cancel && error) fail(PacketUsbFault::transfer);
       else if (length >= claim.span.length) fail(PacketUsbFault::boundary_lost);
       return;
     }
-    auto result = wl_packet_rx_commit(&port, &claim, length);
+    if (length > maximum_frame) {
+      (void)wl_packet_rx_abort(port, &claim);
+      claimed = false;
+      ++errors;
+      return;
+    }
+    auto result = wl_packet_rx_commit(port, &claim, length);
     claimed = false;
     if (result != WL_OK) { fail(PacketUsbFault::invalid_completion); return; }
     rx_bytes.fetch_add(length, std::memory_order_relaxed);
@@ -71,13 +77,13 @@ public:
     if (success) { tx_bytes.fetch_add(length, std::memory_order_relaxed); ++tx_units; }
     else if (!cancel) ++errors;
     // Clear adapter admission before publication wakes an owner/new submit.
-    if (wl_packet_tx_publish(&port, token,
+    if (wl_packet_tx_publish(port, token,
         success ? WL_PACKET_DRAINED : WL_PACKET_TX_ERROR) != WL_OK) ++stale;
   }
-  wl_packet_port_t &port;
+  wl_packet_port_t *port{};
   std::unique_ptr<UsbBulkDevice> device;
   PacketUsbConfig config;
-  size_t read_size{};
+  size_t read_size{}, maximum_frame{};
   bool claimed{}; // I/O thread only, or owner after join.
   bool started_once{};
   wl_packet_claim_t claim{};
@@ -87,14 +93,44 @@ public:
   std::atomic<uint64_t> rx_bytes{}, tx_bytes{}, rx_units{}, tx_units{}, errors{}, stale{};
   wirelink::detail::CoalescingEvent activity;
 };
-PacketUsbAdapter::PacketUsbAdapter(wl_packet_port_t &port) : impl_(std::make_unique<Impl>(port)) {}
+PacketUsbAdapter::PacketUsbAdapter(PacketUsbConfig config)
+    : wl_transport_t{}, impl_(std::make_unique<Impl>(std::move(config))) {
+  static const wl_transport_ops_t operations = {
+      [](wl_transport_t *t, size_t, wl_transport_rx_override_t *out) -> wl_err_t {
+        *out = static_cast<PacketUsbAdapter *>(t)->impl_->config.rx;
+        return WL_OK;
+      },
+      [](wl_transport_t *t, const wl_transport_attach_t *info) -> wl_err_t {
+        auto *self = static_cast<PacketUsbAdapter *>(t);
+        try { return self->attach(*info); }
+        catch (const std::bad_alloc &) { self->stop(); return WL_ERR_NO_MEM; }
+        catch (const std::system_error &) { self->stop(); return WL_ERR_IO; }
+      },
+      [](wl_transport_t *t, const uint8_t *bytes, size_t length, wl_packet_token_t token) {
+        return submit(static_cast<PacketUsbAdapter *>(t), bytes, length, token);
+      },
+      [](wl_transport_t *t) { notify(static_cast<PacketUsbAdapter *>(t)); },
+      [](wl_transport_t *t, uint32_t) { return static_cast<PacketUsbAdapter *>(t)->service(); },
+      [](const wl_transport_t *t, uint32_t) { return wl_io_readiness_at(static_cast<const PacketUsbAdapter *>(t)->ready() ? 0U : UINT32_MAX); },
+      [](wl_transport_t *t, uint32_t ms) -> wl_err_t {
+        auto &event = static_cast<PacketUsbAdapter *>(t)->impl_->activity;
+        if (ms == UINT32_MAX) { event.wait(); return WL_OK; }
+        return event.wait_for(std::chrono::milliseconds(ms)) ? WL_OK : WL_ERR_NO_DATA;
+      },
+      [](wl_transport_t *t) -> wl_err_t { static_cast<PacketUsbAdapter *>(t)->stop(); return WL_OK; }
+  };
+  ops = &operations;
+}
 PacketUsbAdapter::~PacketUsbAdapter() { stop(); }
-wl_err_t PacketUsbAdapter::start(const PacketUsbConfig &config) {
+wl_err_t PacketUsbAdapter::attach(const wl_transport_attach_t &layout) {
   auto &p = *impl_;
   if (p.started_once) return WL_ERR_INVALID_STATE;
-  p.read_size = wl_packet_rx_unit_size(&p.port);
-  if (!config.maximum_frame_size || config.maximum_frame_size >= p.read_size)
-    return WL_ERR_INVALID_ARG;
+  if (layout.framing != WL_NODE_NATIVE) return WL_ERR_INVALID_ARG;
+  p.port = layout.port;
+  p.read_size = wl_packet_rx_unit_size(p.port);
+  p.maximum_frame = layout.rx_wire_max;
+  if (!p.maximum_frame || p.maximum_frame >= p.read_size) return WL_ERR_INVALID_ARG;
+  const auto &config = p.config;
   auto usb = config.usb;
   usb.read_queue_depth = 1;
   usb.auto_reconnect = false;
@@ -103,7 +139,6 @@ wl_err_t PacketUsbAdapter::start(const PacketUsbConfig &config) {
   const auto info = opened->endpoint_info();
   if (!info.maximum_packet_size_in || !info.maximum_packet_size_out ||
       p.read_size % info.maximum_packet_size_in) return WL_ERR_INVALID_ARG;
-  p.config = config;
   p.device = std::make_unique<UsbBulkDevice>(std::move(*opened));
   p.started_once = true;
   p.is_stopped.store(false, std::memory_order_release);
@@ -124,14 +159,16 @@ wl_packet_submit_t PacketUsbAdapter::submit(void *user, const uint8_t *data,
   uint32_t none = 0;
   if (!p.tx_sequence.compare_exchange_strong(none, token.sequence, std::memory_order_acq_rel))
     return WL_PACKET_BUSY;
-  auto result = p.device->async_write_borrowed({data, length},
-      [&p, token, length](const std::error_code &e, size_t n) { p.written(token, length, e, n); });
-  if (!result) {
-    p.tx_sequence.store(0, std::memory_order_release);
-    ++p.errors;
-    return WL_PACKET_FAILED;
+  try {
+    auto result = p.device->async_write_borrowed({data, length},
+        [&p, token, length](const std::error_code &e, size_t n) { p.written(token, length, e, n); });
+    if (result) return WL_PACKET_STARTED;
+  } catch (const std::exception &) {
+    p.fail(PacketUsbFault::transfer);
   }
-  return WL_PACKET_STARTED;
+  p.tx_sequence.store(0, std::memory_order_release);
+  if (p.fault.load(std::memory_order_acquire) == PacketUsbFault::none) ++p.errors;
+  return WL_PACKET_FAILED;
 }
 void PacketUsbAdapter::notify(void *user) {
   if (user) static_cast<PacketUsbAdapter *>(user)->impl_->wake();
@@ -140,7 +177,7 @@ wl_err_t PacketUsbAdapter::service() {
   auto &p = *impl_;
   p.fault_pending.store(false, std::memory_order_release);
   if (!p.is_stopped.load() && !p.stopping.load() && p.fault.load() == PacketUsbFault::none &&
-      p.paused.load(std::memory_order_acquire) && wl_packet_rx_available(&p.port) &&
+      p.paused.load(std::memory_order_acquire) && wl_packet_rx_available(p.port) &&
       p.paused.exchange(false, std::memory_order_acq_rel)) p.device->resume_reads();
   return p.fault.load() == PacketUsbFault::none ? WL_OK : WL_ERR_IO;
 }
@@ -148,15 +185,15 @@ bool PacketUsbAdapter::ready() const {
   const auto &p = *impl_;
   return !p.is_stopped.load() && (p.fault_pending.load(std::memory_order_acquire) ||
       (p.fault.load() == PacketUsbFault::none && p.paused.load(std::memory_order_acquire) &&
-       wl_packet_rx_available(&p.port)));
+       wl_packet_rx_available(p.port)));
 }
 void PacketUsbAdapter::stop() {
   auto &p = *impl_;
   if (p.is_stopped.load(std::memory_order_acquire)) return;
   p.stopping.store(true, std::memory_order_release);
-  wl_packet_stop(&p.port);
+  wl_packet_stop(p.port);
   p.device->close(); // Synchronously joins and completes cancellations on owner.
-  if (p.claimed) { (void)wl_packet_rx_abort(&p.port, &p.claim); p.claimed = false; }
+  if (p.claimed) { (void)wl_packet_rx_abort(p.port, &p.claim); p.claimed = false; }
   p.is_stopped.store(true, std::memory_order_release);
   p.wake();
 }

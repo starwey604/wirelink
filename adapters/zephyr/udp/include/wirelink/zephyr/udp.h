@@ -1,8 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_ZEPHYR_UDP_H_
 #define WIRELINK_ZEPHYR_UDP_H_
-#include "wirelink/packet_port.h"
-#include "wirelink/io_readiness.h"
+#include "wirelink/transport.h"
 #include "wirelink/clock.h"
 #include "wirelink/zephyr/udp_socket.h"
 #ifdef __cplusplus
@@ -12,23 +11,29 @@ extern "C" {
  * Socket I/O runs on owner; external notifying/stopping THREADS must join
  * before close/reuse. No adapter thread or heap is created. */
 typedef struct {
-  wl_packet_port_t *port;
   struct net_sockaddr_in local, peer;
   size_t maximum_datagram_size;
   unsigned service_budget; /* 1..16 */
   uint32_t retry_ms;       /* 0 selects 1 ms. */
   wl_clock_t clock;
   wl_err_t (*decode)(uint8_t *, size_t, size_t *); /* Optional selected framing. */
-  size_t maximum_tx_datagram_size; /* Zero uses maximum_datagram_size (RX). */
+  size_t maximum_tx_datagram_size; /* Zero selects the node TX bound. */
 } wl_zephyr_udp_config_t;
 typedef struct {
+  wl_transport_t transport;
+  wl_packet_port_t *port;
   wl_zephyr_udp_config_t config;
   wl_zephyr_udp_socket_state_t io;
+  size_t rx_frame_max;
   uint32_t retry_due;
   bool retry_pending, more_rx;
   uint64_t received, sent, rejected, errors;
 } wl_zephyr_udp_t;
-wl_err_t wl_zephyr_udp_open(wl_zephyr_udp_t *, const wl_zephyr_udp_config_t *);
+/* Bind with zero-initialized adapter storage. Zero datagram limits use the
+ * corresponding schema wire bounds. */
+wl_transport_t *wl_zephyr_udp_transport(wl_zephyr_udp_t *adapter,
+    const wl_zephyr_udp_config_t *config);
+
 wl_packet_submit_t wl_zephyr_udp_submit(void *, const uint8_t *, size_t, wl_packet_token_t);
 wl_err_t wl_zephyr_udp_service(wl_zephyr_udp_t *, uint32_t);
 wl_io_readiness_t wl_zephyr_udp_readiness(const wl_zephyr_udp_t *, uint32_t);

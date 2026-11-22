@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/astrial/packet_serial.hpp"
 #include <cassert>
+#include "wirelink/node.h"
 #include <cstring>
 #include <atomic>
 #include <chrono>
@@ -13,16 +14,19 @@
 #endif
 #include <termios.h>
 #include <unistd.h>
-extern "C" wl_packet_port_t *packet_serial_test_port();
-extern "C" wl_byte_fifo_t *packet_serial_test_fifo();
-extern "C" wl_packet_stream_t *packet_serial_test_stream();
-extern "C" int packet_serial_test_init(wl_packet_sink_fn, wl_packet_notify_fn, void *);
+extern "C" const size_t *packet_serial_fifo_layout();
+
 static uint32_t now() {
   return uint32_t(std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now().time_since_epoch())
                       .count());
 }
 int main() {
+  const size_t layout_cpp[] = {
+      sizeof(wl_byte_fifo_t), alignof(wl_byte_fifo_t), offsetof(wl_byte_fifo_t, read),
+      offsetof(wl_byte_fifo_t, write), offsetof(wl_byte_fifo_t, gap),
+      offsetof(wl_byte_fifo_t, reserved), offsetof(wl_byte_fifo_t, reservation)};
+  assert(!std::memcmp(layout_cpp, packet_serial_fifo_layout(), sizeof(layout_cpp)));
   using namespace std::chrono_literals;
   using wirelink::astrial::PacketSerialAdapter;
   int master = -1, slave = -1;
@@ -33,17 +37,30 @@ int main() {
   cfmakeraw(&attributes);
   assert(tcsetattr(slave, TCSANOW, &attributes) == 0);
   close(slave);
-  auto *port = packet_serial_test_port();
-  PacketSerialAdapter adapter(*port, *packet_serial_test_fifo(), *packet_serial_test_stream());
-  assert(packet_serial_test_init(PacketSerialAdapter::submit, PacketSerialAdapter::notify,
-                                 &adapter) == WL_OK);
   std::atomic<bool> drained{false};
   wirelink::astrial::PacketSerialConfig config;
   config.port = name;
   config.drained = [](void *p) { return static_cast<std::atomic<bool> *>(p)->load() ? 1 : 0; };
   config.drain_user = &drained;
-  std::error_code error;
-  assert(adapter.start(config, error) == WL_OK);
+  wl_node_t node{};
+  wl_packet_stream_t stream{};
+  uint8_t rx[2][106], wire_storage[105], fifo[17];
+  const wl_node_stream_ops_t cobs = {wl_packet_stream_cobs_crc16_init,
+      wl_packet_stream_cobs_crc16_submit, wl_packet_stream_cobs_crc16_feed,
+      wl_packet_stream_abort_rx, wl_packet_stream_notify, WL_NODE_COBS_CRC16};
+  wl_node_layout_t layout{};
+  layout.instance = 9001;
+  layout.rx_storage = rx[0];
+  layout.rx_storage_size = sizeof(rx);
+  layout.rx_frame_max = layout.tx_frame_max = 100;
+  layout.rx_wire_max = layout.tx_wire_max = wl_packet_stream_cobs_crc16_bound(100);
+  layout.stream = &stream;
+  layout.stream_ops = &cobs;
+  layout.stream_tx_wire = {wire_storage, sizeof(wire_storage)};
+  layout.has_tx = 1;
+  PacketSerialAdapter adapter(config, {fifo, sizeof(fifo)});
+  assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_OK);
+  auto *port = &node.port;
   uint8_t packet[] = {0x57, 0, 22, 0, 1, 2, 3, 4, 5, 6, 7, 8};
   wl_packet_token_t token{};
   assert(wl_packet_tx_submit(port, packet, sizeof(packet), &token) == WL_OK);
@@ -87,7 +104,7 @@ int main() {
   packet[4] = 1;
   assert(borrow.length == sizeof(packet) && !memcmp(borrow.data, packet, sizeof(packet)));
   assert(wl_packet_rx_release(port, &borrow) == WL_OK);
-  adapter.stop();
+  assert(wl_node_close(&node, now()) == WL_OK);
   assert(wl_packet_quiescent(port) && adapter.errors() == 0);
   close(master);
 }
