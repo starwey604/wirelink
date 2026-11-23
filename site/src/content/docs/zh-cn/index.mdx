@@ -5,16 +5,16 @@ template: splash
 hero:
   tagline: 通过一份 .wl 协议文件，同时生成无动态内存分配的嵌入式 C11 通信代码与上位机 Python / C++20 客户端。
   actions:
+    - text: 核心心智模型
+      link: /wirelink/zh-cn/overview/mental-model/
+      icon: open-book
+      variant: primary
     - text: 快速开始
       link: /wirelink/zh-cn/overview/quick-start/
       icon: right-arrow
-      variant: primary
-    - text: 新手教程
-      link: /wirelink/zh-cn/learn/01-loopback-endpoint/
-      icon: open-book
       variant: secondary
-    - text: .wl 语法手册
-      link: /wirelink/zh-cn/concepts/schema-language/
+    - text: 新手实战教程
+      link: /wirelink/zh-cn/learn/01-publish-subscribe/
       icon: document
       variant: secondary
 ---
@@ -28,11 +28,11 @@ import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 <div class="hero-metrics">
   <span>ISO C11 · 无动态内存分配</span>
   <span>单份 .wl 定义消息、RPC 与节点</span>
-  <span>支持单向推送与双向 RPC</span>
+  <span>支持发布/订阅与双向 RPC</span>
   <span>适用于 UART、USB 与 UDP</span>
 </div>
 
-Wirelink 用于构建嵌入式下位机（裸机、FreeRTOS、Zephyr）与上位机（PC 工具、边缘主机或另一块控制器）之间的类型安全通信。你只需在 `.wl` 文件中声明数据结构与通信角色，编译器 `wlc` 会负责生成二进制编解码、分帧校验、RPC 请求匹配与超时管理代码。
+Wirelink 用于构建嵌入式下位机（裸机、FreeRTOS、Zephyr）与上位机（PC 工具、边缘主机或另一块控制器）之间的类型安全通信。整个模型只围绕两个运行时概念——**传输（Transport）**与**节点（Node）**：在 `.wl` 文件中声明消息、RPC 与每个节点的角色后，编译器 `wlc` 会自动生成二进制编解码、链路分帧与会话状态机代码。
 
 ## 工作流示例
 
@@ -92,16 +92,16 @@ Wirelink 用于构建嵌入式下位机（裸机、FreeRTOS、Zephyr）与上位
 ## 文档导航
 
 <CardGrid>
+  <Card title="核心心智模型" icon="puzzle">
+    先花 3 分钟理清 Node、4 种通信角色（发布/订阅与客户端/服务端）以及 Transport ← Node 运行时模型。[阅读心智模型 →](/wirelink/zh-cn/overview/mental-model/)
+  </Card>
   <Card title="快速开始" icon="rocket">
     配置本地工具链，编译运行内置示例，并生成第一份 C 协议代码。[前往快速开始 →](/wirelink/zh-cn/overview/quick-start/)
   </Card>
   <Card title="新手实战教程" icon="open-book">
-    通过 6 节循序渐进的实践课程，依次掌握协议编写、单向消息、RPC 调用、字符串与串口接入，以及上位机 SDK。[进入第 01 课 →](/wirelink/zh-cn/learn/01-loopback-endpoint/)
+    通过 5 节循序渐进的实践课程，依次掌握发布/订阅、双向 RPC、数据建模、并发背压与串口/上位机 SDK。[进入第 01 课 →](/wirelink/zh-cn/learn/01-publish-subscribe/)
   </Card>
-  <Card title=".wl 语法手册" icon="setting">
-    查阅支持的数据类型、有界字符串、枚举、可选字段与多文件导入语法。[查阅语法手册 →](/wirelink/zh-cn/concepts/schema-language/)
-  </Card>
-  <Card title="硬件接入与进阶" icon="list-format">
-    了解如何将节点接入板级驱动、零拷贝 DMA，以及在裸机循环或 RTOS 任务中调度。[查看接入指南 →](/wirelink/zh-cn/how-to/custom-drivers/)
+  <Card title="硬件接入与 API 参考" icon="setting">
+    了解如何将节点接入板级驱动、零拷贝 DMA，以及查阅 .wl 语法与 C11 API。[查看驱动移植指南 →](/wirelink/zh-cn/how-to/custom-drivers/)
   </Card>
 </CardGrid>

@@ -1,0 +1,312 @@
+---
+title: 02 双向调用：RPC 服务端与客户端
+description: 在同一份 .wl 中定义 RPC 调用，完整掌握服务端（serve）实现、业务拒绝码返回，以及 C 客户端（call）的非阻塞调用与终态回调。
+sidebar:
+  order: 2
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
+import Challenge from '../../../../components/tutorial/Challenge.astro';
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+
+<LessonHeader
+  unit={2}
+  duration="8 分钟"
+  examplePath="examples/01_rpc"
+  goals={[
+    '使用 rpc、call 与 serve 定义请求/响应协议',
+    '实现服务端处理函数 <node>_on_<rpc>，区分返回 0（发送响应）与非零状态码（业务拒绝）',
+    '在 C 客户端调用 <node>_call_<rpc>，并在完成回调中处理 WL_RPC_SUCCESS、WL_RPC_REJECTED 与 WL_RPC_TIMED_OUT',
+  ]}
+/>
+
+第 01 课演示了发完即走的单向消息。而在下发控制指令或查询设备参数时，调用方必须得到明确结果——要么收到响应数据，要么得知设备拒绝了请求，要么在超时后及时报错。
+
+本课以 [`examples/01_rpc/`](https://github.com/starwey604/wirelink/tree/main/examples/01_rpc) 的远程加法服务为例，完整拆解 **RPC 服务端（`serve`）** 与 **C 客户端（`call`）** 两端的写法。
+
+---
+
+## 第一步：编写 RPC 协议 `calculator.wl`
+
+查看 [`examples/01_rpc/calculator.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.wl)：
+
+{/* [docs:calculator_schema] */}
+```wl
+message AddRequest @id(20) {
+  int32 left @id(1);
+  int32 right @id(2);
+}
+message AddResponse @id(21) { int32 sum @id(1); }
+rpc Add(AddRequest) -> AddResponse;
+node client { call Add; }
+node server { serve Add; }
+```
+{/* [/docs:calculator_schema] */}
+
+相比第 01 课，这里多了 `rpc` 与 `call` / `serve`：
+- **`rpc Add(AddRequest) -> AddResponse;`**：将请求消息与响应消息配对为一次远程调用，Wirelink 自动在底层携带会话号与请求编号进行匹配和超时追踪。
+- **`node client { call Add; }`**：调用方角色，编译器生成发起函数 `client_call_add` 与完成回调类型 `client_add_cb_t`。
+- **`node server { serve Add; }`**：服务方角色，编译器要求应用层实现处理函数 `server_on_add`。
+
+---
+
+## 第二步：实现服务端（`server`）
+
+为服务端生成代码：`wlc compile examples/01_rpc/calculator.wl --node server --out-dir build/my-server`。
+
+### 1. 实现业务处理函数 `server_on_add`
+
+在 [`examples/01_rpc/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/server.c) 中实现生成的钩子函数：
+
+{/* [docs:calculator_server] */}
+```c
+int32_t server_on_add(server_node_t *self, const add_request_t *request, add_response_t *response) {
+  (void)self;
+  const int64_t sum = (int64_t)request->left + request->right;
+  if (sum < INT32_MIN || sum > INT32_MAX) return 1;
+  response->sum = (int32_t)sum;
+  return 0;
+}
+```
+{/* [/docs:calculator_server] */}
+
+返回值直接控制 Wirelink 如何回复客户端：
+- **返回 `0`**：表示执行成功，Wirelink 编码 `response` 结构体发回给调用方。
+- **返回非零 `int32_t`（例如 `1`）**：表示业务拒绝。Wirelink **不会**发送 `response`，而是将该状态码原样传回给调用方。
+
+### 2. 服务端绑定与主循环
+
+服务端的 `main()` 与第 01 课采用完全相同的 4 步生命周期：打开传输 → 绑定节点 → 循环步进与等待 → 停机关闭：
+
+<Tabs>
+  <TabItem label="桌面 UDP 服务端 (server.c)">
+    {/* [docs:calculator_udp_server] */}
+    ```c
+    int main(int argc, char **argv) {
+      static server_node_t server;
+      wl_udp_config_t config = {
+        .bind_address = "127.0.0.1", .bind_port = 50004,
+        .peer_address = "127.0.0.1", .peer_port = 50003
+      };
+      if (!example_udp_args(argc, argv, &config)) return 1;
+      wl_udp_t *udp = NULL;
+      if (wl_udp_open(&udp, &config, NULL) != WL_OK) return 1;
+      if (server_bind(&server, wl_udp_transport(udp)) != WL_OK) {
+        wl_udp_close(udp);
+        return 1;
+      }
+      example_install_signals();
+      puts("Calculator server ready");
+      fflush(stdout);
+      int status = 0;
+      while (example_running()) {
+        if (wl_node_step(&server.node, 0U) != WL_OK ||
+            wl_node_wait(&server.node, example_now_ms(), 100U) != WL_OK) {
+          status = 1;
+          break;
+        }
+      }
+      if (wl_node_close(&server.node, example_now_ms()) != WL_OK) status = 1;
+      wl_udp_close(udp);
+      return status;
+    }
+    ```
+    {/* [/docs:calculator_udp_server] */}
+
+    4 个阶段一目了然：
+    1. **打开传输**：`wl_udp_open` 绑定 `50004`，对端指向 `50003`。
+    2. **单向绑定**：`server_bind(&server, wl_udp_transport(udp))` 挂载传输并启动接收。
+    3. **步进等待**：`wl_node_step` 触发 `server_on_add` 并写出回复；`wl_node_wait` 在空闲时休眠等待，避免 CPU 空转。
+    4. **停机释放**：退出循环后先 `wl_node_close` 排空状态，再 `wl_udp_close` 释放套接字。
+  </TabItem>
+
+  <TabItem label="嵌入式裸机服务端（对照写法）">
+    ```c
+    static server_node_t server;
+
+    static wl_err_t my_tx_write(server_node_t *self, const uint8_t *data, size_t length) {
+      (void)self;
+      return my_hardware_send(data, length);
+    }
+
+    int main(void) {
+      server_bind_sync(&server, my_tx_write);
+      for (;;) {
+        /* 硬件收到完整帧后喂给 wl_node_rx_packet(&server.node, buf, len) */
+        wl_node_step(&server.node, board_millis());
+      }
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+---
+
+## 第三步：实现 C 客户端（`client`）
+
+当调用方也是 C 程序或另一块 MCU 时，为同一份 `calculator.wl` 生成客户端代码：`wlc compile examples/01_rpc/calculator.wl --node client --out-dir build/my-client`。
+
+生成的头文件提供非阻塞调用入口与完成回调类型：
+
+```c
+typedef void (*client_add_cb_t)(
+    client_node_t *self, wl_rpc_result_t result, const add_response_t *response);
+
+wl_err_t client_call_add(
+    client_node_t *self, const add_request_t *request, client_add_cb_t callback);
+```
+
+### 1. 非阻塞提交并推进主循环
+
+Wirelink 的 C 客户端调用从不在函数内部阻塞等待网络。`client_call_add` 只把请求编码进出站请求槽并立即返回 `WL_OK`，后续的发送、接收和超时判定都在主循环推进 `wl_node_step` 时完成（摘自 [`examples/01_rpc/client.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c)）：
+
+{/* [docs:calculator_sync_rpc] */}
+```c
+static wl_err_t add_once(client_node_t *client, add_request_t request,
+                         client_add_cb_t done) {
+  completed = 0;
+  wl_err_t error = client_call_add(client, &request, done);
+  while (error == WL_OK && example_running() && !completed)
+    error = advance(client);
+  return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
+}
+```
+{/* [/docs:calculator_sync_rpc] */}
+
+*(注：`client_call_add` 使用节点默认超时 500 毫秒，计时从**下一次调用 `wl_node_step(&client->node, now)`** 开始。`advance()` 在每次 `wl_node_step` 之后重新读取单调时钟再调用 `wl_node_wait`。)*
+
+### 2. 在完成回调中处理成功与业务拒绝
+
+每一次返回 `WL_OK` 的调用，最终都**必然且仅会**触发一次完成回调：
+
+<Tabs>
+  <TabItem label="成功响应回调 (added)">
+    当 `outcome.outcome == WL_RPC_SUCCESS` 时，`response` 非空并指向解码后的响应结构体：
+
+    ```c
+    static void added(client_node_t *self, wl_rpc_result_t outcome, const add_response_t *response) {
+      (void)self;
+      result = outcome;
+      if (response != NULL) sum = response->sum;
+      ++completed;
+    }
+    ```
+  </TabItem>
+
+  <TabItem label="业务拒绝回调 (rejected)">
+    当客户端发送 `INT32_MAX + 1` 时，服务端 `server_on_add` 返回 `1`。此时客户端回调收到 `outcome.outcome == WL_RPC_REJECTED`、`outcome.status == 1`，且 `response == NULL`：
+
+    {/* [docs:calculator_rejected_callback] */}
+    ```c
+    static void rejected(client_node_t *self, wl_rpc_result_t outcome, const add_response_t *response) {
+      (void)self;
+      if (response == NULL) {
+        result = outcome;
+        ++completed;
+      }
+    }
+    ```
+    {/* [/docs:calculator_rejected_callback] */}
+  </TabItem>
+</Tabs>
+
+### RPC 终态速查表
+
+在完成回调中，始终应**先检查 `outcome.outcome`，再决定是否访问 `response`**：
+
+| `outcome.outcome` | 含义 | `response` 指针 | `outcome.status` 内容 |
+| :--- | :--- | :--- | :--- |
+| **`WL_RPC_SUCCESS`** | 收到服务端有效响应并解码成功 | 非空（仅在本次回调内有效） | `0` |
+| **`WL_RPC_REJECTED`** | 服务端 `on_<rpc>` 返回了非零状态码 | `NULL` | 服务端返回的非零 `int32_t` 值 |
+| **`WL_RPC_TIMED_OUT`** | 超过超时时间仍未收到应答 | `NULL` | `WL_ERR_TIMEOUT` |
+| **`WL_RPC_CANCELLED`** | 调用方主动取消了该请求 | `NULL` | `WL_ERR_CANCELLED` |
+| **`WL_RPC_CLOSED`** | 请求尚未完成时节点执行了关闭 | `NULL` | `WL_ERR_INVALID_STATE` |
+| **`WL_RPC_LOCAL_ERROR`** | 本地发送失败或收到损坏的响应帧 | `NULL` | 对应的本地 `wl_err_t` 错误码 |
+
+<Aside type="caution" title="先检查终态，再访问 response">
+只有 `outcome.outcome == WL_RPC_SUCCESS` 时 `response` 指针才非空。回调返回后，`response` 指向的内部解码缓冲区会被后续帧复用，如需保留响应数据应按值拷贝（下一课结合字符串字段详细演示）。
+</Aside>
+
+---
+
+## 第四步：在两个终端运行服务端与客户端
+
+编译并运行 [`examples/01_rpc/`](https://github.com/starwey604/wirelink/tree/main/examples/01_rpc)：
+
+```sh
+cmake --build build/examples --target calculator_server calculator_client
+```
+
+```sh
+# 终端 1：启动服务端
+./build/examples/examples/01_rpc/calculator_server
+```
+
+```sh
+# 终端 2：运行客户端
+./build/examples/examples/01_rpc/calculator_client
+```
+
+终端 2 会依次完成单次正常调用、4 路并发调用（将在第 04 课详解）以及整数溢出拒绝测试：
+
+```text
+20 + 22 = 42
+4 concurrent calls returned 42
+overflow rejected: status=1
+```
+
+若不启动服务端而直接运行 `calculator_client`，客户端会在 500 毫秒超时后收到 `WL_RPC_TIMED_OUT` 并以非零状态码退出。
+
+<Challenge
+  title="检查理解：如果 client_call_add 返回了错误码，完成回调还会触发吗？"
+  prompt="假设调用 client_call_add(...) 时函数本身返回了 WL_ERR_WOULD_BLOCK（而不是 WL_OK），传入的 done 回调函数之后还会被调用吗？"
+>
+  不会。
+
+  只有当 `client_call_add`（或 `_ex` 版本）返回 **`WL_OK`** 时，请求才真正进入节点的出站请求槽，之后也必然且仅会触发一次完成回调。若提交函数本身返回错误，节点不会保存该请求，也不会产生任何回调。
+</Challenge>
+
+---
+
+## 小测验
+
+<MultipleChoice
+  id="lesson-02-rpc-outcome"
+  question="在服务端 server_on_add 中发现参数越界并执行 return 5;，客户端完成回调 done(self, outcome, response) 会看到什么？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个选项。"
+  choices={[
+  {
+    "label": "outcome.outcome == WL_RPC_REJECTED，outcome.status == 5，且 response == NULL。",
+    "correct": true,
+    "feedback": "正确。非零返回值会向对端发送业务拒绝帧，客户端在 outcome.status 中原样收到 5，不附带响应结构体。"
+  },
+  {
+    "label": "outcome.outcome == WL_RPC_SUCCESS，但 response 里的字段都是 0。",
+    "correct": false,
+    "feedback": "服务端返回非零值时不会发送响应结构体，终态明确为 WL_RPC_REJECTED。"
+  },
+  {
+    "label": "client_call_add 会直接返回错误码 5，不会进入回调。",
+    "correct": false,
+    "feedback": "client_call_add 是本地非阻塞提交函数，此时数据包尚未到达服务端；远端拒绝结果只能通过完成回调送达。"
+  }
+]}
+/>
+
+<Checklist
+  id="checklist-02"
+  title="本课检查清单"
+  progressTemplate="已完成 {done} / {total} 项"
+  items={[
+    "能够使用 rpc、call 与 serve 编写双向调用协议。",
+    "掌握服务端返回 0 与非零业务拒绝码的语义区别。",
+    "理解客户端非阻塞提交规则，以及在完成回调中按 outcome.outcome 区分成功、拒绝与超时的方法。"
+  ]}
+/>
+
+前两课完成了 Wirelink 的两种基本通信模式，消息里只用到了整数。真实设备协议通常还会包含设备名称、固件版本号、二进制块、可选字段以及多个子模块。下一课将介绍如何在零 `malloc` 约束下完成复杂数据建模与协议拆分。
+
+下一课：[03 数据建模：字符串、可选字段与多模块组合 →](/wirelink/zh-cn/learn/03-data-and-composition/)

@@ -7,7 +7,7 @@ sidebar:
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-在 `.wl` 文件中，`message` 与 `rpc` 定义通信双方共享的数据语言，而 **`node` 定义某一端具体具备哪些收发能力以及使用的物理分帧方式**。
+在 `.wl` 文件中，`message` 与 `rpc` 定义通信双方共享的数据语言，而 **`node` 定义某一端具体具备哪些收发角色以及使用的物理分帧方式**（整体心智模型可先阅读[核心心智模型](/wirelink/zh-cn/overview/mental-model/)）。
 
 ```wl
 message Request @id(1) { uint32 value @id(1); }

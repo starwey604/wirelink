@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
   example_install_signals();
   int status = 0;
   while (example_running()) {
-    if (wl_node_step(&subscriber.node, 0U) != WL_OK ||
+    if (wl_node_step(&subscriber.node, example_now_ms()) != WL_OK ||
         wl_node_wait(&subscriber.node, example_now_ms(), 100U) != WL_OK) {
       status = 1;
       break;

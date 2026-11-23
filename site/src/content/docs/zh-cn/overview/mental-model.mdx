@@ -1,0 +1,137 @@
+---
+title: 核心心智模型
+description: 在写第一行代码前，理解 Wirelink 的 Node、4 种通信角色（发布/订阅与客户端/服务端），以及 Transport ← Node 运行时模型。
+sidebar:
+  order: 2
+---
+
+import { Aside, Card, CardGrid } from '@astrojs/starlight/components';
+
+在进入代码和教程之前，花 3 分钟建立 Wirelink 的整体心智模型会让后续所有概念水到渠成。
+
+Wirelink 刻意将概念收敛到最小集合：
+- **协议层（`.wl` 文件）**：`message`、`rpc` 与 `node`（承载 4 种收发角色）。
+- **运行时层（C11 代码）**：`Transport`（传输）与 `Node`（节点）。
+
+---
+
+## 一、什么是 `Node`？它和 Publisher / Server 有什么关系？
+
+在许多通信框架（如 ROS 2、iceoryx2）中，程序会先创建一个参与者实体，再在上面挂载发布者、订阅者、客户端或服务端。Wirelink 采用了相似但更适合单片机的静态设计：
+
+- **`Node`（节点）**：代表通信链路**某一端的完整通信实体**——例如一块电机控制板固件、一个传感器节点，或者电脑上的上位机工具。
+- **角色（Role）**：不是单独创建、层层嵌套的对象，而是**直接声明在 `node { ... }` 内部的能力清单**。Wirelink 支持两种通信模式，对应 4 个角色关键字：
+
+| 通信模式 | 发起方角色 | 接收/响应方角色 | 行为特点 | 典型场景 |
+| :--- | :--- | :--- | :--- | :--- |
+| **单向消息（Publish / Subscribe）** | **发布者** `send <Msg>` | **订阅者** `recv <Msg>` | 单向推送，发出即完成，不等待对端应答 | 周期上报传感器采样（Telemetry）、异步状态/告警通知 |
+| **双向调用（Request / Response）** | **客户端** `call <Rpc>` | **服务端** `serve <Rpc>` | 一问一答，必有明确终态：成功响应、业务拒绝码或超时 | 下发控制命令、修改参数、查询设备信息 |
+
+### 一个 `Node` 可以同时承担多种角色
+
+在实际嵌入式设备里，同一块 MCU 往往既要接收上位机的控制命令，又要周期性上报传感器数据。你不需要为它们分别创建多个节点对象，只需在同一个 `node` 中组合声明即可：
+
+```mermaid
+flowchart LR
+  subgraph Host["上位机节点: node controller"]
+    HC["客户端角色: call SetSpeed"]
+    HS["订阅者角色: recv Telemetry"]
+  end
+
+  subgraph MCU["设备固件节点: node motor"]
+    MS["服务端角色: serve SetSpeed"]
+    MP["发布者角色: send Telemetry"]
+  end
+
+  HC -->|"请求 (SetSpeedRequest)"| MS
+  MS -.->|"响应 / 拒绝码 (SetSpeedResponse)"| HC
+  MP -->|"单向推送 (Telemetry)"| HS
+```
+
+对应的 `.wl` 协议只有十几行：
+
+```wl
+message SetSpeedRequest @id(1) { int32 rpm @id(1); }
+message SetSpeedResponse @id(2) { int32 applied_rpm @id(1); }
+message Telemetry @id(3) { int32 actual_rpm @id(1); }
+
+rpc SetSpeed(SetSpeedRequest) -> SetSpeedResponse;
+
+node controller { call SetSpeed; recv Telemetry; }
+node motor      { serve SetSpeed; send Telemetry; }
+```
+
+<Aside type="note" title="按角色裁剪：没声明的角色占 0 字节内存">
+使用 `wlc compile app.wl --node motor` 编译电机端固件时，编译器**只会为 `motor` 声明的 `serve` 和 `send` 生成代码和静态缓冲区**，不会混入 `controller` 的代码，也不会为未使用的出站 RPC 客户端分配任何 RAM。
+</Aside>
+
+---
+
+## 二、运行时只有两层：`Transport ← Node`
+
+传统通信库常常引入中间层（Broker 守护进程、独立 I/O 适配对象、多线程队列等），导致启动和关闭路径复杂。Wirelink 的 C11 运行时只有两个扁平概念，并且是**单向绑定**关系：
+
+```mermaid
+flowchart RL
+  T["传输层 (Transport)<br/>负责收发原始字节或数据包<br/>• 桌面 UDP: wl_udp_t<br/>• 驱动契约: wl_transport_t<br/>• 裸机钩子: tx_write 函数"]
+  N["协议节点 (Node)<br/>负责编解码、分帧、RPC 匹配与超时<br/>• 生成结构体: motor_node_t<br/>• 公共基类首成员: wl_node_t node"]
+  N -->|"单向绑定<br/>motor_bind(&motor, transport)"| T
+```
+
+1. **传输（Transport）只管搬运字节**：它不关心消息字段，也不关心 RPC 超时。在桌面联调时它是官方 UDP 适配器（`<wirelink/udp.h>`）；在 RTOS 上它是串口/USB 驱动；在裸机 MCU 上它甚至只需要你提供一个同步发包函数 `tx_write`。
+2. **节点（Node）只管协议与业务**：你把节点单向绑定到传输上后，应用主循环只与节点打交道——推进状态机、发起发送/调用、等待事件和关闭停机。更换底层物理链路时，业务回调一行也不用改。
+
+### 看懂代码中的三类函数前缀
+
+为了避免不同节点生成一堆难以辨认的杂乱符号，Wirelink 将函数前缀严格划分为三类：
+
+| 前缀 | 来源 | 职责举例 |
+| :--- | :--- | :--- |
+| **`wl_udp_*`**（或板级驱动） | `<wirelink/udp.h>` 等传输头 | 打开、配置与关闭物理传输（`wl_udp_open`、`wl_udp_transport`、`wl_udp_close`） |
+| **`wl_node_*`** | 核心库 `<wirelink/node.h>` | **全仓固定前缀**。所有节点通用的推进、等待、关闭、取消与裸机收包，统一传入基类成员 `&self.node`（如 `wl_node_step`、`wl_node_wait`、`wl_node_close`） |
+| **`<node>_*`** | `wlc` 根据 `.wl` 节点名生成 | 仅包含本节点专属的类型、绑定入口与业务收发（如 `motor_node_t`、`motor_bind`、`motor_send_telemetry`、`motor_on_set_speed`） |
+
+---
+
+## 三、数据在主循环中的流转方式（单所有权步进）
+
+Wirelink 核心库不会在后台偷偷创建线程，也不在中断上下文中直接执行你的业务回调。整个节点由**单一执行上下文（裸机主循环或单个 RTOS 任务）**按固定节拍推进：
+
+```mermaid
+sequenceDiagram
+  participant Wire as 物理链路 / Transport
+  participant Loop as 应用主循环 (单所有权 Owner)
+  participant Node as 节点 (wl_node_t)
+
+  Loop->>Node: 1. 绑定传输 (<node>_bind / <node>_bind_sync)
+  loop 主循环
+    Wire-->>Node: 收到数据帧（存入双 RX 缓冲槽）
+    Loop->>Node: 2. wl_node_step(&n.node, now_ms)
+    activate Node
+    Node->>Loop: 解码并顺序触发业务回调 (<node>_on_*)
+    Node->>Wire: 编码并经传输层写出消息或响应
+    deactivate Node
+    Loop->>Node: 3. 可选：wl_node_wait(&n.node, now_ms, max_ms) 休眠等待
+  end
+```
+
+这种设计带来三条非常确定的嵌入式工程保证：
+
+1. **业务回调始终安全**：无论数据是在 UART 中断还是在独立网络线程中到达，你的 `on_<msg>` / `on_<rpc>` 回调**永远只在主循环调用 `wl_node_step` 时顺序执行**，无需在业务代码里到处加互斥锁。
+2. **内存与流控显式可控**：节点内部在编译期固定分配了静态槽位（例如 4 路并发出站 RPC、1 个单向消息缓冲槽）。发送过快或链路暂忙时，API 不会偷偷 `malloc` 也不会卡死，而是立即返回 **`WL_ERR_WOULD_BLOCK`**，把决策权（下轮重试还是丢弃旧采样）明确交给应用层。
+3. **分帧与业务完全正交**：在 UDP 或 USB Bulk 等自带包边界的链路上使用默认 `framing = native;`；换成 UART 串口字节流时，只需在 `node` 中加一行 **`framing = cobs_crc16;`**，业务消息和回调函数完全不变。
+
+---
+
+## 下一步
+
+建立好这套心智模型后，接下来的学习路线会非常顺畅：
+
+<CardGrid>
+  <Card title="快速开始" icon="rocket">
+    3 分钟构建核心库、编译器 wlc 与内置示例，验证本地环境。[前往快速开始 →](/wirelink/zh-cn/overview/quick-start/)
+  </Card>
+  <Card title="第 01 课：单向消息（发布与订阅）" icon="open-book">
+    从最简单的发布者与订阅者开始，亲手编写并运行第一个双进程通信示例。[进入第 01 课 →](/wirelink/zh-cn/learn/01-publish-subscribe/)
+  </Card>
+</CardGrid>

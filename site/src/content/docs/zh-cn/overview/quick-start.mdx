@@ -2,14 +2,14 @@
 title: 快速开始
 description: 配置本地工具链，运行内置通信示例，并使用 wlc 编译你的第一份 .wl 协议文件。
 sidebar:
-  order: 2
+  order: 3
 ---
 
-import { Steps, FileTree } from '@astrojs/starlight/components';
+import { Steps, FileTree, Aside } from '@astrojs/starlight/components';
 
 本页将引导你完成两项准备工作：
 1. 验证本地 C11 构建环境并运行仓库自带的基础示例。
-2. 构建协议编译器 `wlc`，从 `.wl` 文件生成 C 代码并编译双进程示例。
+2. 构建协议编译器 `wlc`，从 `.wl` 文件生成 C 代码并运行双进程教程示例。
 
 ---
 
@@ -17,15 +17,15 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 开始前请确认本地已安装以下工具：
 
-- **CMake 3.21+** 与支持 **ISO C11** 的编译器（GCC、Clang 或 MSVC）。默认主机测试与 UDP 适配器还需 C++20 编译器
-- **Rust / Cargo**：用于构建协议编译器 `wlc`（若暂未安装，仍可先完成第一步）
-- **独立版 Asio 头文件**（可选）：用于编译本地双进程 UDP 教程示例
+- **CMake 3.21+** 与支持 **ISO C11** 的编译器（GCC、Clang 或 MSVC）。默认主机测试与 UDP 适配器还需 C++20 编译器。
+- **Rust / Cargo**：用于构建协议编译器 `wlc`（若暂未安装，仍可先完成第一步）。
+- **独立版 Asio 头文件**（可选）：用于编译本地双进程 UDP 教程示例。
 
 ---
 
 ## 第一步：编译并运行基础示例
 
-仓库中自带了一份无需重新生成代码即可运行的基础示例，适合先验证本地 C 工具链是否正常工作。
+仓库中自带了一份无需额外依赖即可运行的基础回环示例，适合先验证本地 C 工具链是否正常工作。
 
 <Steps>
 
@@ -59,68 +59,70 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 ---
 
-## 第二步：构建 `wlc` 并生成第一份 C 代码
+## 第二步：构建 `wlc` 并编译双进程教程示例
 
 在实际项目中，你会先编写 `.wl` 协议文件，再由编译器 `wlc` 生成对应的 C11 节点代码或上位机客户端包。
 
 <Steps>
 
-1. 在 Wirelink 根目录检出独立的 WLC 仓库，然后构建编译器。已有 `wlc/` 源码时可直接执行 Cargo 命令。
+1. 在 Wirelink 根目录检出独立的 WLC 仓库并构建编译器（已有 `wlc/` 目录时可直接执行 `cargo build`）：
 
    ```sh
    git clone https://github.com/starwey604/wlc.git wlc
    cargo build --release --locked --manifest-path wlc/Cargo.toml
    ```
 
-2. 查看示例协议 [`examples/01_rpc/calculator.wl`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/calculator.wl)，其中定义了一个远程加法服务以及调用方（`client`）、服务方（`server`）两个角色：
+2. 查看最简单的单向消息协议 [`examples/00_telemetry/telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl)，其中定义了 1 条温度采样消息以及发布者（`pub`）和订阅者（`sub`）两个节点：
 
-   {/* [docs:calculator_schema] */}
+   {/* [docs:telemetry_schema] */}
    ```wl
-   message AddRequest @id(20) {
-     int32 left @id(1);
-     int32 right @id(2);
+   message Telemetry @id(10) {
+     uint32 sample @id(1);
+     int32 temperature_centi_c @id(2);
    }
-   message AddResponse @id(21) { int32 sum @id(1); }
-   rpc Add(AddRequest) -> AddResponse;
-   node client { call Add; }
-   node server { serve Add; }
+   node pub { send Telemetry; }
+   node sub { recv Telemetry; }
    ```
-   {/* [/docs:calculator_schema] */}
+   {/* [/docs:telemetry_schema] */}
 
-3. 使用 `wlc compile` 为 `server` 节点生成 C 代码：
+3. 体验用 `wlc compile` 为 `pub` 节点生成 C 代码：
 
    ```sh
-   wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
-     --node server --out-dir build/my-server
+   wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl \
+     --node pub --out-dir build/my-pub
    ```
 
-4. 查看生成的 `build/my-server/` 目录，其中包含以下文件：
+4. 查看生成的 `build/my-pub/` 目录：
 
    <FileTree>
-   - build/my-server/
-     - **calculator.h** 消息结构体与节点函数声明，在业务代码中 `#include`
-     - **calculator.c** 编解码与节点状态机实现，加入编译列表
-     - calculator_manifest.json 构建与版本核对清单
+   - build/my-pub/
+     - **telemetry.h** 消息结构体与节点函数声明，在业务代码中 `#include`
+     - **telemetry.c** 编解码与节点状态机实现，加入编译列表
+     - telemetry_manifest.json 构建与版本核对清单
    </FileTree>
 
-5. 安装独立版 Asio 头文件后，从仓库根目录配置工程。CMake 会找到上一步构建的 WLC，并启用双进程 UDP 示例。Asio 位于非标准目录时，可在配置命令中添加 `-DWIRELINK_ASIO_INCLUDE_DIR=/path/to/asio/include`。
+5. 安装独立版 Asio 头文件后，直接重新配置工程即可构建全部双进程 UDP 教程示例——CMake 会自动发现刚刚构建的 `wlc` 与本地 Asio，无需手动开启一堆选项：
 
    ```sh
    cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release
-   cmake --build build/examples --target calculator_server calculator_client
+   cmake --build build/examples --target telemetry_subscriber telemetry_publisher
    ```
 
-   在两个终端中分别运行服务端与客户端：
+   <Aside type="tip" title="Asio 位于自定义目录时">
+   若 CMake 提示未找到独立版 Asio 头文件，只需在配置命令中追加 `-DWIRELINK_ASIO_INCLUDE_DIR=/path/to/asio/include` 即可。
+   </Aside>
+
+6. 在两个终端中分别启动订阅端与发布端（按 `Ctrl-C` 退出）：
 
    ```sh
-   # 终端 1：启动服务端
-   ./build/examples/examples/01_rpc/calculator_server
+   # 终端 1：先启动订阅端
+   ./build/examples/examples/00_telemetry/telemetry_subscriber
 
-   # 终端 2：启动客户端
-   ./build/examples/examples/01_rpc/calculator_client
+   # 终端 2：启动发布端
+   ./build/examples/examples/00_telemetry/telemetry_publisher
    ```
 
-   客户端终端输出 `20 + 22 = 42`、`4 concurrent calls returned 42` 与 `overflow rejected: status=1`，表示完整的双进程通信已就绪。
+   终端 1 每隔 200 毫秒输出 `sample=1 temperature_centi_c=-1234`，表示双进程通信已打通。
 
 </Steps>
 
@@ -128,11 +130,10 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 ## 接下来的学习路径
 
-完成环境验证后，可以按顺序阅读 6 节实战教程：
+完成环境验证后，建议先确认已阅读[核心心智模型](/wirelink/zh-cn/overview/mental-model/)，再按顺序学习 5 节实战教程：
 
-1. **[01 编写第一个 `.wl` 并运行服务端](/wirelink/zh-cn/learn/01-loopback-endpoint/)** —— 打开生成的 `calculator.h`，理解生成符号的命名规则，实现服务处理函数并运行双进程服务端。
-2. **[02 单向消息（Telemetry）与 RPC](/wirelink/zh-cn/learn/02-telemetry/)** —— 编写双进程遥测发布端与订阅端，理清单向消息与双向 RPC 的分工与配合方式。
-3. **[03 C 语言客户端调用与错误处理](/wirelink/zh-cn/learn/03-rpc-basics/)** —— 在独立的 C 客户端中发起 RPC 调用，在回调中区分成功响应与服务端业务拒绝。
-4. **[04 字符串、可选字段与多文件组合](/wirelink/zh-cn/learn/04-strings-and-lifetime/)** —— 使用 `string<N>`、`bytes<N>`、`optional` 与 `import`，掌握回调中的结构体拷贝规则。
-5. **[05 并发调用、超时取消与发送队列控制](/wirelink/zh-cn/learn/05-concurrency-backpressure/)** —— 处理并发请求、设置调用超时与主动取消，以及应对 `WL_ERR_WOULD_BLOCK`。
-6. **[06 接入串口、UDP 与上位机 Python / C++ SDK](/wirelink/zh-cn/learn/06-host-sdk-and-transports/)** —— 配置 UART 串口分帧与 UDP 传输，并生成 Python 与 C++20 上位机客户端进行联调。
+1. **[01 单向消息：发布者与订阅者](/wirelink/zh-cn/learn/01-publish-subscribe/)** —— 从最简单的 `send` / `recv` 协议入手，打开生成的头文件看懂命名规则，分步拆解发布端与订阅端代码。
+2. **[02 双向调用：RPC 服务端与客户端](/wirelink/zh-cn/learn/02-request-response/)** —— 在同一份协议中实现 `serve` 与 `call`，掌握成功响应、业务拒绝码与 RPC 终态回调处理。
+3. **[03 数据建模：字符串、可选字段与多模块组合](/wirelink/zh-cn/learn/03-data-and-composition/)** —— 使用有界 `string<N>`、`bytes<N>`、`optional` 与 `import`，掌握零 `malloc` 回调中的按值拷贝规则。
+4. **[04 并发调用、背压流控与长任务模式](/wirelink/zh-cn/learn/04-concurrency-and-patterns/)** —— 掌握多路并发 RPC、`WL_ERR_WOULD_BLOCK` 处理、在单节点组合“短 RPC + 单向进度推送”，以及 `_ex` 超时与取消。
+5. **[05 接入串口、UDP 混合节点与上位机 SDK](/wirelink/zh-cn/learn/05-transports-and-host-sdk/)** —— 一行启用 UART 串口 `cobs_crc16` 分帧、编写 RPC + 遥测混合主循环，并生成 Python / C++20 上位机客户端。

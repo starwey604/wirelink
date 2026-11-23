@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-当设备端运行 `wl_endpoint_t` 端点时，上位机无需手写解析表或字节序转换代码。通过 `wlc sdk` 工具，编译器可以一次性为你产出完整的 C++20 头文件/静态库包装与原生 nanobind Python 扩展包（含完整 `.pyi` 类型提示）。
+当设备端运行 Wirelink C11 节点（`wl_node_t`）时，上位机无需手写解析表或字节序转换代码。通过 `wlc sdk` 工具，编译器可以一次性为你产出完整的 C++20 头文件/静态库包装与原生 nanobind Python 扩展包（含完整 `.pyi` 类型提示）。入门联调示例可参考[第 05 课：接入串口、UDP 混合节点与上位机 SDK](/wirelink/zh-cn/learn/05-transports-and-host-sdk/)。
 
 ## 一键生成 SDK 工程
 

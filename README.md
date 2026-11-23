@@ -138,13 +138,13 @@ ctest --test-dir build/core --output-on-failure
 
 ## 渐进式教程与专题文档导航
 
-- **[在线交互式教程（第 01 ~ 06 课）](site/src/content/docs/zh-cn/learn/)**：
-  1. [01 编写 .wl 并打通上下位机通信](site/src/content/docs/zh-cn/learn/01-loopback-endpoint.mdx)
-  2. [02 单向遥测（Telemetry）与双向 RPC 的协同](site/src/content/docs/zh-cn/learn/02-telemetry.mdx)
-  3. [03 打造真实协议：字符串、可选字段与内存生命周期](site/src/content/docs/zh-cn/learn/03-rpc-basics.mdx)
-  4. [04 接上真实物理链路：UART 串口与 UDP 上位机联调](site/src/content/docs/zh-cn/learn/04-strings-and-lifetime.mdx)
-  5. [05 并发调用、超时取消与发送背压控制](site/src/content/docs/zh-cn/learn/05-concurrency-backpressure.mdx)
-  6. [06 进阶内核机制：安全停机、RTOS 唤醒与零拷贝 DMA](site/src/content/docs/zh-cn/learn/06-host-sdk-and-transports.mdx)
+- **[核心心智模型](site/src/content/docs/zh-cn/overview/mental-model.mdx)**：`Node`、4 种角色（`send`/`recv` 与 `call`/`serve`）以及 `Transport ← Node` 运行时模型。
+- **[在线交互式教程（第 01 ~ 05 课）](site/src/content/docs/zh-cn/learn/)**：
+  1. [01 单向消息：发布者与订阅者](site/src/content/docs/zh-cn/learn/01-publish-subscribe.mdx)
+  2. [02 双向调用：RPC 服务端与客户端](site/src/content/docs/zh-cn/learn/02-request-response.mdx)
+  3. [03 数据建模：字符串、可选字段与多模块组合](site/src/content/docs/zh-cn/learn/03-data-and-composition.mdx)
+  4. [04 并发调用、背压流控与长任务模式](site/src/content/docs/zh-cn/learn/04-concurrency-and-patterns.mdx)
+  5. [05 接入串口、UDP 混合节点与上位机 SDK](site/src/content/docs/zh-cn/learn/05-transports-and-host-sdk.mdx)
 - **[WLC 语言、CLI 与生成 API 手册](wlc/README.md)**：`.wl` 类型系统、`node` 配置、生成的 C11 函数签名与 CMake 集成。
 - **[驱动移植指南（UART / USB / UDP / SPI）](docs/porting-adapters.md)**：同步整帧发送与异步零拷贝 DMA 租约。
 - **[Wire v2 二进制协议规范](docs/wire-format.md)**：4B 帧头、8/12B RPC 子头、TLV / Positional-v1 与 COBS+CRC16 字节图解。

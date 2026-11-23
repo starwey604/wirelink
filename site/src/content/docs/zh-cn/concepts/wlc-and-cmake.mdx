@@ -89,12 +89,22 @@ Wirelink 的模式编译器 **`wlc`**（位于仓库 `wlc/` 目录）负责校�
   </TabItem>
 </Tabs>
 
-### CMake 如何选择 WLC
+### CMake 如何选择 WLC 与自动发现依赖
 
-从 Wirelink 根目录配置时，CMake 依次检查 `wlc/target/release`、`wlc/target/debug` 和 `PATH`，选择生成契约为 `1` 的 WLC。若需固定编译器路径，可以显式指定。指定路径无效或契约不匹配时，配置会报错。
+从 Wirelink 根目录配置时，CMake 依次检查 `wlc/target/release`、`wlc/target/debug` 和 `PATH`，选择生成契约为 `1` 的 WLC。若需固定编译器路径，可以显式指定；指定路径无效或契约不匹配时配置会直接报错：
 
 ```sh
 cmake -S . -B build/host -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
 ```
+
+在默认顶层构建中（`WIRELINK_BUILD_EXAMPLES=ON`），CMake 会自动检测本地可用的 `wlc` 与独立版 Asio 头文件，按需启用双进程 UDP 示例与相关测试，不再需要手动组合多个中间开关。常用顶层选项如下：
+
+| 选项 | 默认值 | 说明 |
+| :--- | :---: | :--- |
+| `WIRELINK_BUILD_EXAMPLES` | 顶层 `ON` | 按当前可用依赖自动构建对应示例（依赖缺失时输出清晰状态提示） |
+| `WIRELINK_BUILD_UDP_ADAPTER` | `OFF` | 显式要求构建 `Wirelink::udp`（缺少独立版 Asio 时报错） |
+| `WIRELINK_BUILD_CPP_BINDINGS` | `OFF` | 构建 C++20 `Session` 绑定（自动启用宿主运行时与 UDP 适配器） |
+| `WIRELINK_BUILD_BENCHMARKS` | `OFF` | 按可用依赖构建性能与体积基准目标 |
+| `WIRELINK_INSTALL` | 顶层 `ON` | 生成安装规则与 `find_package(Wirelink CONFIG)` 包文件 |
 
 如果是 **Zephyr RTOS** 工程，在 `prj.conf` 中开启 `CONFIG_WIRELINK=y`（若使用串口流分帧则同时开启对应的 stream Kconfig 项），即可在应用 `CMakeLists.txt` 中直接使用相同的 `wirelink_wlc_generate` 函数。完整工程模板请参考仓库中的 [`samples/zephyr/`](https://github.com/starwey604/wirelink/tree/main/samples/zephyr)。

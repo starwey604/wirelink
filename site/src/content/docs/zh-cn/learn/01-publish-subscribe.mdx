@@ -1,0 +1,320 @@
+---
+title: 01 单向消息：发布者与订阅者
+description: 从最简单的发布/订阅（send/recv）协议入手，编译 .wl 文件，看懂生成的 C 头文件符号，并分步实现双进程温度遥测通信。
+sidebar:
+  order: 1
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+import LessonHeader from '../../../../components/tutorial/LessonHeader.astro';
+import Challenge from '../../../../components/tutorial/Challenge.astro';
+import Checklist from '../../../../components/tutorial/Checklist.astro';
+import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
+
+<LessonHeader
+  unit={1}
+  duration="6 分钟"
+  examplePath="examples/00_telemetry"
+  goals={[
+    '使用 message 与 node（send / recv）定义一份单向遥测协议',
+    '用 wlc compile --node 分别为发布者与订阅者生成独立的 C11 代码，看懂生成头文件中的符号划分',
+    '分步实现传输绑定、消息发送与接收回调，并在本地运行双进程通信',
+  ]}
+/>
+
+参考[核心心智模型](/wirelink/zh-cn/overview/mental-model/)，Wirelink 最简单的通信模式是**单向消息（Publish / Subscribe / Telemetry）**：发布者只管按周期或事件推送数据，订阅者收到后触发回调函数，双方无需等待应答。
+
+本课以温度传感器上报为例，完整走一遍“写 `.wl` → 生成 C 代码 → 绑定传输 → 发送与接收”的全过程。
+
+---
+
+## 第一步：编写协议文件 `telemetry.wl`
+
+查看仓库中的 [`examples/00_telemetry/telemetry.wl`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/telemetry.wl)：
+
+{/* [docs:telemetry_schema] */}
+```wl
+message Telemetry @id(10) {
+  uint32 sample @id(1);
+  int32 temperature_centi_c @id(2);
+}
+node pub { send Telemetry; }
+node sub { recv Telemetry; }
+```
+{/* [/docs:telemetry_schema] */}
+
+这 6 行代码完整描述了整条链路上的数据与角色：
+- **`message Telemetry @id(10)`**：定义数据结构，包含采样序号 `sample` 和百分之一摄氏度温度 `temperature_centi_c`。`@id(10)` 是消息路由编号，`@id(1)` / `@id(2)` 是字段编号。
+- **`node pub { send Telemetry; }`**：声明发布者节点 `pub`，具备发送 `Telemetry` 的能力。
+- **`node sub { recv Telemetry; }`**：声明订阅者节点 `sub`，具备接收 `Telemetry` 的能力。
+
+---
+
+## 第二步：用 `wlc` 分别为两端生成 C11 代码
+
+发布者与订阅者通常是两个独立程序（例如下位机固件与上位机工具）。使用 `--node` 只为当前程序需要的角色生成代码：
+
+```sh
+wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl --node pub --out-dir build/pub
+wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl --node sub --out-dir build/sub
+```
+
+打开生成的 `build/pub/telemetry.h` 与 `build/sub/telemetry.h`，可以看到编译器严格按角色只生成必需的符号（两者都会自动 `#include <wirelink/node.h>`）：
+
+<Tabs>
+  <TabItem label="发布端头文件 (build/pub/telemetry.h)">
+    ```c
+    /* 1. 消息结构体 */
+    typedef struct telemetry telemetry_t;
+    struct telemetry {
+      uint32_t sample;
+      int32_t temperature_centi_c;
+    };
+
+    /* 2. 发布节点结构体（首成员固定为 wl_node_t node） */
+    struct pub_node {
+      wl_node_t node;
+      /* 仅分配发布端所需的静态缓冲，不包含接收槽 */
+    };
+
+    /* 3. 绑定传输与发送函数 */
+    wl_err_t pub_bind(pub_node_t *self, wl_transport_t *transport);
+    wl_err_t pub_bind_sync(pub_node_t *self, pub_tx_write_fn tx_write);
+    wl_err_t pub_send_telemetry(pub_node_t *self, const telemetry_t *value);
+    ```
+  </TabItem>
+
+  <TabItem label="订阅端头文件 (build/sub/telemetry.h)">
+    ```c
+    /* 1. 相同的消息结构体 telemetry_t */
+
+    /* 2. 订阅节点结构体（首成员固定为 wl_node_t node） */
+    struct sub_node {
+      wl_node_t node;
+      /* 仅分配订阅端所需的双 RX 接收缓冲 */
+    };
+
+    /* 3. 绑定传输与需要由应用实现的接收回调 */
+    wl_err_t sub_bind(sub_node_t *self, wl_transport_t *transport);
+    wl_err_t sub_bind_sync(sub_node_t *self);
+    void sub_on_telemetry(sub_node_t *self, const telemetry_t *message);
+    ```
+  </TabItem>
+</Tabs>
+
+<Aside type="note" title="一眼区分四类函数前缀">
+在接下来的代码中，所有函数都按职责分为四类清晰前缀：
+- **`pub_*` / `sub_*`**：由 `wlc` 按 `.wl` 中的节点名生成，仅包含节点类型、绑定入口与业务收发函数。
+- **`wl_node_*`**：来自核心库 `<wirelink/node.h>`，前缀全仓固定，通过 `&self.node` 统一驱动步进、等待、裸机收包和关闭。
+- **`wl_udp_*`**：来自官方 UDP 适配器 `<wirelink/udp.h>`，负责在桌面打开和关闭 UDP 传输。
+- **`example_*`**：仅属于教程示例的公共辅助函数，用于解析命令行端口、`Ctrl-C` 退出和读取毫秒时钟。
+</Aside>
+
+---
+
+## 第三步：分步实现发布者与订阅者
+
+下面将 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 拆为三小块阅读：绑定传输、发布消息、接收回调。
+
+### 1. 打开传输并绑定节点
+
+同一个生成节点支持两种接线方式：桌面联调可以直接绑定官方 UDP 适配器，裸机 MCU 可以直接传入同步发包函数。
+
+<Tabs>
+  <TabItem label="桌面 UDP 传输 (publisher.c)">
+    `open_publisher` 打开本地 UDP 传输（本地 `50001`、对端 `50002`），再调用 `pub_bind` 将 `publisher` 单向挂载到传输上：
+
+    {/* [docs:telemetry_tx_write] */}
+    ```c
+    static wl_udp_t *open_publisher(int argc, char **argv) {
+      wl_udp_config_t config = {
+        .bind_address = "127.0.0.1", .bind_port = 50001,
+        .peer_address = "127.0.0.1", .peer_port = 50002
+      };
+      if (!example_udp_args(argc, argv, &config)) return NULL;
+      wl_udp_t *udp = NULL;
+      if (wl_udp_open(&udp, &config, NULL) != WL_OK) return NULL;
+      if (pub_bind(&publisher, wl_udp_transport(udp)) != WL_OK) {
+        wl_udp_close(udp);
+        return NULL;
+      }
+      example_install_signals();
+      return udp;
+    }
+    ```
+    {/* [/docs:telemetry_tx_write] */}
+  </TabItem>
+
+  <TabItem label="嵌入式裸机同步发送（对照写法）">
+    在没有操作系统的 MCU 上，无需引入 UDP 适配器，直接通过 `pub_bind_sync` 传入板级发送函数即可：
+
+    ```c
+    static pub_node_t publisher;
+
+    static wl_err_t my_tx_write(pub_node_t *self, const uint8_t *data, size_t length) {
+      (void)self;
+      return my_hardware_send(data, length);
+    }
+
+    void board_init(void) {
+      pub_bind_sync(&publisher, my_tx_write);
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+### 2. 发布端入队采样与主循环驱动
+
+在 [`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c) 中，“发布数据”与“驱动节点状态机”是清晰分离的：业务函数 `publish_sample` 只管把采样入队，所有底层 I/O 统一交给主循环 `run_publisher_loop` 中的 `wl_node_step` 推进：
+
+{/* [docs:telemetry_publish] */}
+```c
+static wl_err_t publish_sample(uint32_t sequence) {
+  telemetry_t sample = {.sample = sequence, .temperature_centi_c = -1234};
+  return pub_send_telemetry(&publisher, &sample);
+}
+
+static int run_publisher_loop(void) {
+  uint32_t sequence = 0, next = example_now_ms();
+  while (example_running()) {
+    const uint32_t now = example_now_ms();
+    if ((int32_t)(now - next) >= 0) {
+      if (publish_sample(++sequence) != WL_OK) return 1;
+      printf("publish sample=%" PRIu32 "\n", sequence);
+      fflush(stdout);
+      next = now + 200U;
+    }
+    if (wl_node_step(&publisher.node, now) != WL_OK) return 1;
+    const uint32_t after = example_now_ms();
+    const int32_t remain = (int32_t)(next - after);
+    if (remain > 0 && wl_node_wait(&publisher.node, after, (uint32_t)remain) != WL_OK)
+      return 1;
+  }
+  return 0;
+}
+```
+{/* [/docs:telemetry_publish] */}
+
+这里体现了一个贯穿全仓的核心分工——**业务只管入队，主循环统一推进**：
+
+1. **`pub_send_telemetry(&publisher, &sample)`（纯内存入队）**：立即将栈变量 `sample` 编码并拷贝进节点内部的发送缓冲槽。返回 `WL_OK` 后，栈变量即可安全销毁。它**不会直接操作套接字或硬件驱动，也不会同步触发任何回调**——因此你既可以在定时器里调用它，也可以在别的 `on_*` 回调里放心调用它，不必担心阻塞或重入。
+2. **`wl_node_step(&publisher.node, now)`（主循环有界步进）**：非阻塞地将节点状态机向前推进一小步——把待发送的帧交给底层传输写出、回收已完成的发送槽、处理到达的接收帧并按 `now` 检查超时。每次调用处理的工作量有严格上限，保证不会长时间占死裸机主循环；如果链路暂忙，后续循环会继续步进直到完成。
+3. **`wl_node_wait(&publisher.node, after, remain)`（可选休眠）**：在 `wl_node_step` 返回后重新采样时间戳 `after`，让出 CPU 等待下一周期到来或底层 I/O 就绪。
+
+<Aside type="tip" title="为什么不在 publish_sample 里直接调 wl_node_step？">
+  `wl_node_step` 是驱动整个节点事件循环的统一入口，而不是某个 `send_*` 调用的“收尾步骤”。哪怕同一个节点同时承担多个 `send`、`recv` 或 RPC 角色，你也只需要在主循环里统一调用一次 `wl_node_step`，而不需要在每次发送后手动补一步。
+</Aside>
+
+### 3. 订阅端实现接收回调
+
+在 [`subscriber.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c) 中，订阅端以同样方式通过 `sub_bind` 挂载到 UDP（本地 `50002`、对端 `50001`），主循环交替调用 `wl_node_step` 和 `wl_node_wait` 等待数据到达。每当收到一帧合法的 `Telemetry`，`wl_node_step` 会自动解码并调用你实现的 `sub_on_telemetry`：
+
+{/* [docs:telemetry_receive] */}
+```c
+void sub_on_telemetry(sub_node_t *self, const telemetry_t *message) {
+  (void)self;
+  printf("sample=%" PRIu32 " temperature_centi_c=%" PRId32 "\n",
+         message->sample, message->temperature_centi_c);
+  fflush(stdout);
+}
+```
+{/* [/docs:telemetry_receive] */}
+
+由于单向消息不需要回复，回调的返回类型固定为 `void`。程序退出时，两端都先调用 `wl_node_close(&node.node, now)` 停稳节点，再调用 `wl_udp_close(udp)` 释放套接字。
+
+数据流转全过程如下：
+
+```mermaid
+sequenceDiagram
+  participant Pub as 发布端 (pub_node_t)
+  participant Link as 传输层 (UDP / 板级驱动)
+  participant Sub as 订阅端 (sub_node_t)
+
+  Pub->>Pub: pub_send_telemetry(&publisher, &sample) 编码入队
+  Pub->>Link: 主循环调用 wl_node_step(&publisher.node, now) 写出编码帧
+  Link-->>Sub: 收到数据包，存入双 RX 缓冲槽
+  Sub->>Sub: 主循环调用 wl_node_step(&subscriber.node, now)
+  Sub->>Sub: 解码并触发 sub_on_telemetry(&subscriber, &msg)
+```
+
+---
+
+## 第四步：在两个终端运行发布端与订阅端
+
+编译 [`examples/00_telemetry/`](https://github.com/starwey604/wirelink/tree/main/examples/00_telemetry) 中的两个独立程序（假设已按[快速开始](/wirelink/zh-cn/overview/quick-start/)配置好 `build/examples`）：
+
+```sh
+cmake --build build/examples --target telemetry_subscriber telemetry_publisher
+```
+
+打开两个终端分别启动（按 `Ctrl-C` 退出）：
+
+```sh
+# 终端 1：先启动订阅端等待采样
+./build/examples/examples/00_telemetry/telemetry_subscriber
+```
+
+```sh
+# 终端 2：启动发布端周期发送
+./build/examples/examples/00_telemetry/telemetry_publisher
+```
+
+终端 1 每 200 毫秒打印一行收到的采样：
+
+```text
+sample=1 temperature_centi_c=-1234
+sample=2 temperature_centi_c=-1234
+sample=3 temperature_centi_c=-1234
+```
+
+<Challenge
+  title="检查理解：sub_on_telemetry 会在接收中断里执行吗？"
+  prompt="在裸机 MCU 上，如果你在接收中断中调用 wl_node_rx_packet(&subscriber.node, data, len) 把收到的包交给节点，sub_on_telemetry 会在中断上下文中立即执行吗？"
+>
+  不会。
+
+  `wl_node_rx_packet` 只负责将收到的数据拷贝进节点内部的双 RX 接收槽并立即返回；真正的解码与触发 `sub_on_telemetry` 全部发生在主循环调用 `wl_node_step(&subscriber.node, now)` 时。这样业务代码始终在主循环中顺序执行，不会在中断上下文里产生竞态。
+</Challenge>
+
+---
+
+## 小测验
+
+<MultipleChoice
+  id="lesson-01-pubsub"
+  question="在 telemetry.wl 中同时声明了 node pub { send Telemetry; } 和 node sub { recv Telemetry; }。为纯传感器下位机生成代码时，应该使用哪条命令？"
+  checkLabel="检查答案"
+  emptyFeedback="请先选择一个选项。"
+  choices={[
+  {
+    "label": "wlc compile telemetry.wl --node pub --out-dir build/pub，只生成发布端所需的结构体与发送函数。",
+    "correct": true,
+    "feedback": "正确。使用 --node pub 按角色裁剪后，生成的代码不会包含订阅端的接收回调和接收缓冲槽。"
+  },
+  {
+    "label": "必须把 telemetry.wl 拆成两个独立的 .wl 文件分别维护消息结构体。",
+    "correct": false,
+    "feedback": "不需要。所有节点共享同一份 .wl 协议文件，避免两端结构体定义漂移；编译时通过 --node 选择本端角色即可。"
+  },
+  {
+    "label": "必须加 --all-nodes，否则发布端无法知道消息的 @id 编号。",
+    "correct": false,
+    "feedback": "--node pub 会完整生成 Telemetry 的编解码与 @id(10) 路由信息；--all-nodes 仅用于同一进程同时扮演多个节点的回环测试场景。"
+  }
+]}
+/>
+
+<Checklist
+  id="checklist-01"
+  title="本课检查清单"
+  progressTemplate="已完成 {done} / {total} 项"
+  items={[
+    "能够使用 message 与 node（send / recv）编写单向消息 .wl 协议。",
+    "能够用 --node 分别生成发布端和订阅端代码，并区分 <node>_*、wl_node_* 与 wl_udp_* 前缀。",
+    "理解“业务入队（send_*）与主循环步进（wl_node_step）分离”的模型，并能在本地双终端运行示例。"
+  ]}
+/>
+
+单向消息适合无需回复的数据流。但在控制设备或查询状态时，调用方往往需要明确知道“指令是否执行成功、为什么被拒绝、或者是否超时”。下一课将介绍 Wirelink 的第二种通信模式——**双向调用（RPC）**，在一课内完整掌握服务端与客户端两端的实现。
+
+下一课：[02 双向调用：RPC 服务端与客户端 →](/wirelink/zh-cn/learn/02-request-response/)

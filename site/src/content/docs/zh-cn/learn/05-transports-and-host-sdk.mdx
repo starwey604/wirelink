@@ -1,8 +1,8 @@
 ---
-title: 06 接入串口、UDP 与上位机 Python / C++ SDK
-description: 配置 UART 串口 cobs_crc16 分帧与 UDP 服务主循环，并使用 wlc sdk 为同一份 .wl 生成 Python 与 C++20 上位机客户端。
+title: 05 接入串口、UDP 混合节点与上位机 SDK
+description: 配置 UART 串口 cobs_crc16 分帧与 UDP 混合节点事件循环，并使用 wlc sdk 为同一份 .wl 生成 Python 与 C++20 上位机客户端。
 sidebar:
-  order: 6
+  order: 5
 ---
 
 import { Aside, Tabs, TabItem, FileTree } from '@astrojs/starlight/components';
@@ -12,17 +12,17 @@ import Checklist from '../../../../components/tutorial/Checklist.astro';
 import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro';
 
 <LessonHeader
-  unit={6}
+  unit={5}
   duration="8 分钟"
   examplePath="examples/05_zephyr_udp"
   goals={[
-    '在 .wl 节点中使用 framing = cobs_crc16 接入 UART 串口，掌握 rx_feed 与 consumed 留尾规则',
-    '看懂在 UDP 链路上同时响应 RPC 与周期上报 Telemetry 的事件循环',
-    '使用 wlc sdk 为同一份 .wl 生成 Python 与 C++20 上位机客户端并完成调用',
+    '在 .wl 节点中使用 framing = cobs_crc16 接入 UART 串口，掌握 wl_node_rx_feed 的 consumed 留尾规则',
+    '编写在单个 UDP 节点上同时响应 RPC 与周期推送 Telemetry 的事件循环',
+    '使用 wlc sdk 为同一份 .wl 生成 Python 与 C++20 上位机客户端并完成联调',
   ]}
 />
 
-前五课完成了协议定义、Telemetry 与 RPC、字符串生命周期以及并发流控。作为入门教程的最后一课，我们将把节点接入真实物理链路（UART 串口与 UDP），并生成上位机常用的 Python 与 C++20 客户端 SDK。
+前四课完成了发布/订阅、双向 RPC、数据建模以及并发流控。作为实战教程的最后一课，我们将把节点接入真实物理链路（UART 串口与 UDP 混合服务），并为上位机生成 Python 与 C++20 客户端 SDK。
 
 ---
 
@@ -30,9 +30,9 @@ import MultipleChoice from '../../../../components/tutorial/MultipleChoice.astro
 
 UDP 数据报天然带有包边界，而 **UART 串口（或 USB CDC 虚拟串口）是连续字节流**：一次读取可能只收到半帧，也可能粘连多帧，且线路可能出现比特错误。
 
-在 Wirelink 中，你无需改动任何消息结构或业务函数，只需在 `.wl` 的 `node` 中指定 `framing` 即可切换物理分帧方式：
+在 Wirelink 中，你无需改动任何消息结构或业务回调，只需在 `.wl` 的 `node` 中加一行 `framing` 配置即可切换物理分帧方式：
 
-| `node` 配置 | 适用物理链路 | 线缆封装 | 生成的接收入口 |
+| `node` 配置 | 适用物理链路 | 线缆封装 | 裸机接收入口 |
 | :--- | :--- | :--- | :--- |
 | **`framing = native;`**（默认） | UDP 数据报、USB Bulk、自带包边界的消息队列 | 直接传输规范帧 | `wl_node_rx_packet(&self->node, data, len)` |
 | **`framing = cobs_crc16;`** | UART 串口、RS-485、USB CDC 虚拟串口 | `COBS(规范帧 + CRC16) + 0x00` | `wl_node_rx_feed(&self->node, data, len, &consumed)` |
@@ -50,9 +50,9 @@ node serial_device {
 
 ### 串口接收与发送接入模板
 
-当节点使用 `cobs_crc16` 时，接收入口变为 `wl_node_rx_feed(&dev.node, buf, len, &consumed)`。因为节点内部接收槽容量固定，当输入缓冲区中一次包含多帧时，`rx_feed` 可能在填满接收槽后提前停止并返回 `WL_ERR_WOULD_BLOCK`，同时通过 `consumed` 告知本次已消耗的前缀字节数。
+当节点使用 `cobs_crc16` 时，接收入口为 `wl_node_rx_feed(&dev.node, buf, len, &consumed)`。因为节点内部接收槽容量固定，当输入缓冲区中一次包含多帧时，`wl_node_rx_feed` 可能在填满接收槽后提前停止并返回 `WL_ERR_WOULD_BLOCK`，同时通过 `consumed` 告知本次已消耗的前缀字节数。
 
-因此，串口接收只需遵守一条规则：**始终从串口环形缓冲移除前 `consumed` 个字节，未消费的尾部留在缓冲中，待 `step()` 消费完已有帧后下一轮再喂入**：
+因此，串口接收只需遵守一条规则：**始终从串口环形缓冲移除前 `consumed` 个字节，未消费的尾部留在缓冲中，待 `wl_node_step` 消费完已有帧后下一轮再喂入**：
 
 ```c
 static serial_device_node_t dev;
@@ -89,7 +89,7 @@ void app_poll(void) {
 
 ---
 
-## 第二部分：UDP 服务端同时响应 RPC 与推送遥测
+## 第二部分：UDP 混合节点——同时响应 RPC 与推送遥测
 
 在实际设备中，同一个节点往往既要响应上位机的 RPC 请求，又要按固定周期主动上报遥测。查看 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c) 的主循环：
 
@@ -111,10 +111,10 @@ while (example_running()) {
 ```
 {/* [/docs:udp_server_loop] */}
 
-这段循环体现了标准的事件驱动写法：
+这段循环体现了标准的单所有权事件驱动写法：
 1. 调用 `wl_node_step` 推进收发并处理到达的 `Add` RPC 请求；
-2. 到达 20 毫秒周期时发送一条 `Telemetry`（遇到 `WL_ERR_WOULD_BLOCK` 则跳过本轮，下周期发送新采样）；
-3. 计算距离下次采样的剩余时间 `wait`，通过 `wl_node_wait` 阻塞等待网络事件或定时到期，避免空转占满 CPU。
+2. 到达 20 毫秒周期时发送一条 `Telemetry`（遇到 `WL_ERR_WOULD_BLOCK` 则跳过本轮，下周期发最新值）；
+3. **重新采样当前时刻 `now`**，计算距离下次采样的剩余时间 `wait`，通过 `wl_node_wait` 阻塞等待网络事件或定时到期，避免空转占满 CPU。
 
 ---
 
@@ -122,7 +122,7 @@ while (example_running()) {
 
 当上位机运行在 PC 或边缘主机上时，可以直接用 `wlc sdk` 从同一份 `.wl` 文件生成强类型的 **Python 3.10+** 与 **C++20** 客户端工程。
 
-以第 01 课的 `calculator.wl` 为例，为其中的 `client` 节点生成名为 `calculator` 的 SDK：
+以第 02 课的 `calculator.wl` 为例，为其中的 `client` 节点生成名为 `calculator` 的 SDK：
 
 ```sh
 wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
@@ -199,7 +199,7 @@ wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
 </Tabs>
 
 <Aside type="note" title="分发 Python Wheel 与完整构建步骤">
-生成的 Python 包构建为 `.whl` 后已私有静态链接底层原生库，使用该 `.whl` 的测试或业务环境无需安装 Rust、CMake、C++ 编译器或 Wirelink 源码。详细的构建、安装与打包流程请参阅 [上位机 SDK 指南](/wirelink/zh-cn/how-to/host-sdks/) 与 [`examples/06_bindings/GUIDE.md`](https://github.com/starwey604/wirelink/blob/main/examples/06_bindings/GUIDE.md)。
+生成的 Python 包构建为 `.whl` 后已私有静态链接底层原生库，使用该 `.whl` 的测试或业务环境无需安装 Rust、CMake、C++ 编译器或 Wirelink 源码。详细的构建、安装与打包流程请参阅[上位机 SDK 指南](/wirelink/zh-cn/how-to/host-sdks/)与 [`examples/06_bindings/GUIDE.md`](https://github.com/starwey604/wirelink/blob/main/examples/06_bindings/GUIDE.md)。
 </Aside>
 
 <Challenge
@@ -216,7 +216,7 @@ wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
 ## 小测验
 
 <MultipleChoice
-  id="lesson-06-transports"
+  id="lesson-05-transports"
   question="同一个协议需要在 UART 串口上运行，而不是 UDP 数据报。修改 .wl 文件时只需要做哪项改动？"
   checkLabel="检查答案"
   emptyFeedback="请先选择一个选项。"
@@ -240,12 +240,12 @@ wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
 />
 
 <Checklist
-  id="checklist-06"
+  id="checklist-05"
   title="本课检查清单"
   progressTemplate="已完成 {done} / {total} 项"
   items={[
-    "能够通过 framing = cobs_crc16 启用 UART 串口分帧，并正确遵循 rx_feed 的 consumed 留尾规则。",
-    "理解在单个事件循环中同时响应 RPC、定时上报 Telemetry 并计算等待超时的方法。",
+    "能够通过 framing = cobs_crc16 启用 UART 串口分帧，并正确遵循 wl_node_rx_feed 的 consumed 留尾规则。",
+    "理解在单个事件循环中同时响应 RPC、定时上报 Telemetry 并二次采时调用 wl_node_wait 的写法。",
     "能够使用 wlc sdk 生成 Python 与 C++20 上位机客户端，并理解远端拒绝码的异常/错误映射。"
   ]}
 />
@@ -254,7 +254,7 @@ wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
 
 ## 进阶阅读
 
-完成这 6 节基础教程后，如果你需要更深入的系统集成，可以继续查阅以下专题指南：
-- **[接入物理链路：驱动移植指南](/wirelink/zh-cn/how-to/custom-drivers/)**：同步 `tx_write` 契约、通过 `<node>_bind` 接入零拷贝异步 DMA 与 USB Bulk 驱动。
-- **[执行模型：裸机循环与 RTOS 任务](/wirelink/zh-cn/how-to/execution-models/)**：单所有权调度、`wl_node_wait` 低功耗休眠唤醒，以及 `close` → `quiescent` 安全停机流程。
-- **[.wl 协议语法手册](/wirelink/zh-cn/concepts/schema-language/)** 与 **[C11 节点与内核 API 速查](/wirelink/zh-cn/reference/endpoint-api/)**。
+完成这 5 节实战教程后，如果需要更深入的系统集成，可以继续查阅以下专题指南：
+- **[接入物理链路：驱动移植指南](/wirelink/zh-cn/how-to/custom-drivers/)**：同步 `tx_write` 契约、实现 `wl_transport_t` 接入零拷贝异步 DMA 与 USB Bulk 驱动。
+- **[执行模型：裸机循环与 RTOS 任务](/wirelink/zh-cn/how-to/execution-models/)**：单所有权调度、`wl_node_wait` 休眠唤醒与 `wl_node_close` 安全停机流程。
+- **[.wl 协议语法手册](/wirelink/zh-cn/concepts/schema-language/)** 与 **[C11 节点与传输 API 速查](/wirelink/zh-cn/reference/endpoint-api/)**。
