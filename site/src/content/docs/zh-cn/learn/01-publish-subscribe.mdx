@@ -165,7 +165,7 @@ wlc/target/release/wlc compile examples/00_telemetry/telemetry.wl --node sub --o
 
 ### 2. 发布端入队采样与主循环驱动
 
-在 [`publisher.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c) 中，“发布数据”与“驱动节点状态机”是清晰分离的：业务函数 `publish_sample` 只管把采样入队，所有底层 I/O 统一交给主循环 `run_publisher_loop` 中的 `wl_node_step` 推进：
+发布端每 200 毫秒用 `publish_sample` 把一条采样入队，主循环用 `wl_node_poll` 驱动收发。[查看 publisher.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/publisher.c)
 
 {/* [docs:telemetry_publish] */}
 ```c
@@ -175,6 +175,7 @@ static wl_err_t publish_sample(uint32_t sequence) {
 }
 
 static int run_publisher_loop(void) {
+  const wl_clock_t clock = example_clock();
   uint32_t sequence = 0, next = example_now_ms();
   while (example_running()) {
     const uint32_t now = example_now_ms();
@@ -184,10 +185,8 @@ static int run_publisher_loop(void) {
       fflush(stdout);
       next = now + 200U;
     }
-    if (wl_node_step(&publisher.node, now) != WL_OK) return 1;
-    const uint32_t after = example_now_ms();
-    const int32_t remain = (int32_t)(next - after);
-    if (remain > 0 && wl_node_wait(&publisher.node, after, (uint32_t)remain) != WL_OK)
+    const int32_t remain = (int32_t)(next - example_now_ms());
+    if (wl_node_poll(&publisher.node, clock, remain > 0 ? (uint32_t)remain : 0U) != WL_OK)
       return 1;
   }
   return 0;
@@ -195,19 +194,17 @@ static int run_publisher_loop(void) {
 ```
 {/* [/docs:telemetry_publish] */}
 
-这里体现了一个贯穿全仓的核心分工——**业务只管入队，主循环统一推进**：
+`pub_send_telemetry` 把 `sample` 编码进节点的发送槽。返回 `WL_OK` 后，调用方就可以复用这个栈变量。
 
-1. **`pub_send_telemetry(&publisher, &sample)`（纯内存入队）**：立即将栈变量 `sample` 编码并拷贝进节点内部的发送缓冲槽。返回 `WL_OK` 后，栈变量即可安全销毁。它**不会直接操作套接字或硬件驱动，也不会同步触发任何回调**——因此你既可以在定时器里调用它，也可以在别的 `on_*` 回调里放心调用它，不必担心阻塞或重入。
-2. **`wl_node_step(&publisher.node, now)`（主循环有界步进）**：非阻塞地将节点状态机向前推进一小步——把待发送的帧交给底层传输写出、回收已完成的发送槽、处理到达的接收帧并按 `now` 检查超时。每次调用处理的工作量有严格上限，保证不会长时间占死裸机主循环；如果链路暂忙，后续循环会继续步进直到完成。
-3. **`wl_node_wait(&publisher.node, after, remain)`（可选休眠）**：在 `wl_node_step` 返回后重新采样时间戳 `after`，让出 CPU 等待下一周期到来或底层 I/O 就绪。
+`wl_node_poll` 发现有帧可发时立即推进一次 `wl_node_step`。空闲时，它最多等到下一次采样到期，期间有 I/O 事件也会提前醒来。这样同一个主循环就能兼顾周期采样与收发。
 
-<Aside type="tip" title="为什么不在 publish_sample 里直接调 wl_node_step？">
-  `wl_node_step` 是驱动整个节点事件循环的统一入口，而不是某个 `send_*` 调用的“收尾步骤”。哪怕同一个节点同时承担多个 `send`、`recv` 或 RPC 角色，你也只需要在主循环里统一调用一次 `wl_node_step`，而不需要在每次发送后手动补一步。
+<Aside type="tip" title="裸机主循环">
+  如果主循环还要持续扫描按键或采样外设，可以直接调用 `wl_node_step(&publisher.node, board_millis())`，每轮处理一批节点工作后继续执行应用逻辑。
 </Aside>
 
 ### 3. 订阅端实现接收回调
 
-在 [`subscriber.c`](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c) 中，订阅端以同样方式通过 `sub_bind` 挂载到 UDP（本地 `50002`、对端 `50001`），主循环交替调用 `wl_node_step` 和 `wl_node_wait` 等待数据到达。每当收到一帧合法的 `Telemetry`，`wl_node_step` 会自动解码并调用你实现的 `sub_on_telemetry`：
+订阅端通过 `sub_bind` 挂载到 UDP（本地 `50002`、对端 `50001`），在主循环中调用 `wl_node_poll(&subscriber.node, clock, 100U)`。收到一帧合法的 `Telemetry` 后，节点会在这次步进中解码并调用 `sub_on_telemetry`。[查看 subscriber.c](https://github.com/starwey604/wirelink/blob/main/examples/00_telemetry/subscriber.c)
 
 {/* [docs:telemetry_receive] */}
 ```c
@@ -231,9 +228,9 @@ sequenceDiagram
   participant Sub as 订阅端 (sub_node_t)
 
   Pub->>Pub: pub_send_telemetry(&publisher, &sample) 编码入队
-  Pub->>Link: 主循环调用 wl_node_step(&publisher.node, now) 写出编码帧
+  Pub->>Link: wl_node_poll 推进发送，写出编码帧
   Link-->>Sub: 收到数据包，存入双 RX 缓冲槽
-  Sub->>Sub: 主循环调用 wl_node_step(&subscriber.node, now)
+  Sub->>Sub: wl_node_poll 推进接收
   Sub->>Sub: 解码并触发 sub_on_telemetry(&subscriber, &msg)
 ```
 
@@ -311,7 +308,7 @@ sample=3 temperature_centi_c=-1234
   items={[
     "能够使用 message 与 node（send / recv）编写单向消息 .wl 协议。",
     "能够用 --node 分别生成发布端和订阅端代码，并区分 <node>_*、wl_node_* 与 wl_udp_* 前缀。",
-    "理解“业务入队（send_*）与主循环步进（wl_node_step）分离”的模型，并能在本地双终端运行示例。"
+    "能用 send_* 把采样入队，用 wl_node_poll 驱动收发，并在两个终端运行示例。"
   ]}
 />
 

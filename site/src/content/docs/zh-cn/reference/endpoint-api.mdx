@@ -39,11 +39,14 @@ sidebar:
 
 ## 二、 统一节点运行时 API（`<wirelink/node.h>`）
 
+常规主循环使用 `wl_err_t wl_node_poll(wl_node_t *node, wl_clock_t clock, uint32_t max_wait_ms)`。桌面可传入 `wl_platform_environment().clock`，Zephyr 可传入 `wl_zephyr_monotonic_clock()`。
+
 | 函数签名 | 功能与行为契约 |
 | :--- | :--- |
+| **`wl_node_poll(&self->node, clock, max_wait_ms)`** | 先按需等待，再读取当前时间步进一次。传 `0U` 时跳过等待，只采时一次。等待出错会立即返回该错误，否则返回步进结果。 |
 | **`wl_node_step(&self->node, now_ms)`** | 由单一 Owner 周期调用并传入当前单调毫秒时间戳，先推进传输 `service`（如有），再执行状态机解包、发送、超时检查与回调派发。 |
 | **`wl_node_readiness(&self->node, now_ms)`** | 查询节点与已绑定传输的综合就绪状态及最早截止时间，用于自定义外层事件循环。 |
-| **`wl_node_wait(&self->node, now_ms, max_wait_ms)`** | 应在 `wl_node_step` 后重新读取时钟再调用；节点已有可执行项或驱动不支持等待时立即返回 `WL_OK`，否则按最短截止时间阻塞等待。 |
+| **`wl_node_wait(&self->node, now_ms, max_wait_ms)`** | 自定义调度器用当前时间单独等待。若上一步调用了 `wl_node_step`，应重新采时。节点有可执行项或驱动未实现等待时立即返回 `WL_OK`，否则按最短截止时间等待。 |
 | **`wl_node_close(&self->node, now_ms)`** | 按顺序关闭端点、请求传输停机、清理流分帧半帧槽并推进排空。返回 `WL_ERR_WOULD_BLOCK`（驱动尚在停机）或 `WL_ERR_BUSY`（租约尚在排空）时应保留缓冲并重试直至返回 `WL_OK`。 |
 | **`wl_node_quiescent(&self->node)`** | 检查驱动是否已停稳且所有在途调用与物理租约均已排空（返回非零后方可销毁或复用存储）。 |
 | **`wl_node_cancel(&self->node, handle)`** | 根据 `_ex` 返回的 `handle` 标记取消在途 RPC。不重入回调，在下一次 `wl_node_step` 派发 `WL_RPC_CANCELLED`。 |

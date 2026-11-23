@@ -150,6 +150,16 @@ wl_err_t wl_node_wait(wl_node_t *node, uint32_t now_ms, uint32_t max_wait_ms) {
   return error == WL_ERR_NO_DATA ? WL_OK : error;
 }
 
+wl_err_t wl_node_poll(wl_node_t *node, wl_clock_t clock, uint32_t max_wait_ms) {
+  if (!node || !node->core.port || !clock.now_ms) return WL_ERR_INVALID_ARG;
+  if (node->core.in_step) return WL_ERR_REENTRANT;
+  if (max_wait_ms != 0U) {
+    wl_err_t error = wl_node_wait(node, clock.now_ms(clock.user_data), max_wait_ms);
+    if (error != WL_OK) return error;
+  }
+  return wl_node_step(node, clock.now_ms(clock.user_data));
+}
+
 wl_err_t wl_node_close(wl_node_t *node, uint32_t now_ms) {
   if (!node || !node->core.port) return WL_ERR_INVALID_ARG;
   if (node->core.in_step) return WL_ERR_REENTRANT;

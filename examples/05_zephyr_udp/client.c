@@ -29,16 +29,15 @@ int main(int argc, char **argv) {
                                                   peer_completed, &state, NULL);
   memset(&request, 0, sizeof(request));
   int status = 1;
+  const wl_clock_t clock = example_clock();
   while (submitted == WL_OK && example_running() && !state.completions) {
-    if (wl_node_step(&client.node, example_now_ms()) != WL_OK ||
-        wl_node_wait(&client.node, example_now_ms(), 100) != WL_OK) break;
+    if (wl_node_poll(&client.node, clock, 100U) != WL_OK) break;
   }
   if (state.completions && state.result.outcome == WL_RPC_SUCCESS) {
     printf("20 + 22 = %ld\n", (long)state.response.sum);
     const uint32_t started = example_now_ms();
     while (example_running() && !state.samples && (uint32_t)(example_now_ms() - started) < 500) {
-      if (wl_node_step(&client.node, example_now_ms()) != WL_OK ||
-          wl_node_wait(&client.node, example_now_ms(), 100) != WL_OK) break;
+      if (wl_node_poll(&client.node, clock, 100U) != WL_OK) break;
     }
     if (state.samples) { printf("telemetry sample=%lu\n", (unsigned long)state.sample); status = state.response.sum == 42 ? 0 : 1; }
   } else fprintf(stderr, "RPC: outcome=%d status=%d\n", (int)state.result.outcome, state.result.status);

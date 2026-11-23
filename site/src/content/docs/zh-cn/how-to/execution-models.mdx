@@ -9,7 +9,7 @@ Wirelink 的 `src/` 核心不包含任何互斥锁、线程原语或系统时钟
 
 ## 单所有权契约（Single-Owner Contract）
 
-每个节点（`wl_node_t` 及其上层生成的 `<node>_node_t`）的所有公共操作（`bind`、`send`、`call`、`wl_node_cancel`、`wl_node_step`、`wl_node_wait`、`wl_node_close`、`wl_node_quiescent`）与业务回调（`on_<msg>`、`on_<rpc>`、RPC 完成回调）都必须由**同一个执行上下文（Owner）**串行调用。
+每个节点的绑定、发送、RPC 提交与取消、`wl_node_poll`、`wl_node_step`、`wl_node_wait`、关闭与静止态检查，都由同一个执行上下文（Owner）串行调用。消息、服务端 RPC 和客户端完成回调也在这个上下文执行。
 
 - **I/O 生产者的边界**：中断服务例程（ISR）或独立 DMA / Socket 线程**只能**操作底层 `wl_packet_port_t` 暴露的轻量级无锁接口（`wl_packet_rx_claim`、`wl_packet_rx_commit`、`wl_packet_tx_publish`、`wl_packet_activity`）或向字节环形缓冲写入数据，禁止直接调用 `wl_node_step`、编解码或业务回调。
 - **流式分帧喂入**：启用 `cobs_crc16` / `length16` 时，建议由 ISR 先写入轻量级字节缓冲，再由同一 Owner 上下文调用 `wl_node_rx_feed` 喂入节点。
@@ -35,20 +35,19 @@ for (;;) {
 
 *(如果节点仅包含单向消息且没有任何 `call` RPC，不涉及超时计时，时间戳参数传 `0U` 即可。)*
 
-### 2. RTOS 阻塞等待与二次采时
+### 2. 桌面和 RTOS 事件循环
 
-当挂载的传输驱动实现了 `notify`、`readiness` 与 `wait` 时，Owner 线程无需空转轮询，而是在完成一次 `wl_node_step` 后**重新读取单调时钟**，再调用 `wl_node_wait` 休眠等待：
+常规循环用 `wl_node_poll` 等到有工作，再读一次时钟并推进节点。下面的 Zephyr 任务使用 `<wirelink/zephyr/wait.h>` 提供的单调时钟。桌面程序使用 `<wirelink/platform.h>` 中的 `wl_platform_environment().clock`。
 
 ```c
+const wl_clock_t clock = wl_zephyr_monotonic_clock();
 for (;;) {
-  wl_err_t err = wl_node_step(&device.node, board_millis());
-  if (err != WL_OK) break;
-
-  /* 在 step 之后重新采样时钟，避免回调耗时导致等待时长计算偏大 */
-  err = wl_node_wait(&device.node, board_millis(), 100U);
+  wl_err_t err = wl_node_poll(&device.node, clock, 100U);
   if (err != WL_OK) break;
 }
 ```
+
+等待上限为 `0U` 时，poll 跳过等待，只读取一次时钟并步进。需要在步进与等待之间处理应用定时器时，可显式调用 `wl_node_step`，处理定时器后重新读取时钟，再调用 `wl_node_wait`。
 
 - **锁存唤醒（Latched Wake）**：驱动在 `notify` 中通过信号量或锁存事件唤醒 Owner，确保在进入 `wait` 之前到达的通知不会丢失。
 - **自动收敛等待上限**：若节点已有可执行事件，`wl_node_wait` 立即返回 `WL_OK`；否则等待时长自动取 `max_wait_ms`、最早的 RPC 截止时间与驱动自身截止时间三者的最小值。若传输未提供 `wait`（例如裸机同步绑定），`wl_node_wait` 直接返回 `WL_OK`。

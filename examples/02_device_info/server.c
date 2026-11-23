@@ -33,9 +33,9 @@ int main(int argc, char **argv) {
   puts("Device info server ready");
   fflush(stdout);
   int status = 0;
+  const wl_clock_t clock = example_clock();
   while (example_running()) {
-    if (wl_node_step(&server.node, 0U) != WL_OK ||
-        wl_node_wait(&server.node, example_now_ms(), 100U) != WL_OK) {
+    if (wl_node_poll(&server.node, clock, 100U) != WL_OK) {
       status = 1;
       break;
     }

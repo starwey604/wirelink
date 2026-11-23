@@ -14,7 +14,7 @@ ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
 
 两个程序默认使用本机端口 50007 和 50008。也可传入 `LOCAL_IPV4 LOCAL_PORT PEER_IPV4 PEER_PORT`，server 与 client 的本地和对端参数需要互换。client 输出 `20 + 22 = 42` 和一条 telemetry。测试以三个新进程复用 client 地址和端口，并验证对端缺席时的超时。
 
-C 程序先用 `wl_udp_open` 绑定套接字，再把 `wl_udp_transport(udp)` 传给节点的绑定入口。owner 调用 `wl_node_step` 推进收发，重新采时后调用 `wl_node_wait` 等待网络事件或截止时间。
+C 程序先用 `wl_udp_open` 绑定套接字，再把 `wl_udp_transport(udp)` 传给节点的绑定入口。客户端用 `wl_node_poll` 驱动节点直到收到结果。服务端在 `wl_node_step` 之后调度周期遥测，重新采时后调用 `wl_node_wait`。
 
 admission 返回前编码快照，completion 在借用期复制响应。close 停止真实 I/O、推进到物理 quiescence 后释放 socket。重试/幂等/应用状态恢复由业务定义。
 

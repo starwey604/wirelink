@@ -22,8 +22,9 @@ client prints `20 + 22 = 42` and a telemetry sample. The test reuses a client
 address/port across three new processes and verifies absent-peer timeout.
 
 Open the socket with `wl_udp_open`, then bind the generated node to
-`wl_udp_transport(udp)`. The owner drives I/O and endpoint work with
-`wl_node_step` and waits with `wl_node_wait` using a freshly sampled clock.
+`wl_udp_transport(udp)`. The client calls `wl_node_poll` until its result arrives.
+The server schedules telemetry between `wl_node_step` and `wl_node_wait`,
+resampling the clock before waiting.
 Admission encodes before
 return; completion copies the borrowed response. Close stops actual I/O, steps
 until physical quiescence, then frees socket resources.

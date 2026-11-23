@@ -19,12 +19,10 @@ static void done(info_client_node_t *self, wl_rpc_result_t outcome, const info_r
 
 /* [docs:device_info_client] */
 static wl_err_t read_device_info(info_client_node_t *client) {
+  const wl_clock_t clock = example_clock();
   wl_err_t error = info_client_call_get_info(client, &(info_request_t){0}, done);
-  while (error == WL_OK && example_running() && !completed) {
-    error = wl_node_step(&client->node, example_now_ms());
-    if (error == WL_OK && !completed)
-      error = wl_node_wait(&client->node, example_now_ms(), 100U);
-  }
+  while (error == WL_OK && example_running() && !completed)
+    error = wl_node_poll(&client->node, clock, 100U);
   return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
 }
 /* [/docs:device_info_client] */

@@ -26,36 +26,32 @@ static void rejected(client_node_t *self, wl_rpc_result_t outcome, const add_res
 }
 /* [/docs:calculator_rejected_callback] */
 
-static wl_err_t advance(client_node_t *client) {
-  wl_err_t error = wl_node_step(&client->node, example_now_ms());
-  return error == WL_OK ? wl_node_wait(&client->node, example_now_ms(), 100U) : error;
-}
-
 /* [docs:calculator_sync_rpc] */
-static wl_err_t add_once(client_node_t *client, add_request_t request,
+static wl_err_t add_once(client_node_t *client, wl_clock_t clock, add_request_t request,
                          client_add_cb_t done) {
   completed = 0;
   wl_err_t error = client_call_add(client, &request, done);
   while (error == WL_OK && example_running() && !completed)
-    error = advance(client);
+    error = wl_node_poll(&client->node, clock, 100U);
   return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
 }
 /* [/docs:calculator_sync_rpc] */
 
 static int run(client_node_t *client) {
-  if (add_once(client, (add_request_t){.left = 20, .right = 22}, added) != WL_OK ||
+  const wl_clock_t clock = example_clock();
+  if (add_once(client, clock, (add_request_t){.left = 20, .right = 22}, added) != WL_OK ||
       result.outcome != WL_RPC_SUCCESS || sum != 42) return 1;
   printf("20 + 22 = %" PRId32 "\n", sum);
 
   if (calculator_async_example(client) != WL_OK) return 1;
   for (int count = calculator_async_count(); example_running() && count >= 0 && count < 4;
        count = calculator_async_count()) {
-    if (advance(client) != WL_OK) return 1;
+    if (wl_node_poll(&client->node, clock, 100U) != WL_OK) return 1;
   }
   if (calculator_async_count() != 4) return 1;
   puts("4 concurrent calls returned 42");
 
-  if (add_once(client, (add_request_t){.left = INT32_MAX, .right = 1}, rejected) != WL_OK ||
+  if (add_once(client, clock, (add_request_t){.left = INT32_MAX, .right = 1}, rejected) != WL_OK ||
       result.outcome != WL_RPC_REJECTED || result.status != 1) return 1;
   printf("overflow rejected: status=%" PRId32 "\n", result.status);
   return 0;

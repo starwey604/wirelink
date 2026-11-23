@@ -88,14 +88,14 @@ flowchart RL
 | 前缀 | 来源 | 职责举例 |
 | :--- | :--- | :--- |
 | **`wl_udp_*`**（或板级驱动） | `<wirelink/udp.h>` 等传输头 | 打开、配置与关闭物理传输（`wl_udp_open`、`wl_udp_transport`、`wl_udp_close`） |
-| **`wl_node_*`** | 核心库 `<wirelink/node.h>` | **全仓固定前缀**。所有节点通用的推进、等待、关闭、取消与裸机收包，统一传入基类成员 `&self.node`（如 `wl_node_step`、`wl_node_wait`、`wl_node_close`） |
+| **`wl_node_*`** | 核心库 `<wirelink/node.h>` | 所有节点共用的运行时操作，传入基类成员 `&self.node`。常规主循环用 `wl_node_poll` 驱动收发，退出时用 `wl_node_close` 关闭节点。 |
 | **`<node>_*`** | `wlc` 根据 `.wl` 节点名生成 | 仅包含本节点专属的类型、绑定入口与业务收发（如 `motor_node_t`、`motor_bind`、`motor_send_telemetry`、`motor_on_set_speed`） |
 
 ---
 
 ## 三、数据在主循环中的流转方式（单所有权步进）
 
-Wirelink 核心库不会在后台偷偷创建线程，也不在中断上下文中直接执行你的业务回调。整个节点由**单一执行上下文（裸机主循环或单个 RTOS 任务）**按固定节拍推进：
+一个节点由同一个主循环或 RTOS 任务驱动。常规循环调用 `wl_node_poll`，它先按需等待工作，再采样时钟并推进一次状态机。
 
 ```mermaid
 sequenceDiagram
@@ -106,18 +106,17 @@ sequenceDiagram
   Loop->>Node: 1. 绑定传输 (<node>_bind / <node>_bind_sync)
   loop 主循环
     Wire-->>Node: 收到数据帧（存入双 RX 缓冲槽）
-    Loop->>Node: 2. wl_node_step(&n.node, now_ms)
+    Loop->>Node: 2. wl_node_poll(&n.node, clock, max_wait_ms)
     activate Node
     Node->>Loop: 解码并顺序触发业务回调 (<node>_on_*)
     Node->>Wire: 编码并经传输层写出消息或响应
     deactivate Node
-    Loop->>Node: 3. 可选：wl_node_wait(&n.node, now_ms, max_ms) 休眠等待
   end
 ```
 
-这种设计带来三条非常确定的嵌入式工程保证：
+裸机循环若需持续处理其他外设，可直接用 `wl_node_step` 推进一次。自定义调度器可用 `wl_node_readiness` 查询就绪状态和最近截止时间，或用 `wl_node_wait` 单独等待。
 
-1. **业务回调始终安全**：无论数据是在 UART 中断还是在独立网络线程中到达，你的 `on_<msg>` / `on_<rpc>` 回调**永远只在主循环调用 `wl_node_step` 时顺序执行**，无需在业务代码里到处加互斥锁。
+1. **业务回调在同一上下文顺序执行**：数据可以在 UART 中断或网络线程到达，`on_<msg>` / `on_<rpc>` 由驱动节点的主循环在步进时调用。
 2. **内存与流控显式可控**：节点内部在编译期固定分配了静态槽位（例如 4 路并发出站 RPC、1 个单向消息缓冲槽）。发送过快或链路暂忙时，API 不会偷偷 `malloc` 也不会卡死，而是立即返回 **`WL_ERR_WOULD_BLOCK`**，把决策权（下轮重试还是丢弃旧采样）明确交给应用层。
 3. **分帧与业务完全正交**：在 UDP 或 USB Bulk 等自带包边界的链路上使用默认 `framing = native;`；换成 UART 串口字节流时，只需在 `node` 中加一行 **`framing = cobs_crc16;`**，业务消息和回调函数完全不变。
 

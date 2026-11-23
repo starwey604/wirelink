@@ -101,9 +101,9 @@ int32_t server_on_add(server_node_t *self, const add_request_t *request, add_res
       puts("Calculator server ready");
       fflush(stdout);
       int status = 0;
+      const wl_clock_t clock = example_clock();
       while (example_running()) {
-        if (wl_node_step(&server.node, 0U) != WL_OK ||
-            wl_node_wait(&server.node, example_now_ms(), 100U) != WL_OK) {
+        if (wl_node_poll(&server.node, clock, 100U) != WL_OK) {
           status = 1;
           break;
         }
@@ -118,7 +118,7 @@ int32_t server_on_add(server_node_t *self, const add_request_t *request, add_res
     4 个阶段一目了然：
     1. **打开传输**：`wl_udp_open` 绑定 `50004`，对端指向 `50003`。
     2. **单向绑定**：`server_bind(&server, wl_udp_transport(udp))` 挂载传输并启动接收。
-    3. **步进等待**：`wl_node_step` 触发 `server_on_add` 并写出回复；`wl_node_wait` 在空闲时休眠等待，避免 CPU 空转。
+    3. **驱动节点**：`wl_node_poll` 在空闲时等待。请求到达后，它推进节点，调用 `server_on_add` 并发送回复。
     4. **停机释放**：退出循环后先 `wl_node_close` 排空状态，再 `wl_udp_close` 释放套接字。
   </TabItem>
 
@@ -160,22 +160,24 @@ wl_err_t client_call_add(
 
 ### 1. 非阻塞提交并推进主循环
 
-Wirelink 的 C 客户端调用从不在函数内部阻塞等待网络。`client_call_add` 只把请求编码进出站请求槽并立即返回 `WL_OK`，后续的发送、接收和超时判定都在主循环推进 `wl_node_step` 时完成（摘自 [`examples/01_rpc/client.c`](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c)）：
+纯 C 客户端异步发起 RPC。`client_call_add` 返回 `WL_OK` 表示请求已入队。主循环用 `wl_node_poll` 推进收发，完成回调接收结果。[查看 client.c](https://github.com/starwey604/wirelink/blob/main/examples/01_rpc/client.c)
 
 {/* [docs:calculator_sync_rpc] */}
 ```c
-static wl_err_t add_once(client_node_t *client, add_request_t request,
+static wl_err_t add_once(client_node_t *client, wl_clock_t clock, add_request_t request,
                          client_add_cb_t done) {
   completed = 0;
   wl_err_t error = client_call_add(client, &request, done);
   while (error == WL_OK && example_running() && !completed)
-    error = advance(client);
+    error = wl_node_poll(&client->node, clock, 100U);
   return completed || error != WL_OK ? error : WL_ERR_CANCELLED;
 }
 ```
 {/* [/docs:calculator_sync_rpc] */}
 
-*(注：`client_call_add` 使用节点默认超时 500 毫秒，计时从**下一次调用 `wl_node_step(&client->node, now)`** 开始。`advance()` 在每次 `wl_node_step` 之后重新读取单调时钟再调用 `wl_node_wait`。)*
+核心从入队后的第一次步进开始计算本例的 500 毫秒超时，并在到期时派发完成回调。`100U` 只限制一次 poll 的等待时长。示例用 `while (!completed)` 顺序运行成功、并发和拒绝用例；在固件中，共用一个主循环推进节点，各请求在自己的完成回调里处理结果即可。
+
+桌面程序需要同步返回值时，可以用 Python 的 `response = client.add(left=20, right=22)` 或 C++20 SDK 的 `client.add(...)`。SDK 的 Session 通过后台执行器驱动节点。[第 05 课的同步调用示例](/wirelink/zh-cn/learn/05-transports-and-host-sdk/)
 
 ### 2. 在完成回调中处理成功与业务拒绝
 

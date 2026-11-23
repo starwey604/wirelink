@@ -31,7 +31,7 @@
 - Keep `WIRELINK_CODEGEN_CONTRACT` synchronized between `wirelink` and `wlc`. Declare messages, RPCs, and nodes in one `.wl` (fields are required unless marked `optional` / `optional packed`); use `--node NAME` / `NODE` for single-role firmware or `--all-nodes` / `ALL_NODES` for combined targets.
 - Prefer `handlers = static` in introductory examples. Synchronous TX callbacks (`<node>_bind_sync`) must accept a whole frame synchronously or reject it completely, and call `wl_node_tx_ready` once writable again.
 - Preserve unconsumed stream tails (`wl_node_rx_feed`), stop external RX before closing synchronously bound nodes, and retry `wl_node_close` until `wl_node_quiescent` is true. Keep async/zero-copy physical leases alive through `wl_node_close` and driver stop acknowledgement.
-- Simple RPC deadlines start on the next `wl_node_step`; `_ex` uses explicit time. Never call `wl_node_wait` with a stale timestamp from before `wl_node_step`.
+- Simple RPC deadlines start on the next `wl_node_step`; `_ex` uses explicit time. Prefer `wl_node_poll` in owner loops. When calling `wl_node_step` and `wl_node_wait` separately, resample the clock between them.
 
 ## Testing, CI & Commits
 

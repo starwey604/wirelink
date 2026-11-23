@@ -19,9 +19,13 @@ void example_install_signals(void) {
 
 bool example_running(void) { return running != 0; }
 
+wl_clock_t example_clock(void) {
+  return wl_platform_environment().clock;
+}
+
 uint32_t example_now_ms(void) {
-  const wl_environment_t environment = wl_platform_environment();
-  return environment.clock.now_ms(environment.clock.user_data);
+  const wl_clock_t clock = example_clock();
+  return clock.now_ms(clock.user_data);
 }
 
 wl_err_t example_instance(uint32_t *instance) {

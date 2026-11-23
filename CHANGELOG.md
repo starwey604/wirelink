@@ -2,6 +2,9 @@
 
 ## 0.0.99
 
+- Drive a C node with `wl_node_poll(&node, clock, max_wait_ms)`. It waits for
+  work and steps once using the current time. Pass zero to step immediately.
+
 - CMake discovers compatible WLC and standalone Asio for the default examples.
   Generated core tests run with `BUILD_TESTING` even when examples are disabled.
   C++ bindings and packet tools select their required components automatically.

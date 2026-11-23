@@ -31,6 +31,7 @@ static wl_err_t publish_sample(uint32_t sequence) {
 }
 
 static int run_publisher_loop(void) {
+  const wl_clock_t clock = example_clock();
   uint32_t sequence = 0, next = example_now_ms();
   while (example_running()) {
     const uint32_t now = example_now_ms();
@@ -40,10 +41,8 @@ static int run_publisher_loop(void) {
       fflush(stdout);
       next = now + 200U;
     }
-    if (wl_node_step(&publisher.node, now) != WL_OK) return 1;
-    const uint32_t after = example_now_ms();
-    const int32_t remain = (int32_t)(next - after);
-    if (remain > 0 && wl_node_wait(&publisher.node, after, (uint32_t)remain) != WL_OK)
+    const int32_t remain = (int32_t)(next - example_now_ms());
+    if (wl_node_poll(&publisher.node, clock, remain > 0 ? (uint32_t)remain : 0U) != WL_OK)
       return 1;
   }
   return 0;

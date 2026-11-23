@@ -9,9 +9,9 @@ void test_packet_tool(void);
 typedef struct {
   wl_transport_t base;
   uint8_t slots[WL_PACKET_RX_SLOTS][64];
-  wl_err_t attach_result, stop_result;
-  unsigned services, stops, wakes;
-  uint32_t waited;
+  wl_err_t attach_result, stop_result, wait_result;
+  unsigned services, stops, wakes, waits, clock_reads;
+  uint32_t waited, now, service_time;
 } driver_t;
 
 static wl_err_t configure(wl_transport_t *base, size_t minimum, wl_transport_rx_override_t *out) {
@@ -61,19 +61,23 @@ static void test_failed_stream_attach(void) {
   CHECK(wl_node_cancel(&node, (wl_call_handle_t){0}) == WL_ERR_INVALID_ARG);
 }
 static wl_err_t service(wl_transport_t *base, uint32_t now_ms) {
-  (void)now_ms;
-  ++((driver_t *)base)->services;
+  driver_t *driver = (driver_t *)base;
+  ++driver->services;
+  driver->service_time = now_ms;
   return WL_OK;
 }
 
 static wl_io_readiness_t readiness(const wl_transport_t *base, uint32_t now_ms) {
-  (void)base; (void)now_ms;
-  return wl_io_readiness_at(15U);
+  (void)base;
+  return wl_io_readiness_at(now_ms < 115U ? 115U - now_ms : 0U);
 }
 
 static wl_err_t driver_wait(wl_transport_t *base, uint32_t maximum) {
-  ((driver_t *)base)->waited = maximum;
-  return WL_ERR_NO_DATA;
+  driver_t *driver = (driver_t *)base;
+  ++driver->waits;
+  driver->waited = maximum;
+  if (driver->wait_result == WL_ERR_NO_DATA) driver->now += maximum;
+  return driver->wait_result;
 }
 
 static wl_err_t stop(wl_transport_t *base) {
@@ -82,12 +86,60 @@ static wl_err_t stop(wl_transport_t *base) {
   return driver->stop_result;
 }
 
-int main(void) {
-  static const wl_transport_ops_t ops = {
-    .configure_rx = configure, .attach = attach, .service = service, .readiness = readiness,
-    .wait = driver_wait, .stop = stop
+static const wl_transport_ops_t ops = {
+  .configure_rx = configure, .attach = attach, .service = service, .readiness = readiness,
+  .wait = driver_wait, .stop = stop
+};
+
+static uint32_t clock_now(void *user) {
+  driver_t *driver = user;
+  ++driver->clock_reads;
+  return driver->now;
+}
+
+static void poll_from_callback(void *user, uint16_t id, wl_err_t error) {
+  wl_node_t *node = user;
+  (void)id;
+  CHECK(error == WL_ERR_BAD_FRAME);
+  CHECK(wl_node_poll(node, (wl_clock_t){clock_now, node->transport}, 100U) == WL_ERR_REENTRANT);
+}
+
+static void test_node_poll(void) {
+  driver_t driver = {.base = {&ops}, .now = 100U, .wait_result = WL_ERR_NO_DATA};
+  const wl_clock_t clock = {clock_now, &driver};
+  wl_node_t node = {0};
+  wl_node_layout_t layout = {
+    .rx_frame_max = 16U, .rx_wire_max = 16U, .on_error = poll_from_callback, .user = &node
   };
-  driver_t driver = {.base = {&ops}, .attach_result = WL_ERR_IO};
+  CHECK(wl_node_poll(NULL, clock, 100U) == WL_ERR_INVALID_ARG);
+  CHECK(wl_node_poll(&node, clock, 100U) == WL_ERR_INVALID_ARG);
+  CHECK(wl_node_bind_transport(&node, &layout, &driver.base) == WL_OK);
+  CHECK(wl_node_poll(&node, (wl_clock_t){0}, 100U) == WL_ERR_INVALID_ARG);
+  CHECK(driver.clock_reads == 0U && driver.waits == 0U && driver.services == 0U);
+
+  CHECK(wl_node_poll(&node, clock, 0U) == WL_OK);
+  CHECK(driver.clock_reads == 1U && driver.waits == 0U);
+  CHECK(driver.services == 1U && driver.service_time == 100U);
+
+  /* An RX packet is already queued. Its error callback runs inside step. */
+  const uint8_t bad_frame = 0U;
+  CHECK(wl_node_rx_packet(&node, &bad_frame, sizeof(bad_frame)) == WL_OK);
+  CHECK(wl_node_poll(&node, clock, 100U) == WL_ERR_BAD_FRAME);
+  CHECK(driver.clock_reads == 3U && driver.waits == 0U && driver.services == 2U);
+
+  driver.wait_result = WL_ERR_IO;
+  CHECK(wl_node_poll(&node, clock, 100U) == WL_ERR_IO);
+  CHECK(driver.waits == 1U && driver.clock_reads == 4U && driver.services == 2U);
+
+  driver.wait_result = WL_ERR_NO_DATA;
+  CHECK(wl_node_poll(&node, clock, 100U) == WL_OK);
+  CHECK(driver.waits == 2U && driver.waited == 15U && driver.clock_reads == 6U);
+  CHECK(driver.services == 3U && driver.service_time == 115U);
+  CHECK(wl_node_close(&node, driver.now) == WL_OK);
+}
+
+int main(void) {
+  driver_t driver = {.base = {&ops}, .attach_result = WL_ERR_IO, .wait_result = WL_ERR_NO_DATA};
   wl_node_layout_t layout = {.rx_frame_max = 16U, .rx_wire_max = 16U};
   wl_node_t node = {0};
   CHECK(wl_node_bind_transport(&node, &layout, &driver.base) == WL_ERR_IO);
@@ -108,5 +160,6 @@ int main(void) {
   CHECK(wl_node_close(&node, 102U) == WL_OK && wl_node_quiescent(&node));
   CHECK(wl_node_close(&node, 103U) == WL_OK && driver.stops == 3U);
   test_failed_stream_attach();
+  test_node_poll();
   test_packet_tool();
 }

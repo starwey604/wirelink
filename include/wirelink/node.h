@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #ifndef WIRELINK_NODE_H_
 #define WIRELINK_NODE_H_
+#include "wirelink/clock.h"
 #include "wirelink/endpoint.h"
 #include "wirelink/transport.h"
 #ifdef __cplusplus
@@ -34,11 +35,14 @@ struct wl_node {
   uint8_t transport_stopped; /* 1 when no transport or transport->ops->stop returned WL_OK */
 };
 
-/* Owner operations. Resample the owner clock between step and wait.
- * Retry close on WOULD_BLOCK (driver stopping) or BUSY (leases draining). */
+/* Default owner loop: wait for work, then sample the clock and step once.
+ * A zero wait limit skips the wait. A wait error returns before the step. */
+wl_err_t wl_node_poll(wl_node_t *node, wl_clock_t clock, uint32_t max_wait_ms);
+/* For custom scheduling, resample the owner clock between step and wait. */
 wl_err_t wl_node_step(wl_node_t *node, uint32_t now_ms);
 wl_io_readiness_t wl_node_readiness(const wl_node_t *node, uint32_t now_ms);
 wl_err_t wl_node_wait(wl_node_t *node, uint32_t now_ms, uint32_t max_wait_ms);
+/* Retry close on WOULD_BLOCK (driver stopping) or BUSY (leases draining). */
 wl_err_t wl_node_close(wl_node_t *node, uint32_t now_ms);
 int wl_node_quiescent(const wl_node_t *node);
 void wl_node_tx_ready(wl_node_t *node);

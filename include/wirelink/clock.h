@@ -15,7 +15,7 @@ typedef uint32_t wl_time_ms_t;
 typedef wl_time_ms_t (*wl_clock_now_fn)(void *user_data);
 typedef struct wl_clock {
   wl_clock_now_fn now_ms;
-  /* Borrowed until endpoint close; the descriptor itself is copied at init. */
+  /* Borrowed context; keep it valid while the clock is in use. */
   void *user_data;
 } wl_clock_t;
 
