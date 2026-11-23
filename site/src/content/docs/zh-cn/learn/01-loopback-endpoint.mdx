@@ -59,7 +59,7 @@ wlc/target/release/wlc compile examples/01_rpc/calculator.wl \
   --node server --out-dir build/my-server
 ```
 
-命令执行后，`build/my-server/` 目录中会生成 `calculator.h` 与 `calculator.c`。打开 `build/my-server/calculator.h`，重点关注以下三组声明：
+命令执行后，`build/my-server/` 目录中会生成 `calculator.h` 与 `calculator.c`。打开 `build/my-server/calculator.h`，重点关注以下三组声明（它会自动包含 `<wirelink/node.h>`）：
 
 ```c
 /* 1. 消息结构体：由 AddRequest / AddResponse 转换而来 */
@@ -75,24 +75,24 @@ struct add_response {
   int32_t sum;
 };
 
-/* 2. 生成的绑定入口与公共节点 API */
-wl_err_t server_bind_sync(server_node_t *self, server_tx_write_fn tx_write);
+/* 2. 节点结构体与绑定入口（由 calculator.c 实现） */
+struct server_node {
+  wl_node_t node; /* 所有生成节点统一的基类成员 */
+  /* 其余静态收发缓冲区由编译器按协议大小自动计算 */
+};
+
 wl_err_t server_bind(server_node_t *self, wl_transport_t *transport);
-wl_err_t wl_node_rx_packet(wl_node_t *node, const uint8_t *data, size_t length);
-wl_err_t wl_node_step(wl_node_t *node, uint32_t now);
+wl_err_t server_bind_sync(server_node_t *self, server_tx_write_fn tx_write);
 
 /* 3. 需要由应用层实现的业务处理函数 */
 int32_t server_on_add(
     server_node_t *self, const add_request_t *request, add_response_t *response);
 ```
 
-<Aside type="note" title="生成符号的命名规则">
-所有节点类型与函数前缀均来自 `.wl` 中的节点名 `server`：
-- 节点类型为 `<node>_node_t`（此处为 `server_node_t`）。
-- 绑定入口 `<node>_bind_sync` 和 `<node>_bind` 由 `calculator.c` 生成。调用公共函数 `wl_node_rx_packet` 和 `wl_node_step` 时传入 `&server.node`。
-- 业务处理函数为 `<node>_on_<rpc>`（此处为 `server_on_add`），由你的应用程序提供实现。
-
-例如，若协议中声明的是 `node motor { serve SetSpeed; }`，对应的类型与回调则会生成为 `motor_node_t` 与 `motor_on_set_speed`。
+<Aside type="note" title="如何区分 server_* 与 wl_node_* 前缀？">
+Wirelink 将“协议相关”和“通用运行时”清晰分开：
+- **`<node>_*`（此处为 `server_*`）**：由 `wlc` 根据 `.wl` 中的节点名生成，只包含节点类型（`server_node_t`）、绑定入口（`server_bind` / `server_bind_sync`）以及业务回调/调用（`server_on_add`）。若协议中写的是 `node motor { serve SetSpeed; }`，就会生成 `motor_node_t`、`motor_bind` 与 `motor_on_set_speed`。
+- **`wl_node_*`**：来自核心库 `<wirelink/node.h>`，前缀永远固定。无论节点叫什么名字，驱动主循环、喂入收包和关闭节点都统一操作基类成员 `&server.node`（例如 `wl_node_step(&server.node, now)`、`wl_node_wait(...)`、`wl_node_close(...)`）。
 </Aside>
 
 ---
@@ -153,7 +153,7 @@ int32_t server_on_add(server_node_t *self, const add_request_t *request, add_res
   </TabItem>
 
   <TabItem label="方式 B：使用官方 UDP 适配器（本系列桌面教程示例）">
-    为了让教程中的服务端与客户端能够在电脑上作为两个独立进程直接通信，本系列示例（`00_telemetry`、`01_rpc`、`02_device_info`）直接调用 Wirelink 内置的 Asio UDP C API（`<wirelink/udp.h>`，默认在 `127.0.0.1` 的一对端口上互通），通过 `server_bind` 挂载到服务端节点。代码中的 `example_udp_args`、`example_install_signals` 和 `example_now_ms` 仅用于处理示例的命令行端口覆盖、`Ctrl-C` 退出与系统毫秒时钟：
+    为了让教程中的服务端与客户端能够在电脑上作为两个独立进程直接通信，本系列示例（`00_telemetry`、`01_rpc`、`02_device_info`）使用 Wirelink 提供的 UDP 适配器（`<wirelink/udp.h>`，默认在 `127.0.0.1` 的一对端口上互通），通过 `server_bind` 单向挂载到服务端节点：
 
     {/* [docs:calculator_udp_server] */}
     ```c
@@ -187,7 +187,23 @@ int32_t server_on_add(server_node_t *self, const add_request_t *request, add_res
     }
     ```
     {/* [/docs:calculator_udp_server] */}
-    移植到真实硬件时，只需将 Asio UDP 适配器换成对应的硬件发送/接收函数或平台适配器，上面的 `server_on_add` 业务代码无需改动。
+
+    这段 `main()` 按顺序完成了 4 件事：
+    1. **打开传输**：`wl_udp_open(&udp, &config, NULL)` 绑定本地 UDP 端口 `50004` 并记录对端地址 `50003`。
+    2. **绑定节点**：`server_bind(&server, wl_udp_transport(udp))` 将 `server` 单向挂载到 UDP 传输（自动同步收发帧长上限并启动接收）。
+    3. **步进与等待**：主循环交替调用 `wl_node_step(&server.node, ...)`（收包、解码、执行 `server_on_add`、发回响应）和 `wl_node_wait(&server.node, ..., 100U)`（在无事件时休眠等待，避免空转占满 CPU）。
+    4. **关闭与释放**：退出循环后先通过 `wl_node_close(&server.node, ...)` 停止收发并排空在途状态，再调用 `wl_udp_close(udp)` 释放套接字。
+
+    代码中的符号按前缀可分为四类，便于快速区分职责：
+
+    | 前缀 | 来源 | 职责 |
+    | :--- | :--- | :--- |
+    | **`wl_udp_*`** | `<wirelink/udp.h>` | 官方 UDP 传输的打开、获取句柄与关闭 |
+    | **`wl_node_*`** | `<wirelink/node.h>` | 所有节点通用的步进、等待与关闭接口 |
+    | **`server_*`** | `wlc` 生成的 `calculator.h` | 本节点的静态类型、绑定入口与业务回调 |
+    | **`example_*`** | 示例公共辅助文件 | 仅用于处理命令行端口覆盖、`Ctrl-C` 退出与系统毫秒时钟 |
+
+    移植到真实硬件时，只需将 `wl_udp_*` 换成对应的板级传输或同步发送函数，上面的 `server_on_add` 业务代码无需改动。
   </TabItem>
 </Tabs>
 

@@ -1,70 +1,76 @@
 ---
-title: C11 节点与内核 API 速查
-description: 生成节点的绑定接口（bind / bind_sync）、显式时间 _ex 调用、业务钩子与底层 wl_endpoint 调度速查表。
+title: C11 节点与传输 API 速查
+description: 生成节点的绑定与业务接口（<node>_*）、统一运行时 API（wl_node_*）、驱动契约（wl_transport_t）与 UDP 适配器（wl_udp_*）速查表。
 sidebar:
   order: 1
 ---
 
-在日常开发中，业务代码只需 `#include "<stem>.h"`，直接操作生成的强类型节点 **`<node>_node_t`**。节点已内嵌端口（`port`）、双 RX 接收槽（`rx`）、流分帧器（启用流分帧时）与路由编解码；直接调用 `wl_endpoint_*` 主要用于底层适配器与自定义框架集成。
+在日常 C11 开发中，应用只需 `#include "<stem>.h"`（它会自动包含 `<wirelink/node.h>`）：
+- **节点专属符号（`<n>_*`）**：由 `wlc` 按 `.wl` 中的节点名生成，负责静态类型（`<n>_node_t`，首成员为 `wl_node_t node`）、绑定入口与具体协议业务操作。
+- **公共运行时 API（`wl_node_*`）**：全仓前缀固定，接收 `&self->node`，统一负责步进、等待、关闭、取消与裸机收包。
+- **传输适配器（`wl_udp_*` / `wl_transport_t`）**：以单向挂载的方式接入 `<n>_bind`，底层 `wl_endpoint_t` 与 `wl_packet_port_t` 退居内部。
 
 ---
 
-## 一、 生成节点 API 速查（默认 `handlers = static`）
+## 一、 生成节点符号（`<n>_*`，默认 `handlers = static`）
 
 以下表格中，`<n>` 代表 `.wl` 中声明的 `node` 名称（例如 `node server` 对应前缀 `server_`）：
 
-### 1. 主动调用函数
+### 1. 绑定与业务调用
 
 | 函数签名 | 功能与行为契约 |
 | :--- | :--- |
-| **`<n>_bind_sync(self, tx_write)`** | 使用同步整帧发送函数初始化节点，并自动分配进程内唯一的非零实例号。*(纯 `recv` 节点无 `tx_write` 参数；需显式实例号时使用 `<n>_bind_sync_instance`。)* |
-| **`<n>_bind(self, transport)`** | 绑定传输驱动，自动分配实例号。需要指定实例号时使用 `<n>_bind_instance(self, instance, transport)`。 |
+| **`<n>_bind(self, transport)`** | 将节点单向挂载到 `wl_transport_t *`（自动分配非零实例号并同步收发帧长上限）。需显式实例号时使用 `<n>_bind_instance(self, instance, transport)`。 |
+| **`<n>_bind_sync(self, tx_write)`** | 使用同步整帧发送函数初始化节点（自动分配实例号）。*(纯 `recv` 节点无 `tx_write` 参数；需显式实例号时使用 `<n>_bind_sync_instance`。)* |
 | **`<n>_send_<msg>(self, &value)`** | 发送单向消息。返回 `WL_OK` 时结构体已完成编码复制；若单向消息槽正忙返回 `WL_ERR_WOULD_BLOCK`。*(全为必选标量且 $\le 4$ 个字段时额外生成 `<n>_send_<msg>_val`。)* |
 | **`<n>_call_<rpc>(self, &req, cb)`** | 发起简化 RPC 调用。使用节点默认 `timeout_ms`（默认 500ms），从**下一次 `wl_node_step(&self->node, now)`** 起算超时；`cb` 首参为 `<n>_node_t *self`。*(绑定 `call Rpc = fn;` 时省略 `cb`。)* |
 | **`<n>_call_<rpc>_ex(self, &req, now, timeout, cb, user, &out)`** | 发起显式时间 RPC 调用。从传入的 `now` 立即起算超时（`timeout = 0` 使用默认超时）；`cb` 首参为独立 `void *user`；不需要取消句柄时 `out` 可传 `NULL`。 |
-| **`wl_node_step(&self->node, now_ms)`** | 由单一 Owner 周期调用并传入当前单调毫秒时间戳，统一驱动发送、解包投递、超时检查与完成回调。 |
-| **`wl_node_cancel(&self->node, handle)`** | 根据 `_ex` 返回的 `handle` 标记取消在途 RPC。不重入回调，在下一次 `step` 派发 `WL_RPC_CANCELLED`。 |
-| **`wl_node_close(&self->node, now)`** / **`wl_node_quiescent(&self->node)`** | 发起关闭 / 检查所有在途调用与物理租约是否已排空静止（返回非零表示已静止）。 |
-| **`wl_node_rx_packet(&self->node, data, len)`** | **用于 `framing = native`**：将收到的完整一帧数据包复制进节点双 RX 槽之一。 |
-| **`wl_node_rx_feed(&self->node, data, len, &consumed)`** | **用于 `cobs_crc16` / `length16`**：喂入连续字节流；根据 `consumed` 移走已消费前缀、保留未消费尾部。 |
-| **`wl_node_tx_ready(&self->node)`** | 同步 `tx_write` 返回 `WOULD_BLOCK` / `BUSY` 后，外设恢复可写时调用，通知下一次 `step` 重试发送。 |
 
 ### 2. 需要实现的静态业务钩子
 
 | 钩子函数签名 | 触发时机与返回值约定 |
 | :--- | :--- |
-| **`void <n>_on_<msg>(self, const <msg>_t *msg)`** | 声明 `recv <Msg>;` 时生成。`step` 期间解码消息后调用；`msg` 指针仅在回调返回前有效，需要跨回调保留时按值拷贝 `*saved = *msg`。 |
+| **`void <n>_on_<msg>(self, const <msg>_t *msg)`** | 声明 `recv <Msg>;` 时生成。`wl_node_step` 期间解码消息后调用；`msg` 指针仅在回调返回前有效，需跨回调保留时按值拷贝 `*saved = *msg`。可通过 `self->node.user` 存取自定义上下文。 |
 | **`int32_t <n>_on_<rpc>(self, const <req>_t *req, <resp>_t *resp)`** | 声明 `serve <Rpc>;` 时生成。返回 `0` 时编码并发送 `*resp`；返回非零 `int32_t` 时发送业务拒绝帧（客户端收到 `WL_RPC_REJECTED` 及该状态码）。 |
 
----
-
-## 二、 动态回调表模式（`handlers = dynamic`）
-
-在 `.wl` 中显式声明 `handlers = dynamic;` 时：
-- 生成 `<n>_handlers_t` 回调函数表结构体，所有业务回调的首参从 `<n>_node_t *self` 变为 `void *user`；
-- `<n>_bind_sync`、`<n>_bind_sync_instance` 与 `<n>_bind` 及 `<n>_bind_instance` 在参数末尾追加 `const <n>_handlers_t *handlers, void *user`。
+*(若在 `.wl` 中显式声明 `handlers = dynamic;`，会生成 `<n>_handlers_t` 回调表，业务回调首参变为 `void *user`，且 `<n>_bind*` 在参数末尾追加 `const <n>_handlers_t *handlers, void *user`。)*
 
 ---
 
-## 三、 容量常量与编译期帧长上限宏
+## 二、 统一节点运行时 API（`<wirelink/node.h>`）
 
-| 类别 | 宏 / 接口 | 说明 |
-| :--- | :--- | :--- |
-| **固定槽位容量** | 并发出站 RPC / 待发回复 / 单向消息 / TX 队列 / 单次步进预算 | 4 路并发调用 / 3 个待发回复 / 1 个单向消息槽 / 8 项 TX 队列 / 16 事件预算（未声明的角色不分配对应字节池） |
-| **规范帧上限宏** | `<N>_REQUEST_FRAME_MAX`、`<N>_REPLY_FRAME_MAX`、`<N>_MESSAGE_FRAME_MAX`、`<N>_RX_FRAME_MAX`、`<N>_TX_FRAME_MAX` | 编译期精确计算的各方向最大规范帧字节数（含 4B 帧头 + RPC 子头 + 最大消息体）。节点的收发规范帧上限至少为 4 字节，未使用的请求、回复或消息池容量为 `0`。 |
-| **物理线缆帧上限宏** | `<N>_RX_WIRE_MAX`、`<N>_TX_WIRE_MAX` | 计入 `cobs_crc16` 或 `length16` 封装开销后的物理线缆最大字节数。内嵌 RX 槽单位长度为 `<N>_RX_WIRE_MAX + 1`。 |
-| **休眠与唤醒** | `wl_node_wait(&self->node, now, max_ms)` | 在 step 后重新采时，等待驱动活动或最早的 RPC 截止时间。驱动提供等待函数时才会阻塞。 |
+| 函数签名 | 功能与行为契约 |
+| :--- | :--- |
+| **`wl_node_step(&self->node, now_ms)`** | 由单一 Owner 周期调用并传入当前单调毫秒时间戳，先推进传输 `service`（如有），再执行状态机解包、发送、超时检查与回调派发。 |
+| **`wl_node_readiness(&self->node, now_ms)`** | 查询节点与已绑定传输的综合就绪状态及最早截止时间，用于自定义外层事件循环。 |
+| **`wl_node_wait(&self->node, now_ms, max_wait_ms)`** | 应在 `wl_node_step` 后重新读取时钟再调用；节点已有可执行项或驱动不支持等待时立即返回 `WL_OK`，否则按最短截止时间阻塞等待。 |
+| **`wl_node_close(&self->node, now_ms)`** | 按顺序关闭端点、请求传输停机、清理流分帧半帧槽并推进排空。返回 `WL_ERR_WOULD_BLOCK`（驱动尚在停机）或 `WL_ERR_BUSY`（租约尚在排空）时应保留缓冲并重试直至返回 `WL_OK`。 |
+| **`wl_node_quiescent(&self->node)`** | 检查驱动是否已停稳且所有在途调用与物理租约均已排空（返回非零后方可销毁或复用存储）。 |
+| **`wl_node_cancel(&self->node, handle)`** | 根据 `_ex` 返回的 `handle` 标记取消在途 RPC。不重入回调，在下一次 `wl_node_step` 派发 `WL_RPC_CANCELLED`。 |
+| **`wl_node_rx_packet(&self->node, data, len)`** | **用于 `framing = native`**：将收到的完整一帧数据包复制进节点双 RX 槽之一。 |
+| **`wl_node_rx_feed(&self->node, data, len, &consumed)`** | **用于 `cobs_crc16` / `length16`**：喂入连续字节流；根据 `consumed` 移走已消费前缀、保留未消费尾部。 |
+| **`wl_node_tx_ready(&self->node)`** | 同步 `tx_write` 返回 `WOULD_BLOCK` / `BUSY` 后，外设恢复可写时调用，通知下一次 `wl_node_step` 重试发送。 |
 
 ---
 
-## 四、UDP 适配器 API（`<wirelink/udp.h>`）
+## 三、 UDP 适配器 API（`<wirelink/udp.h>`）
 
-C11 和 C++ 应用均链接 `Wirelink::udp`。
+C11 与 C++ 应用均链接 `Wirelink::udp`。
 
 | 调用 | 行为 |
-| --- | --- |
-| `wl_udp_open(&udp, &config, &os_error)` | 创建并绑定套接字。端口为零时，由操作系统分配；系统调用失败时可读取 `os_error`。 |
-| `<n>_bind(self, wl_udp_transport(udp))` | 把传输挂载到节点，默认采用节点自己的收发上限。绑定成功后通过 `wl_node_step` 和 `wl_node_wait` 推进收发。 |
-| `wl_udp_local_port(udp)` / `wl_udp_set_peer(udp, address, port)` | 查询本地端口或设置对端。 |
-| `wl_udp_stats(udp)` | 查询接收、发送、拒绝和错误计数。 |
-| `wl_udp_close(udp)` | 释放适配器。已绑定节点须先完成 `wl_node_close`。 |
+| :--- | :--- |
+| **`wl_udp_open(&udp, &config, &os_error)`** | 创建并立即绑定套接字（`bind_port = 0` 时由系统分配临时端口）。`os_error` 可传 `NULL`；失败且非空时写入底层系统错误码。 |
+| **`wl_udp_transport(udp)`** | 返回标准 `wl_transport_t *`，直接传给 `<n>_bind(self, wl_udp_transport(udp))`。 |
+| **`wl_udp_local_port(udp)`** / **`wl_udp_set_peer(udp, address, port)`** | 查询本地绑定端口或动态设置对端地址与端口（绑定节点前后均可调用）。 |
+| **`wl_udp_stats(udp)`** | 查询接收、发送、拒绝和错误计数。 |
+| **`wl_udp_close(udp)`** | 释放套接字与适配器内存；须在已绑定节点完成 `wl_node_close` 达到静止态后调用。 |
+
+---
+
+## 四、 容量常量与编译期帧长上限宏
+
+| 类别 | 宏 / 说明 | 数值或计算规则 |
+| :--- | :--- | :--- |
+| **固定槽位容量** | 并发出站 RPC / 待发回复 / 单向消息 / TX 队列 / 单次步进预算 | 4 路并发调用 / 3 个待发回复 / 1 个单向消息槽 / 8 项 TX 队列 / 16 事件预算（未声明的角色不分配对应字节池） |
+| **规范帧上限宏** | `<N>_REQUEST_FRAME_MAX`、`<N>_REPLY_FRAME_MAX`、`<N>_MESSAGE_FRAME_MAX`、`<N>_RX_FRAME_MAX`、`<N>_TX_FRAME_MAX` | 编译期精确计算的各方向最大规范帧字节数（含 4B 帧头 + RPC 子头 + 最大消息体）。收发规范帧上限至少为 4 字节，未使用的池容量为 `0`。 |
+| **物理线缆帧上限宏** | `<N>_RX_WIRE_MAX`、`<N>_TX_WIRE_MAX` | 计入 `cobs_crc16` 或 `length16` 封装开销后的物理线缆最大字节数。内嵌 RX 槽单位长度为 `<N>_RX_WIRE_MAX + 1`。 |

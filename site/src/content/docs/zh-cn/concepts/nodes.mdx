@@ -36,7 +36,7 @@ node device {
 
 ## 一、 节点的 4 项配置与默认值
 
-在 `node` 花括号内可按需覆盖以下 4 项配置（省略时使用默认值）；所有节点统一内嵌 `port` 与双 RX 槽，在 C 初始化阶段决定使用同步写函数（`<node>_bind_sync`）还是异步/零拷贝传输（`<node>_bind`）：
+在 `node` 花括号内可按需覆盖以下 4 项配置（省略时使用默认值）；所有生成的节点均以公共基类 `wl_node_t node` 作为首成员，在 C 侧通过 `<node>_bind_sync`（同步发包函数）或 `<node>_bind`（`wl_transport_t *` 传输驱动）单向挂载：
 
 | 配置项 | 默认值 | 可选值 | 选型说明 |
 | :--- | :--- | :--- | :--- |
@@ -109,7 +109,7 @@ node device {
 | **`serve Execute;`** | *(由 `wl_node_step` 自动解码并派发)* | `int32_t device_on_execute(device_node_t *self, const request_t *req, response_t *resp);` |
 
 <Aside type="note" title="static 与 dynamic 模式的回调首参差异">
-- 默认的 `handlers = static` 模式下，业务回调首参为强类型节点指针 `<node>_node_t *self`（可通过 `self->user` 存取自定义上下文）。
+- 默认的 `handlers = static` 模式下，业务回调首参为强类型节点指针 `<node>_node_t *self`（可通过 `self->node.user` 存取自定义上下文）。
 - 显式声明 `handlers = dynamic` 时，生成 `<node>_handlers_t` 回调表，业务回调首参为 `void *user`。
 </Aside>
 

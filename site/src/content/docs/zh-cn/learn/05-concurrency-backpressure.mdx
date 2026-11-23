@@ -136,11 +136,11 @@ wl_err_t calculator_cancel_example(client_node_t *client, wl_call_handle_t handl
 
 ## 第四步：运行生命周期确定性测试
 
-[`tests/core/node_lifecycle.c`](https://github.com/starwey604/wirelink/blob/main/tests/core/node_lifecycle.c) 通过可控的虚拟时钟完整验证了“4 路并发、第 5 路返回 `WL_ERR_WOULD_BLOCK`、主动取消、3 路超时与恢复”全流程，可直接通过 CTest 运行：
+[`tests/core/node_lifecycle.c`](https://github.com/starwey604/wirelink/blob/main/tests/core/node_lifecycle.c) 通过可控的虚拟时钟完整验证了“4 路并发、第 5 路返回 `WL_ERR_WOULD_BLOCK`、主动取消、3 路超时与恢复”全流程，可直接通过核心测试集运行：
 
 ```sh
-cmake --build build/examples --target wirelink_rpc_lifecycle
-ctest --test-dir build/examples -R wirelink_rpc_lifecycle --output-on-failure
+cmake --build build/core --target node_test
+ctest --test-dir build/core -R '^node$' --output-on-failure
 ```
 
 <Challenge

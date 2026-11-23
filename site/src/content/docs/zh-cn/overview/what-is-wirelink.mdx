@@ -55,27 +55,30 @@ flowchart LR
 
 ---
 
-## 下位机的驱动方式
+## 运行时模型：Transport 与 Node
 
-Wirelink 生成的 C11 代码不会在后台创建线程，也不直接操作特定芯片的硬件寄存器。无论目标平台是裸机主循环还是 RTOS 任务，接入一个节点都遵循相同的三步交互：
+Wirelink 生成的 C11 代码不会在后台创建线程，也不直接操作特定芯片的硬件寄存器。无论目标平台是桌面 UDP、Zephyr RTOS 还是裸机主循环，运行时都只围绕两个概念展开：
+
+- **传输（Transport）**：负责收发原始字节或数据包，例如官方 UDP 适配器（`<wirelink/udp.h>`）、平台串口/USB 驱动，或者裸机工程里的单个同步发送函数。
+- **节点（Node）**：由 `wlc` 根据 `.wl` 生成的协议实体（`<node>_node_t`），内嵌公共基类 `wl_node_t node`。应用通过 `<node>_bind` 或 `<node>_bind_sync` 把节点单向挂载到传输上，之后统一使用 `wl_node_*` 驱动收发与关闭。
 
 ```mermaid
 sequenceDiagram
-  participant HW as 串口 / 网络驱动
+  participant Link as 传输层 (Transport / 硬件驱动)
   participant App as 应用主循环
-  participant WL as 生成的 Wirelink 节点
+  participant Node as Wirelink 节点 (wl_node_t)
 
-  HW->>WL: 1. 收到数据时，将字节传入节点
-  App->>WL: 2. 定期调用 step(now_ms)
-  activate WL
-  WL->>App: 解码并调用对应的业务处理函数
-  WL->>HW: 调用发送函数输出打包好的字节
-  deactivate WL
+  App->>Node: 1. 绑定传输 (<node>_bind / <node>_bind_sync)
+  App->>Node: 2. 定期调用 wl_node_step(&n.node, now_ms)
+  activate Node
+  Link-->>Node: 读入到达的数据帧
+  Node->>App: 解码并调用业务回调 (<node>_on_*)
+  Node->>Link: 编码并经传输层写出响应/消息
+  deactivate Node
+  App->>Node: 3. 可选：wl_node_wait(&n.node, now_ms, max_ms) 等待事件
 ```
 
-1. **输入接收数据**：硬件收到数据后，将字节传入生成的接收函数。
-2. **推进节点状态**：在主循环中定期传入当前毫秒时间戳并调用 `step` 函数，完成解码、业务回调派发与超时检查。
-3. **输出发送数据**：当节点需要对外发送帧时，会回调你实现的发送函数，由你的硬件驱动将字节写出。
+这一分层把底层收发和协议业务彻底隔离开：更换物理链路时，只需替换挂载的传输对象，业务代码无需改动。
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: 执行模型：裸机循环与 RTOS 任务
-description: 掌握 wl_endpoint 的单所有权契约、步进预算控制、锁存唤醒及优雅停机流程。
+description: 掌握 wl_node 的单所有权契约、步进与二次采时等待、锁存唤醒及优雅停机流程。
 sidebar:
   order: 1
 ---
@@ -9,40 +9,58 @@ Wirelink 的 `src/` 核心不包含任何互斥锁、线程原语或系统时钟
 
 ## 单所有权契约（Single-Owner Contract）
 
-`wl_endpoint_t` 及其上层生成的 `<node>_node_t` 实例的所有公共操作（`bind`、`send`、`call`、`cancel`、`step`、`ready`、`close`、`quiescent`）与用户回调（`on_<msg>`、`done`）都必须由**同一个执行上下文（Owner）**串行调用。
+每个节点（`wl_node_t` 及其上层生成的 `<node>_node_t`）的所有公共操作（`bind`、`send`、`call`、`wl_node_cancel`、`wl_node_step`、`wl_node_wait`、`wl_node_close`、`wl_node_quiescent`）与业务回调（`on_<msg>`、`on_<rpc>`、RPC 完成回调）都必须由**同一个执行上下文（Owner）**串行调用。
 
-- **I/O 生产者的边界**: 中断服务例程（ISR）或独立 DMA / Socket 线程**只能**操作底层 `wl_packet_port_t` 暴露的轻量级无锁接口（如 `wl_packet_rx_claim`、`wl_packet_rx_commit`、`wl_packet_tx_publish`、`wl_packet_activity`），禁止触碰 `wl_endpoint_t` 或触发编解码与业务回调。
-- **防重入保证**: `wl_node_cancel` 与发送 API 不会在内部栈帧直接触发业务回调，所有解包投递、超时计算与取消通知都在 `wl_node_step` 推进期间统一派发。
-
-默认 embedded 的字节流喂入建议由同一 owner 处理；ISR 先写 FIFO。简化 call 不读系统时钟，超时从下一次 `step(now)` 开始。需要把提交后的排队时间计入预算时，用显式 now 的 `_ex`。
+- **I/O 生产者的边界**：中断服务例程（ISR）或独立 DMA / Socket 线程**只能**操作底层 `wl_packet_port_t` 暴露的轻量级无锁接口（`wl_packet_rx_claim`、`wl_packet_rx_commit`、`wl_packet_tx_publish`、`wl_packet_activity`）或向字节环形缓冲写入数据，禁止直接调用 `wl_node_step`、编解码或业务回调。
+- **流式分帧喂入**：启用 `cobs_crc16` / `length16` 时，建议由 ISR 先写入轻量级字节缓冲，再由同一 Owner 上下文调用 `wl_node_rx_feed` 喂入节点。
+- **防重入保证**：`wl_node_cancel` 与发送/调用 API 不会在当前调用栈内直接触发完成回调；所有解包投递、超时判定与取消通知都在 `wl_node_step` 推进期间顺序派发。
+- **超时起算**：简化 `<node>_call_<rpc>` 不读取系统时钟，超时从下一次 `wl_node_step(&n.node, now)` 起算；需要把提交后的排队时间也计入超时预算时，使用带显式 `now` 参数的 `_ex` 接口。
 
 ## 裸机主循环 vs RTOS 事件唤醒
 
 ### 1. 裸机前后台循环（Superloop）
 
-会发起 RPC 的节点在每次步进时传入同一单调毫秒时钟的当前值。下面的主循环用平台提供的 `board_millis()` 读取时钟。`wl_node_step` 使用预算 16，直接调用 `wl_endpoint_step` 时可指定 `1 .. WL_ENDPOINT_BUDGET`。
+在裸机工程中，主循环定期读取平台单调毫秒时钟并调用 `wl_node_step`。每次 `wl_node_step` 最多处理 `WL_ENDPOINT_BUDGET`（16）个事件，并在 RX 与 TX 之间持久化轮转游标，避免收包风暴饿死发包通道：
 
 ```c
 for (;;) {
   uint32_t now = board_millis();
-  wl_err_t err = wl_node_step(&endpoint.node, now);
+  wl_err_t err = wl_node_step(&device.node, now);
   if (err != WL_OK && err != WL_ERR_WOULD_BLOCK) {
     /* 记录致命错误或触发重置 */
   }
-  app_poll(&endpoint, now);
+  app_poll(&device, now);
 }
 ```
 
-即便设置 `budget = 1`，内核也会在接收（RX）与发送（TX）之间交替持久化轮转游标，保证不会因为收包风暴饿死发包通道。
+*(如果节点仅包含单向消息且没有任何 `call` RPC，不涉及超时计时，时间戳参数传 `0U` 即可。)*
 
-### 2. RTOS 阻塞等待与锁存唤醒（Latched Wake）
+### 2. RTOS 阻塞等待与二次采时
 
-驱动可提供 `notify`、`readiness` 和 `wait`。在 `notify` 中释放信号量或设置锁存事件，使等待前的通知也能唤醒 owner。owner 先调用 `wl_node_step`，处理完业务后重新读取单调时钟，然后调用 `wl_node_wait(&endpoint.node, now, max_ms)`。
+当挂载的传输驱动实现了 `notify`、`readiness` 与 `wait` 时，Owner 线程无需空转轮询，而是在完成一次 `wl_node_step` 后**重新读取单调时钟**，再调用 `wl_node_wait` 休眠等待：
 
-节点有可运行事件时，`wl_node_wait` 立即返回。否则等待上限取 `max_ms`、RPC 剩余时间、驱动截止时间三者的最小值。裸机轮询驱动可以省略 `wait`。
+```c
+for (;;) {
+  wl_err_t err = wl_node_step(&device.node, board_millis());
+  if (err != WL_OK) break;
 
-## 关闭与复用
+  /* 在 step 之后重新采样时钟，避免回调耗时导致等待时长计算偏大 */
+  err = wl_node_wait(&device.node, board_millis(), 100U);
+  if (err != WL_OK) break;
+}
+```
 
-同步绑定的节点由应用先停止 RX 生产者。owner 调用 `wl_node_close(&endpoint.node, now)`，由节点请求驱动停机并派发终态回调。驱动停止后会释放流分帧器占用的半帧 RX 槽。
+- **锁存唤醒（Latched Wake）**：驱动在 `notify` 中通过信号量或锁存事件唤醒 Owner，确保在进入 `wait` 之前到达的通知不会丢失。
+- **自动收敛等待上限**：若节点已有可执行事件，`wl_node_wait` 立即返回 `WL_OK`；否则等待时长自动取 `max_wait_ms`、最早的 RPC 截止时间与驱动自身截止时间三者的最小值。若传输未提供 `wait`（例如裸机同步绑定），`wl_node_wait` 直接返回 `WL_OK`。
 
-`WL_ERR_WOULD_BLOCK` 表示驱动尚在停机；`WL_ERR_BUSY` 表示节点尚在排空。保留节点和驱动缓冲，使用最新时刻重试关闭。硬件停机失败时，处理返回的错误并保持存储有效。`wl_node_quiescent(&endpoint.node)` 为真后，才能释放或复用存储。
+## 安全关闭与存储复用
+
+释放或复用节点及其传输缓冲区前，必须等待节点达到静止态（`wl_node_quiescent` 为真）：
+
+1. **同步绑定（`<node>_bind_sync`）**：应用先停止所有 RX 生产者（确认不再调用 `wl_node_rx_packet` / `wl_node_rx_feed`），再调用 `wl_node_close(&device.node, now)`。
+2. **传输绑定（`<node>_bind`）**：Owner 直接调用 `wl_node_close(&device.node, now)`。节点内部按顺序执行：关闭端点状态机 → 调用驱动的 `stop()` → 驱动停稳后自动释放流分帧器可能持有的半帧 RX 槽 → 推进 `wl_endpoint_step` 派发所有在途 RPC 的 `WL_RPC_CLOSED` 终态回调。
+3. **按返回码处理重试**：
+   - `WL_OK`：驱动已停稳且节点已静止（`wl_node_quiescent` 为真），此时可以安全释放或重新绑定。
+   - `WL_ERR_WOULD_BLOCK`：异步驱动（如 UART DMA / USB）尚在回收硬件缓冲区，`wl_node_close` 已顺带推进一次步进；保持缓冲存活并用最新时刻重试 `wl_node_close`。
+   - `WL_ERR_BUSY`：仍有未排空的在途租约或状态，继续用最新时刻重试 `wl_node_close`。
+   - 其他错误（如硬件禁用失败返回 `WL_ERR_IO`）：停机未完成，不得提前释放底层存储。

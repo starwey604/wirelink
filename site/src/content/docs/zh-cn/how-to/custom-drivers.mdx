@@ -1,16 +1,16 @@
 ---
 title: 接入物理链路：驱动移植指南
-description: 从同步整帧发送钩子（bind_sync）与串口字节流模板，到异步零拷贝 DMA / USB 适配器接入（bind）与物理租约协议。
+description: 从同步整帧发送钩子（bind_sync）与串口字节流模板，到标准驱动契约 wl_transport_t（bind）与零拷贝 DMA / USB 物理租约。
 sidebar:
   order: 2
 ---
 
 import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
 
-所有生成的 Wirelink 节点都统一内嵌了 `port`（`wl_packet_port_t`）与双 RX 接收槽，并在 C 初始化阶段提供两种接线方式，无需修改 `.wl` 文件：
+所有生成的 Wirelink 节点都以 `wl_node_t node` 作为首成员，在 C 侧提供两种无需修改 `.wl` 的接线方式：
 
-- **同步整帧发送（`<node>_bind_sync`）**：当你的驱动可以整帧同步写出，或将整帧复制到自己的发送环形缓冲时，只需传入一个 `tx_write` 函数指针，并在收到数据时调用 `rx_packet` / `rx_feed`。
-- **异步零拷贝与官方适配器（`<node>_bind`）**：当你需要直接将节点内部缓冲指针交给异步 DMA 发送并保持租约至传输排空，或挂载桌面 UDP、USB 或串口适配器时，调用 `<node>_bind` 传入驱动的 `wl_transport_t *`。
+- **方式一：同步整帧发送（`<node>_bind_sync`）**——适合裸机 MCU 或简单的环形缓冲驱动。只需提供一个同步发包函数，收包时调用 `wl_node_rx_packet` / `wl_node_rx_feed`，主循环调用 `wl_node_step`。
+- **方式二：标准传输契约（`wl_transport_t` + `<node>_bind`）**——适合可复用的平台适配器（UDP、USB Bulk、Zephyr UART DMA/IRQ 等）以及需要异步零拷贝 DMA 物理租约的驱动。驱动实现 `wl_transport_ops_t` 后，节点即可通过统一的 `wl_node_step` / `wl_node_wait` / `wl_node_close` 驱动整个生命周期。
 
 ---
 
@@ -29,7 +29,7 @@ node sensor {
 
 ### 1. 发送钩子与恢复通知 `wl_node_tx_ready`
 
-将发送函数传给 `sensor_bind_sync(&sensor, sensor_tx_write)`。当主循环调用 `wl_node_step(&sensor.node, 0)` 时，节点通过该回调写出完整线缆帧（仅含单向消息时时间参数可传 `0`）：
+将发送函数传给 `sensor_bind_sync(&sensor, sensor_tx_write)`（持久链路需显式实例号时使用 `sensor_bind_sync_instance`）。当主循环调用 `wl_node_step(&sensor.node, 0U)` 时，节点通过该回调写出完整线缆帧：
 
 ```c
 static wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t length) {
@@ -66,12 +66,12 @@ static wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t
 
       /* 无论返回 WL_OK、WL_ERR_WOULD_BLOCK 还是坏帧错误，
        * 前 consumed 个字节均已被分帧器处理，应从环形缓冲移走；
-       * 剩余未消费字节留待 step() 腾出 RX 槽后下一轮再喂入。 */
+       * 剩余未消费字节留待 wl_node_step 腾出 RX 槽后下一轮再喂入。 */
       if (consumed > 0) {
         uart_rx_ring_drop(consumed);
       }
     }
-    wl_node_step(&sensor.node, 0);
+    wl_node_step(&sensor.node, 0U);
     ```
   </TabItem>
 
@@ -81,32 +81,44 @@ static wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t
     ```c
     wl_err_t err = wl_node_rx_packet(&node.node, packet_bytes, packet_length);
     /* WL_OK 表示已拷贝进双 RX 槽之一；
-     * WL_ERR_WOULD_BLOCK 表示双 RX 槽已满，需等 step() 消费后再试。 */
+     * WL_ERR_WOULD_BLOCK 表示双 RX 槽已满，需等 wl_node_step 消费后再试。 */
     ```
   </TabItem>
 </Tabs>
 
-### 3. 安全关闭四步骤
+### 3. 安全关闭步骤
 
 需要重启端口或复用节点内存时，按顺序执行：
-1. **停止 RX 源头**：关闭接收中断或确认生产者不再调用 `rx_packet` / `rx_feed`。
-2. **发起关闭**：调用 `wl_node_close(&node.node, now)`。
-3. **排空节点**：关闭返回 `WL_ERR_BUSY` 或 `WL_ERR_WOULD_BLOCK` 时，保留缓冲并重试关闭。关闭返回 `WL_OK` 时，终态回调和物理租约已排空。
-4. **安全复用**：此时方可销毁节点或重新初始化。
+1. **停止 RX 源头**：关闭接收中断或确认生产者不再调用 `wl_node_rx_packet` / `wl_node_rx_feed`。
+2. **发起并排空关闭**：调用 `wl_node_close(&node.node, now)`；若返回 `WL_ERR_BUSY`，保留缓冲并用最新时间戳重试直至返回 `WL_OK`（`wl_node_quiescent(&node.node)` 为真）。
+3. **安全复用**：此时方可销毁节点或重新绑定。
 
 ---
 
-## 二、 异步零拷贝与适配器接入（`<node>_bind`）
+## 二、 实现标准驱动契约 `wl_transport_t`（`<node>_bind`）
 
-生成的 `<node>_bind(&node, transport)` 会分配实例号；需要持久会话身份时用 `<node>_bind_instance(&node, instance, transport)`。
+所有官方适配器与自定义异步驱动都实现 `<wirelink/transport.h>` 中的 `wl_transport_ops_t`，由应用通过 `<node>_bind(&node, transport)`（或显式实例号 `<node>_bind_instance`）单向挂载。
 
-### 1. 驱动的装配顺序
+### 1. `wl_transport_ops_t` 回调契约
 
-节点先调用驱动可选的 `configure_rx` 取得外部 RX 槽。USB Bulk 可以在这里提供 64 或 512 字节对齐的缓冲，每槽容量至少达到回调传入的 `min_unit_size`。节点初始化端口和分帧器后调用 `attach`，驱动从参数取得端口、分帧模式及收发上限并启动 I/O。启动失败时，驱动应撤销已注册的硬件回调。
+不需要的可选回调直接置 `NULL`：
 
-桌面 UDP 先调用 `wl_udp_open` 绑定套接字，再把 `wl_udp_transport(udp)` 传给生成的 `<node>_bind`。UDP 绑定和移植示例见[驱动移植指南](https://github.com/starwey604/wirelink/blob/main/docs/porting-adapters.md)。
+| 回调 | 是否必选 | 职责与契约 |
+| :--- | :--- | :--- |
+| **`configure_rx(self, min_unit_size, out)`** | 可选 | 在端口初始化前提供外部 RX 缓冲（如 USB Bulk 要求的 64/512 字节对齐槽，每槽至少 `min_unit_size` 字节）。返回零初始化结构体时使用节点内置槽。 |
+| **`attach(self, info)`** | 必选 | 节点初始化好 `port` 与分帧器后调用，向驱动传入 `port`、`stream`（流式节点非空）、`rx_wire_max`、`tx_wire_max` 与 `framing`。驱动在此启动硬件 I/O；若启动失败，必须先撤销已注册回调再返回错误。 |
+| **`submit(self, data, len, token)`** | 有 TX 角色时必选 | 提交一帧发送数据（见下节物理租约返回值契约）。 |
+| **`notify(self)`** | 可选 | 线程安全 / 中断安全的锁存唤醒（如释放信号量或触发条件变量），供 I/O 线程或后台执行器唤醒 Owner。 |
+| **`service(self, now_ms)`** | 可选 | Owner 侧收发推进（纯中断或后台线程驱动可置 `NULL`）。`wl_node_step` 会先调用 `service` 再推进状态机。 |
+| **`readiness(self, now_ms)`** / **`wait(self, max_ms)`** | 可选 | 报告驱动自身就绪状态/下次重试截止时间，以及带上限的阻塞等待（裸机轮询驱动可置 `NULL`）。 |
+| **`stop(self)`** | 可选 | 请求停止收发：`WL_OK` 表示生产者和异步回调均已停稳可释放；`WL_ERR_WOULD_BLOCK` 表示尚在回收缓冲（Owner 将持续推进并重试关闭）；其他错误（如 `WL_ERR_IO`）原样上报。 |
 
-### 2. 异步 TX 物理租约（`submit` 与 `wl_packet_tx_publish`）
+### 2. 接收路径的两档实现
+
+- **普通拷贝驱动（如 UDP）**：在 `service` 或接收线程收到完整帧后，直接调用 `wl_packet_rx_push(port, data, length)` 即可，无需处理 `claim`/`commit` 样板。
+- **零拷贝 DMA / USB 驱动**：通过 `wl_packet_rx_claim(port, size, &claim)` 借用节点 RX 槽指针直接交给硬件 DMA 写入，完成后调用 `wl_packet_rx_commit(port, &claim, received_len)`（出错或取消时调用 `wl_packet_rx_abort`）。
+
+### 3. 异步 TX 物理租约（`submit` 与 `wl_packet_tx_publish`）
 
 当节点需要发包时，会调用 `transport->ops->submit` 并传入代表本次传输租约的 `token`：
 
@@ -121,12 +133,14 @@ static wl_err_t sensor_tx_write(sensor_node_t *self, const uint8_t *data, size_t
 即便上层 RPC 已因超时或取消触发完成回调，只要驱动尚未通过 `wl_packet_tx_publish` 归还该槽位的 `token`，内核就不会复用或覆写这块正在被 DMA 读取的缓冲区。
 </Aside>
 
-### 3. 在主循环中步进适配器
+### 4. 在主循环中使用官方适配器
 
-仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 提供了 Zephyr（UART DMA/IRQ、USB Bulk、UDP）、Asio UDP 与 Astrial 串口/USB 适配器。在主循环中只需在同一 Owner 上下文通过 `wl_node_step` 依次推进适配器和端点（源自 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)）：
+仓库的 [`adapters/`](https://github.com/starwey604/wirelink/tree/main/adapters) 提供了官方 UDP（`<wirelink/udp.h>`）、Zephyr（UART DMA/IRQ/Poll、USB Bulk、UDP）与 Astrial 串口/USB 适配器，均已实现 `wl_transport_t`。挂载之后，主循环只需调用统一的 `wl_node_step` 与 `wl_node_wait`（源自 [`examples/05_zephyr_udp/server.c`](https://github.com/starwey604/wirelink/blob/main/examples/05_zephyr_udp/server.c)）：
 
 {/* [docs:udp_host_step] */}
 ```c
 if (wl_node_step(&server.node, now) != WL_OK) { status = 1; break; }
 ```
 {/* [/docs:udp_host_step] */}
+
+更多板级驱动契约细节可参阅仓库中的 [docs/porting-adapters.md](https://github.com/starwey604/wirelink/blob/main/docs/porting-adapters.md)。

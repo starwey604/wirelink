@@ -203,12 +203,12 @@ wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
 </Aside>
 
 <Challenge
-  title="检查理解：UART 串口调用 rx_feed 返回 WL_ERR_WOULD_BLOCK 时，如何处理串口环形缓冲？"
-  prompt="串口环形缓冲里有 100 字节数据，调用 rx_feed(&dev, buf, 100, &consumed) 后返回 WL_ERR_WOULD_BLOCK 且 consumed == 64。应该丢弃全部 100 字节，还是只移走前 64 字节？"
+  title="检查理解：UART 串口调用 wl_node_rx_feed 返回 WL_ERR_WOULD_BLOCK 时，如何处理串口环形缓冲？"
+  prompt="串口环形缓冲里有 100 字节数据，调用 wl_node_rx_feed(&dev.node, buf, 100, &consumed) 后返回 WL_ERR_WOULD_BLOCK 且 consumed == 64。应该丢弃全部 100 字节，还是只移走前 64 字节？"
 >
   只移走前 **64 字节**（即 `consumed` 个字节），保留剩余的 36 字节。
 
-  返回 `WL_ERR_WOULD_BLOCK` 说明前 64 字节中的完整帧已经填满了节点的接收槽；紧接着调用 `step()` 消费掉这些帧腾出空槽后，下一轮循环再把剩下的 36 字节重新喂给 `rx_feed` 即可无损续接。
+  返回 `WL_ERR_WOULD_BLOCK` 说明前 64 字节中的完整帧已经填满了节点的接收槽；紧接着调用 `wl_node_step` 消费掉这些帧腾出空槽后，下一轮循环再把剩下的 36 字节重新喂给 `wl_node_rx_feed` 即可无损续接。
 </Challenge>
 
 ---
@@ -222,9 +222,9 @@ wlc/target/release/wlc sdk examples/01_rpc/calculator.wl \
   emptyFeedback="请先选择一个选项。"
   choices={[
   {
-    "label": "在 node 声明中添加 framing = cobs_crc16;，并在固件接收侧改为调用wl_node_rx_feed。",
+    "label": "在 node 声明中添加 framing = cobs_crc16;，并在固件接收侧改为调用 wl_node_rx_feed。",
     "correct": true,
-    "feedback": "正确。消息结构、RPC 定义和业务回调函数无需任何修改，只需切换 framing 并将收包入口改为 rx_feed。"
+    "feedback": "正确。消息结构、RPC 定义和业务回调函数无需任何修改，只需切换 framing 并将收包入口改为 wl_node_rx_feed。"
   },
   {
     "label": "在每条 message 里手动增加 magic、length 和 crc16 三个字段。",
