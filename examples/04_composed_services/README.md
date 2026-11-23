@@ -6,7 +6,7 @@ node. CMake selects `NODE product`; handlers are linked as `product_on_*` symbol
 The existing business message structures/IDs and upload phase/status numbers
 remain unchanged. The application messages do not define a standard bulk wire.
 
-Build with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and matching WLC 0.0.99, then run
+Configure the default build with WLC 0.0.99 available, then run
 `wirelink_composed_services` or `ctest -R 'composed_services|import_dependencies'`.
 The same source runs in the Zephyr composed_services sample. It transfers 4096
 bytes through packet loopback, without flash writes, actuators or a real reboot.

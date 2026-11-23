@@ -89,14 +89,12 @@ Wirelink 的模式编译器 **`wlc`**（位于仓库 `wlc/` 目录）负责校�
   </TabItem>
 </Tabs>
 
-### 配置 CMake 时指定 `wlc` 路径
+### CMake 如何选择 WLC
 
-在配置 CMake 时，通过 `-DWIRELINK_WLC_EXECUTABLE` 传入 `wlc` 可执行文件的路径：
+从 Wirelink 根目录配置时，CMake 依次检查 `wlc/target/release`、`wlc/target/debug` 和 `PATH`，选择生成契约为 `1` 的 WLC。若需固定编译器路径，可以显式指定。指定路径无效或契约不匹配时，配置会报错。
 
 ```sh
-cmake -S . -B build/host \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
+cmake -S . -B build/host -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc
 ```
 
 如果是 **Zephyr RTOS** 工程，在 `prj.conf` 中开启 `CONFIG_WIRELINK=y`（若使用串口流分帧则同时开启对应的 stream Kconfig 项），即可在应用 `CMakeLists.txt` 中直接使用相同的 `wirelink_wlc_generate` 函数。完整工程模板请参考仓库中的 [`samples/zephyr/`](https://github.com/starwey604/wirelink/tree/main/samples/zephyr)。

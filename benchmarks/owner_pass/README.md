@@ -7,7 +7,7 @@ current host component, with no WLC, Asio, Google Benchmark or hardware:
 
 ```sh
 cmake -S . -B build/owner-pass -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON
+  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_HOST_RUNTIME=ON -DBUILD_TESTING=ON
 cmake --build build/owner-pass --parallel
 ctest --test-dir build/owner-pass --output-on-failure
 ```

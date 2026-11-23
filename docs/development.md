@@ -33,7 +33,9 @@ cmake --build build/core --parallel
 ctest --test-dir build/core --output-on-failure
 ```
 
-这会编译核心库、checked-in loopback 示例并执行全部主机核心单测、`packet_tools` 测试与文档片段校验（`wirelink_tutorial_doc_sources`）。
+默认构建包含核心库、仓库自带的回环示例和主机测试。找到生成契约为 `1` 的 WLC 后，CMake 会加入生成节点的示例和测试，包括 RPC 生命周期与 USB 应用测试。再找到独立版 Asio 头文件后，UDP 教程的发布端、订阅端、客户端与服务端也会出现在命令行和 CLion 的构建目标中。
+
+仅构建纯 C11 核心时，配置 `-DBUILD_TESTING=OFF -DWIRELINK_BUILD_EXAMPLES=OFF`。
 
 ### 2. 编译 Rust 编译器 `wlc` 并运行编译器测试
 
@@ -48,17 +50,13 @@ cargo build --release --manifest-path wlc/Cargo.toml
 
 ### 3. 全量生成教程、Host Owner 与 C++/Python SDK 验证
 
-需本地编好的 `wlc` 与 standalone Asio 头文件：
+先构建本地 WLC，并安装独立版 Asio 头文件。CMake 依次在 `wlc/target/release`、`wlc/target/debug` 和 `PATH` 中查找契约匹配的编译器。使用其他位置的编译器时可设置 `WIRELINK_WLC_EXECUTABLE`。Asio 放在非标准目录时，将 `WIRELINK_ASIO_INCLUDE_DIR` 指向包含 `asio.hpp` 的目录。
+
+开启 C++ bindings 会一并构建 host runtime、UDP 适配器和 platform，并启用位置无关代码。开启测试时，host runtime 还会构建 owner-pass 测试。
 
 ```sh
 cmake -S . -B build/all -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc" \
-  -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_BUILD_CPP_BINDINGS=ON \
-  -DWIRELINK_BUILD_OWNER_PASS_TESTS=ON \
-  -DWIRELINK_ASIO_INCLUDE_DIR=/path/to/asio/include \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+  -DWIRELINK_BUILD_CPP_BINDINGS=ON
 cmake --build build/all --parallel
 ctest --test-dir build/all --output-on-failure
 ```
@@ -106,7 +104,7 @@ python3 benchmarks/footprint/footprint.py --no-digests --json build/footprint.js
 | Wire v2 帧头 / RPC 子头 | [`wire.h`](../include/wirelink/wire.h)、`wlc/src/codegen/wire.rs` | `cargo test`、`build/fuzz`、`tests/zephyr/unit/generated_codec` |
 | TLV / Positional 编解码运行时 | [`src/codec.c`](../src/codec.c)、[`codec.h`](../include/wirelink/codec.h) | `tests/zephyr/unit/generated_codec`、`cargo test`、`build/fuzz` |
 | `cobs_crc16` / `length16` 流连接器 | [`src/cobs_crc16_stream.c`](../src/cobs_crc16_stream.c)、[`src/length16_none_stream.c`](../src/length16_none_stream.c)、[`src/crc.c`](../src/crc.c) | `tests/zephyr/unit/{cobs,static_stream}`、`tests/core/packet_tool.c`、`build/fuzz` |
-| `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、`-DWIRELINK_BUILD_WLC_EXAMPLES=ON` |
+| `wlc` 代码生成引擎与单结构体 API | `wlc/src/codegen/` | `cargo test`、`cargo clippy`、用配套 WLC 构建并运行默认示例与生成节点测试 |
 | 文档与示例片段同步 | `README*.md`、`docs/*.md`、`wlc/README.md`、`examples/` 锚点 | `python3 tests/tutorials/doc_sources.py` |
 
 

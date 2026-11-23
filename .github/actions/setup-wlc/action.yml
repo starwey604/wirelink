@@ -13,7 +13,7 @@ runs:
     - uses: actions/checkout@v5
       with:
         repository: starwey604/wlc
-        ref: ${{ inputs.ref || 'c82309334dbab2cd8436e82b2cf9dff087287c35' }}
+        ref: ${{ inputs.ref || 'd7b25e4df3c4c8964e0c99992902a41cf0158eeb' }}
         path: .tools/wlc
     - name: Build WLC with stable Rust
       shell: bash

@@ -6,4 +6,5 @@ target_link_libraries(wirelink_notification_census PRIVATE notification_protocol
 wl_warnings(wirelink_notification_census PRIVATE -Wall -Wextra -Wpedantic -Werror)
 if(BUILD_TESTING)
   add_test(NAME notification_census COMMAND wirelink_notification_census)
+  set_tests_properties(notification_census PROPERTIES LABELS benchmark)
 endif()

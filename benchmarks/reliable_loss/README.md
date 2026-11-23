@@ -42,12 +42,7 @@ ACK loss and telemetry age.
 
 ## Build and run
 
-```sh
-cmake -S . -B build/reliable-loss -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK=ON -DWIRELINK_BUILD_EXAMPLES=OFF \
-  -DWIRELINK_BUILD_PLATFORM=OFF
-cmake --build build/reliable-loss --target wirelink_reliable_loss
-```
+Run `python3 benchmarks/reliable_loss/test_compare.py` to test the archived report reader. The examples below use a historical benchmark binary.
 
 ```sh
 # Independent loss sweep.

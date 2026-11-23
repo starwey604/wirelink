@@ -1,16 +1,4 @@
 # SPDX-License-Identifier: Apache-2.0
-if(NOT TARGET benchmark::benchmark)
-  set(WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR "" CACHE PATH "Optional Google Benchmark source checkout")
-  if(WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR)
-    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
-    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-    add_subdirectory("${WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR}"
-      "${CMAKE_CURRENT_BINARY_DIR}/google-benchmark" EXCLUDE_FROM_ALL)
-  else()
-    find_package(benchmark 1.9 CONFIG REQUIRED)
-  endif()
-endif()
-set(RPC_VALIDATION_CODEC_DIR "" CACHE PATH "Frozen codec artifacts for a baseline (no regeneration)")
 if(RPC_VALIDATION_CODEC_DIR)
   add_library(rpc_validation_codec STATIC "${RPC_VALIDATION_CODEC_DIR}/validation.c")
   target_include_directories(rpc_validation_codec PUBLIC "${RPC_VALIDATION_CODEC_DIR}")
@@ -32,7 +20,6 @@ if(BUILD_TESTING)
   add_test(NAME rpc_validation_smoke COMMAND wirelink_rpc_validation_benchmark
     --benchmark_min_time=0.001s --benchmark_repetitions=1)
   set_tests_properties(rpc_validation_smoke PROPERTIES TIMEOUT 60 LABELS "benchmark;smoke")
-  find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
     add_test(NAME rpc_validation_compare_contract
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_compare.py")

@@ -1,4 +1,4 @@
-> 当前 `wirelink-codec-validation-v3` 只使用公开 decode、encode 和 owned conversion。canonical bytes 由独立诊断循环计算摘要，内核没有 replay fingerprint/cache。旧生成器私有 fingerprint/value-copy 实验已删除；v2 历史报告仍可读取，v2/v3 不能混比。下文旧实验说明仅供历史参考；当前使用 WLC 0.14，不能设置 `RPC_VALIDATION_OPTIMIZED_CODEC=1`。
+> 当前 `wirelink-codec-validation-v3` 只使用公开 decode、encode 和 owned conversion。canonical bytes 由独立诊断循环计算摘要，内核没有 replay fingerprint/cache。旧生成器私有 fingerprint/value-copy 实验已删除；v2 历史报告仍可读取，v2/v3 不能混比。下文旧实验说明仅供历史参考；当前使用 WLC 0.0.99，不能设置 `RPC_VALIDATION_OPTIMIZED_CODEC=1`。
 
 # RPC 校验工作
 
@@ -12,7 +12,7 @@
 
 ```sh
 cmake -S . -B build/rpc-validation -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_RPC_VALIDATION_BENCHMARK=ON \
+  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_BENCHMARKS=ON \
   -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc \
   -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/absolute/path/to/google-benchmark
 cmake --build build/rpc-validation --parallel

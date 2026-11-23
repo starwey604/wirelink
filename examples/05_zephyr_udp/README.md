@@ -6,10 +6,11 @@ sends telemetry. Each executable generates only its selected node, so it does no
 need to implement the other role's handlers. Native packet framing preserves UDP
 packet boundaries.
 
+The default build includes both peers when CMake finds standalone Asio headers
+and a WLC compiler with codegen contract 1.
+
 ```sh
-cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_BUILD_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching/wlc
+cmake -S . -B build/udp
 cmake --build build/udp --parallel
 ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
 ```

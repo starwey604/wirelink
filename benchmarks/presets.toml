@@ -30,7 +30,7 @@ build = "top"
 description = "Executor owner-pass accounting by counting, not timing"
 cmake_options = [
   "WIRELINK_BUILD_HOST_RUNTIME=ON",
-  "WIRELINK_BUILD_OWNER_PASS_TESTS=ON",
+  "BUILD_TESTING=ON",
 ]
 binary = "benchmarks/owner_pass/wirelink_owner_pass"
 run = ["{bin}/benchmarks/owner_pass/wirelink_owner_pass"]
@@ -86,7 +86,7 @@ gate_absolute_flag = "--max-regression-ns"
 kind = "gb"
 build = "top"
 description = "Public codec decode, canonical-byte digest and owned conversion (host timing)"
-cmake_options = ["WIRELINK_BUILD_RPC_VALIDATION_BENCHMARK=ON"]
+cmake_options = ["WIRELINK_BUILD_BENCHMARKS=ON"]
 binary = "benchmarks/rpc_validation/wirelink_rpc_validation_benchmark"
 requires = ["wlc", "google-benchmark"]
 run = [
@@ -106,7 +106,7 @@ gate_absolute_flag = "--max-regression-ns"
 kind = "gb"
 build = "top"
 description = "Two C-owned kernels: idle, eight RPCs/rejections and Sample pairs"
-cmake_options = ["WIRELINK_BUILD_API_BENCHMARK=ON"]
+cmake_options = ["WIRELINK_BUILD_BENCHMARKS=ON"]
 binary = "benchmarks/api/wirelink_api_benchmark"
 requires = ["wlc", "google-benchmark"]
 run = [

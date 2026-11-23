@@ -6,8 +6,7 @@ foreach(role client server)
   target_link_libraries(udp_peer_${role} PRIVATE udp_${role}_protocol wirelink_tutorial_host)
   wl_warnings(udp_peer_${role} PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endforeach()
-if(BUILD_TESTING)
-  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(BUILD_TESTING AND Python3_Interpreter_FOUND)
   add_test(NAME wirelink_udp_peer COMMAND ${Python3_EXECUTABLE}
     "${PROJECT_SOURCE_DIR}/tests/tutorials/udp_peer.py"
     --client $<TARGET_FILE:udp_peer_client> --server $<TARGET_FILE:udp_peer_server>)

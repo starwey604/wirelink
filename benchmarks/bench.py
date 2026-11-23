@@ -218,10 +218,11 @@ def _build(suite, args, source_root=REPO):
     source = (source_root if suite["build"] == "top"
               else source_root / suite["source"])
     configure = ["cmake", "-S", str(source), "-B", str(bin_dir),
-                 "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF",
-                 *(f"-D{option}"
-                   for option in _resolve(suite.get("cmake_options", []),
-                                          mapping))]
+                 "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF"]
+    if suite["build"] == "top":
+        configure.append("-DWIRELINK_BUILD_EXAMPLES=OFF")
+    configure.extend(f"-D{option}" for option in
+                     _resolve(suite.get("cmake_options", []), mapping))
     if "google-benchmark" in suite.get("requires", ()):
         gb = os.environ.get("WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR")
         if gb:
@@ -235,6 +236,8 @@ def _build(suite, args, source_root=REPO):
     build = ["cmake", "--build", str(bin_dir), "--parallel"]
     if args.jobs:
         build.append(str(args.jobs))
+    if suite["build"] == "top" and suite.get("binary"):
+        build.extend(["--target", Path(suite["binary"]).name])
     _run(build, cwd=source_root, step="cmake build")
     return bin_dir
 

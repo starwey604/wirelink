@@ -1,6 +1,6 @@
 # 内核 owner 命令／停止模型
 
-[English](README.md)。开启 `WIRELINK_BUILD_OWNER_PASS_TESTS=ON` 即可构建，不需要
+[English](README.md)。开启 `WIRELINK_BUILD_HOST_RUNTIME=ON` 和 `BUILD_TESTING=ON` 即可构建，不需要
 WLC、Asio、Google Benchmark 或硬件。此模型检查调度，不测 CPU。
 
 首条测试命令通过显式 barrier 暂停 owner，调用方填满32个队列槽并验证第33次接纳

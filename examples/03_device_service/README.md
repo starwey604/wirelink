@@ -2,8 +2,8 @@
 
 [中文](README-cn.md)
 
-Build `wirelink_device_service_demo` with `WIRELINK_BUILD_WLC_EXAMPLES=ON` and
-matching WLC 0.0.99 (codegen contract 1). Its two C11 endpoints share one deterministic
+The default build includes `wirelink_device_service_demo` when CMake finds
+WLC 0.0.99 (codegen contract 1). Its two C11 endpoints share one deterministic
 owner and RAM-copy loopback. Run `ctest -R wirelink_device_service` for the demo
 and extension test. The example does not access hardware; UDP interoperability
 is covered by the UDP/SDK examples.

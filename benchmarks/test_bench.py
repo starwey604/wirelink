@@ -441,6 +441,7 @@ class Build(unittest.TestCase):
         bench.os.environ["WIRELINK_WLC_EXECUTABLE"] = "/fake/wlc"
         bench.os.environ["WIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR"] = "/fake/gb"
         suite = {"name": "demo", "build": "top", "source": "benchmarks/demo",
+                 "binary": "benchmarks/demo/wirelink_demo",
                  "cmake_options": ["WIRELINK_BUILD_X=ON"],
                  "requires": ["wlc", "google-benchmark"]}
         bench._build(suite, bench.argparse.Namespace(jobs=None,
@@ -449,6 +450,7 @@ class Build(unittest.TestCase):
                          [step for step, _ in captured])
         configure = captured[0][1]
         # Preset options reach cmake as -D definitions, never as bare paths.
+        self.assertIn("-DWIRELINK_BUILD_EXAMPLES=OFF", configure)
         self.assertIn("-DWIRELINK_BUILD_X=ON", configure)
         self.assertNotIn("WIRELINK_BUILD_X=ON", configure)
         self.assertIn("-DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/fake/gb",
@@ -456,6 +458,7 @@ class Build(unittest.TestCase):
         self.assertIn("-DWIRELINK_WLC_EXECUTABLE=/fake/wlc", configure)
         build = captured[1][1]
         self.assertEqual(["cmake", "--build", build[2]], build[:3])
+        self.assertEqual(["--target", "wirelink_demo"], build[-2:])
         # Suites without a wlc requirement never see the definition.
         del suite["requires"]
         bench._build(suite, bench.argparse.Namespace(jobs=None,

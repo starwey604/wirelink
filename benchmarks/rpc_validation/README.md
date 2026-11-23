@@ -1,4 +1,4 @@
-> Current workload `wirelink-codec-validation-v3` uses only public decode, encode and owned conversion APIs. Canonical bytes are hashed by a standalone diagnostic loop; the core has no replay fingerprint/cache. The old generator-private fingerprint/value-copy experiment is removed. v2 host/firmware readers remain for historical captures, and comparisons across v2/v3 fail. The historical instructions below describe that experiment; current builds use WLC 0.14 and do not set `RPC_VALIDATION_OPTIMIZED_CODEC=1`.
+> Current workload `wirelink-codec-validation-v3` uses only public decode, encode and owned conversion APIs. Canonical bytes are hashed by a standalone diagnostic loop; the core has no replay fingerprint/cache. The old generator-private fingerprint/value-copy experiment is removed. v2 host/firmware readers remain for historical captures, and comparisons across v2/v3 fail. The historical instructions below describe that experiment; current builds use WLC 0.0.99 and do not set `RPC_VALIDATION_OPTIMIZED_CODEC=1`.
 
 # RPC validation work
 
@@ -15,7 +15,7 @@ Supply a matching WLC compiler and Google Benchmark 1.9+:
 
 ```sh
 cmake -S . -B build/rpc-validation -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_RPC_VALIDATION_BENCHMARK=ON \
+  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_BENCHMARKS=ON \
   -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc \
   -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/absolute/path/to/google-benchmark
 cmake --build build/rpc-validation --parallel

@@ -8,11 +8,10 @@ wl_warnings(wirelink_device_service_demo PRIVATE -Wall -Wextra -Wpedantic -Werro
 if(BUILD_TESTING)
   add_test(NAME wirelink_device_service_demo COMMAND wirelink_device_service_demo)
 endif()
-if(BUILD_TESTING)
-  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(BUILD_TESTING AND Python3_Interpreter_FOUND)
   add_test(NAME wirelink_device_service_extension COMMAND ${Python3_EXECUTABLE}
     "${PROJECT_SOURCE_DIR}/tests/tutorials/device_service_extension.py"
-    --source "${PROJECT_SOURCE_DIR}" --wlc "${WIRELINK_WLC_EXECUTABLE}"
+    --source "${PROJECT_SOURCE_DIR}" --wlc "${_wl_wlc}"
     --cmake "${CMAKE_COMMAND}" --generator "${CMAKE_GENERATOR}" --c-compiler "${CMAKE_C_COMPILER}")
   set_tests_properties(wirelink_device_service_extension PROPERTIES TIMEOUT 150)
 endif()

@@ -10,8 +10,8 @@ advance the kernels; there are no hidden clock reads or RPC tables in a wrapper.
 
 ```sh
 cmake -S . -B build/api -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_API_BENCHMARK=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc-0.14 \
+  -DWIRELINK_BUILD_EXAMPLES=OFF -DWIRELINK_BUILD_BENCHMARKS=ON \
+  -DWIRELINK_WLC_EXECUTABLE=/path/to/wlc \
   -DWIRELINK_GOOGLE_BENCHMARK_SOURCE_DIR=/path/to/google-benchmark
 cmake --build build/api --parallel
 ctest --test-dir build/api --output-on-failure

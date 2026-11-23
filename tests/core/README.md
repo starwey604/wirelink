@@ -1,6 +1,8 @@
 # C-owned kernel clock bridge
 
-Enable `WIRELINK_BUILD_FOREIGN_TESTS=ON` with matching local WLC 0.14. The C
+Enable `WIRELINK_BUILD_BENCHMARKS=ON` with a contract-1 WLC compiler and a
+Python 3 interpreter. With `BUILD_TESTING=ON`, run `ctest -R wirelink_clock_bridge`
+in the build directory to exercise both consumers. The C
 shared library owns both kernels, ports, C11 atomic objects and loopback storage.
 C++ and Python use opaque exported C handles; Python callbacks are not involved.
 The test wrapper allocates once at create and frees after close/quiescence.

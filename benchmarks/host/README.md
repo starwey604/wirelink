@@ -1,12 +1,12 @@
 # Packet transport tools
 
 These tools build the current core and packet adapters. They require a local
-matching WLC 0.14 executable; no published compiler is assumed:
+WLC compiler with codegen contract 1 and the Astrial serial and USB backends.
+Enabling packet tools builds both Wirelink adapters and the platform library.
 
 ```sh
 cmake -S . -B build/packet-tools -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_PACKET_TOOLS=ON -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_BUILD_ASTRIAL_ADAPTER=ON -DWIRELINK_BUILD_ASTRIAL_USB_ADAPTER=ON \
+  -DWIRELINK_BUILD_PACKET_TOOLS=ON \
   -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/wlc
 cmake --build build/packet-tools --parallel
 build/packet-tools/benchmarks/host/wirelink_transport_benchmark --help

@@ -4,10 +4,10 @@
 
 C 业务与 Zephyr peer 共用 `udp_demo.wl`。`udp_client` 发起 Add 并接收 telemetry，`udp_server` 处理 Add 并发送 telemetry。每个程序只生成自己的节点。native 封装直接保留 UDP 包边界。
 
+CMake 找到独立版 Asio 头文件和生成契约为 1 的 WLC 后，默认构建两个 UDP 程序。
+
 ```sh
-cmake -S . -B build/udp -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-  -DWIRELINK_BUILD_UDP_ADAPTER=ON -DWIRELINK_BUILD_PLATFORM=ON \
-  -DWIRELINK_WLC_EXECUTABLE=/absolute/path/to/matching/wlc
+cmake -S . -B build/udp
 cmake --build build/udp --parallel
 ctest --test-dir build/udp -R wirelink_udp_peer --output-on-failure
 ```

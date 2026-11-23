@@ -17,7 +17,7 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 开始前请确认本地已安装以下工具：
 
-- **CMake 3.21+** 与支持 **ISO C11** 的编译器（GCC、Clang 或 MSVC）
+- **CMake 3.21+** 与支持 **ISO C11** 的编译器（GCC、Clang 或 MSVC）。默认主机测试与 UDP 适配器还需 C++20 编译器
 - **Rust / Cargo**：用于构建协议编译器 `wlc`（若暂未安装，仍可先完成第一步）
 - **独立版 Asio 头文件**（可选）：用于编译本地双进程 UDP 教程示例
 
@@ -65,9 +65,10 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
 
 <Steps>
 
-1. 构建本地 `wlc` 可执行文件：
+1. 在 Wirelink 根目录检出独立的 WLC 仓库，然后构建编译器。已有 `wlc/` 源码时可直接执行 Cargo 命令。
 
    ```sh
+   git clone https://github.com/starwey604/wlc.git wlc
    cargo build --release --locked --manifest-path wlc/Cargo.toml
    ```
 
@@ -102,15 +103,10 @@ import { Steps, FileTree } from '@astrojs/starlight/components';
      - calculator_manifest.json 构建与版本核对清单
    </FileTree>
 
-5. 若要编译全部双进程 UDP 教程示例（如 `calculator_server` 与 `calculator_client`），在配置时传入本地 `wlc` 与 Asio 头文件路径：
+5. 安装独立版 Asio 头文件后，从仓库根目录配置工程。CMake 会找到上一步构建的 WLC，并启用双进程 UDP 示例。Asio 位于非标准目录时，可在配置命令中添加 `-DWIRELINK_ASIO_INCLUDE_DIR=/path/to/asio/include`。
 
    ```sh
-   cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release \
-     -DWIRELINK_BUILD_WLC_EXAMPLES=ON \
-     -DWIRELINK_BUILD_UDP_ADAPTER=ON \
-     -DWIRELINK_BUILD_PLATFORM=ON \
-     -DWIRELINK_ASIO_INCLUDE_DIR=/path/to/asio/include \
-     -DWIRELINK_WLC_EXECUTABLE="$PWD/wlc/target/release/wlc"
+   cmake -S . -B build/examples -DCMAKE_BUILD_TYPE=Release
    cmake --build build/examples --target calculator_server calculator_client
    ```
 

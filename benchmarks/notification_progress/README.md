@@ -8,7 +8,7 @@ admission inputs, delayed source leases and quiescent close.
 
 ```sh
 cmake -S . -B /absolute/new-build -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_NOTIFICATION_CENSUS=ON \
+  -DWIRELINK_BUILD_BENCHMARKS=ON \
   -DWIRELINK_WLC_EXECUTABLE=/absolute/matching-wlc
 cmake --build /absolute/new-build --target wirelink_notification_census
 ctest --test-dir /absolute/new-build -R '^notification_census$' --output-on-failure

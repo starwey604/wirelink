@@ -18,10 +18,8 @@ cmake -S . -B /tmp/wirelink-sdk-core \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX=/tmp/wirelink-sdk-install \
   -DCMAKE_INSTALL_LIBDIR=lib \
-  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DBUILD_SHARED_LIBS=OFF \
   -DWIRELINK_BUILD_CPP_BINDINGS=ON \
-  -DWIRELINK_BUILD_PLATFORM=ON \
   -DWIRELINK_BUILD_EXAMPLES=OFF \
   -DWIRELINK_ASIO_INCLUDE_DIR=/absolute/path/to/asio/include
 cmake --build /tmp/wirelink-sdk-core --config Release --parallel
@@ -29,8 +27,8 @@ cmake --install /tmp/wirelink-sdk-core --config Release
 ```
 
 `Wirelink::cpp` supplies result/error types; `Wirelink::cpp_host` supplies the
-owning Session. Core-only builds do not discover Python. Static native dependencies
-need PIC for a Linux extension. On Windows, use matching compiler and dynamic CRT
+owning Session. Core-only builds do not discover Python. `WIRELINK_BUILD_CPP_BINDINGS`
+enables PIC for the static native dependencies linked into the Linux extension. On Windows, use matching compiler and dynamic CRT
 settings for the SDK and its dependencies.
 
 ## Build the native SDK and C peer

@@ -32,7 +32,7 @@
   "artifacts": [
     {"path": "CMakeLists.txt", "size": 4293, "digest": "0xa433ed42edc7ea9f"},
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
-    {"path": "README.md", "size": 7312, "digest": "0x382bc45d851afe9a"},
+    {"path": "README.md", "size": 7254, "digest": "0x7a83a61edee050f8"},
     {"path": "cmake/DeviceSdkConfig.cmake.in", "size": 199, "digest": "0x948906da5d77756c"},
     {"path": "generated/device.c", "size": 34103, "digest": "0x3c26c6337260ae90"},
     {"path": "generated/device.h", "size": 10137, "digest": "0xa41f162cfe48a61a"},

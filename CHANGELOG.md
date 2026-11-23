@@ -2,6 +2,12 @@
 
 ## 0.0.99
 
+- CMake discovers compatible WLC and standalone Asio for the default examples.
+  Generated core tests run with `BUILD_TESTING` even when examples are disabled.
+  C++ bindings and packet tools select their required components automatically.
+  Use `WIRELINK_BUILD_BENCHMARKS` for optional benchmarks and
+  `WIRELINK_BUILD_HOST_RUNTIME` with `BUILD_TESTING` for the owner-pass test.
+
 - Regenerate nodes and SDKs with matching WLC. Bind drivers with
   `<node>_bind`, bind whole-frame writers with `<node>_bind_sync`, and pass
   `&instance.node` to the shared `wl_node_*` API. Earlier generated layouts and

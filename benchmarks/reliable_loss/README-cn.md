@@ -34,12 +34,7 @@
 
 ## 构建与运行
 
-```sh
-cmake -S . -B build/reliable-loss -DCMAKE_BUILD_TYPE=Release \
-  -DWIRELINK_BUILD_RELIABLE_LOSS_BENCHMARK=ON -DWIRELINK_BUILD_EXAMPLES=OFF \
-  -DWIRELINK_BUILD_PLATFORM=OFF
-cmake --build build/reliable-loss --target wirelink_reliable_loss
-```
+运行 `python3 benchmarks/reliable_loss/test_compare.py` 可测试历史报告解析器。下列示例使用历史版本的基准程序。
 
 ```sh
 # 独立丢包扫。
