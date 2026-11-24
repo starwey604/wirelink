@@ -74,6 +74,7 @@ WL_HOT_ATTR void wl_packet_activity(wl_packet_port_t *port) {
 }
 
 WL_HOT_ATTR int wl_packet_take_activity(wl_packet_port_t *port) {
+  if (!atomic_load_explicit(&port->activity, memory_order_relaxed)) return 0;
   return atomic_exchange_explicit(&port->activity, false, memory_order_acquire);
 }
 
@@ -183,9 +184,11 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_release(wl_packet_port_t *port,
       borrow->data != port->config.rx_storage +
           (read % WL_PACKET_RX_SLOTS) * port->config.rx_unit_size)
     return WL_ERR_NOT_FOUND;
+  uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_acquire);
+  int was_full = (uint32_t)(write - read) >= WL_PACKET_RX_SLOTS;
   port->borrowed = 0U;
   atomic_store_explicit(&port->read_cursor, read + 1U, memory_order_release);
-  wl_packet_activity(port);
+  if (was_full) wl_packet_activity(port);
   return WL_OK;
 }
 
@@ -222,8 +225,12 @@ WL_HOT_ATTR wl_err_t wl_packet_tx_submit(wl_packet_port_t *port,
     return result == WL_PACKET_BUSY ? WL_ERR_WOULD_BLOCK : WL_ERR_IO;
   }
   *out = token;
-  if (result == WL_PACKET_SENT)
-    (void)wl_packet_tx_publish(port, token, WL_PACKET_DRAINED);
+  if (result == WL_PACKET_SENT) {
+    atomic_store_explicit(&port->tx_state,
+                          (token.sequence << TX_SHIFT) | TX_ACTIVE |
+                              WL_PACKET_CONSUMED | WL_PACKET_DRAINED,
+                          memory_order_release);
+  }
   return WL_OK;
 }
 
@@ -257,8 +264,8 @@ WL_HOT_ATTR unsigned wl_packet_tx_take(wl_packet_port_t *port,
   *out = (wl_packet_token_t){port->config.instance, (uint32_t)(state >> TX_SHIFT)};
   port->tx_delivered |= flags;
   if ((flags & WL_PACKET_DRAINED) != 0U)
-    atomic_fetch_and_explicit(&port->tx_state, ~((uint_least32_t)TX_ACTIVE),
-                              memory_order_acq_rel);
+    atomic_store_explicit(&port->tx_state, state & ~((uint_least32_t)TX_ACTIVE),
+                          memory_order_release);
   return flags;
 }
 

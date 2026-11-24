@@ -5,12 +5,14 @@
 #include <cerrno>
 #include <chrono>
 #include <climits>
+#include <cstring>
 #include <memory>
 #include <atomic>
 #include <utility>
 #if defined(_WIN32)
 #include <mswsock.h>
 #else
+#include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
 #endif
@@ -40,6 +42,40 @@ void wake_drain(native_socket socket) {
   while (::recv(socket, bytes, capacity, 0) > 0) {
   }
 }
+thread_local wl_udp *tls_owner_service = nullptr;
+struct service_guard {
+  wl_udp *previous;
+  explicit service_guard(wl_udp *self) noexcept : previous(tls_owner_service) {
+    tls_owner_service = self;
+  }
+  ~service_guard() { tls_owner_service = previous; }
+};
+#if !defined(_WIN32)
+bool sockaddr_equal(const sockaddr_storage &a, socklen_t alen,
+                    const sockaddr_storage &b, socklen_t blen) {
+  if (alen != blen || a.ss_family != b.ss_family) return false;
+  if (a.ss_family == AF_INET && alen >= sizeof(sockaddr_in)) {
+    const auto &x = reinterpret_cast<const sockaddr_in &>(a);
+    const auto &y = reinterpret_cast<const sockaddr_in &>(b);
+    return x.sin_port == y.sin_port && x.sin_addr.s_addr == y.sin_addr.s_addr;
+  }
+  if (a.ss_family == AF_INET6 && alen >= sizeof(sockaddr_in6)) {
+    const auto &x = reinterpret_cast<const sockaddr_in6 &>(a);
+    const auto &y = reinterpret_cast<const sockaddr_in6 &>(b);
+    return x.sin6_port == y.sin6_port && x.sin6_scope_id == y.sin6_scope_id &&
+           std::memcmp(&x.sin6_addr, &y.sin6_addr, sizeof(x.sin6_addr)) == 0;
+  }
+  return std::memcmp(&a, &b, alen) == 0;
+}
+::asio::ip::udp::endpoint endpoint_from_sockaddr(const sockaddr_storage &addr, socklen_t len) {
+  ::asio::ip::udp::endpoint ep;
+  if (len <= sizeof(sockaddr_storage) && static_cast<size_t>(len) <= ep.capacity()) {
+    std::memcpy(ep.data(), &addr, len);
+    ep.resize(len);
+  }
+  return ep;
+}
+#endif
 }
 struct wl_udp : wl_transport_t {
   explicit wl_udp(const wl_transport_ops_t *operations)
@@ -65,8 +101,12 @@ private:
   ::asio::io_context io;
   ::asio::ip::udp::socket socket;
   ::asio::ip::udp::socket wake_socket; // connected to itself; only native send/recv
-  native_socket wake_handle{};
+  native_socket data_handle{}, wake_handle{};
   ::asio::ip::udp::endpoint peer;
+#if !defined(_WIN32)
+  sockaddr_storage peer_addr{};
+  socklen_t peer_addr_len{};
+#endif
   size_t maximum_datagram_size{}, maximum_tx_datagram_size{}, maximum_rx_frame{};
   unsigned service_budget{};
   bool learn_peer{};
@@ -119,6 +159,7 @@ wl_err_t wl_udp::start(const wl_udp_config_t &config, std::error_code &error) {
   wake_handle = wake_socket.native_handle();
 
   socket = std::move(pending_socket);
+  data_handle = socket.native_handle();
   maximum_datagram_size = config.maximum_datagram_size;
   maximum_tx_datagram_size = config.maximum_tx_datagram_size;
   service_budget = config.service_budget ? config.service_budget : 8;
@@ -145,6 +186,10 @@ wl_err_t wl_udp::attach(const wl_transport_attach_t &info) {
 
 void wl_udp::set_peer(const ::asio::ip::udp::endpoint &endpoint) {
   peer = endpoint;
+#if !defined(_WIN32)
+  peer_addr_len = static_cast<socklen_t>(endpoint.size());
+  std::memcpy(&peer_addr, endpoint.data(), peer_addr_len);
+#endif
   have_peer = true;
   tx_blocked = false;
   if (port) wl_packet_activity(port);
@@ -167,6 +212,7 @@ wl_packet_submit_t wl_udp::submit(const uint8_t *data, size_t length) {
     return WL_PACKET_FAILED;
   if (!have_peer)
     return WL_PACKET_BUSY;
+#if defined(_WIN32)
   std::error_code error;
   const size_t sent = socket.send_to(::asio::buffer(data, length), peer, 0, error);
   if (error == ::asio::error::would_block || error == ::asio::error::try_again ||
@@ -178,6 +224,26 @@ wl_packet_submit_t wl_udp::submit(const uint8_t *data, size_t length) {
     ++stats.errors;
     return WL_PACKET_FAILED;
   }
+#else
+  ssize_t sent;
+  do {
+    sent = ::sendto(data_handle, data, length, 0,
+                    reinterpret_cast<const sockaddr *>(&peer_addr), peer_addr_len);
+  } while (sent < 0 && errno == EINTR);
+  if (sent < 0) {
+    const int err = errno;
+    if (err == EAGAIN || err == EWOULDBLOCK || err == ENOBUFS) {
+      tx_blocked = true;
+      return WL_PACKET_BUSY;
+    }
+    ++stats.errors;
+    return WL_PACKET_FAILED;
+  }
+  if (static_cast<size_t>(sent) != length) {
+    ++stats.errors;
+    return WL_PACKET_FAILED;
+  }
+#endif
   ++stats.sent;
   tx_blocked = false;
   return WL_PACKET_SENT; // Whole datagram accepted; no retained user memory.
@@ -186,6 +252,7 @@ wl_packet_submit_t wl_udp::submit(const uint8_t *data, size_t length) {
 wl_err_t wl_udp::service() {
   if (!started)
     return WL_ERR_INVALID_STATE;
+  const service_guard guard(this);
   more_rx = false;
   for (unsigned n = 0; n < service_budget; ++n) {
     wl_err_t result = WL_OK;
@@ -200,6 +267,7 @@ wl_err_t wl_udp::service() {
       rx_claimed = true;
     }
     auto &claim = rx_claim;
+#if defined(_WIN32)
     ::asio::ip::udp::endpoint source;
     std::error_code error;
     size_t received =
@@ -221,6 +289,38 @@ wl_err_t wl_udp::service() {
       ++stats.errors;
       return WL_ERR_IO;
     }
+#else
+    sockaddr_storage source_addr{};
+    socklen_t source_len = sizeof(source_addr);
+    ssize_t nbytes;
+    do {
+      nbytes = ::recvfrom(data_handle, claim.span.data, claim.span.length, 0,
+                          reinterpret_cast<sockaddr *>(&source_addr), &source_len);
+    } while (nbytes < 0 && errno == EINTR);
+    if (nbytes < 0) {
+      const int err = errno;
+      if (err == EAGAIN || err == EWOULDBLOCK)
+        return WL_OK; // Keep this idle RX reservation; no self-generated wake loop.
+      if (err == EMSGSIZE) {
+        (void)wl_packet_rx_abort(port, &claim);
+        rx_claimed = false;
+        ++stats.rejected;
+        continue;
+      }
+      (void)wl_packet_rx_abort(port, &claim);
+      rx_claimed = false;
+      ++stats.errors;
+      return WL_ERR_IO;
+    }
+    size_t received = static_cast<size_t>(nbytes);
+    if (!received || received > maximum_datagram_size ||
+        (have_peer && !sockaddr_equal(source_addr, source_len, peer_addr, peer_addr_len))) {
+      (void)wl_packet_rx_abort(port, &claim);
+      rx_claimed = false;
+      ++stats.rejected;
+      continue;
+    }
+#endif
     if (decode && (decode(claim.span.data, received, &received) != WL_OK || received > maximum_rx_frame)) {
       (void)wl_packet_rx_abort(port, &claim);
       rx_claimed = false;
@@ -241,7 +341,11 @@ wl_err_t wl_udp::service() {
         ++stats.rejected;
         continue;
       }
+#if defined(_WIN32)
       set_peer(source);
+#else
+      set_peer(endpoint_from_sockaddr(source_addr, source_len));
+#endif
     }
     result = wl_packet_rx_commit(port, &claim, received);
     if (result != WL_OK) {
@@ -261,6 +365,7 @@ bool wl_udp::ready() const {
   return started && more_rx && (rx_claimed || wl_packet_rx_available(port));
 }
 void wl_udp::notify() {
+  if (tls_owner_service == this) return;
   wake.store(true);
   if (waiting.load()) wake_signal(wake_handle);
 }
@@ -274,7 +379,7 @@ wl_err_t wl_udp::wait_for_activity(std::chrono::milliseconds maximum) {
   poll_fd fds[2]{};
   fds[0].fd = wake_handle;
   fds[0].events = POLLIN;
-  fds[1].fd = socket.native_handle();
+  fds[1].fd = data_handle;
   fds[1].events = static_cast<short>(((rx_claimed || wl_packet_rx_available(port)) ? POLLIN : 0) |
                                      (tx_blocked ? POLLOUT : 0));
   const unsigned count = fds[1].events ? 2U : 1U;
@@ -285,16 +390,18 @@ wl_err_t wl_udp::wait_for_activity(std::chrono::milliseconds maximum) {
   waiting.store(true);
   bool woken = wake.exchange(false);
   const int polled = woken ? 0 : poll_sockets(fds, count, timeout);
-  waiting.store(false);
+  waiting.store(false, std::memory_order_release);
   if (polled < 0 && !poll_interrupted())
     return WL_ERR_IO;
   if (polled > 0 && fds[0].revents)
     wake_drain(wake_handle);
-  woken = wake.exchange(false) || woken;
+  if (!woken && wake.load(std::memory_order_acquire))
+    woken = wake.exchange(false);
   const bool io_ready = polled > 0 && count == 2U && fds[1].revents != 0;
   if (!woken && !io_ready)
     return polled < 0 ? WL_OK : WL_ERR_NO_DATA; // EINTR is a spurious wake.
-  more_rx = true;
+  if (io_ready)
+    more_rx = true;
   if (tx_blocked) {
     tx_blocked = false;
     wl_packet_activity(port);

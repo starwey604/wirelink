@@ -304,16 +304,11 @@ static void clear_single_field(uint8_t *base, const wl_codec_field_t *f) {
       *(wl_codec_string_t *)dst = (wl_codec_string_t){NULL, 0U};
     }
     break;
-  case WL_CODEC_KIND_INLINE_BYTES: {
-    const size_t storage_len = f->max_length != 0U ? (size_t)f->max_length : 1U;
+  case WL_CODEC_KIND_INLINE_BYTES:
     *(size_t *)dst = 0U;
-    memset(inline_data(dst, f), 0, storage_len);
     break;
-  }
   case WL_CODEC_KIND_INLINE_STRING: {
-    const size_t storage_len = (size_t)f->max_length + 1U;
     uint8_t *buf = inline_data(dst, f);
-    memset(buf, 0, storage_len);
     if (f->has_default != 0U && f->string_default != NULL) {
       const size_t def_len = (size_t)f->default_bits;
       *(size_t *)dst = def_len;
@@ -323,6 +318,7 @@ static void clear_single_field(uint8_t *base, const wl_codec_field_t *f) {
       buf[def_len] = '\0';
     } else {
       *(size_t *)dst = 0U;
+      buf[0] = '\0';
     }
     break;
   }
@@ -911,6 +907,97 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_encode(const wl_codec_desc_t *desc,
   return WL_CODEC_OK;
 }
 
+static void copy_decoded(const wl_codec_desc_t *desc, void *out,
+                         const void *scratch) {
+  if (desc->struct_size <= 64U || desc->field_count == 0U) {
+    memcpy(out, scratch, desc->struct_size);
+    return;
+  }
+  int has_inline_or_msg = 0;
+  for (size_t i = 0U; i < desc->field_count; ++i) {
+    uint8_t kind = desc->fields[i].kind;
+    if (kind == WL_CODEC_KIND_INLINE_BYTES ||
+        kind == WL_CODEC_KIND_INLINE_STRING ||
+        kind == WL_CODEC_KIND_MESSAGE) {
+      has_inline_or_msg = 1;
+      break;
+    }
+  }
+  if (!has_inline_or_msg) {
+    memcpy(out, scratch, desc->struct_size);
+    return;
+  }
+  uint8_t *out_base = out;
+  const uint8_t *src_base = scratch;
+  for (size_t i = 0U; i < desc->field_count; ++i) {
+    const wl_codec_field_t *f = &desc->fields[i];
+    if (f->cardinality == WL_CODEC_CARD_REPEATED) {
+      *(size_t *)(out_base + f->count_offset) =
+          *(const size_t *)(src_base + f->count_offset);
+      continue;
+    }
+    if (!is_required_card(f->cardinality)) {
+      *(bool *)(out_base + f->presence_offset) =
+          *(const bool *)(src_base + f->presence_offset);
+    }
+    void *dst = out_base + f->offset;
+    const void *src = src_base + f->offset;
+    if (is_packed_card(f->cardinality)) {
+      memcpy(dst, src, packed_payload_size(f));
+      continue;
+    }
+    switch (f->kind) {
+    case WL_CODEC_KIND_INLINE_BYTES: {
+      const size_t len = *(const size_t *)src;
+      *(size_t *)dst = len;
+      if (len > 0U) {
+        memcpy(inline_data(dst, f), inline_cdata(src, f), len);
+      }
+      break;
+    }
+    case WL_CODEC_KIND_INLINE_STRING: {
+      const size_t len = *(const size_t *)src;
+      *(size_t *)dst = len;
+      memcpy(inline_data(dst, f), inline_cdata(src, f), len + 1U);
+      break;
+    }
+    case WL_CODEC_KIND_BOOL:
+      *(bool *)dst = *(const bool *)src;
+      break;
+    case WL_CODEC_KIND_UINT32:
+    case WL_CODEC_KIND_UINT64:
+    case WL_CODEC_KIND_INT32:
+    case WL_CODEC_KIND_SINT32:
+    case WL_CODEC_KIND_INT64:
+    case WL_CODEC_KIND_SINT64:
+    case WL_CODEC_KIND_ENUM:
+      memcpy(dst, src, f->scalar_size);
+      break;
+    case WL_CODEC_KIND_FIXED32:
+    case WL_CODEC_KIND_FLOAT32:
+      memcpy(dst, src, 4U);
+      break;
+    case WL_CODEC_KIND_FIXED64:
+    case WL_CODEC_KIND_FLOAT64:
+      memcpy(dst, src, 8U);
+      break;
+    case WL_CODEC_KIND_BYTES:
+      *(wl_codec_bytes_t *)dst = *(const wl_codec_bytes_t *)src;
+      break;
+    case WL_CODEC_KIND_STRING:
+      *(wl_codec_string_t *)dst = *(const wl_codec_string_t *)src;
+      break;
+    case WL_CODEC_KIND_MESSAGE:
+      if (f->child != NULL) {
+        copy_decoded(f->child, dst, src);
+      }
+      break;
+    default:
+      break;
+    }
+  }
+}
+
 WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
                                               const uint8_t *input,
                                               size_t input_length, void *out,
@@ -1004,7 +1091,7 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
       return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
     }
   }
-  memcpy(out, scratch, desc->struct_size);
+  copy_decoded(desc, out, scratch);
   return WL_CODEC_OK;
 }
 
@@ -1146,6 +1233,6 @@ wl_codec_positional_decode(const wl_codec_desc_t *desc, const uint8_t *input,
   if (cursor != end) {
     return WL_CODEC_ERR_MALFORMED;
   }
-  memcpy(out, scratch, desc->struct_size);
+  copy_decoded(desc, out, scratch);
   return WL_CODEC_OK;
 }
