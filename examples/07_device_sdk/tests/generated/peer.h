@@ -224,7 +224,7 @@ struct device_peer_node {
     peer_info_response_t get_info;
   } reply;
   uint8_t replies[WL_ENDPOINT_REPLIES][228];
-  uint8_t rx[WL_PACKET_RX_SLOTS][DEVICE_PEER_RX_WIRE_MAX + 1U];
+  uint8_t rx[2U][DEVICE_PEER_RX_WIRE_MAX + 1U];
   device_peer_tx_write_fn tx_write;
 };
 /* Explicit instance IDs must be nonzero. Rebind only after close completes. */

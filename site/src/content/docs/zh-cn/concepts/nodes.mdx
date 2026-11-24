@@ -34,15 +34,16 @@ node device {
 
 ---
 
-## 一、 节点的 4 项配置与默认值
+## 一、 节点配置与默认值
 
-在 `node` 花括号内可按需覆盖以下 4 项配置（省略时使用默认值）；所有生成的节点均以公共基类 `wl_node_t node` 作为首成员，在 C 侧通过 `<node>_bind_sync`（同步发包函数）或 `<node>_bind`（`wl_transport_t *` 传输驱动）单向挂载：
+在 `node` 花括号内可按需覆盖以下配置（省略时使用默认值）；所有生成的节点均以公共基类 `wl_node_t node` 作为首成员，在 C 侧通过 `<node>_bind_sync`（同步发包函数）或 `<node>_bind`（`wl_transport_t *` 传输驱动）单向挂载：
 
 | 配置项 | 默认值 | 可选值 | 选型说明 |
 | :--- | :--- | :--- | :--- |
 | **`framing`** | `native` | `native`<br/>`cobs_crc16`<br/>`length16` | • **UDP / USB Bulk / 自带包边界队列**：使用默认 `native`<br/>• **UART 串口 / USB CDC 虚拟串口**：使用 `cobs_crc16`（自带 `0x00` 边界与 CRC16 校验）<br/>• **板内可靠字节流通道**：使用 `length16`（2 字节小端长度头，无 CRC） |
 | **`codec`** | `schema_v1` | `schema_v1`<br/>`positional_v1` | • **需要字段演化或用于 RPC**：使用默认 `schema_v1`<br/>• **高频单向遥测压榨带宽**：使用 `positional_v1`（省去字段 Tag，双方布局需一致） |
 | **`handlers`** | `static` | `static`<br/>`dynamic` | • **常规固件**：使用默认 `static`（直接链接同名业务函数）<br/>• **需要在运行时传入回调表**：使用 `dynamic` |
+| **`rx_slots`** | `2` | `2`、`4`、`8` | 接收队列可同时保存的帧数，每增加一槽，节点内置缓冲增加 `<N>_RX_WIRE_MAX + 1` 字节 |
 | **`timeout_ms`** | `500` | `1 .. 2147483647` | 简化调用 `<node>_call_<rpc>()` 的默认超时毫秒数 |
 
 ### 常见节点配置示例

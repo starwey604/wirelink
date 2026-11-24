@@ -70,7 +70,7 @@ require(demo_bind_instance(&endpoints[side], 1001U + side, link, &handlers, NULL
 ```
 <!-- [/docs:loopback_setup] -->
 
-`instance` 为零时自动分配实例号。默认两个 RX 槽的单槽大小为 `<N>_RX_WIRE_MAX + 1U`，多出的字节用于识别超长报文。USB Bulk 等硬件需要特定步长或对齐时，可通过驱动的 `configure_rx` 回调同时填写 `rx_storage`、`rx_storage_size` 和 `rx_unit_size`。每槽至少为 `<N>_RX_WIRE_MAX + 1U`，总容量至少为 `WL_PACKET_RX_SLOTS * rx_unit_size`。
+`instance` 为零时自动分配实例号。节点的 `rx_slots` 可设为 2（默认）、4 或 8。内置 RX 槽的单槽大小为 `<N>_RX_WIRE_MAX + 1U`，多出的字节用于识别超长报文。USB Bulk 等硬件需要特定步长或对齐时，可通过驱动的 `configure_rx` 回调同时填写 `rx_storage`、`rx_storage_size` 和 `rx_unit_size`。每槽至少为 `<N>_RX_WIRE_MAX + 1U`，总容量至少为 `rx_slots * rx_unit_size`。
 
 ### 异步 TX：submit 与 completion
 
@@ -93,7 +93,7 @@ owner 调用 transport 的 `submit` 回调。驱动返回值决定是否持有�
 
 ### RX：完整包或单生产者字节 FIFO
 
-完整包驱动可直接使用 `wl_packet_rx_push(port, bytes, length)` 复制一包，并检查返回值。真正零拷贝时先 `wl_packet_rx_claim()`，把 `claim.span.data` 交给 DMA，完成后 `wl_packet_rx_commit()`；失败时 `wl_packet_rx_abort()`。双槽 RX 暂满时，由硬件流控或应用丢包策略处理，不能覆盖已提交的槽。
+完整包驱动可直接使用 `wl_packet_rx_push(port, bytes, length)` 复制一包，并检查返回值。真正零拷贝时先 `wl_packet_rx_claim()`，把 `claim.span.data` 交给 DMA，完成后 `wl_packet_rx_commit()`；失败时 `wl_packet_rx_abort()`。RX 队列满时，由硬件流控或应用丢包策略处理，不能覆盖已提交的槽。
 
 UART 等流式链路使用节点内的 `wl_packet_stream_t`，可按需增加 `wl_byte_fifo_t` 隔离 ISR 与 owner。参考 [Zephyr UART 适配器](../adapters/zephyr/)：
 

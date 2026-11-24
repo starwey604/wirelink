@@ -178,6 +178,12 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
                                               const uint8_t *input,
                                               size_t input_length, void *out,
                                               void *scratch);
+/* Generated Node callback locals: tagged, self-contained descriptors only.
+ * On failure discard dst; the ordinary decode above commits only on success. */
+#define WL_CODEC_HAS_LOCAL_DECODE 1
+WL_HOT_ATTR wl_codec_status_t wl_codec_decode_local(const wl_codec_desc_t *desc,
+                                                    const uint8_t *input,
+                                                    size_t input_length, void *dst);
 WL_HOT_ATTR wl_codec_status_t
 wl_codec_positional_measure(const wl_codec_desc_t *desc, const void *msg,
                             size_t *out_size);

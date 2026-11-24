@@ -9,7 +9,7 @@
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x96a3b1226f6423df",
-    "node": "0x6ecbcd702558b77d"
+    "node": "0x7d8ebaa919092e4b"
   },
   "codec_formats": {
     "ADD_REQUEST_CODEC_FORMAT": "schema-v1",
@@ -23,9 +23,9 @@
     {"path": "LICENSE", "size": 11358, "digest": "0x836c8ab0c6468568"},
     {"path": "README.md", "size": 7294, "digest": "0x61438fd5a3b510a4"},
     {"path": "cmake/CalculatorSdkConfig.cmake.in", "size": 207, "digest": "0xb7330881e2c091c4"},
-    {"path": "generated/calculator.c", "size": 13404, "digest": "0x3b8831dfd8d1ed16"},
-    {"path": "generated/calculator.h", "size": 3459, "digest": "0xcb466098cda1158f"},
-    {"path": "generated/calculator_manifest.json", "size": 923, "digest": "0x3fd73ffa6c726b3d"},
+    {"path": "generated/calculator.c", "size": 14609, "digest": "0xf12ea9b8cb4faf58"},
+    {"path": "generated/calculator.h", "size": 3443, "digest": "0xbc422ea916c8134f"},
+    {"path": "generated/calculator_manifest.json", "size": 936, "digest": "0x14272fcae3f0898e"},
     {"path": "include/calculator/client.hpp", "size": 1220, "digest": "0xad063e60a8c3885e"},
     {"path": "include/calculator/types.hpp", "size": 348, "digest": "0xa9b4f16645612248"},
     {"path": "licenses/asio.txt", "size": 1338, "digest": "0xcb7237a4720128f3"},

@@ -64,7 +64,7 @@ typedef wl_err_t (*calculator_tx_write_fn)(calculator_node_t *self, const uint8_
 struct calculator_node {
   wl_node_t node;
   uint8_t requests[WL_ENDPOINT_CALLS][24];
-  uint8_t rx[WL_PACKET_RX_SLOTS][CALCULATOR_RX_WIRE_MAX + 1U];
+  uint8_t rx[2U][CALCULATOR_RX_WIRE_MAX + 1U];
   calculator_tx_write_fn tx_write;
 };
 /* Explicit instance IDs must be nonzero. Rebind only after close completes. */

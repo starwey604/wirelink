@@ -16,7 +16,7 @@
 
 typedef struct {
   wl_packet_port_t port;
-  uint8_t storage[2][32];
+  uint8_t storage[WL_PACKET_RX_SLOTS_MAX][32];
   wl_packet_submit_t result;
   unsigned notifications;
   unsigned submissions;
@@ -39,13 +39,17 @@ static wl_packet_submit_t sink(void *user, const uint8_t *data, size_t length,
   return f->result;
 }
 
-static void init(fixture_t *f, uint32_t instance) {
+static wl_err_t init_slots(fixture_t *f, uint32_t instance, uint8_t slots) {
   wl_packet_config_t config = {
-      .instance = instance, .rx_storage = &f->storage[0][0],
+      .instance = instance, .rx_slots = slots, .rx_storage = &f->storage[0][0],
       .rx_unit_size = sizeof(f->storage[0]), .rx_storage_size = sizeof(f->storage),
       .submit = sink, .notify = notify, .user = f
   };
-  CHECK(wl_packet_init(&f->port, &config) == WL_OK);
+  return wl_packet_init(&f->port, &config);
+}
+
+static void init(fixture_t *f, uint32_t instance) {
+  CHECK(init_slots(f, instance, 0U) == WL_OK);
 }
 
 static void test_rx_ownership(void) {
@@ -184,6 +188,8 @@ static void test_stop_reinit_exhaustion(void) {
 
 static void test_rx_push(void) {
   fixture_t f = {0};
+  CHECK(init_slots(&f, 106U, 3U) == WL_ERR_INVALID_ARG);
+  CHECK(init_slots(&f, 106U, 16U) == WL_ERR_INVALID_ARG);
   init(&f, 106U);
   const uint8_t data[] = {1U, 2U, 3U};
   CHECK(wl_packet_rx_push(NULL, data, sizeof(data)) == WL_ERR_INVALID_ARG);
@@ -191,14 +197,24 @@ static void test_rx_push(void) {
   CHECK(wl_packet_rx_push(&f.port, data, 0U) == WL_ERR_INVALID_ARG);
   CHECK(wl_packet_rx_push(&f.port, data, 33U) == WL_ERR_BUF_TOO_SMALL);
   CHECK(wl_packet_rx_available(&f.port));
-  for (unsigned i = 0; i < WL_PACKET_RX_SLOTS; ++i)
-    CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_OK);
-  CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_ERR_WOULD_BLOCK);
-  wl_packet_borrow_t borrow;
-  for (unsigned i = 0; i < WL_PACKET_RX_SLOTS; ++i) {
-    CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
-    CHECK(borrow.length == sizeof(data) && !memcmp(borrow.data, data, sizeof(data)));
-    CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
+  for (uint8_t slots = 2U; slots <= WL_PACKET_RX_SLOTS_MAX; slots *= 2U) {
+    wl_packet_stop(&f.port);
+    CHECK(wl_packet_quiescent(&f.port));
+    CHECK(init_slots(&f, 107U + slots, slots) == WL_OK);
+    atomic_store(&f.port.read_cursor, UINT32_MAX);
+    atomic_store(&f.port.write_cursor, UINT32_MAX);
+    for (uint8_t i = 0; i < slots; ++i)
+      CHECK(wl_packet_rx_push(&f.port, &i, sizeof(i)) == WL_OK);
+    CHECK(!wl_packet_rx_available(&f.port));
+    CHECK(wl_packet_rx_push(&f.port, data, sizeof(data)) == WL_ERR_WOULD_BLOCK);
+    unsigned wakes = f.notifications;
+    for (uint8_t i = 0; i < slots; ++i) {
+      wl_packet_borrow_t borrow;
+      CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
+      CHECK(borrow.length == 1U && borrow.data[0] == i);
+      CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
+      CHECK(wl_packet_rx_available(&f.port) && f.notifications == wakes + 1U);
+    }
   }
   wl_packet_claim_t held;
   CHECK(wl_packet_rx_claim(&f.port, 1U, &held) == WL_OK);

@@ -142,6 +142,9 @@ int main(void) {
   driver_t driver = {.base = {&ops}, .attach_result = WL_ERR_IO, .wait_result = WL_ERR_NO_DATA};
   wl_node_layout_t layout = {.rx_frame_max = 16U, .rx_wire_max = 16U};
   wl_node_t node = {0};
+  layout.rx_slots = 4U; /* Driver storage has room for just two aligned slots. */
+  CHECK(wl_node_bind_transport(&node, &layout, &driver.base) == WL_ERR_INVALID_ARG);
+  layout.rx_slots = 0U;
   CHECK(wl_node_bind_transport(&node, &layout, &driver.base) == WL_ERR_IO);
   CHECK(!node.transport && !node.core.port);
   driver.attach_result = WL_OK;

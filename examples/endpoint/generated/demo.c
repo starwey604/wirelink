@@ -57,11 +57,12 @@ static wl_codec_status_t wlc_scalar_shape_0_encode(const void *value, uint8_t *o
 
 static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t length, void *out) {
   if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  const uint8_t *cursor = input;
+  const uint8_t *end = length != 0U ? input + length : input;
   wlc_scalar_shape_0_t temp;
   wlc_scalar_shape_0_clear(&temp);
   uint8_t seen = 0U;
-  const uint8_t *cursor = input;
-  const uint8_t *end = length != 0U ? input + length : input;
+  if (cursor != end && *cursor == 0x08U) { cursor += 1U; goto first_value; }
   while (cursor < end) {
     uint64_t wide_key = 0U;
     wl_codec_status_t status = wl_codec_getv(&cursor, end, &wide_key);
@@ -74,6 +75,7 @@ static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t 
       case 1U: {
         if (wire != 0U) return WL_CODEC_ERR_WIRE_TYPE;
         if ((seen & 1U) != 0U) return WL_CODEC_ERR_DUPLICATE_FIELD;
+      first_value: ;
         uint64_t w = 0U;
         wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
         if (s != WL_CODEC_OK) return s;
@@ -149,6 +151,11 @@ wl_codec_status_t event_decode(const uint8_t *input, size_t input_length, event_
 
 
 #include <limits.h>
+#ifdef WL_CODEC_HAS_LOCAL_DECODE
+#define WLC_NODE_DECODE(m, ...) wl_codec_decode_local(&m##_desc, __VA_ARGS__)
+#else
+#define WLC_NODE_DECODE(m, ...) m##_decode(__VA_ARGS__)
+#endif
 wl_err_t demo_send_event(demo_node_t *self, const event_t *message) {
   if (self == NULL || message == NULL) return WL_ERR_INVALID_ARG;
   uint8_t *frame; size_t capacity;
@@ -226,7 +233,7 @@ static wl_err_t demo_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   case 42U: {
     if (frame->kind != WL_WIRE_MSG) return WL_ERR_CORRUPT_PAYLOAD;
     event_t message;
-    if (event_decode(frame->payload, frame->length, &message) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
+    if (WLC_NODE_DECODE(event, frame->payload, frame->length, &message) != WL_CODEC_OK) return WL_ERR_CORRUPT_PAYLOAD;
     if (self->handlers.on_event != NULL) self->handlers.on_event(self->node.user, &message);
     return WL_OK;
   }
@@ -244,7 +251,7 @@ static wl_err_t demo_bind_impl(demo_node_t *self, uint32_t instance, wl_transpor
   self->handlers = *handlers;
   self->tx_write = tx_write;
   const wl_node_layout_t layout = {
-    .instance = instance, .has_tx = 1,
+    .instance = instance, .has_tx = 1, .rx_slots = 2U,
     .route = demo_route, .user = user,
     .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
     .rx_frame_max = DEMO_RX_FRAME_MAX, .tx_frame_max = DEMO_TX_FRAME_MAX,

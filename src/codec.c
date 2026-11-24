@@ -586,7 +586,7 @@ static uint8_t *emit_packed(const wl_codec_field_t *f, const uint8_t *src,
 
 static wl_codec_status_t decode_value(const wl_codec_field_t *f,
                                       const uint8_t **cursor,
-                                      const uint8_t *end, void *dst) {
+                                      const uint8_t *end, void *dst, bool local) {
   switch (f->kind) {
   case WL_CODEC_KIND_BOOL: {
     uint64_t v = 0U;
@@ -752,7 +752,11 @@ static wl_codec_status_t decode_value(const wl_codec_field_t *f,
     if (len > (size_t)(end - *cursor)) {
       return WL_CODEC_ERR_MALFORMED;
     }
-    s = f->child->decode(*cursor, len, dst);
+    /* Generated tagged children with a field table can use the same fresh
+     * destination. Scalar specializations have only a decode callback. */
+    s = local && f->child->field_count != 0U
+            ? wl_codec_decode_local(f->child, *cursor, len, dst)
+            : f->child->decode(*cursor, len, dst);
     if (s != WL_CODEC_OK) {
       return s;
     }
@@ -1134,7 +1138,7 @@ static void copy_decoded(const wl_codec_desc_t *desc, void *out,
 
 static int try_decode_inorder(const wl_codec_desc_t *desc,
                               const uint8_t *input, size_t input_length,
-                              void *out, void *scratch,
+                              void *dst,
                               wl_codec_status_t *out_status) {
   if (input_length == 0U || desc->has_repeated != 0U ||
       desc->presence_bytes != 0U || desc->field_count == 0U) {
@@ -1142,7 +1146,7 @@ static int try_decode_inorder(const wl_codec_desc_t *desc,
   }
   const uint8_t *cursor = input;
   const uint8_t *const end = input + input_length;
-  uint8_t *const base = scratch;
+  uint8_t *const base = dst;
   for (size_t i = 0U; i < desc->field_count; ++i) {
     const wl_codec_field_t *f = &desc->fields[i];
     if (f->cardinality != WL_CODEC_CARD_REQUIRED || f->key_len != 1U ||
@@ -1259,31 +1263,21 @@ static int try_decode_inorder(const wl_codec_desc_t *desc,
   if (cursor != end) {
     return 0;
   }
-  copy_decoded(desc, out, scratch);
   *out_status = WL_CODEC_OK;
   return 1;
 }
 
-WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
-                                              const uint8_t *input,
-                                              size_t input_length, void *out,
-                                              void *scratch) {
-  if (desc == NULL || out == NULL || scratch == NULL ||
-      desc->field_count > WL_CODEC_MAX_FIELDS ||
-      (input_length != 0U && input == NULL)) {
-    return WL_CODEC_ERR_INVALID_VALUE;
-  }
+static wl_codec_status_t decode_fields(const wl_codec_desc_t *desc,
+                                       const uint8_t *input, size_t input_length,
+                                       void *dst, bool local) {
   wl_codec_status_t fast_status = WL_CODEC_OK;
-  if (try_decode_inorder(desc, input, input_length, out, scratch,
+  if (try_decode_inorder(desc, input, input_length, dst,
                          &fast_status)) {
     return fast_status;
   }
   uint64_t seen[WL_CODEC_MAX_FIELDS / 64U] = {0};
-  if (desc->has_repeated != 0U) {
-    memcpy(scratch, out, desc->struct_size);
-  }
-  wl_codec_clear(desc, scratch);
-  uint8_t *base = scratch;
+  wl_codec_clear(desc, dst);
+  uint8_t *base = dst;
   const uint8_t *cursor = input;
   const uint8_t *end = input_length != 0U ? input + input_length : input;
   const wl_codec_field_t *next = desc->fields;
@@ -1331,7 +1325,7 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
         return WL_CODEC_ERR_INVALID_VALUE;
       }
       status = decode_value(f, &cursor, end,
-                            storage + (*count) * f->element_stride);
+                            storage + (*count) * f->element_stride, false);
       if (status != WL_CODEC_OK) {
         return status;
       }
@@ -1345,7 +1339,7 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
       if (is_packed_card(f->cardinality)) {
         status = decode_packed(f, &cursor, end, base + f->offset);
       } else {
-        status = decode_value(f, &cursor, end, base + f->offset);
+        status = decode_value(f, &cursor, end, base + f->offset, local);
       }
       if (status != WL_CODEC_OK) {
         return status;
@@ -1362,8 +1356,31 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
       return WL_CODEC_ERR_MISSING_REQUIRED_FIELD;
     }
   }
-  copy_decoded(desc, out, scratch);
   return WL_CODEC_OK;
+}
+
+WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
+                                              const uint8_t *input,
+                                              size_t input_length, void *out,
+                                              void *scratch) {
+  if (desc == NULL || out == NULL || scratch == NULL ||
+      desc->field_count > WL_CODEC_MAX_FIELDS ||
+      (input_length != 0U && input == NULL)) {
+    return WL_CODEC_ERR_INVALID_VALUE;
+  }
+  if (desc->has_repeated != 0U) memcpy(scratch, out, desc->struct_size);
+  wl_codec_status_t status = decode_fields(desc, input, input_length, scratch, false);
+  if (status == WL_CODEC_OK) copy_decoded(desc, out, scratch);
+  return status;
+}
+
+WL_HOT_ATTR wl_codec_status_t wl_codec_decode_local(const wl_codec_desc_t *desc,
+                                                    const uint8_t *input,
+                                                    size_t input_length, void *dst) {
+  if (desc == NULL || dst == NULL || desc->has_repeated != 0U ||
+      desc->field_count > WL_CODEC_MAX_FIELDS || (input_length != 0U && input == NULL))
+    return WL_CODEC_ERR_INVALID_VALUE;
+  return decode_fields(desc, input, input_length, dst, true);
 }
 
 WL_HOT_ATTR wl_codec_status_t
@@ -1494,7 +1511,7 @@ wl_codec_positional_decode(const wl_codec_desc_t *desc, const uint8_t *input,
                                    ? decode_packed(f, &cursor, end,
                                                    base + f->offset)
                                    : decode_value(f, &cursor, end,
-                                                  base + f->offset);
+                                                  base + f->offset, false);
     if (status != WL_CODEC_OK) {
       return status;
     }

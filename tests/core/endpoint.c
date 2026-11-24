@@ -410,6 +410,7 @@ static void test_tx_admission_order(void) {
   /* Cancel/reuse a queued owner index without moving the new request ahead. */
   CHECK(wl_endpoint_cancel(&f.endpoint, f.completions[0].handle) == WL_OK);
   run(&f, 0U);
+  CHECK(f.endpoint.tx_count == 2U); /* Only the message and the other call remain. */
   CHECK(start(&f, 2U, 3U, 0U, 100U) == WL_OK);
   f.sink_result = WL_PACKET_SENT;
   wl_packet_activity(&f.port);
@@ -442,6 +443,7 @@ static void test_budget_deadline_and_response_boundary(void) {
     CHECK(wl_endpoint_step(&f.endpoint, 10U, 1U) == WL_OK);
     CHECK(f.completions[i].count == 1U && f.completions[i].result.outcome == WL_RPC_TIMED_OUT);
     CHECK(f.messages == 0U);
+    CHECK(f.endpoint.tx_count == 3U - i);
   }
   CHECK(wl_endpoint_step(&f.endpoint, 10U, 1U) == WL_OK && ready(&f, 10U));
   CHECK(wl_endpoint_step(&f.endpoint, 10U, 1U) == WL_OK && !ready(&f, 10U));

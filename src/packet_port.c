@@ -46,12 +46,15 @@ wl_err_t wl_packet_init(wl_packet_port_t *port,
                         const wl_packet_config_t *config) {
   if (port == NULL || config == NULL || config->instance == 0U ||
       config->rx_storage == NULL || config->rx_unit_size == 0U ||
-      config->rx_unit_size > SIZE_MAX / WL_PACKET_RX_SLOTS ||
-      config->rx_storage_size < config->rx_unit_size * WL_PACKET_RX_SLOTS ||
       config->submit == NULL) return WL_ERR_INVALID_ARG;
-  const wl_packet_config_t value = *config;
+  const uint8_t slots = config->rx_slots ? config->rx_slots : WL_PACKET_RX_SLOTS;
+  if (slots < 2U || slots > WL_PACKET_RX_SLOTS_MAX || (slots & (slots - 1U)) != 0U ||
+      config->rx_unit_size > config->rx_storage_size / slots) return WL_ERR_INVALID_ARG;
+  wl_packet_config_t value = *config;
+  value.rx_slots = slots;
   memset(port, 0, sizeof(*port));
   port->config = value;
+  port->rx_mask = (uint8_t)(slots - 1U);
   atomic_init(&port->write_cursor, 0U);
   atomic_init(&port->read_cursor, 0U);
   atomic_init(&port->tx_state, 0U);
@@ -93,13 +96,13 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_claim(wl_packet_port_t *port, size_t maximum,
   if (maximum > port->config.rx_unit_size) return WL_ERR_BUF_TOO_SMALL;
   uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_relaxed);
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_acquire);
-  if ((uint32_t)(write - read) >= WL_PACKET_RX_SLOTS) return WL_ERR_WOULD_BLOCK;
+  if ((uint32_t)(write - read) >= port->config.rx_slots) return WL_ERR_WOULD_BLOCK;
   if (port->claim_sequence == UINT32_MAX) return WL_ERR_ID_EXHAUSTED;
   ++port->claim_sequence;
   port->claim_cursor = write;
   port->claim_capacity = maximum;
   out->span.data = port->config.rx_storage +
-                   (write % WL_PACKET_RX_SLOTS) * port->config.rx_unit_size;
+                   (write & port->rx_mask) * port->config.rx_unit_size;
   out->span.length = maximum;
   out->token.instance = port->config.instance;
   out->token.sequence = port->claim_sequence;
@@ -113,7 +116,7 @@ static int claim_matches(const wl_packet_port_t *port,
       claim->token.instance == port->config.instance &&
       claim->token.sequence == port->claim_sequence &&
       claim->span.data == port->config.rx_storage +
-          (port->claim_cursor % WL_PACKET_RX_SLOTS) * port->config.rx_unit_size;
+          (port->claim_cursor & port->rx_mask) * port->config.rx_unit_size;
 }
 
 WL_HOT_ATTR wl_err_t wl_packet_rx_commit(wl_packet_port_t *port,
@@ -129,8 +132,8 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_commit(wl_packet_port_t *port,
     return WL_ERR_INVALID_STATE;
   }
   uint32_t write = port->claim_cursor;
-  port->lengths[write % WL_PACKET_RX_SLOTS] = length;
-  port->rx_sequences[write % WL_PACKET_RX_SLOTS] = port->claim_sequence;
+  port->lengths[write & port->rx_mask] = length;
+  port->rx_sequences[write & port->rx_mask] = port->claim_sequence;
   atomic_store_explicit(&port->write_cursor, write + 1U, memory_order_release);
   atomic_store_explicit(&port->claim_active, false, memory_order_release);
   wl_packet_activity(port);
@@ -156,7 +159,7 @@ WL_HOT_ATTR int wl_packet_rx_available(const wl_packet_port_t *port) {
       atomic_load_explicit(&port->claim_active, memory_order_acquire)) return 0;
   uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_acquire);
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_acquire);
-  return (uint32_t)(write - read) < WL_PACKET_RX_SLOTS;
+  return (uint32_t)(write - read) < port->config.rx_slots;
 }
 
 WL_HOT_ATTR wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port,
@@ -167,9 +170,9 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port,
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_relaxed);
   *out = (wl_packet_borrow_t){
       .data = port->config.rx_storage +
-              (read % WL_PACKET_RX_SLOTS) * port->config.rx_unit_size,
-      .length = port->lengths[read % WL_PACKET_RX_SLOTS],
-      .token = {port->config.instance, port->rx_sequences[read % WL_PACKET_RX_SLOTS]}
+              (read & port->rx_mask) * port->config.rx_unit_size,
+      .length = port->lengths[read & port->rx_mask],
+      .token = {port->config.instance, port->rx_sequences[read & port->rx_mask]}
   };
   port->borrowed = 1U;
   return WL_OK;
@@ -180,12 +183,12 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_release(wl_packet_port_t *port,
   if (port == NULL || borrow == NULL) return WL_ERR_INVALID_ARG;
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_relaxed);
   if (!port->borrowed || borrow->token.instance != port->config.instance ||
-      borrow->token.sequence != port->rx_sequences[read % WL_PACKET_RX_SLOTS] ||
+      borrow->token.sequence != port->rx_sequences[read & port->rx_mask] ||
       borrow->data != port->config.rx_storage +
-          (read % WL_PACKET_RX_SLOTS) * port->config.rx_unit_size)
+          (read & port->rx_mask) * port->config.rx_unit_size)
     return WL_ERR_NOT_FOUND;
   uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_acquire);
-  int was_full = (uint32_t)(write - read) >= WL_PACKET_RX_SLOTS;
+  int was_full = (uint32_t)(write - read) >= port->config.rx_slots;
   port->borrowed = 0U;
   atomic_store_explicit(&port->read_cursor, read + 1U, memory_order_release);
   if (was_full) wl_packet_activity(port);

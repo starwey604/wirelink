@@ -41,8 +41,7 @@ static wl_err_t bind_node(wl_node_t *node, const wl_node_layout_t *layout,
   }
   if (!rx.rx_storage && !rx.rx_unit_size && !rx.rx_storage_size)
     rx = (wl_transport_rx_override_t){layout->rx_storage, layout->rx_storage_size, minimum};
-  if (!rx.rx_storage || rx.rx_unit_size < minimum ||
-      rx.rx_unit_size > rx.rx_storage_size / WL_PACKET_RX_SLOTS) return WL_ERR_INVALID_ARG;
+  if (rx.rx_unit_size < minimum) return WL_ERR_INVALID_ARG;
   uint32_t instance = layout->instance;
   if (!instance) {
     wl_err_t error = wl_packet_instance_next(&instance);
@@ -59,7 +58,7 @@ static wl_err_t bind_node(wl_node_t *node, const wl_node_layout_t *layout,
   node->tx_wire_max = layout->tx_wire_max;
   wl_packet_notify_fn wake = ops && ops->notify ? notify : NULL;
   wl_packet_config_t packet = {
-    .instance = instance, .rx_storage = rx.rx_storage, .rx_unit_size = rx.rx_unit_size,
+    .instance = instance, .rx_slots = layout->rx_slots, .rx_storage = rx.rx_storage, .rx_unit_size = rx.rx_unit_size,
     .rx_storage_size = rx.rx_storage_size, .submit = stream ? stream->submit : submit,
     .notify = wake && stream ? stream->notify : wake,
     .user = stream ? (void *)node->stream : (void *)node

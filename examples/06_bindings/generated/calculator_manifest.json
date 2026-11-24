@@ -9,7 +9,7 @@
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x96a3b1226f6423df",
-    "node": "0x99693bec7070cade"
+    "node": "0xbb0d478d0f1caed6"
   },
   "codec_formats": {
     "ADD_REQUEST_CODEC_FORMAT": "schema-v1",
@@ -19,9 +19,9 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "calculator.c", "size": 13404, "digest": "0x3b8831dfd8d1ed16"},
-    {"path": "calculator.h", "size": 3459, "digest": "0xcb466098cda1158f"}
+    {"path": "calculator.c", "size": 14609, "digest": "0xf12ea9b8cb4faf58"},
+    {"path": "calculator.h", "size": 3443, "digest": "0xbc422ea916c8134f"}
   ]
 ,
-  "nodes": [{"name":"calculator","framing":"native","handlers":"static","timeout_ms":500,"request_frame_capacity":24,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":18,"tx_frame_capacity":24,"rx_wire_capacity":18,"tx_wire_capacity":24}]
+  "nodes": [{"name":"calculator","framing":"native","handlers":"static","timeout_ms":500,"rx_slots":2,"request_frame_capacity":24,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":18,"tx_frame_capacity":24,"rx_wire_capacity":18,"tx_wire_capacity":24}]
 }

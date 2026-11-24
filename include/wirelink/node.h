@@ -64,6 +64,7 @@ typedef struct {
   uint16_t rx_wire_max;  /* Physical wire RX minimum bound (slot >= rx_wire_max + 1) */
   uint16_t tx_wire_max;
   uint8_t has_tx;
+  uint8_t rx_slots; /* 0 selects the default packet RX depth. */
   wl_packet_stream_t *stream;
   const wl_node_stream_ops_t *stream_ops; /* NULL for native framing */
   wl_span_t stream_tx_wire;

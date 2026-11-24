@@ -210,12 +210,17 @@ wl_codec_status_t numbers_decode(const uint8_t *input, size_t input_length, numb
 
 
 #include <limits.h>
+#ifdef WL_CODEC_HAS_LOCAL_DECODE
+#define WLC_NODE_DECODE(m, ...) wl_codec_decode_local(&m##_desc, __VA_ARGS__)
+#else
+#define WLC_NODE_DECODE(m, ...) m##_decode(__VA_ARGS__)
+#endif
 static void device_complete_configure(wl_endpoint_t *core, const wl_endpoint_call_t *call, wl_rpc_result_t result, const uint8_t *body, size_t length) {
   (void)core;
   configure_response_t response;
   const configure_response_t *view = NULL;
   if (result.outcome == WL_RPC_SUCCESS) {
-    if (configure_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    if (WLC_NODE_DECODE(configure_response, body, length, &response) == WL_CODEC_OK) view = &response;
     else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_configure_cb_t)call->callback)((device_node_t *)core, result, view);
@@ -225,7 +230,7 @@ static void device_complete_configure_ex(wl_endpoint_t *core, const wl_endpoint_
   configure_response_t response;
   const configure_response_t *view = NULL;
   if (result.outcome == WL_RPC_SUCCESS) {
-    if (configure_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    if (WLC_NODE_DECODE(configure_response, body, length, &response) == WL_CODEC_OK) view = &response;
     else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_configure_ex_cb_t)call->callback)(call->user, result, view);
@@ -252,7 +257,7 @@ static void device_complete_get_info(wl_endpoint_t *core, const wl_endpoint_call
   info_response_t response;
   const info_response_t *view = NULL;
   if (result.outcome == WL_RPC_SUCCESS) {
-    if (info_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    if (WLC_NODE_DECODE(info_response, body, length, &response) == WL_CODEC_OK) view = &response;
     else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_get_info_cb_t)call->callback)((device_node_t *)core, result, view);
@@ -262,7 +267,7 @@ static void device_complete_get_info_ex(wl_endpoint_t *core, const wl_endpoint_c
   info_response_t response;
   const info_response_t *view = NULL;
   if (result.outcome == WL_RPC_SUCCESS) {
-    if (info_response_decode(body, length, &response) == WL_CODEC_OK) view = &response;
+    if (WLC_NODE_DECODE(info_response, body, length, &response) == WL_CODEC_OK) view = &response;
     else result = (wl_rpc_result_t){WL_RPC_LOCAL_ERROR, WL_ERR_CORRUPT_PAYLOAD};
   }
   ((device_get_info_ex_cb_t)call->callback)(call->user, result, view);
@@ -302,7 +307,7 @@ static wl_err_t device_bind_impl(device_node_t *self, uint32_t instance, wl_tran
   if (transport == NULL && tx_write == NULL) return WL_ERR_INVALID_ARG;
   self->tx_write = tx_write;
   const wl_node_layout_t layout = {
-    .instance = instance, .has_tx = 1,
+    .instance = instance, .has_tx = 1, .rx_slots = 2U,
     .route = device_route, .user = NULL,
     .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
     .rx_frame_max = DEVICE_RX_FRAME_MAX, .tx_frame_max = DEVICE_TX_FRAME_MAX,

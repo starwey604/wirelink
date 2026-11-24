@@ -14,7 +14,8 @@
 extern "C" {
 #endif
 
-#define WL_PACKET_RX_SLOTS 2U
+#define WL_PACKET_RX_SLOTS 2U /* Default depth. */
+#define WL_PACKET_RX_SLOTS_MAX 8U
 #define WL_PACKET_SEQUENCE_MAX UINT32_C(0x0fffffff)
 
 typedef struct {
@@ -54,6 +55,7 @@ typedef void (*wl_packet_notify_fn)(void *);
 
 typedef struct {
   uint32_t instance; /* Nonzero, unique across reinitialization. */
+  uint8_t rx_slots; /* 0 selects the default; otherwise 2, 4, or 8. */
   uint8_t *rx_storage;
   size_t rx_unit_size;
   size_t rx_storage_size;
@@ -85,8 +87,9 @@ struct wl_packet_port {
   wl_atomic_bool_t running;
   wl_atomic_bool_t claim_active;
   wl_atomic_bool_t activity;
-  size_t lengths[WL_PACKET_RX_SLOTS];
-  uint32_t rx_sequences[WL_PACKET_RX_SLOTS];
+  uint8_t rx_mask;
+  size_t lengths[WL_PACKET_RX_SLOTS_MAX];
+  uint32_t rx_sequences[WL_PACKET_RX_SLOTS_MAX];
   uint32_t claim_sequence;
   uint32_t claim_cursor;
   size_t claim_capacity;

@@ -317,12 +317,15 @@ static void finish_call(wl_endpoint_t *endpoint, unsigned slot,
    * Physical LEASED bytes keep their separate generation until DRAINED. */
   endpoint->calls[slot].state = CALL_FREE;
   --endpoint->active_calls;
-  for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i)
-    if (endpoint->tx[i].state == READY && endpoint->tx[i].call_slot == slot &&
-        endpoint->tx[i].generation == saved.generation) {
-      endpoint->tx[i].state = FREE;
-      queue_remove(endpoint, i);
-    }
+  /* submit_tx removes the request from the queue before setting sent. */
+  if (!saved.sent) {
+    for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i)
+      if (endpoint->tx[i].state == READY && endpoint->tx[i].call_slot == slot &&
+          endpoint->tx[i].generation == saved.generation) {
+        endpoint->tx[i].state = FREE;
+        queue_remove(endpoint, i);
+      }
+  }
   saved.complete(endpoint, &saved, result, body, length);
 }
 

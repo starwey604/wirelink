@@ -9,7 +9,7 @@
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x5a72c7fa9b968add",
-    "node": "0xf054de4b6751e194"
+    "node": "0x28d53e40939259bc"
   },
   "codec_formats": {
     "CONFIGURE_REQUEST_CODEC_FORMAT": "schema-v1",
@@ -30,9 +30,9 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "device.c", "size": 34103, "digest": "0x3c26c6337260ae90"},
-    {"path": "device.h", "size": 10137, "digest": "0xa41f162cfe48a61a"}
+    {"path": "device.c", "size": 34339, "digest": "0x6deedffd9908a110"},
+    {"path": "device.h", "size": 10121, "digest": "0x0ca6fe761b7854b6"}
   ]
 ,
-  "nodes": [{"name":"device","framing":"native","handlers":"static","timeout_ms":500,"request_frame_capacity":222,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":228,"tx_frame_capacity":222,"rx_wire_capacity":228,"tx_wire_capacity":222}]
+  "nodes": [{"name":"device","framing":"native","handlers":"static","timeout_ms":500,"rx_slots":2,"request_frame_capacity":222,"reply_frame_capacity":0,"message_frame_capacity":0,"rx_frame_capacity":228,"tx_frame_capacity":222,"rx_wire_capacity":228,"tx_wire_capacity":222}]
 }

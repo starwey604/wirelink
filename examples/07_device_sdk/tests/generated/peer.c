@@ -171,6 +171,11 @@ void peer_numbers_clear(peer_numbers_t *value) {
 
 
 #include <limits.h>
+#ifdef WL_CODEC_HAS_LOCAL_DECODE
+#define WLC_NODE_DECODE(m, ...) wl_codec_decode_local(&m##_desc, __VA_ARGS__)
+#else
+#define WLC_NODE_DECODE(m, ...) m##_decode(__VA_ARGS__)
+#endif
 static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   device_peer_node_t *self = (device_peer_node_t *)core;
   (void)self;
@@ -185,7 +190,7 @@ static wl_err_t device_peer_route(wl_endpoint_t *core, const wl_wire_frame_t *fr
     error = wl_endpoint_reply_claim(core, 6U, &metadata, &slot, &payload, &capacity);
     if (error != WL_OK) return error;
     peer_configure_request_t request;
-    if (peer_configure_request_decode(metadata.body, metadata.length, &request) != WL_CODEC_OK) {
+    if (WLC_NODE_DECODE(peer_configure_request, metadata.body, metadata.length, &request) != WL_CODEC_OK) {
       wl_endpoint_reply_abort(core, slot); return WL_ERR_CORRUPT_PAYLOAD;
     }
     peer_configure_response_clear(&self->reply.configure);
@@ -233,7 +238,7 @@ static wl_err_t device_peer_bind_impl(device_peer_node_t *self, uint32_t instanc
   self->handlers = *handlers;
   self->tx_write = tx_write;
   const wl_node_layout_t layout = {
-    .instance = instance, .has_tx = 1,
+    .instance = instance, .has_tx = 1, .rx_slots = 2U,
     .route = device_peer_route, .user = user,
     .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
     .rx_frame_max = DEVICE_PEER_RX_FRAME_MAX, .tx_frame_max = DEVICE_PEER_TX_FRAME_MAX,

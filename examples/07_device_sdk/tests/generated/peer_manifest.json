@@ -9,7 +9,7 @@
   "identity": {
     "algorithm": "fnv1a64-v1",
     "schema": "0x7d9e3c07d7d6a0f5",
-    "node": "0x11fec7c765fee1f4"
+    "node": "0x2038f028937a7094"
   },
   "codec_formats": {
     "PEER_CONFIGURE_REQUEST_CODEC_FORMAT": "schema-v1",
@@ -30,9 +30,9 @@
   ],
   "artifact_digest_algorithm": "fnv1a64-domain-bytes-v1",
   "artifacts": [
-    {"path": "peer.c", "size": 22188, "digest": "0x6cbb654963e1499a"},
-    {"path": "peer.h", "size": 9304, "digest": "0x27ed99486951b005"}
+    {"path": "peer.c", "size": 22394, "digest": "0x2f863f3afee7e11f"},
+    {"path": "peer.h", "size": 9288, "digest": "0x51d70eb9ab3cef65"}
   ]
 ,
-  "nodes": [{"name":"device_peer","framing":"native","handlers":"dynamic","timeout_ms":500,"request_frame_capacity":0,"reply_frame_capacity":228,"message_frame_capacity":0,"rx_frame_capacity":222,"tx_frame_capacity":228,"rx_wire_capacity":222,"tx_wire_capacity":228}]
+  "nodes": [{"name":"device_peer","framing":"native","handlers":"dynamic","timeout_ms":500,"rx_slots":2,"request_frame_capacity":0,"reply_frame_capacity":228,"message_frame_capacity":0,"rx_frame_capacity":222,"tx_frame_capacity":228,"rx_wire_capacity":222,"tx_wire_capacity":228}]
 }

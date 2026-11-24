@@ -21,13 +21,40 @@ static void wlc_scalar_shape_0_clear(void *value) {
   memcpy(value, &temp, sizeof(temp));
 }
 
+static wl_codec_status_t wlc_scalar_shape_0_ordered(const uint8_t *cursor, const uint8_t *end, void *out) {
+  wlc_scalar_shape_0_t temp;
+  wlc_scalar_shape_0_clear(&temp);
+  if (cursor != end && *cursor == 0x08U) {
+    cursor += 1U;
+    uint64_t w = 0U;
+    wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
+    if (s != WL_CODEC_OK) return s;
+    if (w > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+    const int32_t sv = wl_codec_unzz32((uint32_t)w);
+    temp.v0 = (int32_t)sv;
+  } else return WL_CODEC_ERR_MALFORMED;
+  if (cursor != end && *cursor == 0x10U) {
+    cursor += 1U;
+    uint64_t w = 0U;
+    wl_codec_status_t s = wl_codec_getv(&cursor, end, &w);
+    if (s != WL_CODEC_OK) return s;
+    if (w > UINT32_MAX) return WL_CODEC_ERR_OVERFLOW;
+    const int32_t sv = wl_codec_unzz32((uint32_t)w);
+    temp.v1 = (int32_t)sv;
+  } else return WL_CODEC_ERR_MALFORMED;
+  if (cursor != end) return WL_CODEC_ERR_MALFORMED;
+  memcpy(out, &temp, sizeof(temp));
+  return WL_CODEC_OK;
+}
+
 static wl_codec_status_t wlc_scalar_shape_0_decode(const uint8_t *input, size_t length, void *out) {
   if (out == NULL || (length != 0U && input == NULL)) return WL_CODEC_ERR_INVALID_VALUE;
+  const uint8_t *cursor = input;
+  const uint8_t *end = length != 0U ? input + length : input;
+  if (cursor != end && wlc_scalar_shape_0_ordered(cursor, end, out) == WL_CODEC_OK) return WL_CODEC_OK;
   wlc_scalar_shape_0_t temp;
   wlc_scalar_shape_0_clear(&temp);
   uint8_t seen = 0U;
-  const uint8_t *cursor = input;
-  const uint8_t *end = length != 0U ? input + length : input;
   while (cursor < end) {
     uint64_t wide_key = 0U;
     wl_codec_status_t status = wl_codec_getv(&cursor, end, &wide_key);
@@ -176,7 +203,7 @@ static wl_err_t calculator_peer_bind_impl(calculator_peer_node_t *self, uint32_t
   self->handlers = *handlers;
   self->tx_write = tx_write;
   const wl_node_layout_t layout = {
-    .instance = instance, .has_tx = 1,
+    .instance = instance, .has_tx = 1, .rx_slots = 2U,
     .route = calculator_peer_route, .user = user,
     .rx_storage = &self->rx[0][0], .rx_storage_size = sizeof(self->rx),
     .rx_frame_max = CALCULATOR_PEER_RX_FRAME_MAX, .tx_frame_max = CALCULATOR_PEER_TX_FRAME_MAX,

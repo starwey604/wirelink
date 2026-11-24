@@ -93,7 +93,7 @@ struct demo_node {
   uint8_t replies[WL_ENDPOINT_REPLIES][18];
   uint8_t requests[WL_ENDPOINT_CALLS][18];
   uint8_t message[15];
-  uint8_t rx[WL_PACKET_RX_SLOTS][DEMO_RX_WIRE_MAX + 1U];
+  uint8_t rx[2U][DEMO_RX_WIRE_MAX + 1U];
   demo_tx_write_fn tx_write;
 };
 /* Explicit instance IDs must be nonzero. Rebind only after close completes. */
