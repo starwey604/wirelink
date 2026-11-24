@@ -123,6 +123,7 @@ struct wl_endpoint {
   uint8_t tx_head;
   uint8_t tx_count;
   uint8_t call_cursor;
+  uint8_t active_calls;
   uint8_t rx_held;
   uint8_t rx_blocked;
   uint8_t tx_blocked;

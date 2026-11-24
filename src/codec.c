@@ -855,10 +855,158 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_measure(const wl_codec_desc_t *desc,
   return WL_CODEC_OK;
 }
 
+static bool try_encode_fast(const wl_codec_desc_t *desc, const void *msg,
+                            uint8_t *out, size_t out_capacity,
+                            size_t *out_length) {
+  if (desc == NULL || msg == NULL || out == NULL || out_length == NULL) {
+    return false;
+  }
+  const uint8_t *base = msg;
+  uint8_t *cursor = out;
+  size_t rem = out_capacity;
+  for (size_t i = 0U; i < desc->field_count; ++i) {
+    const wl_codec_field_t *f = &desc->fields[i];
+    if (f->cardinality == WL_CODEC_CARD_REPEATED) {
+      return false;
+    }
+    if (!is_required_card(f->cardinality) &&
+        !*(const bool *)(base + f->presence_offset)) {
+      continue;
+    }
+    if (rem < f->key_len) {
+      return false;
+    }
+    memcpy(cursor, f->key, f->key_len);
+    cursor += f->key_len;
+    rem -= f->key_len;
+    const void *src = base + f->offset;
+    if (is_packed_card(f->cardinality)) {
+      const size_t payload = packed_payload_size(f);
+      const size_t lp = wl_codec_vsize((uint64_t)payload);
+      if (payload > rem || lp > rem - payload) {
+        return false;
+      }
+      cursor = emit_packed(f, src, cursor);
+      rem -= lp + payload;
+      continue;
+    }
+    switch (f->kind) {
+    case WL_CODEC_KIND_BOOL:
+      if (rem < 1U) {
+        return false;
+      }
+      *cursor++ = (*(const bool *)src) ? 1U : 0U;
+      --rem;
+      break;
+    case WL_CODEC_KIND_UINT32:
+    case WL_CODEC_KIND_UINT64: {
+      const uint64_t v = read_unsigned(src, f->scalar_size);
+      const size_t nb = wl_codec_vsize(v);
+      if (rem < nb) {
+        return false;
+      }
+      cursor = wl_codec_putv(cursor, v);
+      rem -= nb;
+      break;
+    }
+    case WL_CODEC_KIND_INT32:
+    case WL_CODEC_KIND_SINT32:
+    case WL_CODEC_KIND_ENUM: {
+      const uint64_t v =
+          (uint64_t)wl_codec_zz32((int32_t)read_signed(src, f->scalar_size));
+      const size_t nb = wl_codec_vsize(v);
+      if (rem < nb) {
+        return false;
+      }
+      cursor = wl_codec_putv(cursor, v);
+      rem -= nb;
+      break;
+    }
+    case WL_CODEC_KIND_INT64:
+    case WL_CODEC_KIND_SINT64: {
+      const uint64_t v = wl_codec_zz64(read_signed(src, f->scalar_size));
+      const size_t nb = wl_codec_vsize(v);
+      if (rem < nb) {
+        return false;
+      }
+      cursor = wl_codec_putv(cursor, v);
+      rem -= nb;
+      break;
+    }
+    case WL_CODEC_KIND_FIXED32:
+    case WL_CODEC_KIND_FLOAT32: {
+      if (rem < 4U) {
+        return false;
+      }
+      uint32_t bits = 0U;
+      memcpy(&bits, src, 4U);
+      wl_codec_put_le32(cursor, bits);
+      cursor += 4U;
+      rem -= 4U;
+      break;
+    }
+    case WL_CODEC_KIND_FIXED64:
+    case WL_CODEC_KIND_FLOAT64: {
+      if (rem < 8U) {
+        return false;
+      }
+      uint64_t bits = 0U;
+      memcpy(&bits, src, 8U);
+      wl_codec_put_le64(cursor, bits);
+      cursor += 8U;
+      rem -= 8U;
+      break;
+    }
+    case WL_CODEC_KIND_BYTES: {
+      const wl_codec_bytes_t *b = src;
+      if ((b->length > 0U && b->data == NULL) ||
+          (f->max_length != 0U && b->length > (size_t)f->max_length)) {
+        return false;
+      }
+      const size_t lp = wl_codec_vsize((uint64_t)b->length);
+      if (b->length > rem || lp > rem - b->length) {
+        return false;
+      }
+      cursor = wl_codec_putv(cursor, (uint64_t)b->length);
+      if (b->length > 0U) {
+        memcpy(cursor, b->data, b->length);
+        cursor += b->length;
+      }
+      rem -= lp + b->length;
+      break;
+    }
+    case WL_CODEC_KIND_INLINE_BYTES: {
+      const size_t len = *(const size_t *)src;
+      if (len > (size_t)f->max_length) {
+        return false;
+      }
+      const size_t lp = wl_codec_vsize((uint64_t)len);
+      if (len > rem || lp > rem - len) {
+        return false;
+      }
+      cursor = wl_codec_putv(cursor, (uint64_t)len);
+      if (len > 0U) {
+        memcpy(cursor, inline_cdata(src, f), len);
+        cursor += len;
+      }
+      rem -= lp + len;
+      break;
+    }
+    default:
+      return false;
+    }
+  }
+  *out_length = (size_t)(cursor - out);
+  return true;
+}
+
 WL_HOT_ATTR wl_codec_status_t wl_codec_encode(const wl_codec_desc_t *desc,
                                               const void *msg, uint8_t *out,
                                               size_t out_capacity,
                                               size_t *out_length) {
+  if (try_encode_fast(desc, msg, out, out_capacity, out_length)) {
+    return WL_CODEC_OK;
+  }
   size_t needed = 0U;
   wl_codec_status_t status = wl_codec_measure(desc, msg, &needed);
   if (status != WL_CODEC_OK) {
@@ -910,20 +1058,6 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_encode(const wl_codec_desc_t *desc,
 static void copy_decoded(const wl_codec_desc_t *desc, void *out,
                          const void *scratch) {
   if (desc->struct_size <= 64U || desc->field_count == 0U) {
-    memcpy(out, scratch, desc->struct_size);
-    return;
-  }
-  int has_inline_or_msg = 0;
-  for (size_t i = 0U; i < desc->field_count; ++i) {
-    uint8_t kind = desc->fields[i].kind;
-    if (kind == WL_CODEC_KIND_INLINE_BYTES ||
-        kind == WL_CODEC_KIND_INLINE_STRING ||
-        kind == WL_CODEC_KIND_MESSAGE) {
-      has_inline_or_msg = 1;
-      break;
-    }
-  }
-  if (!has_inline_or_msg) {
     memcpy(out, scratch, desc->struct_size);
     return;
   }

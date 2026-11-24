@@ -222,6 +222,7 @@ WL_HOT_ATTR wl_err_t wl_endpoint_call_commit(
   call->user = user;
   call->sent = 0U;
   call->state = CALL_WAITING;
+  ++endpoint->active_calls;
   tx->call_slot = (uint8_t)call_slot;
   tx->generation = call->generation;
   endpoint->operation = operation;
@@ -315,6 +316,7 @@ static void finish_call(wl_endpoint_t *endpoint, unsigned slot,
   /* Release logical ownership before callback so it may create another call.
    * Physical LEASED bytes keep their separate generation until DRAINED. */
   endpoint->calls[slot].state = CALL_FREE;
+  --endpoint->active_calls;
   for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i)
     if (endpoint->tx[i].state == READY && endpoint->tx[i].call_slot == slot &&
         endpoint->tx[i].generation == saved.generation) {
@@ -468,13 +470,16 @@ WL_HOT_ATTR wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, uint32_t now,
   if (endpoint->in_step) return WL_ERR_REENTRANT;
   endpoint->in_step = 1U;
   uint32_t generations[WL_ENDPOINT_CALLS];
-  for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i) {
-    wl_endpoint_call_t *call = &endpoint->calls[i];
-    if (call->state == CALL_WAITING && !call->armed) {
-      call->deadline += now;
-      call->armed = 1U;
+  const uint8_t check_terminals = endpoint->active_calls;
+  if (check_terminals != 0U) {
+    for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i) {
+      wl_endpoint_call_t *call = &endpoint->calls[i];
+      if (call->state == CALL_WAITING && !call->armed) {
+        call->deadline += now;
+        call->armed = 1U;
+      }
+      generations[i] = endpoint->calls[i].generation;
     }
-    generations[i] = endpoint->calls[i].generation;
   }
   if (wl_packet_take_activity(endpoint->port)) endpoint->tx_blocked = 0U;
   unsigned count = 0U;
@@ -488,16 +493,25 @@ WL_HOT_ATTR wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, uint32_t now,
     }
     /* Every eligible terminal in this step's generation snapshot precedes
      * RX. If the budget ends here, leave RX queued for a later owner pass. */
-    while (count < budget && terminal(endpoint, now, generations)) ++count;
+    if (check_terminals != 0U) {
+      while (count < budget && terminal(endpoint, now, generations)) ++count;
+    }
     /* Single-site alternating TX/RX phase loop preserves budget=1 turn
      * fairness without duplicating the receive() call inside step(). */
     uint8_t do_rx = endpoint->rx_turn;
     for (unsigned phase = 0U; phase < 2U && count < budget; ++phase) {
-      int progressed = do_rx ? receive(endpoint, &error)
-                             : submit_tx(endpoint, &error);
+      int progressed = do_rx
+          ? ((endpoint->rx_held || wl_packet_rx_ready(endpoint->port)) &&
+             receive(endpoint, &error))
+          : (endpoint->tx_count != 0U && submit_tx(endpoint, &error));
       if (progressed) {
         ++count;
         endpoint->rx_turn = (uint8_t)!do_rx;
+        if (!do_rx && count < budget && wl_packet_tx_ready(endpoint->port)) {
+          wl_err_t tx_err = complete_tx(endpoint);
+          if (error == WL_OK) error = tx_err;
+          ++count;
+        }
       }
       do_rx = !do_rx;
     }
@@ -512,26 +526,29 @@ WL_HOT_ATTR int wl_endpoint_ready(const wl_endpoint_t *endpoint, uint32_t now,
                                 int *has_deadline, uint32_t *deadline) {
   *has_deadline = 0;
   int ready = wl_packet_tx_ready(endpoint->port);
-  for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i) {
-    const wl_endpoint_call_t *call = &endpoint->calls[i];
-    if (call->state == CALL_FREE) continue;
-    if (call->state == CALL_WAITING && !call->armed) {
-      ready = 1;
-      continue;
-    }
-    if (call->state == CALL_TERMINAL || expired(now, call->deadline))
-      ready = 1;
-    else if (!*has_deadline ||
-             (uint32_t)(call->deadline - now) < (uint32_t)(*deadline - now)) {
-      *has_deadline = 1;
-      *deadline = call->deadline;
+  if (endpoint->active_calls != 0U) {
+    for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i) {
+      const wl_endpoint_call_t *call = &endpoint->calls[i];
+      if (call->state == CALL_FREE) continue;
+      if (call->state == CALL_WAITING && !call->armed) {
+        ready = 1;
+        continue;
+      }
+      if (call->state == CALL_TERMINAL || expired(now, call->deadline))
+        ready = 1;
+      else if (!*has_deadline ||
+               (uint32_t)(call->deadline - now) < (uint32_t)(*deadline - now)) {
+        *has_deadline = 1;
+        *deadline = call->deadline;
+      }
     }
   }
   if (wl_packet_rx_ready(endpoint->port) &&
       (!endpoint->rx_blocked || endpoint->closed ||
        free_tx(endpoint, REPLY_FIRST, MESSAGE_TX) >= 0))
     ready = 1;
-  if (!endpoint->closed && !wl_packet_tx_active(endpoint->port) &&
+  if (!endpoint->closed && endpoint->tx_count != 0U &&
+      !wl_packet_tx_active(endpoint->port) &&
       (!endpoint->tx_blocked || wl_packet_activity_pending(endpoint->port)))
     for (unsigned i = 0U; i < WL_ENDPOINT_TX_COUNT; ++i)
       if (endpoint->tx[i].state == READY) ready = 1;
