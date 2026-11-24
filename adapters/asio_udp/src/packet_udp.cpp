@@ -2,16 +2,48 @@
 #include "wirelink/udp.h"
 #include "wirelink/wire.h"
 #include <asio.hpp>
+#include <cerrno>
 #include <chrono>
+#include <climits>
 #include <memory>
 #include <atomic>
-#include <optional>
 #include <utility>
 #if defined(_WIN32)
 #include <mswsock.h>
+#else
+#include <poll.h>
+#include <sys/socket.h>
 #endif
+
+namespace {
+// The owner waits with one poll() over the data socket and a self-connected
+// loopback wake socket instead of running an Asio reactor per wait: no timer,
+// no epoll registration churn, one syscall per idle wait.
+#if defined(_WIN32)
+using poll_fd = WSAPOLLFD;
+int poll_sockets(poll_fd *fds, unsigned count, int timeout) { return ::WSAPoll(fds, count, timeout); }
+bool poll_interrupted() { return false; }
+#else
+using poll_fd = pollfd;
+int poll_sockets(poll_fd *fds, unsigned count, int timeout) { return ::poll(fds, count, timeout); }
+bool poll_interrupted() { return errno == EINTR; }
+#endif
+using native_socket = ::asio::ip::udp::socket::native_handle_type;
+// Both wake ends are non-blocking (set through Asio); a full buffer already wakes.
+void wake_signal(native_socket socket) {
+  const char byte = 0;
+  (void)::send(socket, &byte, 1, 0);
+}
+void wake_drain(native_socket socket) {
+  constexpr int capacity = 64;
+  char bytes[capacity];
+  while (::recv(socket, bytes, capacity, 0) > 0) {
+  }
+}
+}
 struct wl_udp : wl_transport_t {
-  explicit wl_udp(const wl_transport_ops_t *operations) : wl_transport_t{operations}, socket(io) {}
+  explicit wl_udp(const wl_transport_ops_t *operations)
+      : wl_transport_t{operations}, socket(io), wake_socket(io) {}
   wl_err_t attach(const wl_transport_attach_t &);
 
   wl_err_t start(const wl_udp_config_t &config, std::error_code &error);
@@ -32,6 +64,8 @@ private:
 
   ::asio::io_context io;
   ::asio::ip::udp::socket socket;
+  ::asio::ip::udp::socket wake_socket; // connected to itself; only native send/recv
+  native_socket wake_handle{};
   ::asio::ip::udp::endpoint peer;
   size_t maximum_datagram_size{}, maximum_tx_datagram_size{}, maximum_rx_frame{};
   unsigned service_budget{};
@@ -39,7 +73,7 @@ private:
   wl_err_t (*decode)(uint8_t *, size_t, size_t *){};
   wl_packet_claim_t rx_claim{};
   bool rx_claimed{};
-  std::atomic<bool> wake{false};
+  std::atomic<bool> wake{false}, waiting{false};
   bool have_peer{}, started{}, tx_blocked{}, more_rx{};
 };
 
@@ -74,6 +108,15 @@ wl_err_t wl_udp::start(const wl_udp_config_t &config, std::error_code &error) {
   pending_socket.bind({local, config.bind_port}, error);
   if (!error) pending_socket.non_blocking(true, error);
   if (error) return WL_ERR_IO;
+
+  ::asio::ip::udp::socket pending_wake(io);
+  pending_wake.open(::asio::ip::udp::v4(), error);
+  if (!error) pending_wake.bind({::asio::ip::address_v4::loopback(), 0}, error);
+  if (!error) pending_wake.connect(pending_wake.local_endpoint(error), error);
+  if (!error) pending_wake.non_blocking(true, error);
+  if (error) return WL_ERR_IO;
+  wake_socket = std::move(pending_wake);
+  wake_handle = wake_socket.native_handle();
 
   socket = std::move(pending_socket);
   maximum_datagram_size = config.maximum_datagram_size;
@@ -148,8 +191,10 @@ wl_err_t wl_udp::service() {
     wl_err_t result = WL_OK;
     if (!rx_claimed) {
       result = wl_packet_rx_claim(port, maximum_datagram_size + 1, &rx_claim);
-      if (result == WL_ERR_WOULD_BLOCK)
+      if (result == WL_ERR_WOULD_BLOCK) {
+        more_rx = true; // Datagrams may remain queued until a unit is released.
         return WL_OK;
+      }
       if (result != WL_OK)
         return result;
       rx_claimed = true;
@@ -210,16 +255,14 @@ wl_err_t wl_udp::service() {
   more_rx = true;
   return WL_OK;
 }
+// Readiness reports only known pending work; the kernel queue is observed by
+// wait_for_activity's poll, never by a per-check FIONREAD.
 bool wl_udp::ready() const {
-  if (!started)
-    return false;
-  std::error_code error;
-  return (rx_claimed || wl_packet_rx_available(port)) &&
-         (more_rx || socket.available(error) != 0);
+  return started && more_rx && (rx_claimed || wl_packet_rx_available(port));
 }
 void wl_udp::notify() {
-  wake.store(true, std::memory_order_release);
-  io.stop();
+  wake.store(true);
+  if (waiting.load()) wake_signal(wake_handle);
 }
 wl_err_t wl_udp::wait_for_activity(std::chrono::milliseconds maximum) {
   if (!started)
@@ -228,69 +271,35 @@ wl_err_t wl_udp::wait_for_activity(std::chrono::milliseconds maximum) {
     return WL_ERR_INVALID_ARG;
   if (ready())
     return WL_OK;
-  unsigned pending = 0;
-  bool ready = false, failed = false, expired = false;
-  std::optional<::asio::steady_timer> timer(std::in_place, io);
-  auto completion = [&](const std::error_code &error) {
-    --pending;
-    if (!error)
-      ready = true;
-    else if (error != ::asio::error::operation_aborted)
-      failed = true;
-  };
-  auto drain = [&] {
-    std::error_code error;
-    socket.cancel(error);
-    timer.reset();
-    while (pending) {
-      io.restart();
-      io.poll();
-    }
-    return error;
-  };
-  try {
-    io.restart();
-    if (maximum == std::chrono::milliseconds(UINT32_MAX))
-      timer->expires_at(::asio::steady_timer::time_point::max());
-    else
-      timer->expires_after(maximum);
-    timer->async_wait([&](const std::error_code &error) {
-      --pending;
-      if (!error)
-        expired = true;
-      else if (error != ::asio::error::operation_aborted)
-        failed = true;
-    });
-    ++pending;
-    if (rx_claimed || wl_packet_rx_available(port)) {
-      socket.async_wait(::asio::ip::udp::socket::wait_read, completion);
-      ++pending;
-    }
-    if (tx_blocked) {
-      socket.async_wait(::asio::ip::udp::socket::wait_write, completion);
-      ++pending;
-    }
-    if (wake.exchange(false, std::memory_order_acquire))
-      ready = true;
-    while (!ready && !failed && !expired && !wake.load(std::memory_order_acquire))
-      io.run_one();
-  } catch (...) {
-    (void)drain();
-    throw;
-  }
-  const auto error = drain();
-  if (wake.exchange(false, std::memory_order_acquire))
-    ready = true;
-  if (failed || error)
+  poll_fd fds[2]{};
+  fds[0].fd = wake_handle;
+  fds[0].events = POLLIN;
+  fds[1].fd = socket.native_handle();
+  fds[1].events = static_cast<short>(((rx_claimed || wl_packet_rx_available(port)) ? POLLIN : 0) |
+                                     (tx_blocked ? POLLOUT : 0));
+  const unsigned count = fds[1].events ? 2U : 1U;
+  const int timeout = maximum.count() >= static_cast<long long>(UINT32_MAX) ? -1
+                      : maximum.count() > INT_MAX ? INT_MAX : static_cast<int>(maximum.count());
+  // Dekker pairing with notify(): either the notifier sees `waiting`, or this
+  // owner sees `wake` before blocking.
+  waiting.store(true);
+  bool woken = wake.exchange(false);
+  const int polled = woken ? 0 : poll_sockets(fds, count, timeout);
+  waiting.store(false);
+  if (polled < 0 && !poll_interrupted())
     return WL_ERR_IO;
-  if (ready) {
-    more_rx = true;
-    if (tx_blocked) {
-      tx_blocked = false;
-      wl_packet_activity(port);
-    }
+  if (polled > 0 && fds[0].revents)
+    wake_drain(wake_handle);
+  woken = wake.exchange(false) || woken;
+  const bool io_ready = polled > 0 && count == 2U && fds[1].revents != 0;
+  if (!woken && !io_ready)
+    return polled < 0 ? WL_OK : WL_ERR_NO_DATA; // EINTR is a spurious wake.
+  more_rx = true;
+  if (tx_blocked) {
+    tx_blocked = false;
+    wl_packet_activity(port);
   }
-  return ready ? WL_OK : WL_ERR_NO_DATA;
+  return WL_OK;
 }
 void wl_udp::stop() {
   if (!started)

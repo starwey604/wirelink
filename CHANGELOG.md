@@ -2,6 +2,10 @@
 
 ## 0.0.99
 
+- `Wirelink::udp` waits with one `poll()`/`WSAPoll()` over the socket and a
+  loopback wake socket, and readiness no longer queries `FIONREAD`. An idle
+  owner wait now costs one system call instead of an Asio timer/reactor cycle.
+
 - Drive a C node with `wl_node_poll(&node, clock, max_wait_ms)`. It waits for
   work and steps once using the current time. Pass zero to step immediately.
 
