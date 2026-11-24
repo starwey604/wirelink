@@ -125,15 +125,15 @@ static void test_node_poll(void) {
   const uint8_t bad_frame = 0U;
   CHECK(wl_node_rx_packet(&node, &bad_frame, sizeof(bad_frame)) == WL_OK);
   CHECK(wl_node_poll(&node, clock, 100U) == WL_ERR_BAD_FRAME);
-  CHECK(driver.clock_reads == 3U && driver.waits == 0U && driver.services == 2U);
+  CHECK(driver.clock_reads == 2U && driver.waits == 0U && driver.services == 2U);
 
   driver.wait_result = WL_ERR_IO;
   CHECK(wl_node_poll(&node, clock, 100U) == WL_ERR_IO);
-  CHECK(driver.waits == 1U && driver.clock_reads == 4U && driver.services == 2U);
+  CHECK(driver.waits == 1U && driver.clock_reads == 3U && driver.services == 2U);
 
   driver.wait_result = WL_ERR_NO_DATA;
   CHECK(wl_node_poll(&node, clock, 100U) == WL_OK);
-  CHECK(driver.waits == 2U && driver.waited == 15U && driver.clock_reads == 6U);
+  CHECK(driver.waits == 2U && driver.waited == 15U && driver.clock_reads == 5U);
   CHECK(driver.services == 3U && driver.service_time == 115U);
   CHECK(wl_node_close(&node, driver.now) == WL_OK);
 }

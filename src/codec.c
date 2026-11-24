@@ -1132,6 +1132,138 @@ static void copy_decoded(const wl_codec_desc_t *desc, void *out,
   }
 }
 
+static int try_decode_inorder(const wl_codec_desc_t *desc,
+                              const uint8_t *input, size_t input_length,
+                              void *out, void *scratch,
+                              wl_codec_status_t *out_status) {
+  if (input_length == 0U || desc->has_repeated != 0U ||
+      desc->presence_bytes != 0U || desc->field_count == 0U) {
+    return 0;
+  }
+  const uint8_t *cursor = input;
+  const uint8_t *const end = input + input_length;
+  uint8_t *const base = scratch;
+  for (size_t i = 0U; i < desc->field_count; ++i) {
+    const wl_codec_field_t *f = &desc->fields[i];
+    if (f->cardinality != WL_CODEC_CARD_REQUIRED || f->key_len != 1U ||
+        cursor >= end || *cursor != f->key[0]) {
+      return 0;
+    }
+    ++cursor;
+    void *dst = base + f->offset;
+    switch (f->kind) {
+    case WL_CODEC_KIND_BOOL: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK || v > 1U) {
+        return 0;
+      }
+      *(bool *)dst = (v != 0U);
+      break;
+    }
+    case WL_CODEC_KIND_UINT32: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK) {
+        return 0;
+      }
+      const uint64_t limit = (f->scalar_size == 1U)   ? UINT8_MAX
+                             : (f->scalar_size == 2U) ? UINT16_MAX
+                                                      : UINT32_MAX;
+      if (v > limit) {
+        return 0;
+      }
+      write_uint_default(dst, f->scalar_size, v);
+      break;
+    }
+    case WL_CODEC_KIND_UINT64: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK) {
+        return 0;
+      }
+      *(uint64_t *)dst = v;
+      break;
+    }
+    case WL_CODEC_KIND_INT32:
+    case WL_CODEC_KIND_SINT32:
+    case WL_CODEC_KIND_ENUM: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK || v > UINT32_MAX) {
+        return 0;
+      }
+      const int32_t sv = wl_codec_unzz32((uint32_t)v);
+      if ((f->scalar_size == 1U && (sv < INT8_MIN || sv > INT8_MAX)) ||
+          (f->scalar_size == 2U && (sv < INT16_MIN || sv > INT16_MAX))) {
+        return 0;
+      }
+      write_sint_default(dst, f->scalar_size, sv);
+      break;
+    }
+    case WL_CODEC_KIND_INT64:
+    case WL_CODEC_KIND_SINT64: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK) {
+        return 0;
+      }
+      *(int64_t *)dst = wl_codec_unzz64(v);
+      break;
+    }
+    case WL_CODEC_KIND_FIXED32:
+    case WL_CODEC_KIND_FLOAT32: {
+      if ((size_t)(end - cursor) < 4U) {
+        return 0;
+      }
+      const uint32_t bits = wl_codec_get_le32(cursor);
+      cursor += 4U;
+      memcpy(dst, &bits, 4U);
+      break;
+    }
+    case WL_CODEC_KIND_FIXED64:
+    case WL_CODEC_KIND_FLOAT64: {
+      if ((size_t)(end - cursor) < 8U) {
+        return 0;
+      }
+      const uint64_t bits = wl_codec_get_le64(cursor);
+      cursor += 8U;
+      memcpy(dst, &bits, 8U);
+      break;
+    }
+    case WL_CODEC_KIND_BYTES: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK ||
+          (f->max_length != 0U && v > (uint64_t)f->max_length) ||
+          v > (uint64_t)(end - cursor)) {
+        return 0;
+      }
+      const size_t len = (size_t)v;
+      *(wl_codec_bytes_t *)dst = (wl_codec_bytes_t){cursor, len};
+      cursor += len;
+      break;
+    }
+    case WL_CODEC_KIND_INLINE_BYTES: {
+      uint64_t v = 0U;
+      if (wl_codec_getv(&cursor, end, &v) != WL_CODEC_OK ||
+          v > (uint64_t)f->max_length || v > (uint64_t)(end - cursor)) {
+        return 0;
+      }
+      const size_t len = (size_t)v;
+      if (len > 0U) {
+        memcpy(inline_data(dst, f), cursor, len);
+      }
+      *(size_t *)dst = len;
+      cursor += len;
+      break;
+    }
+    default:
+      return 0;
+    }
+  }
+  if (cursor != end) {
+    return 0;
+  }
+  copy_decoded(desc, out, scratch);
+  *out_status = WL_CODEC_OK;
+  return 1;
+}
+
 WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
                                               const uint8_t *input,
                                               size_t input_length, void *out,
@@ -1140,6 +1272,11 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_decode(const wl_codec_desc_t *desc,
       desc->field_count > WL_CODEC_MAX_FIELDS ||
       (input_length != 0U && input == NULL)) {
     return WL_CODEC_ERR_INVALID_VALUE;
+  }
+  wl_codec_status_t fast_status = WL_CODEC_OK;
+  if (try_decode_inorder(desc, input, input_length, out, scratch,
+                         &fast_status)) {
+    return fast_status;
   }
   uint64_t seen[WL_CODEC_MAX_FIELDS / 64U] = {0};
   if (desc->has_repeated != 0U) {

@@ -387,8 +387,9 @@ wl_err_t wl_udp::wait_for_activity(std::chrono::milliseconds maximum) {
                       : maximum.count() > INT_MAX ? INT_MAX : static_cast<int>(maximum.count());
   // Dekker pairing with notify(): either the notifier sees `waiting`, or this
   // owner sees `wake` before blocking.
-  waiting.store(true);
-  bool woken = wake.exchange(false);
+  waiting.store(true, std::memory_order_seq_cst);
+  bool woken = wake.load(std::memory_order_relaxed);
+  if (woken) woken = wake.exchange(false, std::memory_order_acq_rel);
   const int polled = woken ? 0 : poll_sockets(fds, count, timeout);
   waiting.store(false, std::memory_order_release);
   if (polled < 0 && !poll_interrupted())

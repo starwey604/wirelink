@@ -153,11 +153,17 @@ wl_err_t wl_node_wait(wl_node_t *node, uint32_t now_ms, uint32_t max_wait_ms) {
 wl_err_t wl_node_poll(wl_node_t *node, wl_clock_t clock, uint32_t max_wait_ms) {
   if (!node || !node->core.port || !clock.now_ms) return WL_ERR_INVALID_ARG;
   if (node->core.in_step) return WL_ERR_REENTRANT;
-  if (max_wait_ms != 0U) {
-    wl_err_t error = wl_node_wait(node, clock.now_ms(clock.user_data), max_wait_ms);
-    if (error != WL_OK) return error;
+  uint32_t now_ms = clock.now_ms(clock.user_data);
+  if (max_wait_ms != 0U && !node->transport_stopped && node->transport->ops->wait) {
+    wl_io_readiness_t ready = wl_node_readiness(node, now_ms);
+    if (!ready.runnable) {
+      if (ready.next_deadline_ms < max_wait_ms) max_wait_ms = ready.next_deadline_ms;
+      wl_err_t error = node->transport->ops->wait(node->transport, max_wait_ms);
+      if (error != WL_OK && error != WL_ERR_NO_DATA) return error;
+      now_ms = clock.now_ms(clock.user_data);
+    }
   }
-  return wl_node_step(node, clock.now_ms(clock.user_data));
+  return wl_node_step(node, now_ms);
 }
 
 wl_err_t wl_node_close(wl_node_t *node, uint32_t now_ms) {
