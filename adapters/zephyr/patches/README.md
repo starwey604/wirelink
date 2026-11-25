@@ -1,47 +1,12 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Local Zephyr UART tuning patch
+# Local Zephyr UART tuning notes
 
-`esp32-uart-rx-timeout.patch` adds `CONFIG_UART_ESP32_RX_TIMEOUT` to the
-Espressif UART driver. Its default is 22 character periods, matching upstream;
-Kconfig settings are 1..126. The driver validates each requested UART format
-against the SoC and clock dependent hardware threshold before changing format
-registers or resetting FIFOs, and returns `-EINVAL` if the setting cannot fit.
-ESP32-S3 allows at most 102 characters for 8N1 and 85 for 8E2; the benchmark
-builder's fixed 8N1 scenario accepts only 1..102. A failed runtime format change
-preserves the previous format and timeout. Zero is excluded because disabling
-the timeout can leave a short frame below the RX FIFO threshold indefinitely.
-
-Apply from a Wirelink checkout after updating Zephyr:
-
-```sh
-git -C /path/to/zephyr apply --check "$PWD/adapters/zephyr/patches/esp32-uart-rx-timeout.patch"
-git -C /path/to/zephyr apply "$PWD/adapters/zephyr/patches/esp32-uart-rx-timeout.patch"
-```
-
-The patch was built and measured with Zephyr
-`ca10f7fc7a5b5b1129823cfc57506e81bb109743` and hal_espressif
-`b16851b3c20e6fad3d2da42ec24a3e82d0b8b444`. Check applicability again after a
-Zephyr update; an upstream driver may have changed or gained its own setting.
-The patch belongs to the platform driver; Wirelink framing, codecs and the
-operating-system-independent core do not configure UART hardware.
-
-The setting applies to every UART instance configured by this driver. Keep
-`CONFIG_UART_ESP32_RX_FIFO_THRESH` and `CONFIG_UART_ESP32_TX_FIFO_THRESH`
-unchanged when comparing timeout settings.
-
-Run the boundary fixture against the applied patch and its matching HAL:
-
-```sh
-python3 tests/zephyr/host_fixtures/esp32_uart_timeout.py --zephyr-base /path/to/zephyr
-```
-
-This host fixture compiles the actual driver configure path and HAL timeout
-functions with mocked peripheral I/O and the real ESP32-S3 register type. It
-checks format changes, rejection without format/FIFO writes, the 102/103 and
-85/86 boundaries, and settings 2 and 22. It does not measure physical UART timing.
-
-Select the timeout for the application workload, then measure latency, CPU
-usage and sustained receive health with the same UART format and FIFO thresholds.
+Upstream Zephyr `main` (commit `3330056ad76`) added native per-port
+`rx-timeout`, `rx-fifo-threshold`, and `tx-fifo-threshold` devicetree properties
+to `espressif,esp32-uart`, superseding the former local
+`esp32-uart-rx-timeout.patch`. Select per-port RX timeout directly in board or
+application devicetree overlays while keeping FIFO thresholds unchanged when
+comparing settings.
 
 ## Optional ESP32-S3 RPC linker insertion point
 

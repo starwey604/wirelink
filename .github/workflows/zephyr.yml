@@ -41,7 +41,7 @@ jobs:
         shell: bash
         run: |
           zephyr_tree="$(west list zephyr -f '{abspath}')"
-          for patch in esp32-uart-rx-timeout esp32s3-rpc-layout dwc2-bulk-zlp; do
+          for patch in esp32s3-rpc-layout dwc2-bulk-zlp; do
             git -C "$zephyr_tree" apply --check "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
             git -C "$zephyr_tree" apply "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
           done
@@ -105,7 +105,7 @@ jobs:
         shell: bash
         run: |
           zephyr_tree="$(west list zephyr -f '{abspath}')"
-          for patch in esp32-uart-rx-timeout esp32s3-rpc-layout dwc2-bulk-zlp; do
+          for patch in esp32s3-rpc-layout dwc2-bulk-zlp; do
             git -C "$zephyr_tree" apply --check "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
             git -C "$zephyr_tree" apply "$GITHUB_WORKSPACE/wirelink/adapters/zephyr/patches/$patch.patch"
           done
