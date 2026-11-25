@@ -169,6 +169,31 @@ static void setup_fifo(size_t fifo_size) {
 }
 static void setup(void) { setup_fifo(sizeof(bytes)); }
 
+static void return_rx_buffers(void) {
+  for (size_t i = 0U; i < 2U; ++i) {
+    emit(&(struct uart_event){.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}});
+  }
+  fake_data.rx_enabled = false;
+  emit(&(struct uart_event){.type = UART_RX_DISABLED});
+  fake_data.rx_next_buf = NULL;
+}
+
+ZTEST(static_uart_dma, test_gap_wakes_owner_and_restarts_rx_in_same_pass) {
+  setup();
+  emit(&(struct uart_event){.type = UART_RX_STOPPED});
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 0U), WL_ERR_WOULD_BLOCK);
+  return_rx_buffers();
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 0U), WL_ERR_WOULD_BLOCK);
+  zassert_ok(wl_zephyr_uart_dma_wait(&adapter, K_NO_WAIT));
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 0U), WL_ERR_IO);
+  zassert_equal(fake_data.rx_enables, 2U);
+  zassert_equal(fake_data.rx_buf_responses, 2U);
+
+  zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
+  return_rx_buffers();
+  wl_zephyr_uart_dma_quiesce(&adapter);
+}
+
 ZTEST(static_uart_dma, test_frame_error_frees_staged_buffer_in_same_pass) {
   setup_fifo(4U);
   uint8_t *first = fake_data.rx_buf;
@@ -190,11 +215,7 @@ ZTEST(static_uart_dma, test_frame_error_frees_staged_buffer_in_same_pass) {
   zassert_equal(fake_data.rx_buf_responses, 2U);
 
   zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
-  for (size_t i = 0U; i < 2U; ++i) {
-    emit(&(struct uart_event){.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}});
-  }
-  fake_data.rx_enabled = false;
-  emit(&(struct uart_event){.type = UART_RX_DISABLED});
+  return_rx_buffers();
   wl_zephyr_uart_dma_quiesce(&adapter);
 }
 

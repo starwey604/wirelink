@@ -209,7 +209,7 @@ static wl_err_t initialize(wl_zephyr_uart_irq_t *adapter,
   memset(adapter, 0, sizeof(*adapter));
   adapter->transport.ops = &transport_ops;
   adapter->config = *config;
-  wl_err_t fifo_error = wl_byte_fifo_init(&adapter->fifo, config->fifo_storage, wl_zephyr_uart_irq_notify, adapter);
+  wl_err_t fifo_error = wl_byte_fifo_init(&adapter->fifo, config->fifo_storage, NULL, adapter);
   if (fifo_error != WL_OK) {
     k_spin_unlock(&callback_lock, key);
     return fifo_error;

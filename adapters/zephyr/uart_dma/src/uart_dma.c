@@ -529,7 +529,7 @@ static wl_err_t initialize(wl_zephyr_uart_dma_t *adapter,
   }
   memset(adapter, 0, sizeof(*adapter));
   adapter->transport.ops = &transport_ops;
-  wl_err_t fifo_error = wl_byte_fifo_init(&adapter->fifo, config->fifo_storage, wl_zephyr_uart_dma_notify, adapter);
+  wl_err_t fifo_error = wl_byte_fifo_init(&adapter->fifo, config->fifo_storage, NULL, adapter);
   if (fifo_error != WL_OK) {
     k_spin_unlock(&dma_binding_lock, bind_key);
     return fifo_error;
@@ -727,6 +727,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
     adapter->buffer_request_pending = 0U;
     k_spin_unlock(&adapter->rx_lock, key);
     wl_byte_fifo_note_gap(&adapter->fifo);
+    wl_zephyr_uart_dma_notify(adapter);
     atomic_set(&adapter->abort_pending, 0);
     atomic_set(&adapter->abort_disable_requested, 0);
     atomic_set(&adapter->expected_disabled, 0);
@@ -744,6 +745,8 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
     mark_abort(adapter);
     return WL_ERR_INVALID_STATE;
   }
+  if (wl_byte_fifo_cobs_ready(&adapter->fifo, adapter->stream))
+    wl_zephyr_uart_dma_notify(adapter);
   if (ret == WL_OK && atomic_get(&adapter->running) != 0) {
     ret = submit_requested_buffer(adapter);
     if (ret != WL_OK && ret != WL_ERR_WOULD_BLOCK) {
@@ -758,6 +761,7 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
         return ret == WL_OK ? input : ret;
       }
       wl_byte_fifo_note_gap(&adapter->fifo);
+      wl_zephyr_uart_dma_notify(adapter);
       atomic_set(&adapter->service_pending, 1);
     }
     return input == WL_OK ? WL_ERR_WOULD_BLOCK : input;

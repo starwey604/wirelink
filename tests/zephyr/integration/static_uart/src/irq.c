@@ -303,6 +303,28 @@ ZTEST(static_uart_irq, test_callback_tail_wake_survives_early_fifo_ack) {
   zassert_equal(full_data.complete_queries, 0);
   zassert_ok(wl_node_close(&node, 0));
 }
+static void check_no_inner_wake(void) {
+  zassert_equal(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT), WL_ERR_NO_DATA);
+}
+
+ZTEST(static_uart_irq, test_rx_chunks_share_tail_wake_and_gap_alone_wakes) {
+  setup();
+  zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0U));
+  full_data.level_pending = true;
+  full_data.rx_length = 2U;
+  full_data.read_chunk = 1U;
+  full_data.on_read = check_no_inner_wake;
+  fire();
+  zassert_equal(full_data.reads, 2U);
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+  zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0U));
+
+  full_data.error = UART_ERROR_OVERRUN;
+  fire();
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+  zassert_equal(wl_zephyr_uart_irq_service(&adapter, 0U), WL_ERR_IO);
+  zassert_ok(wl_node_close(&node, 0U));
+}
 ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   setup(); wl_packet_token_t token = pending_tx(0);
   full_data.read_error = -EIO;
