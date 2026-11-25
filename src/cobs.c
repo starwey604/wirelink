@@ -83,19 +83,30 @@ int wl_cobs_decode_in_place(uint8_t *buffer, size_t input_len,
   if (input_len == 0U) return WL_ERR_COBS_DECODE;
   if (buffer == NULL) return WL_ERR_INVALID_ARG;
 
-  size_t in_pos = 0U, out_pos = 0U;
-  while (in_pos < input_len) {
-    uint8_t code = buffer[in_pos++];
-    if (code == 0U) return WL_ERR_COBS_DECODE;
-    size_t copy = (size_t)(code - 1U);
-    if (copy > input_len - in_pos) return WL_ERR_COBS_DECODE;
-    if (copy != 0U) {
-      memmove(buffer + out_pos, buffer + in_pos, copy);
-      in_pos += copy;
-      out_pos += copy;
+  /* After a normal block, its successor's code occupies exactly the
+   * decoded zero's place. Patch it and slide adjacent blocks together;
+   * only a full 254-byte block opens another hole in the encoded input. */
+  size_t head = 0U, first = 1U, out_pos = 0U;
+  uint8_t code = buffer[0];
+  for (;;) {
+    if (code == 0U || (size_t)code > input_len - head) return WL_ERR_COBS_DECODE;
+    size_t next = head + code;
+    if (next == input_len) break;
+    uint8_t next_code = buffer[next];
+    if (code == 0xffU) {
+      size_t n = next - first;
+      memmove(buffer + out_pos, buffer + first, n);
+      out_pos += n;
+      first = next + 1U;
+    } else {
+      buffer[next] = 0U;
     }
-    if (in_pos < input_len && code != 0xFFU) buffer[out_pos++] = 0U;
+    code = next_code;
+    head = next;
   }
+  size_t n = input_len - first;
+  memmove(buffer + out_pos, buffer + first, n);
+  out_pos += n;
   *output_len = out_pos;
   return WL_OK;
 }
