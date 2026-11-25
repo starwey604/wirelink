@@ -1,0 +1,40 @@
+diff --git a/drivers/serial/uart_esp32.c b/drivers/serial/uart_esp32.c
+index ad20c6d09f5..97a3a3a3214 100644
+--- a/drivers/serial/uart_esp32.c
++++ b/drivers/serial/uart_esp32.c
+@@ -295,30 +295,16 @@ static void uart_esp32_poll_out(const struct device *dev, unsigned char c)
+ static int uart_esp32_err_check(const struct device *dev)
+ {
+ 	struct uart_esp32_data *data = dev->data;
+-	uint32_t mask;
++	unsigned int key = irq_lock();
++	uint32_t mask = uart_hal_get_intraw_mask(&data->hal) & UART_ESP32_ERR_INTR_MASK;
+ 	int errors = 0;
+ 
+-	/*
+-	 * When the ISR is active, it saves error flags before clearing
+-	 * hardware. Read the saved copy and also poll hardware for any
+-	 * errors that arrived since the last ISR invocation. We always
+-	 * need to poll the register since not all ISRs may be enabled.
+-	 *
+-	 * In pure polling mode (no ISR) read hardware directly.
+-	 */
+ #if CONFIG_UART_INTERRUPT_DRIVEN || CONFIG_UART_ASYNC_API || CONFIG_PM
+-	unsigned int key = irq_lock();
+-
+-	mask = data->isr_error_flags;
++	mask |= data->isr_error_flags;
+ 	data->isr_error_flags = 0;
+-	mask |= uart_hal_get_intsts_mask(&data->hal) & UART_ESP32_ERR_INTR_MASK;
+-	uart_hal_clr_intsts_mask(&data->hal, mask & UART_ESP32_ERR_INTR_MASK);
+-
+-	irq_unlock(key);
+-#else
+-	mask = uart_hal_get_intsts_mask(&data->hal);
+-	uart_hal_clr_intsts_mask(&data->hal, mask & UART_ESP32_ERR_INTR_MASK);
+ #endif
++	uart_hal_clr_intsts_mask(&data->hal, mask);
++	irq_unlock(key);
+ 
+ 	if (mask & (UART_INTR_PARITY_ERR | UART_INTR_RS485_PARITY_ERR)) {
+ 		errors |= UART_ERROR_PARITY;

@@ -8,6 +8,25 @@ to `espressif,esp32-uart`, superseding the former local
 application devicetree overlays while keeping FIFO thresholds unchanged when
 comparing settings.
 
+## Temporary ESP32 UART patches (`main` baseline)
+
+While tracking Zephyr `main`, two upstream ESP32 UART fixes are carried here and
+applied by `.github/workflows/zephyr.yml` until merged upstream:
+
+- `esp32-uart-err-check.patch` (upstream PR `#127119`): reads `INT_RAW` error
+  bits in `uart_esp32_err_check()` so disabled-IRQ polling and subsequent
+  `uart_irq_err_enable()` do not miss or replay stale line errors.
+- `esp32-uart-async-perf.patch` (upstream PR `#127125`): tightens async RX
+  buffer handoff and UHCI threshold order at EOF, serializes `uart_rx_buf_rsp()`,
+  and reuses TX GDMA configuration via `dma_reload()`.
+
+```sh
+git -C /path/to/zephyr apply --check "$PWD/adapters/zephyr/patches/esp32-uart-err-check.patch"
+git -C /path/to/zephyr apply "$PWD/adapters/zephyr/patches/esp32-uart-err-check.patch"
+git -C /path/to/zephyr apply --check "$PWD/adapters/zephyr/patches/esp32-uart-async-perf.patch"
+git -C /path/to/zephyr apply "$PWD/adapters/zephyr/patches/esp32-uart-async-perf.patch"
+```
+
 ## Optional ESP32-S3 RPC linker insertion point
 
 `esp32s3-rpc-layout.patch` exposes Zephyr's `ROM_START` input-fragment hook
