@@ -208,9 +208,9 @@ static void release_during_callback(void) {
   zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT), "consume the prompt data wake");
   unsigned before = wakes;
   zassert_ok(wl_packet_rx_release(&event_node.port, &borrow));
-  zassert_true(wl_packet_take_activity(&event_node.port));
-  zassert_true(wakes > before);
-  zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT), "consume the capacity notification");
+  /* Only one of the two slots was occupied: no producer was blocked on capacity. */
+  zassert_false(wl_packet_take_activity(&event_node.port));
+  zassert_equal(wakes, before);
   zassert_false(wl_zephyr_usb_bulk_ready(&event_adapter), "RX_REARM not published yet");
   zassert_not_equal(k_sem_take(&owner_wake, K_NO_WAIT), 0, "owner consumed the currently published notifications");
 }
@@ -287,7 +287,7 @@ ZTEST(static_usb_bulk, test_publication_before_or_after_block) {
     zassert_ok(wl_packet_rx_borrow(&event_node.port, &borrow));
     before = wakes;
     zassert_ok(wl_packet_rx_release(&event_node.port, &borrow));
-    zassert_true(wakes > before);
+    zassert_equal(wakes, before, "non-full release must not wake the owner");
     zassert_ok(wl_zephyr_usb_bulk_service(&event_adapter));
     event_end(c);
   }
