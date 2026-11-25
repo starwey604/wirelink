@@ -99,6 +99,29 @@ void wl_test_packet_stream(int cobs) {
     CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
   }
   if (cobs) {
+    CHECK(wl_crc16_ccitt_false((const uint8_t *)"123456789", 9U) == 0x29B1U);
+    size_t max_body = f.stream.max_rx_wire_size - 1U;
+    memset(expected, 1, max_body + 1U);
+    CHECK(feed(&f.stream, expected, max_body, &consumed) == WL_OK && consumed == max_body);
+    CHECK(feed(&f.stream, expected, 1U, &consumed) == WL_ERR_FRAME_TOO_LONG && consumed == 1U);
+    CHECK(feed(&f.stream, expected, max_body, &consumed) == WL_OK && consumed == max_body);
+
+    // Drop through the first delimiter, skip padding, then keep the first error
+    // even when two valid frames fill both slots ahead of the unconsumed suffix.
+    const uint8_t prefix[] = {1, 0, 0, 2, 0, 1, 0};
+    memcpy(expected, prefix, sizeof(prefix));
+    size_t n;
+    encode_reference_stream_frame(1, 123U, NULL, 0U, expected + sizeof(prefix),
+                                  sizeof(expected) - sizeof(prefix), &n);
+    memcpy(expected + sizeof(prefix) + n, expected + sizeof(prefix), n);
+    expected[sizeof(prefix) + 2U * n] = 1U;
+    CHECK(feed(&f.stream, expected, sizeof(prefix) + 2U * n + 1U, &consumed) ==
+          WL_ERR_COBS_DECODE);
+    CHECK(consumed == sizeof(prefix) + 2U * n);
+    for (unsigned i = 0; i < 2U; ++i) {
+      CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK && borrow.length == 4U);
+      CHECK(wl_packet_rx_release(&f.port, &borrow) == WL_OK);
+    }
     memcpy(expected, f.sent, f.sent_length); expected[2] ^= 1;
     CHECK(feed(&f.stream, expected, f.sent_length, &consumed) != WL_OK);
     CHECK(!wl_packet_rx_ready(&f.port));

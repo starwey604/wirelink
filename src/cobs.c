@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "wirelink/types.h"
 
@@ -61,7 +62,11 @@ int wl_cobs_decode(const uint8_t *input, size_t input_len, uint8_t *output,
     size_t copy = (size_t)(code - 1U);
     if (copy > input_len - in_pos) return WL_ERR_COBS_DECODE;
     if (copy > output_capacity - out_pos) return WL_ERR_BUF_TOO_SMALL;
-    while (copy-- != 0U) output[out_pos++] = input[in_pos++];
+    if (copy != 0U) {
+      memmove(output + out_pos, input + in_pos, copy);
+      in_pos += copy;
+      out_pos += copy;
+    }
     if (in_pos < input_len && code != 0xFFU) {
       if (out_pos >= output_capacity) return WL_ERR_BUF_TOO_SMALL;
       output[out_pos++] = 0U;
@@ -84,7 +89,11 @@ int wl_cobs_decode_in_place(uint8_t *buffer, size_t input_len,
     if (code == 0U) return WL_ERR_COBS_DECODE;
     size_t copy = (size_t)(code - 1U);
     if (copy > input_len - in_pos) return WL_ERR_COBS_DECODE;
-    while (copy-- != 0U) buffer[out_pos++] = buffer[in_pos++];
+    if (copy != 0U) {
+      memmove(buffer + out_pos, buffer + in_pos, copy);
+      in_pos += copy;
+      out_pos += copy;
+    }
     if (in_pos < input_len && code != 0xFFU) buffer[out_pos++] = 0U;
   }
   *output_len = out_pos;

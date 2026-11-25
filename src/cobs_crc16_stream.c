@@ -35,20 +35,23 @@ wl_packet_submit_t wl_packet_stream_cobs_crc16_submit(void *user, const uint8_t 
   unsigned code = 1U;
   /* Append the CRC while encoding; no second raw frame/payload copy. The
    * configured worst-case bound was validated before admission. */
-  for (size_t i = 0U; i < length + 2U; ++i) {
-    uint8_t b = i < length ? data[i] : i == length ? (uint8_t)(crc >> 8U) : (uint8_t)crc;
-    if (b == 0U) {
+  const uint8_t tail[] = {(uint8_t)(crc >> 8U), (uint8_t)crc};
+  const uint8_t *part = data;
+  size_t count = length;
+  for (unsigned run = 0U; run < 2U; ++run) {
+    for (size_t i = 0U; i < count; ++i) {
+      uint8_t b = part[i];
+      if (b != 0U) {
+        out[write++] = b;
+        if (++code != 255U)
+          continue;
+      }
       out[code_at] = (uint8_t)code;
       code = 1U;
       code_at = write++;
-    } else {
-      out[write++] = b;
-      if (++code == 255U) {
-        out[code_at] = (uint8_t)code;
-        code = 1U;
-        code_at = write++;
-      }
     }
+    part = tail;
+    count = sizeof(tail);
   }
   out[code_at] = (uint8_t)code;
   out[write++] = 0U;
@@ -88,34 +91,47 @@ wl_err_t wl_packet_stream_cobs_crc16_feed(wl_packet_stream_t *s, const uint8_t *
   if (s == NULL || (bytes == NULL && length != 0U))
     return WL_ERR_INVALID_ARG;
   wl_err_t result = WL_OK;
-  while (*consumed < length) {
-    uint8_t b = bytes[*consumed];
+  size_t pos = 0U;
+  while (pos < length) {
     if (s->dropping) {
-      ++*consumed;
-      if (b == 0U)
-        s->dropping = 0U;
+      const uint8_t *end = memchr(bytes + pos, 0, length - pos);
+      if (end == NULL) {
+        pos = length;
+        break;
+      }
+      pos = (size_t)(end - bytes) + 1U;
+      s->dropping = 0U;
       continue;
     }
-    if (b == 0U && s->rx_length == 0U) {
-      ++*consumed;
-      continue;
+    if (s->rx_length == 0U) {
+      while (pos < length && bytes[pos] == 0U)
+        ++pos;
+      if (pos == length)
+        break;
     }
     wl_err_t e = claim(s);
-    if (e != WL_OK)
-      return result == WL_OK ? e : result;
-    ++*consumed;
-    if (b != 0U) {
-      if (s->rx_length >= (size_t)s->max_rx_wire_size - 1U) {
-        (void)wl_packet_rx_abort(s->config.port, &s->claim);
-        s->claimed = 0U;
-        s->rx_length = 0U;
-        s->dropping = 1U;
-        if (result == WL_OK)
-          result = WL_ERR_FRAME_TOO_LONG;
-      } else
-        s->claim.span.data[s->rx_length++] = b;
+    if (e != WL_OK) {
+      if (result == WL_OK)
+        result = e;
+      break;
+    }
+    const uint8_t *start = bytes + pos;
+    const uint8_t *end = memchr(start, 0, length - pos);
+    size_t chunk = end != NULL ? (size_t)(end - start) : length - pos;
+    pos += chunk + (end != NULL);
+    if (chunk > (size_t)s->max_rx_wire_size - 1U - s->rx_length) {
+      (void)wl_packet_rx_abort(s->config.port, &s->claim);
+      s->claimed = 0U;
+      s->rx_length = 0U;
+      s->dropping = (end == NULL);
+      if (result == WL_OK)
+        result = WL_ERR_FRAME_TOO_LONG;
       continue;
     }
+    memcpy(s->claim.span.data + s->rx_length, start, chunk);
+    s->rx_length += chunk;
+    if (end == NULL)
+      break;
     size_t decoded = 0U;
     e = decode_body(s->claim.span.data, s->rx_length, &decoded);
     if (e == WL_OK)
@@ -128,5 +144,6 @@ wl_err_t wl_packet_stream_cobs_crc16_feed(wl_packet_stream_t *s, const uint8_t *
     if (result == WL_OK)
       result = e;
   }
+  *consumed = pos;
   return result;
 }
