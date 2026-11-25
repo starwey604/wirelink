@@ -75,7 +75,6 @@ typedef struct {
   atomic_t paused;
   atomic_t abort_pending;
   atomic_t abort_disable_requested;
-  atomic_t recovery_barrier;
   atomic_t expected_disabled;
   atomic_t tx_active;
   atomic_t tx_completion;
@@ -129,8 +128,8 @@ int wl_zephyr_uart_dma_stop(wl_zephyr_uart_dma_t *adapter);
 /*
  * Call from the single owner around kernel step. It delivers deferred
  * TX completion to the core, performs RX recovery, completes stop requests,
- * and resumes RX after backpressure. A recovery barrier deliberately consumes
- * one service call so owner service can invalidate the aborted COBS window.
+ * and resumes RX after backpressure. The pass that consumes a reported gap
+ * invalidates the partial COBS frame before restarting RX.
  * WL_ERR_WOULD_BLOCK is transient: call service again from a later main-loop
  * iteration after the UART callback has handed buffer ownership back.
  */

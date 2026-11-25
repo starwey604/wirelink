@@ -156,10 +156,10 @@ static void emit(struct uart_event *event) {
   fake_data.callback(&fake_uart, event, fake_data.callback_data);
 }
 static uint32_t instance = 1000U;
-static void setup(void) {
+static void setup_fifo(size_t fifo_size) {
   memset(&fake_data, 0, sizeof(fake_data));
   wl_zephyr_uart_dma_config_t config = {.uart = &fake_uart,
-                                        .fifo_storage = {bytes, sizeof(bytes)},
+                                        .fifo_storage = {bytes, fifo_size},
                                         .rx_buffers = {{dma[0], 128}, {dma[1], 128}},
                                         .timeout_us = 100,
                                         .tx_timeout_us = SYS_FOREVER_US,
@@ -167,6 +167,37 @@ static void setup(void) {
   zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
       (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_dma_transport(&adapter, &config)));
 }
+static void setup(void) { setup_fifo(sizeof(bytes)); }
+
+ZTEST(static_uart_dma, test_frame_error_frees_staged_buffer_in_same_pass) {
+  setup_fifo(4U);
+  uint8_t *first = fake_data.rx_buf;
+  const uint8_t input[] = {2, 0, 0, 0, 7, 8};
+  memcpy(first, input, sizeof(input));
+  emit(&(struct uart_event){.type = UART_RX_RDY,
+                            .data.rx = {.buf = first, .len = sizeof(input)}});
+  fake_data.rx_buf = fake_data.rx_next_buf;
+  fake_data.rx_next_buf = NULL;
+  emit(&(struct uart_event){.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = first}});
+  emit(&(struct uart_event){.type = UART_RX_BUF_REQUEST});
+  zassert_is_null(fake_data.rx_next_buf);
+
+  zassert_equal(wl_zephyr_uart_dma_service(&adapter, 0), WL_ERR_COBS_DECODE);
+  wl_span_t staged = wl_byte_fifo_peek(&adapter.fifo);
+  zassert_equal(staged.length, 2U);
+  zassert_mem_equal(staged.data, input + 4U, staged.length);
+  zassert_equal_ptr(fake_data.rx_next_buf, first);
+  zassert_equal(fake_data.rx_buf_responses, 2U);
+
+  zassert_ok(wl_zephyr_uart_dma_stop(&adapter));
+  for (size_t i = 0U; i < 2U; ++i) {
+    emit(&(struct uart_event){.type = UART_RX_BUF_RELEASED, .data.rx_buf = {.buf = dma[i]}});
+  }
+  fake_data.rx_enabled = false;
+  emit(&(struct uart_event){.type = UART_RX_DISABLED});
+  wl_zephyr_uart_dma_quiesce(&adapter);
+}
+
 ZTEST(static_uart_dma, test_callbacks_stage_and_stop_requires_real_returns) {
   setup();
   uint8_t packet[12] = {0x57, 0, 22, 0, 1, 2, 3, 4, 5, 6, 7, 8};

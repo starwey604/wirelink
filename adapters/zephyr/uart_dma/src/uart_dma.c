@@ -696,7 +696,6 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
     k_spin_unlock(&adapter->rx_lock, key);
     atomic_set(&adapter->abort_pending, 0);
     atomic_set(&adapter->abort_disable_requested, 0);
-    atomic_set(&adapter->recovery_barrier, 0);
     atomic_set(&adapter->gap_pending, 0);
     adapter->tx_retry_pending = 0U;
     atomic_set(&adapter->started, 0);
@@ -732,13 +731,12 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
     atomic_set(&adapter->abort_disable_requested, 0);
     atomic_set(&adapter->expected_disabled, 0);
     atomic_set(&adapter->paused, 1);
-    atomic_set(&adapter->recovery_barrier, 1);
     atomic_set(&adapter->service_pending, 1);
     return WL_ERR_WOULD_BLOCK;
   }
   int input = wl_byte_fifo_to_cobs(&adapter->fifo, adapter->stream, 16U);
-  if (input != WL_OK && input != WL_ERR_WOULD_BLOCK)
-    return input;
+  if (input == WL_ERR_WOULD_BLOCK)
+    input = WL_OK;
   key = k_spin_lock(&adapter->rx_lock);
   ret = drain_ready_slots_locked(adapter);
   k_spin_unlock(&adapter->rx_lock, key);
@@ -752,24 +750,19 @@ int wl_zephyr_uart_dma_service(wl_zephyr_uart_dma_t *adapter, uint32_t now_ms) {
       return ret;
     }
   }
-  if (atomic_get(&adapter->recovery_barrier) != 0) {
-    atomic_set(&adapter->recovery_barrier, 0);
-    return WL_ERR_WOULD_BLOCK;
-  }
   if (atomic_get(&adapter->started) != 0 && atomic_get(&adapter->running) == 0 &&
       atomic_get(&adapter->paused) != 0) {
-    if (any_slot_is_active(adapter)) {
-      return WL_ERR_WOULD_BLOCK;
-    }
-    if (atomic_set(&adapter->gap_pending, 0) != 0) {
+    if (!any_slot_is_active(adapter)) {
+      if (atomic_set(&adapter->gap_pending, 0) == 0) {
+        ret = start_rx(adapter);
+        return ret == WL_OK ? input : ret;
+      }
       wl_byte_fifo_note_gap(&adapter->fifo);
-      atomic_set(&adapter->recovery_barrier, 1);
       atomic_set(&adapter->service_pending, 1);
-      return WL_ERR_WOULD_BLOCK;
     }
-    return start_rx(adapter);
+    return input == WL_OK ? WL_ERR_WOULD_BLOCK : input;
   }
-  return WL_OK;
+  return input;
 }
 
 wl_io_readiness_t wl_zephyr_uart_dma_readiness(const void *context, uint32_t now_ms) {
