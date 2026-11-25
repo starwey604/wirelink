@@ -37,6 +37,12 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_getv_slow(const uint8_t **cursor,
     return WL_CODEC_ERR_MALFORMED;
   }
   const uint8_t *p = *cursor;
+  if (p < end && (size_t)(end - p) >= 2U && p[0] >= 128U && p[1] < 128U) {
+    *cursor = p + 2U;
+    if (p[1] == 0U) return WL_CODEC_ERR_MALFORMED;
+    *out = (uint32_t)(p[0] & 127U) | ((uint32_t)p[1] << 7U);
+    return WL_CODEC_OK;
+  }
   uint64_t acc = 0U;
   for (unsigned i = 0U; i < 10U; ++i) {
     if (p >= end) {
@@ -63,6 +69,11 @@ WL_HOT_ATTR wl_codec_status_t wl_codec_getv_slow(const uint8_t **cursor,
 }
 
 WL_HOT_ATTR uint8_t *wl_codec_putv_slow(uint8_t *cursor, uint64_t value) {
+  if (value >= 128U && value < 16384U) {
+    cursor[0] = (uint8_t)(value | 128U);
+    cursor[1] = (uint8_t)(value >> 7U);
+    return cursor + 2U;
+  }
   while (value >= 0x80U) {
     *cursor++ = (uint8_t)((value & 0x7FU) | 0x80U);
     value >>= 7U;

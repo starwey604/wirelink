@@ -265,6 +265,33 @@ static void test_field_limit(int positional) {
   CHECK(scratch[0] == UINT32_C(0xA5A5A5A5));
 }
 
+static void test_two_byte_varints(void) {
+  uint8_t b[3];
+  for (uint32_t value = 128U; value < 16384U; ++value) {
+    CHECK(wl_codec_putv(b, value) == b + 2U);
+    CHECK(b[0] == ((value & 127U) | 128U) && b[1] == value / 128U);
+    const uint8_t *p = b;
+    uint64_t out = 0U;
+    CHECK(wl_codec_getv(&p, b + 2U, &out) == WL_CODEC_OK);
+    CHECK(p == b + 2U && out == value);
+  }
+  for (unsigned first = 128U; first <= 255U; ++first) {
+    b[0] = (uint8_t)first; b[1] = 0U;
+    for (unsigned n = 1U; n <= 2U; ++n) {
+      const uint8_t *p = b;
+      uint64_t out = 42U;
+      CHECK(wl_codec_getv(&p, b + n, &out) == WL_CODEC_ERR_MALFORMED);
+      CHECK(p == b + n && out == 42U);
+    }
+  }
+  CHECK(wl_codec_putv(b, 16384U) == b + 3U);
+  CHECK(b[0] == 128U && b[1] == 128U && b[2] == 1U);
+  const uint8_t *p = b;
+  uint64_t value;
+  CHECK(wl_codec_getv(&p, b + 3U, &value) == WL_CODEC_OK);
+  CHECK(p == b + 3U && value == 16384U);
+}
+
 static void test_helpers(void) {
   const wl_codec_string_t view = WL_STR("hello");
   CHECK(view.length == 5U && strcmp(view.data, "hello") == 0);
@@ -301,5 +328,6 @@ int main(void) {
   test_field_limit(0);
   test_field_limit(1);
   test_helpers();
+  test_two_byte_varints();
   return 0;
 }
