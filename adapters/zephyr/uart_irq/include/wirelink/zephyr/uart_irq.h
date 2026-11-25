@@ -17,14 +17,13 @@ extern "C" {
 typedef struct {
   const struct device *uart;
   wl_span_t fifo_storage; /* Staging memory owned by this transport until close. */
-  /* Physical UART only. TX-empty IRQ is disabled at memory consumed; line
-   * idle is queried once per deadline. CDC cannot provide this boundary. */
-  uint32_t drain_check_ms; /* 0 selects 1 ms; physical drain is always required. */
+  uint32_t drain_check_ms; /* Physical line-idle polling interval; 0 selects 1 ms. */
   /* Optional additional ISR-safe, nonblocking, latched notifier. Called once
    * per callback with publications, under the binding lock. Must not reenter
    * this adapter; context lives through stop. Notifications may be coalesced. */
   void (*notify)(void *user_data);
   void *notify_user_data;
+  bool tx_pipeline; /* Complete frames at FIFO acceptance instead of physical line idle. */
 } wl_zephyr_uart_irq_config_t;
 
 typedef struct {

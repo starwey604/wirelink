@@ -219,7 +219,7 @@ static wl_err_t initialize(wl_zephyr_uart_irq_t *adapter,
   adapter->stream = info->stream;
   adapter->private_uart_api = api;
   adapter->binding = (uint8_t)binding;
-  adapter->wait_for_tx_idle = 1U;
+  adapter->wait_for_tx_idle = !config->tx_pipeline;
   adapter->drain_check_ms = config->drain_check_ms ? config->drain_check_ms : 1U;
   adapter->notify = config->notify;
   adapter->notify_user_data = config->notify_user_data;
@@ -288,9 +288,13 @@ int WL_ZEPHYR_UART_IRQ_HOT_CODE wl_zephyr_uart_irq_service(wl_zephyr_uart_irq_t 
   }
   k_spin_unlock(&callback_lock, tx_key);
   if (completion != TX_NONE) {
-    result =
-        wl_packet_tx_publish(adapter->port, consumed_token,
-                             completion == TX_CONSUMED ? WL_PACKET_CONSUMED : WL_PACKET_TX_ERROR);
+    unsigned event = WL_PACKET_TX_ERROR;
+    if (completion == TX_CONSUMED) {
+      event = adapter->wait_for_tx_idle ? WL_PACKET_CONSUMED : WL_PACKET_DRAINED;
+      if (!adapter->wait_for_tx_idle)
+        atomic_inc(&adapter->tx_drained);
+    }
+    result = wl_packet_tx_publish(adapter->port, consumed_token, event);
     if (result != WL_OK)
       atomic_inc(&adapter->errors);
   }

@@ -138,15 +138,16 @@ static wl_node_t node;
 static wl_packet_stream_t stream;
 static uint8_t rx[2][96], tx[96], bytes[16];
 static uint32_t instance;
-static void setup_interval(uint32_t interval) {
+static void setup_config(uint32_t interval, bool tx_pipeline) {
   memset(&full_data, 0, sizeof(full_data));
   full_data.line_idle = 1;
   wl_zephyr_uart_irq_config_t config = {
-      .uart = DEVICE_GET(fake_uart_full), .fifo_storage = {bytes, sizeof(bytes)}, .drain_check_ms = interval};
+      .uart = DEVICE_GET(fake_uart_full), .fifo_storage = {bytes, sizeof(bytes)},
+      .drain_check_ms = interval, .tx_pipeline = tx_pipeline};
   zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
       (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)));
 }
-static void setup(void) { setup_interval(0); }
+static void setup(void) { setup_config(0, false); }
 static void fire(void) {
   full_data.pending = true;
   full_data.callback(DEVICE_GET(fake_uart_full), full_data.user_data);
@@ -191,6 +192,24 @@ ZTEST(static_uart_irq, test_staged_rx_physical_tx_and_old_callback) {
   zassert_ok(wl_node_close(&node, 0));
   zassert_true(wl_packet_quiescent(&node.port));
 }
+ZTEST(static_uart_irq, test_pipeline_retires_each_frame_at_fifo_acceptance) {
+  setup_config(0U, true);
+  full_data.line_idle = 0;
+  uint8_t packet[8] = {0};
+  zassert_ok(wl_wire_native_none_seal(packet, sizeof(packet), 22U, 4U));
+  for (unsigned i = 0U; i < 2U; ++i) {
+    wl_packet_token_t token;
+    zassert_ok(wl_packet_tx_submit(&node.port, packet, sizeof(packet), &token));
+    fire();
+    zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0U));
+    zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_CONSUMED | WL_PACKET_DRAINED);
+  }
+  zassert_equal(atomic_get(&adapter.tx_drained), 2);
+  zassert_ok(wl_node_close(&node, 0U));
+  zassert_true(wl_node_quiescent(&node));
+  zassert_equal(full_data.complete_queries, 0U);
+}
+
 ZTEST(static_uart_irq, test_rejects_cdc_without_physical_completion) {
   setup();
   zassert_ok(wl_node_close(&node, 0));
@@ -233,7 +252,7 @@ static void finish_pending(wl_packet_token_t *token) {
   zassert_true(wl_packet_quiescent(&node.port));
 }
 ZTEST(static_uart_irq, test_no_progress_no_poll_and_notify_is_not_hint) {
-  setup_interval(5);
+  setup_config(5, false);
   wl_packet_token_t token = pending_tx(10);
   zassert_equal(adapter.drain_due, 15);
   for (unsigned i = 0; i < 8; ++i) {
@@ -291,7 +310,7 @@ ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   zassert_equal(wl_zephyr_uart_irq_service(&adapter, 0), WL_ERR_IO);
   zassert_equal(full_data.complete_queries, 1);
   finish_pending(&token);
-  setup_interval(1000); token = pending_tx(UINT32_MAX - 10U);
+  setup_config(1000, false); token = pending_tx(UINT32_MAX - 10U);
   zassert_equal(adapter.drain_due, 989);
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
   zassert_equal(full_data.complete_queries, 1);

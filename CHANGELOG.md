@@ -2,6 +2,10 @@
 
 ## 0.0.99
 
+- Set `tx_pipeline = true` on the Zephyr IRQ UART transport to submit the next
+  frame as soon as the UART FIFO accepts the previous one. Leave it disabled
+  when completion must mean the last byte has left the physical line.
+
 - UDP connects its socket when a peer is configured, selected or learned.
   Peers may start late or restart on the same port. The transport discards queued
   datagrams from the old peer after a switch; new foreign datagrams filtered by
