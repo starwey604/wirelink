@@ -5,7 +5,6 @@
 #include <cerrno>
 #include <chrono>
 #include <climits>
-#include <cstring>
 #include <memory>
 #include <atomic>
 #include <utility>
@@ -50,31 +49,14 @@ struct service_guard {
   }
   ~service_guard() { tls_owner_service = previous; }
 };
-#if !defined(_WIN32)
-bool sockaddr_equal(const sockaddr_storage &a, socklen_t alen,
-                    const sockaddr_storage &b, socklen_t blen) {
-  if (alen != blen || a.ss_family != b.ss_family) return false;
-  if (a.ss_family == AF_INET && alen >= sizeof(sockaddr_in)) {
-    const auto &x = reinterpret_cast<const sockaddr_in &>(a);
-    const auto &y = reinterpret_cast<const sockaddr_in &>(b);
-    return x.sin_port == y.sin_port && x.sin_addr.s_addr == y.sin_addr.s_addr;
-  }
-  if (a.ss_family == AF_INET6 && alen >= sizeof(sockaddr_in6)) {
-    const auto &x = reinterpret_cast<const sockaddr_in6 &>(a);
-    const auto &y = reinterpret_cast<const sockaddr_in6 &>(b);
-    return x.sin6_port == y.sin6_port && x.sin6_scope_id == y.sin6_scope_id &&
-           std::memcmp(&x.sin6_addr, &y.sin6_addr, sizeof(x.sin6_addr)) == 0;
-  }
-  return std::memcmp(&a, &b, alen) == 0;
-}
-::asio::ip::udp::endpoint endpoint_from_sockaddr(const sockaddr_storage &addr, socklen_t len) {
-  ::asio::ip::udp::endpoint ep;
-  if (len <= sizeof(sockaddr_storage) && static_cast<size_t>(len) <= ep.capacity()) {
-    std::memcpy(ep.data(), &addr, len);
-    ep.resize(len);
-  }
-  return ep;
-}
+#if defined(_WIN32)
+using socklen_arg = int;
+int socket_error() { return ::WSAGetLastError(); }
+constexpr int peer_unreachable = WSAECONNRESET;
+#else
+using socklen_arg = socklen_t;
+int socket_error() { return errno; }
+constexpr int peer_unreachable = ECONNREFUSED;
 #endif
 }
 struct wl_udp : wl_transport_t {
@@ -96,17 +78,17 @@ struct wl_udp : wl_transport_t {
   wl_udp_stats_t stats{};
 
 private:
-  void set_peer(const ::asio::ip::udp::endpoint &endpoint);
+  wl_err_t set_peer(const ::asio::ip::udp::endpoint &endpoint, std::error_code &error,
+                    bool learned = false);
+  void reject_rx();
+  wl_err_t publish_rx(size_t received, const ::asio::ip::udp::endpoint *source);
 
   ::asio::io_context io;
   ::asio::ip::udp::socket socket;
   ::asio::ip::udp::socket wake_socket; // connected to itself; only native send/recv
   native_socket data_handle{}, wake_handle{};
   ::asio::ip::udp::endpoint peer;
-#if !defined(_WIN32)
-  sockaddr_storage peer_addr{};
-  socklen_t peer_addr_len{};
-#endif
+  bool connected{}, verify_source_until_empty{};
   size_t maximum_datagram_size{}, maximum_tx_datagram_size{}, maximum_rx_frame{};
   unsigned service_budget{};
   bool learn_peer{};
@@ -145,6 +127,14 @@ wl_err_t wl_udp::start(const wl_udp_config_t &config, std::error_code &error) {
     return WL_ERR_IO;
   }
 #endif
+  // Let bursts wait in the data socket while the owner drains its RX slots.
+  // This is a capacity hint; the OS may cap it or keep its default.
+  constexpr int burst_buffer_bytes = 512 * 1024;
+  ::asio::socket_base::receive_buffer_size buffer;
+  std::error_code hint_error;
+  pending_socket.get_option(buffer, hint_error);
+  if (!hint_error && buffer.value() < burst_buffer_bytes)
+    pending_socket.set_option(::asio::socket_base::receive_buffer_size(burst_buffer_bytes), hint_error);
   pending_socket.bind({local, config.bind_port}, error);
   if (!error) pending_socket.non_blocking(true, error);
   if (error) return WL_ERR_IO;
@@ -165,7 +155,7 @@ wl_err_t wl_udp::start(const wl_udp_config_t &config, std::error_code &error) {
   service_budget = config.service_budget ? config.service_budget : 8;
   learn_peer = config.learn_peer;
   decode = config.decode;
-  if (config.peer_address) set_peer(initial_peer);
+  if (config.peer_address) return set_peer(initial_peer, error);
   return WL_OK;
 }
 
@@ -184,15 +174,45 @@ wl_err_t wl_udp::attach(const wl_transport_attach_t &info) {
   return WL_OK;
 }
 
-void wl_udp::set_peer(const ::asio::ip::udp::endpoint &endpoint) {
-  peer = endpoint;
-#if !defined(_WIN32)
-  peer_addr_len = static_cast<socklen_t>(endpoint.size());
-  std::memcpy(&peer_addr, endpoint.data(), peer_addr_len);
+wl_err_t wl_udp::set_peer(const ::asio::ip::udp::endpoint &endpoint, std::error_code &error,
+                          bool learned) {
+  if (!connected || peer != endpoint) {
+#if defined(__APPLE__) || defined(__FreeBSD__)
+    if (connected) {
+      sockaddr unspec{};
+      unspec.sa_len = sizeof(unspec);
+      unspec.sa_family = AF_UNSPEC;
+      // BSD may disconnect successfully, then reject the unspecified address.
+      if (::connect(data_handle, &unspec, sizeof(unspec)) < 0 &&
+          errno != EAFNOSUPPORT && errno != EINVAL) {
+        error = std::error_code(errno, std::system_category());
+        return WL_ERR_IO;
+      }
+      connected = false;
+    }
 #endif
-  have_peer = true;
+    socket.connect(endpoint, error);
+    if (error && !learned) {
+#if defined(__APPLE__) || defined(__FreeBSD__)
+      if (have_peer) {
+        std::error_code restore;
+        socket.connect(peer, restore);
+        connected = !restore; // Otherwise keep using the old peer via sendto.
+        verify_source_until_empty = connected;
+      }
+#endif
+      return WL_ERR_IO;
+    }
+    // A learned sender remains usable via sendto if connect failed.
+    peer = endpoint;
+    have_peer = true;
+    connected = !error;
+    // connect does not remove datagrams already queued from other sources.
+    verify_source_until_empty = connected;
+  }
   tx_blocked = false;
   if (port) wl_packet_activity(port);
+  return WL_OK;
 }
 
 wl_err_t wl_udp::set_peer(const char *address, uint16_t port_number) {
@@ -203,8 +223,7 @@ wl_err_t wl_udp::set_peer(const char *address, uint16_t port_number) {
   const auto local = socket.local_endpoint(error);
   if (error) return WL_ERR_IO;
   if (value.is_v6() != local.address().is_v6()) return WL_ERR_INVALID_ARG;
-  set_peer({value, port_number});
-  return WL_OK;
+  return set_peer({value, port_number}, error);
 }
 
 wl_packet_submit_t wl_udp::submit(const uint8_t *data, size_t length) {
@@ -212,41 +231,67 @@ wl_packet_submit_t wl_udp::submit(const uint8_t *data, size_t length) {
     return WL_PACKET_FAILED;
   if (!have_peer)
     return WL_PACKET_BUSY;
-#if defined(_WIN32)
-  std::error_code error;
-  const size_t sent = socket.send_to(::asio::buffer(data, length), peer, 0, error);
-  if (error == ::asio::error::would_block || error == ::asio::error::try_again ||
-      error == ::asio::error::no_buffer_space) {
-    tx_blocked = true;
-    return WL_PACKET_BUSY;
-  }
-  if (error || sent != length) {
-    ++stats.errors;
-    return WL_PACKET_FAILED;
-  }
-#else
-  ssize_t sent;
-  do {
-    sent = ::sendto(data_handle, data, length, 0,
-                    reinterpret_cast<const sockaddr *>(&peer_addr), peer_addr_len);
-  } while (sent < 0 && errno == EINTR);
-  if (sent < 0) {
-    const int err = errno;
-    if (err == EAGAIN || err == EWOULDBLOCK || err == ENOBUFS) {
-      tx_blocked = true;
-      return WL_PACKET_BUSY;
+  const auto *bytes = reinterpret_cast<const char *>(data);
+  const int count = static_cast<int>(length); // One UDP datagram, at most 65507 bytes.
+  bool retried = false;
+  for (;;) {
+    const auto sent = connected ? ::send(data_handle, bytes, count, 0)
+                                : ::sendto(data_handle, bytes, count, 0, peer.data(),
+                                           static_cast<socklen_arg>(peer.size()));
+    if (sent == count) break;
+    if (sent < 0) {
+      const int err = socket_error();
+      if (err == ::asio::error::interrupted) continue;
+      if (connected && err == peer_unreachable) {
+        // A previous datagram hit a closed peer port. Try this datagram once more.
+        if (!retried) { retried = true; continue; }
+        tx_blocked = false;
+        return WL_PACKET_SENT; // Best-effort drop, no outstanding buffer.
+      }
+      if (err == ::asio::error::would_block || err == ::asio::error::try_again ||
+          err == ::asio::error::no_buffer_space) {
+        tx_blocked = true;
+        return WL_PACKET_BUSY;
+      }
     }
     ++stats.errors;
     return WL_PACKET_FAILED;
   }
-  if (static_cast<size_t>(sent) != length) {
-    ++stats.errors;
-    return WL_PACKET_FAILED;
-  }
-#endif
   ++stats.sent;
   tx_blocked = false;
   return WL_PACKET_SENT; // Whole datagram accepted; no retained user memory.
+}
+
+void wl_udp::reject_rx() {
+  (void)wl_packet_rx_abort(port, &rx_claim);
+  rx_claimed = false;
+  ++stats.rejected;
+}
+
+wl_err_t wl_udp::publish_rx(size_t received, const ::asio::ip::udp::endpoint *source) {
+  if (decode && (decode(rx_claim.span.data, received, &received) != WL_OK || received > maximum_rx_frame)) {
+    reject_rx();
+    return WL_OK;
+  }
+  if (!have_peer) {
+    wl_wire_frame_t frame{};
+    if (!learn_peer || !source ||
+        wl_wire_native_none_read(rx_claim.span.data, received, &frame) != WL_OK) {
+      reject_rx();
+      return WL_OK;
+    }
+    std::error_code connect_error;
+    set_peer(*source, connect_error, true);
+  }
+  const wl_err_t result = wl_packet_rx_commit(port, &rx_claim, received);
+  if (result != WL_OK) {
+    (void)wl_packet_rx_abort(port, &rx_claim);
+    rx_claimed = false;
+    return result;
+  }
+  rx_claimed = false;
+  ++stats.received;
+  return WL_OK;
 }
 
 wl_err_t wl_udp::service() {
@@ -255,9 +300,8 @@ wl_err_t wl_udp::service() {
   const service_guard guard(this);
   more_rx = false;
   for (unsigned n = 0; n < service_budget; ++n) {
-    wl_err_t result = WL_OK;
     if (!rx_claimed) {
-      result = wl_packet_rx_claim(port, maximum_datagram_size + 1, &rx_claim);
+      const wl_err_t result = wl_packet_rx_claim(port, maximum_datagram_size + 1, &rx_claim);
       if (result == WL_ERR_WOULD_BLOCK) {
         more_rx = true; // Datagrams may remain queued until a unit is released.
         return WL_OK;
@@ -267,94 +311,77 @@ wl_err_t wl_udp::service() {
       rx_claimed = true;
     }
     auto &claim = rx_claim;
+    const bool check_source = !connected || verify_source_until_empty;
+    int err = 0;
+    size_t received = 0;
+    if (!check_source) {
 #if defined(_WIN32)
-    ::asio::ip::udp::endpoint source;
-    std::error_code error;
-    size_t received =
-        socket.receive_from(::asio::buffer(claim.span.data, claim.span.length), source, 0, error);
-    if (error == ::asio::error::would_block || error == ::asio::error::try_again) {
-      return WL_OK; // Keep this idle RX reservation; no self-generated wake loop.
-    }
-    if (error == ::asio::error::message_size ||
-        (!error && (!received || received > maximum_datagram_size)) ||
-        (!error && have_peer && source != peer)) {
-      (void)wl_packet_rx_abort(port, &claim);
-      rx_claimed = false;
-      ++stats.rejected;
-      continue;
-    }
-    if (error) {
-      (void)wl_packet_rx_abort(port, &claim);
-      rx_claimed = false;
-      ++stats.errors;
-      return WL_ERR_IO;
-    }
+      std::error_code error;
+      received = socket.receive(::asio::buffer(claim.span.data, claim.span.length), 0, error);
+      err = error.value();
 #else
-    sockaddr_storage source_addr{};
-    socklen_t source_len = sizeof(source_addr);
-    ssize_t nbytes;
-    do {
-      nbytes = ::recvfrom(data_handle, claim.span.data, claim.span.length, 0,
-                          reinterpret_cast<sockaddr *>(&source_addr), &source_len);
-    } while (nbytes < 0 && errno == EINTR);
-    if (nbytes < 0) {
-      const int err = errno;
-      if (err == EAGAIN || err == EWOULDBLOCK)
-        return WL_OK; // Keep this idle RX reservation; no self-generated wake loop.
-      if (err == EMSGSIZE) {
-        (void)wl_packet_rx_abort(port, &claim);
-        rx_claimed = false;
-        ++stats.rejected;
-        continue;
-      }
-      (void)wl_packet_rx_abort(port, &claim);
-      rx_claimed = false;
-      ++stats.errors;
-      return WL_ERR_IO;
-    }
-    size_t received = static_cast<size_t>(nbytes);
-    if (!received || received > maximum_datagram_size ||
-        (have_peer && !sockaddr_equal(source_addr, source_len, peer_addr, peer_addr_len))) {
-      (void)wl_packet_rx_abort(port, &claim);
-      rx_claimed = false;
-      ++stats.rejected;
-      continue;
-    }
+      ssize_t nbytes;
+      do {
+        nbytes = ::recv(data_handle, claim.span.data, claim.span.length, 0);
+      } while (nbytes < 0 && errno == EINTR);
+      err = nbytes < 0 ? errno : 0;
+      received = nbytes >= 0 ? static_cast<size_t>(nbytes) : 0U;
 #endif
-    if (decode && (decode(claim.span.data, received, &received) != WL_OK || received > maximum_rx_frame)) {
-      (void)wl_packet_rx_abort(port, &claim);
-      rx_claimed = false;
-      ++stats.rejected;
-      continue;
-    }
-    if (!have_peer) {
-      if (!learn_peer) {
+      if (err == ::asio::error::would_block || err == ::asio::error::try_again)
+        return WL_OK; // Keep the idle RX reservation.
+      if (err == peer_unreachable) continue; // Bounded by service_budget.
+      if (err && err != ::asio::error::message_size) {
         (void)wl_packet_rx_abort(port, &claim);
         rx_claimed = false;
-        ++stats.rejected;
+        ++stats.errors;
+        return WL_ERR_IO;
+      }
+      if (err || !received || received > maximum_datagram_size) {
+        reject_rx();
         continue;
       }
-      wl_wire_frame_t frame{};
-      if (wl_wire_native_none_read(claim.span.data, received, &frame) != WL_OK) {
-        (void)wl_packet_rx_abort(port, &claim);
-        rx_claimed = false;
-        ++stats.rejected;
-        continue;
-      }
+      const wl_err_t committed = publish_rx(received, nullptr);
+      if (committed != WL_OK) return committed;
+    } else {
+      ::asio::ip::udp::endpoint source;
 #if defined(_WIN32)
-      set_peer(source);
+      std::error_code error;
+      received =
+          socket.receive_from(::asio::buffer(claim.span.data, claim.span.length), source, 0, error);
+      err = error.value();
 #else
-      set_peer(endpoint_from_sockaddr(source_addr, source_len));
+      socklen_t source_len = static_cast<socklen_t>(source.capacity());
+      ssize_t nbytes;
+      do {
+        nbytes = ::recvfrom(data_handle, claim.span.data, claim.span.length, 0, source.data(),
+                            &source_len);
+      } while (nbytes < 0 && errno == EINTR);
+      err = nbytes < 0 ? errno : 0;
+      if (nbytes >= 0) {
+        received = static_cast<size_t>(nbytes);
+        if (static_cast<size_t>(source_len) <= source.capacity())
+          source.resize(static_cast<size_t>(source_len));
+      }
 #endif
+      if (err == ::asio::error::would_block || err == ::asio::error::try_again) {
+        verify_source_until_empty = false;
+        return WL_OK; // Keep the idle RX reservation.
+      }
+      if (connected && err == peer_unreachable) continue; // Bounded by service_budget.
+      if (err && err != ::asio::error::message_size) {
+        (void)wl_packet_rx_abort(port, &claim);
+        rx_claimed = false;
+        ++stats.errors;
+        return WL_ERR_IO;
+      }
+      if (err || !received || received > maximum_datagram_size ||
+          (have_peer && source != peer)) {
+        reject_rx();
+        continue;
+      }
+      const wl_err_t committed = publish_rx(received, &source);
+      if (committed != WL_OK) return committed;
     }
-    result = wl_packet_rx_commit(port, &claim, received);
-    if (result != WL_OK) {
-      (void)wl_packet_rx_abort(port, &claim);
-      rx_claimed = false;
-      return result;
-    }
-    rx_claimed = false;
-    ++stats.received;
   }
   more_rx = true;
   return WL_OK;

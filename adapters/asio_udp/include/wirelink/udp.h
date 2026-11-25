@@ -29,6 +29,9 @@ typedef struct {
 typedef struct {
   uint64_t received;
   uint64_t sent;
+  /* Datagrams rejected by the adapter (no peer, invalid size or frame, or
+   * wrong source). Once connected, the OS filters new foreign datagrams;
+   * only foreign datagrams already queued can count here. */
   uint64_t rejected;
   uint64_t errors;
 } wl_udp_stats_t;

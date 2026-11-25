@@ -70,6 +70,87 @@ static void service_until(Peer &adapter, Predicate done) {
     assert(status == WL_OK || status == WL_ERR_NO_DATA);
   }
 }
+// Give each datagram a tag so a stale or foreign payload cannot satisfy a receive.
+static void send_tag(Peer &from, uint8_t tag) {
+  const uint8_t frame[] = {0x57, 0, 8, 0, tag};
+  wl_packet_token_t token{};
+  assert(wl_packet_tx_submit(&from.node.port, frame, sizeof(frame), &token) == WL_OK);
+  assert(wl_packet_tx_take(&from.node.port, &token) & WL_PACKET_DRAINED);
+}
+
+static void receive_tag(Peer &to, uint8_t tag) {
+  auto *port = &to.node.port;
+  service_until(to, [&] { return wl_packet_rx_ready(port); });
+  wl_packet_borrow_t borrow{};
+  assert(wl_packet_rx_borrow(port, &borrow) == WL_OK);
+  assert(borrow.length == 5 && borrow.data[4] == tag);
+  assert(wl_packet_rx_release(port, &borrow) == WL_OK);
+}
+
+static void late_start_and_restart(wl_udp_config_t config) {
+  using namespace std::chrono_literals;
+  wl_udp_t *reservation = nullptr;
+  assert(wl_udp_open(&reservation, &config, nullptr) == WL_OK);
+  config.peer_address = config.bind_address;
+  config.peer_port = wl_udp_local_port(reservation);
+  Peer client(config);
+  wl_udp_close(reservation);
+  config.bind_port = config.peer_port;
+  config.peer_port = wl_udp_local_port(client.udp);
+
+  for (unsigned start = 0; start < 2; ++start) {
+    send_tag(client, 1);
+    const auto wake = client.wait_for_activity(2ms); // ICMP or timeout.
+    assert(wake == WL_OK || wake == WL_ERR_NO_DATA);
+    assert(client.service() == WL_OK);
+    assert(client.wait_for_activity(2ms) == WL_ERR_NO_DATA);
+    send_tag(client, 2); // Leave any ICMP pending for the next send.
+    Peer server(config);
+    send_tag(client, 3);
+    receive_tag(server, 3);
+    send_tag(server, 4);
+    receive_tag(client, 4);
+    assert(client.stats().errors == 0 && server.stats().errors == 0);
+  }
+}
+
+static void peer_selection(wl_udp_config_t config) {
+  Peer a(config), b(config), c(config);
+  a.connect(b);
+  c.connect(b);
+  send_tag(c, 1);
+  service_until(b, [&] { return b.stats().rejected == 1; }); // No peer, learning off.
+  send_tag(a, 2);
+  b.connect(a);
+  receive_tag(b, 2); // From the new peer, but queued before connect.
+
+  send_tag(a, 3);
+  b.connect(c);
+  assert(b.service() == WL_OK && !wl_packet_rx_ready(&b.node.port));
+#if defined(__linux__)
+  assert(b.stats().rejected == 2); // Linux retains the old peer's queued datagram.
+#endif
+  send_tag(c, 4);
+  receive_tag(b, 4);
+#if defined(__linux__)
+  // SO_BROADCAST is off: a failed connect must leave the current peer usable.
+  assert(wl_udp_set_peer(b.udp, "255.255.255.255", wl_udp_local_port(a.udp)) == WL_ERR_IO);
+  send_tag(b, 8);
+  receive_tag(c, 8);
+#endif
+
+  config.learn_peer = true;
+  Peer learner(config);
+  a.connect(learner);
+  c.connect(learner);
+  send_tag(a, 5);
+  send_tag(c, 6);
+  receive_tag(learner, 5);
+  assert(learner.service() == WL_OK && !wl_packet_rx_ready(&learner.node.port));
+  send_tag(learner, 7);
+  receive_tag(a, 7);
+}
+
 int main() {
   using namespace std::chrono_literals;
   wl_udp_config_t config{};
@@ -82,6 +163,8 @@ int main() {
   assert(wl_udp_open(&bad, &config, nullptr) == WL_ERR_INVALID_ARG && !bad);
   config.peer_address = nullptr;
   config.peer_port = 0;
+  late_start_and_restart(config);
+  peer_selection(config);
   Peer aa(config), bb(config), cc(config);
   config.bind_port = wl_udp_local_port(aa.udp);
   assert(wl_udp_open(&bad, &config, &os_error) == WL_ERR_IO && !bad && os_error);
@@ -95,11 +178,11 @@ int main() {
   bb.notify();
   assert(bb.wait_for_activity(100ms) == WL_OK);
   assert(bb.service() == WL_OK && !wl_packet_rx_ready(b) && bb.stats().received == 0);
-  // Foreign source is consumed but never published.
+  // The kernel filters datagrams from a foreign source.
   assert(wl_packet_tx_submit(c, message, sizeof(message), &token) == WL_OK);
   (void)wl_packet_tx_take(c, &token);
-  service_until(bb, [&] { return bb.stats().rejected == 1; });
-  assert(!wl_packet_rx_ready(b));
+  assert(bb.service() == WL_OK && !wl_packet_rx_ready(b));
+  assert(bb.stats().received == 0 && bb.stats().rejected == 0);
   // Two RX units and a retained borrow block a third datagram until release.
   for (unsigned i = 0; i < 3; ++i) {
     assert(wl_packet_tx_submit(a, message, sizeof(message), &token) == WL_OK);
@@ -136,7 +219,7 @@ int main() {
   uint8_t large[235]{};
   assert(wl_packet_tx_submit(a, large, sizeof(large), &token) == WL_OK);
   assert(wl_packet_tx_take(a, &token) & WL_PACKET_DRAINED);
-  service_until(bb, [&] { return bb.stats().rejected == 2; });
+  service_until(bb, [&] { return bb.stats().rejected == 1; });
 
   config.decode = wl_packet_cobs_crc16_decode;
   Peer ab(config, true), ba(config, true);

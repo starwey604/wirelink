@@ -2,6 +2,13 @@
 
 ## 0.0.99
 
+- UDP connects its socket when a peer is configured, selected or learned.
+  Peers may start late or restart on the same port. The transport discards queued
+  datagrams from the old peer after a switch; new foreign datagrams filtered by
+  the OS no longer increment `wl_udp_stats_t.rejected`.
+  The data socket requests a 512 KiB receive buffer for short bursts when the
+  system default is smaller.
+
 - `Wirelink::udp` waits with one `poll()`/`WSAPoll()` over the socket and a
   loopback wake socket, and readiness no longer queries `FIONREAD`. An idle
   owner wait now costs one system call instead of an Asio timer/reactor cycle.
