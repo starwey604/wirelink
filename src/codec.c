@@ -1138,7 +1138,7 @@ static void copy_decoded(const wl_codec_desc_t *desc, void *out,
 
 static int try_decode_inorder(const wl_codec_desc_t *desc,
                               const uint8_t *input, size_t input_length,
-                              void *dst,
+                              void *message,
                               wl_codec_status_t *out_status) {
   if (input_length == 0U || desc->has_repeated != 0U ||
       desc->presence_bytes != 0U || desc->field_count == 0U) {
@@ -1146,7 +1146,7 @@ static int try_decode_inorder(const wl_codec_desc_t *desc,
   }
   const uint8_t *cursor = input;
   const uint8_t *const end = input + input_length;
-  uint8_t *const base = dst;
+  uint8_t *const base = message;
   for (size_t i = 0U; i < desc->field_count; ++i) {
     const wl_codec_field_t *f = &desc->fields[i];
     if (f->cardinality != WL_CODEC_CARD_REQUIRED || f->key_len != 1U ||
