@@ -9,6 +9,8 @@
 #include <zephyr/sys/atomic.h>
 #include "wirelink/byte_fifo.h"
 #include "wirelink/transport.h"
+#define WL_ZEPHYR_UART_IRQ_HAS_BATCH_RX_FRAMES 1
+
 struct uart_driver_api;
 #ifdef __cplusplus
 extern "C" {
@@ -24,6 +26,10 @@ typedef struct {
   void (*notify)(void *user_data);
   void *notify_user_data;
   bool tx_pipeline; /* Complete frames at FIFO acceptance instead of physical line idle. */
+  /* Coalesce wakes for incomplete long COBS frames. Wake on a delimiter,
+   * 256 bytes or half the FIFO (whichever comes first), and on faults or TX
+   * completion. Short prefixes retain the normal immediate notification. */
+  bool batch_rx_frames;
 } wl_zephyr_uart_irq_config_t;
 
 typedef struct {
@@ -54,6 +60,8 @@ typedef struct {
   void *notify_user_data;
   uint32_t drain_check_ms;
   uint32_t drain_due;
+  atomic_t batch_active;
+  uint32_t rx_unnotified;
   uint8_t binding, wait_for_tx_idle, drain_pending;
   atomic_t flags, tx_completion, error_pending;
   atomic_t rx_irqs, rx_bytes, rx_pauses;

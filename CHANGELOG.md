@@ -2,6 +2,11 @@
 
 ## 0.0.99
 
+- Set `batch_rx_frames = true` on the Zephyr IRQ UART transport to reduce
+  owner wakeups during long COBS frames. Short prefixes, frame boundaries,
+  errors and TX completions still wake the owner. Leave the option unset for
+  per-read notifications.
+
 - Set `tx_pipeline = true` on the Zephyr IRQ UART transport to submit the next
   frame as soon as the UART FIFO accepts the previous one. Leave it disabled
   when completion must mean the last byte has left the physical line.

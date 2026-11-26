@@ -5,6 +5,8 @@
 #include <zephyr/ztest.h>
 #include "fixture.h"
 #include "wirelink/wire.h"
+#include "wirelink/cobs.h"
+#include "wirelink/crc.h"
 #include "wirelink/endpoint.h"
 #include "wirelink/zephyr/uart_irq.h"
 
@@ -324,6 +326,70 @@ ZTEST(static_uart_irq, test_rx_chunks_share_tail_wake_and_gap_alone_wakes) {
   zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
   zassert_equal(wl_zephyr_uart_irq_service(&adapter, 0U), WL_ERR_IO);
   zassert_ok(wl_node_close(&node, 0U));
+}
+ZTEST(static_uart_irq, test_long_cobs_batch_wakes_on_delimiter_or_byte_budget) {
+  setup();
+  adapter.config.batch_rx_frames = true;
+  /* Each of the first 64 bytes still wakes the short-control path. */
+  for (unsigned i = 0; i < 64U; ++i) {
+    receive_byte(1);
+    zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+    zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
+  }
+  /* Half the 16-byte FIFO bounds the wait, even with no delimiter. */
+  for (unsigned i = 0; i < 7U; ++i) {
+    receive_byte(1);
+    zassert_equal(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT), WL_ERR_NO_DATA);
+  }
+  receive_byte(1);
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+  zassert_equal(wl_zephyr_uart_irq_service(&adapter, 0), WL_ERR_FRAME_TOO_LONG);
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT)); /* Aborted RX lease. */
+  /* The oversized frame was aborted, so the owner resumes normal wakes. */
+  receive_byte(1);
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+  receive_byte(0);
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+  zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0)); /* Delimiter ends discard. */
+  receive_byte(1);
+  zassert_ok(wl_zephyr_uart_irq_wait(&adapter, K_NO_WAIT));
+  zassert_ok(wl_node_close(&node, 0));
+}
+ZTEST(static_uart_irq, test_empty_ring_starts_next_frame_contiguous) {
+  setup();
+  adapter.config.batch_rx_frames = true;
+  uint8_t packet[7] = {0}, wire[10];
+  zassert_ok(wl_wire_native_none_seal(packet, 5U, 22, 1U));
+  packet[4] = 45;
+  uint16_t crc = wl_crc16_ccitt_false(packet, 5U);
+  packet[5] = crc >> 8U;
+  packet[6] = (uint8_t)crc;
+  size_t n;
+  zassert_ok(wl_cobs_encode(packet, sizeof(packet), wire, sizeof(wire)-1U, &n));
+  wire[n++] = 0;
+  /* First delivery also contains the next frame's leading code. */
+  memcpy(full_data.rx, wire, n);
+  full_data.rx[n] = wire[0];
+  full_data.rx_length = n+1U;
+  fire();
+  zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
+  zassert_equal(stream.rx_length, 1U);
+  zassert_equal(atomic_load(&adapter.fifo.read), n+1U);
+  wl_packet_borrow_t b;
+  zassert_ok(wl_packet_rx_borrow(&node.port, &b));
+  zassert_ok(wl_packet_rx_release(&node.port, &b));
+  /* Finish the fragment across the physical end of the 16-byte ring. */
+  for (size_t j=1U; j<n; ++j) {
+    receive_byte(wire[j]);
+    zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
+  }
+  zassert_ok(wl_packet_rx_borrow(&node.port, &b));
+  zassert_equal(b.length, 5U);
+  zassert_mem_equal(b.data, packet, 5U);
+  zassert_ok(wl_packet_rx_release(&node.port, &b));
+  zassert_equal(atomic_load(&adapter.fifo.read),0U);
+  zassert_equal(atomic_load(&adapter.fifo.write),0U);
+  zassert_ok(wl_node_close(&node, 0));
 }
 ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   setup(); wl_packet_token_t token = pending_tx(0);

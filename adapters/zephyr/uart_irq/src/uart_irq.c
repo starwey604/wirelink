@@ -81,12 +81,21 @@ static unsigned WL_ZEPHYR_UART_IRQ_HOT_CODE receive_ready(wl_zephyr_uart_irq_t *
     }
     return 0U;
   }
+  bool notify = true;
+  if (atomic_get(&adapter->batch_active)) {
+    size_t n = (size_t)received;
+    size_t budget = MIN(adapter->fifo.storage.length / 2U, 256U);
+    adapter->rx_unnotified += (uint32_t)n;
+    notify = adapter->rx_unnotified >= budget || span.data[n - 1U] == 0U ||
+        memchr(span.data, 0, n - 1U) != NULL;
+    if (notify) adapter->rx_unnotified = 0U;
+  }
   if (wl_byte_fifo_commit(&adapter->fifo, (size_t)received) != WL_OK)
     atomic_inc(&adapter->errors);
   else
     atomic_add(&adapter->rx_bytes, received);
   NOTE(adapter, publications);
-  return IRQ_PROGRESS | IRQ_NOTIFY; /* Partial RX is a publication too. */
+  return IRQ_PROGRESS | (notify ? IRQ_NOTIFY : 0U);
 }
 static unsigned WL_ZEPHYR_UART_IRQ_HOT_CODE transmit_ready(wl_zephyr_uart_irq_t *adapter) {
   const struct uart_driver_api *api = adapter->private_uart_api;
@@ -317,12 +326,38 @@ int WL_ZEPHYR_UART_IRQ_HOT_CODE wl_zephyr_uart_irq_service(wl_zephyr_uart_irq_t 
   }
   if (atomic_test_bit(&adapter->flags, RX_PAUSED) && wl_byte_fifo_has_space(&adapter->fifo)) {
     k_spinlock_key_t key = k_spin_lock(&callback_lock);
-    if (atomic_test_and_clear_bit(&adapter->flags, RX_PAUSED))
+    if (atomic_test_and_clear_bit(&adapter->flags, RX_PAUSED)) {
       adapter->private_uart_api->irq_rx_enable(adapter->uart);
+    }
     k_spin_unlock(&callback_lock, key);
     result = WL_OK;
   }
   int input = wl_byte_fifo_to_cobs(&adapter->fifo, adapter->stream, 16U);
+  if (adapter->config.batch_rx_frames) {
+    bool batch = adapter->stream->rx_length >= 64U;
+    if ((bool)atomic_get(&adapter->batch_active) != batch) {
+      k_spinlock_key_t key = k_spin_lock(&callback_lock);
+      atomic_set(&adapter->batch_active, batch);
+      if (!batch) adapter->rx_unnotified = 0U;
+      k_spin_unlock(&callback_lock, key);
+    }
+  }
+  /* At a completed frame, an empty staging ring can start the next burst
+   * at its contiguous base. The owner is the sole consumer; the binding
+   * lock excludes the sole producer, including outstanding reservations. */
+  if (adapter->config.batch_rx_frames && !adapter->stream->claimed &&
+      !adapter->stream->dropping) {
+    wl_byte_fifo_t *f = &adapter->fifo;
+    uint32_t read = atomic_load_explicit(&f->read, memory_order_relaxed);
+    if (read && read == atomic_load_explicit(&f->write, memory_order_acquire)) {
+      k_spinlock_key_t key = k_spin_lock(&callback_lock);
+      if (read == atomic_load_explicit(&f->write, memory_order_relaxed)) {
+        atomic_store_explicit(&f->read, 0U, memory_order_relaxed);
+        atomic_store_explicit(&f->write, 0U, memory_order_release);
+      }
+      k_spin_unlock(&callback_lock, key);
+    }
+  }
   if (input != WL_OK && input != WL_ERR_WOULD_BLOCK)
     result = input;
   return result;
