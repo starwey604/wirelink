@@ -30,7 +30,7 @@ static struct net_buf *complete(struct usbd_class_data *c,
   net_buf_add(buffer, length);
   unsigned before = wakes;
   zassert_ok(c->api->request(c, buffer, error));
-  zassert_true(wakes > before, "RX completion must signal the owner");
+  zassert_equal(wakes, before + 1U, "RX completion must wake the owner once");
   int result = wl_zephyr_usb_bulk_service(adapter);
   zassert_true(result == WL_OK || result == WL_ERR_IO || result == WL_ERR_WOULD_BLOCK);
   return take_queued(0x02U);
@@ -90,7 +90,7 @@ ZTEST(static_usb_bulk, test_real_class_ownership_and_recovery) {
   zassert_equal(in->data, tx, "USB must borrow the final frame, not copy it");
   unsigned before_tx = wakes;
   zassert_ok(c->api->request(c, in, 0));
-  zassert_true(wakes > before_tx, "TX completion must signal the owner");
+  zassert_equal(wakes, before_tx + 1U, "TX completion must wake the owner once");
   zassert_true(wl_packet_tx_ready(&node.port));
   zassert_equal(wl_packet_tx_take(&node.port, &event), WL_PACKET_CONSUMED | WL_PACKET_DRAINED);
   zassert_equal(event.instance, token.instance);
@@ -99,7 +99,7 @@ ZTEST(static_usb_bulk, test_real_class_ownership_and_recovery) {
   complete_in_inline = true;
   before_tx = wakes;
   zassert_ok(wl_packet_tx_submit(&node.port, tx, 24U, &token));
-  zassert_true(wakes > before_tx, "inline completion must signal the owner");
+  zassert_equal(wakes, before_tx + 1U, "inline completion must wake the owner once");
   zassert_equal(wl_packet_tx_take(&node.port, &event), WL_PACKET_CONSUMED | WL_PACKET_DRAINED);
   zassert_equal(event.sequence, token.sequence);
 
@@ -205,14 +205,14 @@ static void release_during_callback(void) {
   wl_packet_borrow_t borrow;
   zassert_ok(wl_packet_rx_borrow(&event_node.port, &borrow));
   zassert_true(wl_packet_take_activity(&event_node.port));
-  zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT), "consume the prompt data wake");
+  zassert_not_equal(k_sem_take(&owner_wake, K_NO_WAIT), 0,
+                    "data is visible but the callback has not retired");
   unsigned before = wakes;
   zassert_ok(wl_packet_rx_release(&event_node.port, &borrow));
   /* Only one of the two slots was occupied: no producer was blocked on capacity. */
   zassert_false(wl_packet_take_activity(&event_node.port));
   zassert_equal(wakes, before);
   zassert_false(wl_zephyr_usb_bulk_ready(&event_adapter), "RX_REARM not published yet");
-  zassert_not_equal(k_sem_take(&owner_wake, K_NO_WAIT), 0, "owner consumed the currently published notifications");
 }
 
 static void event_end(struct usbd_class_data *c) {
@@ -235,7 +235,7 @@ ZTEST(static_usb_bulk, test_release_before_rearm_keeps_final_wake) {
   unsigned before = wakes;
   zassert_ok(c->api->request(c, out, 0));
   after_buffer_free = NULL;
-  zassert_true(wakes > before);
+  zassert_equal(wakes, before + 1U);
   zassert_true(wl_packet_activity_pending(&event_node.port));
   zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT));
   zassert_true(wl_zephyr_usb_bulk_ready(&event_adapter));
@@ -312,8 +312,8 @@ static uint32_t stop_at_final_stats(void *user) {
     zassert_equal(wl_zephyr_usb_bulk_stop(&event_adapter), WL_ERR_WOULD_BLOCK);
     zassert_false(wl_zephyr_usb_bulk_stopped(&event_adapter));
     zassert_equal(wl_zephyr_usb_bulk_deinit(&event_adapter), WL_ERR_WOULD_BLOCK);
-    /* Consume disable's wake while callback stats still use the adapter. */
-    zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT));
+    zassert_not_equal(k_sem_take(&owner_wake, K_NO_WAIT), 0,
+                      "stop and disable defer their wake until stats are recorded");
     zassert_false(final_deinit);
   }
   return cycle_calls;
@@ -331,7 +331,7 @@ ZTEST(static_usb_bulk, test_last_callback_wakes_after_stats_and_silence) {
   zassert_ok(c->api->request(c, out, 0));
   after_buffer_free = NULL; on_wake = NULL;
   zassert_true(final_deinit);
-  zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT), "last wake must survive stop's earlier wake");
+  zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT), "last wake must signal physical stop");
   init(&event_node, &event_adapter, &event_rx[0][0], 105U);
   zassert_ok(wl_zephyr_usb_bulk_stop(&event_adapter));
   zassert_ok(wl_zephyr_usb_bulk_deinit(&event_adapter));

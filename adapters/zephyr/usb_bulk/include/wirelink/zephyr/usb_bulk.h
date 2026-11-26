@@ -79,6 +79,10 @@ typedef struct wl_zephyr_usb_bulk {
   wl_zephyr_usb_bulk_cycle_count_fn cycle_counter;
   wl_packet_claim_t rx_unit_claim;
   wl_packet_token_t tx_token;
+  /* Resolved for the current USB configuration before publishing enable. */
+  uint16_t cached_in_mps;
+  uint8_t cached_out_ep;
+  uint8_t cached_in_ep;
   /* Endpoint addresses captured when each outstanding request is queued. */
   uint8_t rx_endpoint;
   uint8_t tx_endpoint;

@@ -79,21 +79,12 @@ static struct usb_ep_descriptor *bulk_in_descriptor(
   return &private_data->descriptors->fs_in;
 }
 
-static uint8_t bulk_out_ep(struct usbd_class_data *class_data) {
-  return bulk_out_descriptor(class_data)->bEndpointAddress;
-}
-
-static uint8_t bulk_in_ep(struct usbd_class_data *class_data) {
-  return bulk_in_descriptor(class_data)->bEndpointAddress;
-}
-
-static size_t bulk_in_packet_size(struct usbd_class_data *class_data) {
-  return sys_le16_to_cpu(bulk_in_descriptor(class_data)->wMaxPacketSize);
-}
-
 void wl_zephyr_usb_bulk_notify(void *context) {
   wl_zephyr_usb_bulk_t *adapter = context;
-  if (adapter->wake_consumer != NULL) adapter->wake_consumer(adapter->wake_user_data);
+  /* Port activity is already latched. The last callback delivers its wake. */
+  if (atomic_get(&adapter->callbacks_active) == 0 && adapter->wake_consumer != NULL) {
+    adapter->wake_consumer(adapter->wake_user_data);
+  }
 }
 
 static void wake_consumer(const wl_zephyr_usb_bulk_t *adapter) {
@@ -158,7 +149,6 @@ wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *user_data, const uint8_t *dat
   struct usbd_context *context;
   struct net_buf *buffer;
   struct udc_buf_info *info;
-  size_t packet_size;
   uint32_t started;
   int result;
 
@@ -185,10 +175,9 @@ wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *user_data, const uint8_t *dat
   }
 
   info = udc_get_buf_info(buffer);
-  adapter->tx_endpoint = bulk_in_ep(class_data);
+  adapter->tx_endpoint = adapter->cached_in_ep;
   info->ep = adapter->tx_endpoint;
-  packet_size = bulk_in_packet_size(class_data);
-  if ((length % packet_size) == 0U) {
+  if ((length % adapter->cached_in_mps) == 0U) {
     udc_ep_buf_set_zlp(buffer);
   }
 
@@ -312,8 +301,7 @@ static int bulk_request(struct usbd_class_data *class_data,
    * accesses the old port. Copy the final outer wake before the last access. */
   wl_zephyr_usb_bulk_wake_fn wake = adapter->wake_consumer;
   void *user = adapter->wake_user_data;
-  atomic_dec(&adapter->callbacks_active);
-  if (wake != NULL) wake(user);
+  if (atomic_dec(&adapter->callbacks_active) == 1 && wake != NULL) wake(user);
   return result;
 }
 
@@ -325,6 +313,10 @@ static void bulk_enable(struct usbd_class_data *class_data) {
     /* Repeated enable callbacks cannot recover a still-configured endpoint. */
     if (atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) ||
         atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) return;
+    const struct usb_ep_descriptor *in = bulk_in_descriptor(class_data);
+    adapter->cached_in_mps = sys_le16_to_cpu(in->wMaxPacketSize);
+    adapter->cached_out_ep = bulk_out_descriptor(class_data)->bEndpointAddress;
+    adapter->cached_in_ep = in->bEndpointAddress;
     atomic_set(&adapter->rx_fault, WL_ZEPHYR_USB_RX_FAULT_NONE);
     atomic_clear_bit(&adapter->flags, ADAPTER_RX_FAULTED);
     atomic_clear_bit(&adapter->flags, ADAPTER_RECOVERY_REQUESTED);
@@ -343,6 +335,7 @@ static void bulk_disable(struct usbd_class_data *class_data) {
     if (atomic_test_bit(&private_data->adapter->flags, ADAPTER_RX_ACTIVE)) {
       atomic_set_bit(&private_data->adapter->flags, ADAPTER_RX_CANCEL_EXPECTED);
     }
+    /* Invalidate via ENABLED; a submit already in progress still needs its MPS. */
     atomic_clear_bit(&private_data->adapter->flags, ADAPTER_ENABLED);
     wake_consumer(private_data->adapter);
   }
@@ -483,7 +476,7 @@ static int queue_out(struct usbd_class_data *class_data,
   }
   net_buf_reset(buffer);
   info = udc_get_buf_info(buffer);
-  adapter->rx_endpoint = bulk_out_ep(class_data);
+  adapter->rx_endpoint = adapter->cached_out_ep;
   info->ep = adapter->rx_endpoint;
 
   adapter->rx_unit_claim = unit_claim;
