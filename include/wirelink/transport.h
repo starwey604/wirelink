@@ -26,7 +26,7 @@ typedef struct {
 } wl_transport_attach_t;
 
 typedef struct {
-  /* Optional: supply external RX slots before port init (e.g. USB Bulk 64/512B alignment). */
+  /* Optional: validate the node's proposed RX slots, or replace *out before port init. */
   wl_err_t (*configure_rx)(wl_transport_t *self, size_t min_unit_size,
                            wl_transport_rx_override_t *out);
   /* Bind initialized port/stream and start I/O. Called once by wl_node after port init.

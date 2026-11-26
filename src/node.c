@@ -33,14 +33,17 @@ static wl_err_t bind_node(wl_node_t *node, const wl_node_layout_t *layout,
   const wl_node_stream_ops_t *stream = layout->stream_ops;
   if (stream && (!stream->init || !stream->submit || !stream->feed || !stream->abort_rx ||
                  !stream->notify)) return WL_ERR_INVALID_ARG;
-  size_t minimum = (size_t)layout->rx_wire_max + 1U;
-  wl_transport_rx_override_t rx = {0};
+  const size_t minimum = (size_t)layout->rx_wire_max + 1U;
+  const size_t default_unit = layout->rx_unit_size ? (size_t)layout->rx_unit_size : minimum;
+  wl_transport_rx_override_t rx = {
+    layout->rx_storage, layout->rx_storage_size, layout->rx_storage ? default_unit : 0U
+  };
   if (ops && ops->configure_rx) {
     wl_err_t error = ops->configure_rx(transport, minimum, &rx);
     if (error != WL_OK) return error;
   }
   if (!rx.rx_storage && !rx.rx_unit_size && !rx.rx_storage_size)
-    rx = (wl_transport_rx_override_t){layout->rx_storage, layout->rx_storage_size, minimum};
+    rx = (wl_transport_rx_override_t){layout->rx_storage, layout->rx_storage_size, default_unit};
   if (rx.rx_unit_size < minimum) return WL_ERR_INVALID_ARG;
   uint32_t instance = layout->instance;
   if (!instance) {
@@ -122,7 +125,12 @@ wl_err_t wl_node_step(wl_node_t *node, uint32_t now_ms) {
   wl_err_t error = WL_OK;
   if (!node->transport_stopped && node->transport->ops->service)
     error = node->transport->ops->service(node->transport, now_ms);
+  const int rx_was_full = !wl_packet_rx_available(&node->port);
   wl_err_t stepped = wl_endpoint_step(&node->core, now_ms, WL_ENDPOINT_BUDGET);
+  if (error == WL_OK && stepped == WL_OK && rx_was_full && wl_packet_rx_available(&node->port) &&
+      !node->transport_stopped && node->transport->ops->service && node->transport->ops->readiness &&
+      node->transport->ops->readiness(node->transport, now_ms).runnable)
+    error = node->transport->ops->service(node->transport, now_ms);
   return error == WL_OK || error == WL_ERR_WOULD_BLOCK ? stepped : error;
 }
 

@@ -138,7 +138,53 @@ static void test_node_poll(void) {
   CHECK(wl_node_close(&node, driver.now) == WL_OK);
 }
 
+static wl_err_t keep_rx(wl_transport_t *base, size_t minimum, wl_transport_rx_override_t *out) {
+  driver_t *driver = (driver_t *)base;
+  CHECK(minimum == 17U && out->rx_storage == driver->slots[0]);
+  CHECK(out->rx_storage_size == sizeof(driver->slots) && out->rx_unit_size == 64U);
+  return WL_OK;
+}
+
+static wl_err_t accept_frame(wl_endpoint_t *endpoint, const wl_wire_frame_t *frame) {
+  (void)endpoint;
+  CHECK(frame->message_id == 1U);
+  return WL_OK;
+}
+
+static void test_rx_rearm(void) {
+  wl_transport_ops_t reuse = ops;
+  reuse.configure_rx = keep_rx;
+  driver_t driver = {.base = {&reuse}};
+  wl_node_t node = {0};
+  const wl_node_layout_t layout = {
+    .rx_frame_max = 16U, .rx_wire_max = 16U, .rx_unit_size = 64U,
+    .rx_storage = driver.slots[0], .rx_storage_size = sizeof(driver.slots), .route = accept_frame
+  };
+  CHECK(wl_node_bind_transport(&node, &layout, &driver.base) == WL_OK);
+  const uint8_t frame[] = {WL_WIRE_MAGIC, WL_WIRE_MSG, 1U, 0U};
+  for (unsigned i = 0; i < WL_PACKET_RX_SLOTS; ++i)
+    CHECK(wl_node_rx_packet(&node, frame, sizeof(frame)) == WL_OK);
+  CHECK(!wl_packet_rx_available(&node.port));
+  CHECK(wl_node_step(&node, 115U) == WL_OK);
+  CHECK(wl_packet_rx_available(&node.port) && driver.services == 2U);
+  CHECK(wl_node_close(&node, 115U) == WL_OK);
+}
+
+static void test_frame_errors(void) {
+  CHECK(wl_err_is_recoverable_frame(WL_ERR_WOULD_BLOCK));
+  CHECK(wl_err_is_recoverable_frame(WL_ERR_BAD_FRAME));
+  CHECK(wl_err_is_recoverable_frame(WL_ERR_COBS_DECODE));
+  CHECK(wl_err_is_recoverable_frame(WL_ERR_CRC));
+  CHECK(wl_err_is_recoverable_frame(WL_ERR_FRAME_TOO_LONG));
+  CHECK(wl_err_is_recoverable_frame(WL_ERR_CORRUPT_PAYLOAD));
+  CHECK(!wl_err_is_recoverable_frame(WL_OK));
+  CHECK(!wl_err_is_recoverable_frame(WL_ERR_IO));
+  CHECK(!wl_err_is_recoverable_frame(WL_ERR_CANCELLED));
+}
+
 int main(void) {
+  test_frame_errors();
+  test_rx_rearm();
   driver_t driver = {.base = {&ops}, .attach_result = WL_ERR_IO, .wait_result = WL_ERR_NO_DATA};
   wl_node_layout_t layout = {.rx_frame_max = 16U, .rx_wire_max = 16U};
   wl_node_t node = {0};

@@ -59,6 +59,13 @@ enum {
 
 };
 
+/* Owner loops may continue after backpressure or a rejected input frame. */
+static inline int wl_err_is_recoverable_frame(wl_err_t err) {
+  return err == WL_ERR_WOULD_BLOCK || err == WL_ERR_BAD_FRAME ||
+         err == WL_ERR_COBS_DECODE || err == WL_ERR_CRC ||
+         err == WL_ERR_FRAME_TOO_LONG || err == WL_ERR_CORRUPT_PAYLOAD;
+}
+
 const char *wl_err_str(int err);
 
 #ifdef __cplusplus

@@ -4,6 +4,10 @@
 #include "wirelink/clock.h"
 #include "wirelink/endpoint.h"
 #include "wirelink/transport.h"
+#ifndef WL_NODE_BUFFER_ALIGN
+#define WL_NODE_BUFFER_ALIGN 4U
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -70,6 +74,7 @@ typedef struct {
   wl_span_t stream_tx_wire;
   void *user;
   wl_endpoint_error_fn on_error;
+  uint16_t rx_unit_size; /* Physical slot stride; 0 selects rx_wire_max + 1. */
 } wl_node_layout_t;
 
 wl_err_t wl_node_bind_transport(wl_node_t *node, const wl_node_layout_t *layout,
