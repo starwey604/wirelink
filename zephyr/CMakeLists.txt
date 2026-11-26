@@ -34,3 +34,7 @@ if(CONFIG_WIRELINK_ZEPHYR_UART_IRQ AND CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
   set_property(SOURCE ${_wl}/adapters/zephyr/uart_irq/src/uart_irq.c APPEND PROPERTY
     COMPILE_OPTIONS -include ${_wl}/adapters/zephyr/uart_irq/platform/esp32_attributes.h)
 endif()
+if(CONFIG_WIRELINK_ZEPHYR_HOT_IRAM AND CONFIG_SOC_FAMILY_ESPRESSIF_ESP32 AND DEFINED _core)
+  set_property(SOURCE ${_core} APPEND PROPERTY
+    COMPILE_OPTIONS -include ${_wl}/zephyr/platform/esp32_hot_attributes.h)
+endif()

@@ -78,5 +78,13 @@ config WIRELINK_ZEPHYR_UDP
 	help
 	  Owner-only sockets, fixed peer and latched eventfd waiting. Optional
 	  selected transport decoder; no adapter thread or heap.
+
+config WIRELINK_ZEPHYR_HOT_IRAM
+	bool "Place Wirelink core hot paths in ESP32 IRAM"
+	depends on SOC_FAMILY_ESPRESSIF_ESP32
+	default n
+	help
+	  Map WL_HOT_ATTR core functions into .iram1 on ESP32 targets to avoid
+	  ICache misses on high-rate transport loops at the cost of IRAM.
 endif
 endmenu
