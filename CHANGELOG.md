@@ -2,6 +2,10 @@
 
 ## 0.0.99
 
+- Astrial USB terminates host writes on exact USB packet boundaries with a
+  zero-length packet. Zephyr USB Bulk queues the next OUT read before waking
+  the owner; owner service still arms the first read and resumes paused reads.
+
 - Set `batch_rx_frames = true` on the Zephyr IRQ UART transport to reduce
   owner wakeups during long COBS frames. Short prefixes, frame boundaries,
   errors and TX completions still wake the owner. Leave the option unset for

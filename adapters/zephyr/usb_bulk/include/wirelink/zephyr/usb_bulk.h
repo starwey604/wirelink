@@ -125,7 +125,8 @@ int wl_zephyr_usb_bulk_stop(wl_zephyr_usb_bulk_t *);
 int wl_zephyr_usb_bulk_stopped(const wl_zephyr_usb_bulk_t *);
 int wl_zephyr_usb_bulk_deinit(wl_zephyr_usb_bulk_t *);
 
-/* Owner only; call before/after kernel step to publish resource progress. */
+/* Owner only: arm RX after enable, or retry when capacity returns. Normal
+ * OUT completions queue the next read before waking the owner. */
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter);
 int wl_zephyr_usb_bulk_ready(const wl_zephyr_usb_bulk_t *adapter);
 wl_zephyr_usb_rx_fault_t wl_zephyr_usb_bulk_rx_fault(

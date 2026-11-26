@@ -64,14 +64,15 @@ public:
     rx_bytes.fetch_add(length, std::memory_order_relaxed);
     rx_units.fetch_add(1, std::memory_order_relaxed);
   }
-  void written(wl_packet_token_t token, size_t expected,
-               const std::error_code &error, size_t length) {
-    auto sequence = token.sequence;
-    if (!tx_sequence.compare_exchange_strong(sequence, 0, std::memory_order_acq_rel)) {
+  void written(uint32_t sequence, const std::error_code &error, size_t length) {
+    if (tx_sequence.load(std::memory_order_acquire) != sequence) {
       ++stale;
       return;
     }
-    const bool success = !error && expected == length;
+    // Write callbacks are serialized. Snapshot the lease before reopening admission.
+    const auto token = tx_token;
+    const bool success = !error && tx_length == length;
+    tx_sequence.store(0, std::memory_order_release);
     const bool cancel = stopping.load(std::memory_order_acquire) &&
         error == make_error_code(UsbError::TransferCancelled);
     if (success) { tx_bytes.fetch_add(length, std::memory_order_relaxed); ++tx_units; }
@@ -90,6 +91,8 @@ public:
   std::atomic<bool> stopping{false}, is_stopped{true}, paused{false}, fault_pending{false};
   std::atomic<PacketUsbFault> fault{PacketUsbFault::none};
   std::atomic<uint32_t> tx_sequence{};
+  wl_packet_token_t tx_token{};
+  size_t tx_length{};
   std::atomic<uint64_t> rx_bytes{}, tx_bytes{}, rx_units{}, tx_units{}, errors{}, stale{};
   wirelink::detail::CoalescingEvent activity;
 };
@@ -159,9 +162,13 @@ wl_packet_submit_t PacketUsbAdapter::submit(void *user, const uint8_t *data,
   uint32_t none = 0;
   if (!p.tx_sequence.compare_exchange_strong(none, token.sequence, std::memory_order_acq_rel))
     return WL_PACKET_BUSY;
+  p.tx_token = token;
+  p.tx_length = length;
   try {
     auto result = p.device->async_write_borrowed({data, length},
-        [&p, token, length](const std::error_code &e, size_t n) { p.written(token, length, e, n); });
+        [&p, sequence = token.sequence](const std::error_code &e, size_t n) {
+          p.written(sequence, e, n);
+        }, UsbWriteOptions{.append_zero_length_packet = true});
     if (result) return WL_PACKET_STARTED;
   } catch (const std::exception &) {
     p.fail(PacketUsbFault::transfer);
@@ -175,6 +182,7 @@ void PacketUsbAdapter::notify(void *user) {
 }
 wl_err_t PacketUsbAdapter::service() {
   auto &p = *impl_;
+  (void)p.activity.try_wait(); // Consume a wake even if the owner skipped wait().
   p.fault_pending.store(false, std::memory_order_release);
   if (!p.is_stopped.load() && !p.stopping.load() && p.fault.load() == PacketUsbFault::none &&
       p.paused.load(std::memory_order_acquire) && wl_packet_rx_available(p.port) &&

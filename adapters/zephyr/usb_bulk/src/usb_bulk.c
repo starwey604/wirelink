@@ -52,7 +52,7 @@ NET_BUF_POOL_FIXED_DEFINE(wl_usb_bulk_pool, 2, 0, sizeof(struct udc_buf_info) + 
                           NULL);
 
 static int queue_out(struct usbd_class_data *class_data,
-                     wl_zephyr_usb_bulk_t *adapter);
+                     wl_zephyr_usb_bulk_t *adapter, bool from_callback);
 static struct usbd_class_data *wl_usb_bulk_class_data(void);
 
 static struct usb_ep_descriptor *bulk_out_descriptor(
@@ -116,9 +116,7 @@ static void latch_rx_fault(wl_zephyr_usb_bulk_t *adapter,
 }
 
 static uint32_t cycle_count(const wl_zephyr_usb_bulk_t *adapter) {
-  return adapter->cycle_counter == NULL
-             ? 0U
-             : adapter->cycle_counter(adapter->cycle_counter_user_data);
+  return adapter->cycle_counter(adapter->cycle_counter_user_data);
 }
 
 static void atomic_max(atomic_t *maximum, uint32_t value) {
@@ -132,12 +130,7 @@ static void atomic_max(atomic_t *maximum, uint32_t value) {
 
 static void record_cycles(const wl_zephyr_usb_bulk_t *adapter, atomic_t *total,
                           atomic_t *maximum, uint32_t started) {
-  uint32_t elapsed;
-
-  if (adapter->cycle_counter == NULL) {
-    return;
-  }
-  elapsed = cycle_count(adapter) - started;
+  const uint32_t elapsed = cycle_count(adapter) - started;
   atomic_add(total, (atomic_val_t)elapsed);
   atomic_max(maximum, elapsed);
 }
@@ -149,19 +142,19 @@ wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *user_data, const uint8_t *dat
   struct usbd_context *context;
   struct net_buf *buffer;
   struct udc_buf_info *info;
-  uint32_t started;
+  uint32_t started = 0U;
   int result;
 
-  if (adapter == NULL || data == NULL || length == 0U ||
-      !atomic_test_bit(&adapter->flags, ADAPTER_INITIALIZED) ||
-      atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) {
+  if (adapter == NULL || data == NULL || length == 0U) return WL_PACKET_FAILED;
+  const atomic_val_t flags = atomic_get(&adapter->flags);
+  if (!(flags & BIT(ADAPTER_INITIALIZED)) || (flags & BIT(ADAPTER_STOPPING))) {
     return WL_PACKET_FAILED;
   }
-  if (!atomic_test_bit(&adapter->flags, ADAPTER_ENABLED)) return WL_PACKET_BUSY;
+  if (!(flags & BIT(ADAPTER_ENABLED))) return WL_PACKET_BUSY;
   if (atomic_test_and_set_bit(&adapter->flags, ADAPTER_TX_ACTIVE)) {
     return WL_PACKET_BUSY;
   }
-  started = cycle_count(adapter);
+  if (adapter->cycle_counter != NULL) started = cycle_count(adapter);
 
   class_data = wl_usb_bulk_class_data();
   context = usbd_class_get_ctx(class_data);
@@ -169,15 +162,20 @@ wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *user_data, const uint8_t *dat
                                    K_NO_WAIT);
   if (buffer == NULL) {
     atomic_clear_bit(&adapter->flags, ADAPTER_TX_ACTIVE);
-    record_cycles(adapter, &adapter->tx_sink_cycles,
-                  &adapter->tx_sink_max_cycles, started);
+    if (adapter->cycle_counter != NULL) {
+      record_cycles(adapter, &adapter->tx_sink_cycles,
+                    &adapter->tx_sink_max_cycles, started);
+    }
     return WL_PACKET_BUSY;
   }
 
   info = udc_get_buf_info(buffer);
   adapter->tx_endpoint = adapter->cached_in_ep;
   info->ep = adapter->tx_endpoint;
-  if ((length % adapter->cached_in_mps) == 0U) {
+  const uint16_t mps = adapter->cached_in_mps;
+  const bool need_zlp = (mps & (mps - 1U)) == 0U ? (length & (mps - 1U)) == 0U
+                                                  : (length % mps) == 0U;
+  if (need_zlp) {
     udc_ep_buf_set_zlp(buffer);
   }
 
@@ -189,16 +187,43 @@ wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *user_data, const uint8_t *dat
     adapter->tx_endpoint = 0U;
     atomic_clear_bit(&adapter->flags, ADAPTER_TX_ACTIVE);
     usbd_ep_buf_free(context, buffer);
-    record_cycles(adapter, &adapter->tx_sink_cycles,
-                  &adapter->tx_sink_max_cycles, started);
+    if (adapter->cycle_counter != NULL) {
+      record_cycles(adapter, &adapter->tx_sink_cycles,
+                    &adapter->tx_sink_max_cycles, started);
+    }
     return result == -ENOMEM || result == -EBUSY ? WL_PACKET_BUSY
                                                   : WL_PACKET_FAILED;
   }
   atomic_inc(&adapter->tx_submissions);
   atomic_add(&adapter->tx_bytes, (atomic_val_t)length);
-  record_cycles(adapter, &adapter->tx_sink_cycles,
-                &adapter->tx_sink_max_cycles, started);
+  if (adapter->cycle_counter != NULL) {
+    record_cycles(adapter, &adapter->tx_sink_cycles,
+                  &adapter->tx_sink_max_cycles, started);
+  }
   return WL_PACKET_STARTED;
+}
+
+static bool rx_enabled(atomic_val_t flags) {
+  return (flags & BIT(ADAPTER_ENABLED)) &&
+         !(flags & (BIT(ADAPTER_STOPPING) | BIT(ADAPTER_RX_FAULTED)));
+}
+
+static bool owner_rearm_pending(atomic_val_t flags) {
+  return rx_enabled(flags) && (flags & BIT(ADAPTER_RX_REARM)) &&
+         !(flags & BIT(ADAPTER_RX_ACTIVE));
+}
+
+/* Return the producer role to service only after the old lease is retired.
+ * A concurrent stop, disable or reconfiguration changes whether to retry. */
+static void retire_out(wl_zephyr_usb_bulk_t *adapter) {
+  adapter->rx_endpoint = 0U;
+  atomic_val_t flags;
+  atomic_val_t next;
+  do {
+    flags = atomic_get(&adapter->flags);
+    next = flags & ~(BIT(ADAPTER_RX_ACTIVE) | BIT(ADAPTER_RX_REARM));
+    if (rx_enabled(flags)) next |= BIT(ADAPTER_RX_REARM);
+  } while (!atomic_cas(&adapter->flags, flags, next));
 }
 
 static int bulk_request_impl(struct usbd_class_data *class_data,
@@ -208,13 +233,13 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
   struct udc_buf_info *info = udc_get_buf_info(buffer);
   wl_zephyr_usb_bulk_t *adapter = private_data->adapter;
   const uint8_t endpoint = info->ep;
-  uint32_t started;
+  uint32_t started = 0U;
 
   if (adapter == NULL) {
     usbd_ep_buf_free(context, buffer);
     return -ENODEV;
   }
-  started = cycle_count(adapter);
+  if (adapter->cycle_counter != NULL) started = cycle_count(adapter);
 
   if (buffer->user_data_size < sizeof(struct udc_buf_info) + sizeof(wl_packet_token_t)) {
     atomic_inc(&adapter->errors);
@@ -222,7 +247,8 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
     return -EINVAL;
   }
   wl_packet_token_t token = buffer_token(buffer);
-  if (atomic_test_bit(&adapter->flags, ADAPTER_TX_ACTIVE) &&
+  const atomic_val_t flags = atomic_get(&adapter->flags);
+  if ((flags & BIT(ADAPTER_TX_ACTIVE)) &&
       endpoint == adapter->tx_endpoint && token_equal(token, adapter->tx_token)) {
     usbd_ep_buf_free(context, buffer);
     adapter->tx_token = (wl_packet_token_t){0};
@@ -233,12 +259,14 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
     int result = wl_packet_tx_publish(adapter->port, token,
         error == 0 ? WL_PACKET_DRAINED : WL_PACKET_TX_ERROR);
     if (result != WL_OK) atomic_inc(&adapter->errors);
-    record_cycles(adapter, &adapter->tx_callback_cycles,
-                  &adapter->tx_callback_max_cycles, started);
+    if (adapter->cycle_counter != NULL) {
+      record_cycles(adapter, &adapter->tx_callback_cycles,
+                    &adapter->tx_callback_max_cycles, started);
+    }
     return result;
   }
 
-  if (!atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE) ||
+  if (!(flags & BIT(ADAPTER_RX_ACTIVE)) ||
       endpoint != adapter->rx_endpoint ||
       !token_equal(token, adapter->rx_unit_claim.token)) {
     atomic_inc(&adapter->errors);
@@ -246,17 +274,17 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
     return -EINVAL;
   }
 
-  const bool cancel_expected = atomic_test_and_clear_bit(
-      &adapter->flags, ADAPTER_RX_CANCEL_EXPECTED);
+  const bool cancel_expected = (flags & BIT(ADAPTER_RX_CANCEL_EXPECTED)) != 0;
+  if (cancel_expected) atomic_clear_bit(&adapter->flags, ADAPTER_RX_CANCEL_EXPECTED);
   /* A full request can complete before a terminating short packet/ZLP.
    * After an IO failure its suffix is equally unsafe to treat as a frame.
    * Latch RX stopped until USBD is disabled/reset and enabled again. */
-  if (atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) {
+  if (flags & BIT(ADAPTER_STOPPING)) {
     (void)wl_packet_rx_abort(adapter->port, &adapter->rx_unit_claim);
   } else if (error != 0 || buffer->len >= adapter->rx_unit_claim.span.length) {
     (void)wl_packet_rx_abort(adapter->port, &adapter->rx_unit_claim);
     if (error != -ECONNABORTED ||
-        (!cancel_expected && atomic_test_bit(&adapter->flags, ADAPTER_ENABLED))) {
+        (!cancel_expected && (flags & BIT(ADAPTER_ENABLED)))) {
       atomic_inc(&adapter->errors);
       latch_rx_fault(adapter, error != 0 ? WL_ZEPHYR_USB_RX_FAULT_TRANSFER
                                          : WL_ZEPHYR_USB_RX_FAULT_BOUNDARY_LOST);
@@ -273,20 +301,22 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
     atomic_add(&adapter->rx_bytes, (atomic_val_t)buffer->len);
   }
 
-  memset(&adapter->rx_unit_claim, 0, sizeof(adapter->rx_unit_claim));
-  adapter->rx_endpoint = 0U;
-  atomic_clear_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
   usbd_ep_buf_free(context, buffer);
-  if (atomic_test_bit(&adapter->flags, ADAPTER_RX_FAULTED) ||
-      atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) {
-    atomic_clear_bit(&adapter->flags, ADAPTER_RX_REARM);
+  /* Free may overlap owner stop, and this completion may have latched a
+   * fault. Recheck admission here, not against the completed request. */
+  const atomic_val_t rearm_flags = atomic_get(&adapter->flags);
+  if (rx_enabled(rearm_flags) && atomic_get(&adapter->callbacks_active) == 1) {
+    if (rearm_flags & BIT(ADAPTER_RX_REARM)) atomic_clear_bit(&adapter->flags, ADAPTER_RX_REARM);
+    (void)queue_out(class_data, adapter, true);
   } else {
-    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
+    retire_out(adapter);
   }
   atomic_inc(&adapter->rx_completions);
   wake_consumer(adapter);
-  record_cycles(adapter, &adapter->rx_callback_cycles,
-                &adapter->rx_callback_max_cycles, started);
+  if (adapter->cycle_counter != NULL) {
+    record_cycles(adapter, &adapter->rx_callback_cycles,
+                  &adapter->rx_callback_max_cycles, started);
+  }
   return 0;
 }
 
@@ -323,7 +353,7 @@ static void bulk_enable(struct usbd_class_data *class_data) {
     atomic_clear_bit(&adapter->flags, ADAPTER_RECOVERY_DISABLED);
     atomic_set_bit(&adapter->flags, ADAPTER_ENABLED);
     atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
-    /* Only owner service claims/enqueues RX. The USB thread publishes IO. */
+    /* Owner service arms the first OUT for this configuration. */
     wake_consumer(adapter);
   }
 }
@@ -443,35 +473,29 @@ static struct usbd_class_data *wl_usb_bulk_class_data(void) {
   return &wirelink_bulk_0;
 }
 
+/* The owner arms idle RX; a completing callback keeps RX_ACTIVE throughout
+ * replacement. Nothing after a successful enqueue may change the lease:
+ * the new request may already have completed inline. */
 static int queue_out(struct usbd_class_data *class_data,
-                     wl_zephyr_usb_bulk_t *adapter) {
+                     wl_zephyr_usb_bulk_t *adapter, bool from_callback) {
   struct usbd_context *context = usbd_class_get_ctx(class_data);
   struct net_buf *buffer;
   struct udc_buf_info *info;
-  wl_packet_claim_t unit_claim;
-  size_t request_size;
+  wl_packet_claim_t *claim = &adapter->rx_unit_claim;
   int result;
 
-  if (!atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) ||
-      atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE) ||
-      atomic_test_bit(&adapter->flags, ADAPTER_RX_FAULTED) ||
-      atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) {
-    return WL_OK;
-  }
-  memset(&unit_claim, 0, sizeof(unit_claim));
-  result = wl_packet_rx_claim(adapter->port, adapter->maximum_rx_size, &unit_claim);
+  result = wl_packet_rx_claim(adapter->port, adapter->maximum_rx_size, claim);
   if (result != WL_OK) {
-    atomic_inc(&adapter->rx_pauses);
-    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
+    if (result == WL_ERR_WOULD_BLOCK) atomic_inc(&adapter->rx_pauses);
+    retire_out(adapter);
     return result;
   }
-  request_size = unit_claim.span.length;
   buffer = net_buf_alloc_with_data(&wl_usb_bulk_pool,
-                                   unit_claim.span.data,
-                                   request_size, K_NO_WAIT);
+                                   claim->span.data,
+                                   claim->span.length, K_NO_WAIT);
   if (buffer == NULL) {
-    (void)wl_packet_rx_abort(adapter->port, &unit_claim);
-    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
+    (void)wl_packet_rx_abort(adapter->port, claim);
+    retire_out(adapter);
     return WL_ERR_WOULD_BLOCK;
   }
   net_buf_reset(buffer);
@@ -479,20 +503,17 @@ static int queue_out(struct usbd_class_data *class_data,
   adapter->rx_endpoint = adapter->cached_out_ep;
   info->ep = adapter->rx_endpoint;
 
-  adapter->rx_unit_claim = unit_claim;
-  set_buffer_token(buffer, unit_claim.token);
-  /* A completion may run before enqueue returns. Consume the old request
-   * before submission so its completion's new rearm request is preserved. */
-  atomic_clear_bit(&adapter->flags, ADAPTER_RX_REARM);
-  atomic_set_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
+  set_buffer_token(buffer, claim->token);
+  if (!from_callback) {
+    atomic_clear_bit(&adapter->flags, ADAPTER_RX_REARM);
+    atomic_set_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
+  }
   result = usbd_ep_enqueue(class_data, buffer);
   if (result != 0) {
-    atomic_clear_bit(&adapter->flags, ADAPTER_RX_ACTIVE);
-    adapter->rx_endpoint = 0U;
-    (void)wl_packet_rx_abort(adapter->port, &unit_claim);
+    (void)wl_packet_rx_abort(adapter->port, claim);
     usbd_ep_buf_free(context, buffer);
     atomic_inc(&adapter->errors);
-    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
+    retire_out(adapter);
     return WL_ERR_IO;
   }
 
@@ -524,44 +545,33 @@ static wl_err_t initialize(wl_zephyr_usb_bulk_t *adapter, const wl_zephyr_usb_bu
 }
 
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter) {
-  uint32_t started;
-  bool active;
-  int result;
+  if (adapter == NULL) return WL_ERR_INVALID_ARG;
+  const atomic_val_t flags = atomic_get(&adapter->flags);
+  if (!(flags & BIT(ADAPTER_INITIALIZED))) return WL_ERR_INVALID_ARG;
 
-  if (adapter == NULL ||
-      !atomic_test_bit(&adapter->flags, ADAPTER_INITIALIZED)) {
-    return WL_ERR_INVALID_ARG;
-  }
-
-  started = cycle_count(adapter);
-  active = atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) &&
-           atomic_test_bit(&adapter->flags, ADAPTER_RX_REARM) &&
-           !atomic_test_bit(&adapter->flags, ADAPTER_RX_FAULTED) &&
-           !atomic_test_bit(&adapter->flags, ADAPTER_STOPPING);
-  if (active) {
-    result = queue_out(&wirelink_bulk_0, adapter);
-  } else {
-    result = WL_OK;
-  }
-  if (active) {
+  int result = WL_OK;
+  if (owner_rearm_pending(flags)) {
+    const uint32_t started = adapter->cycle_counter != NULL ? cycle_count(adapter) : 0U;
+    result = queue_out(&wirelink_bulk_0, adapter, false);
     atomic_inc(&adapter->active_service_calls);
-    record_cycles(adapter, &adapter->active_service_cycles,
-                  &adapter->active_service_max_cycles, started);
+    if (adapter->cycle_counter != NULL) {
+      record_cycles(adapter, &adapter->active_service_cycles,
+                    &adapter->active_service_max_cycles, started);
+    }
   }
-  const bool report_fault = atomic_test_and_clear_bit(&adapter->flags,
-                                                      ADAPTER_RX_FAULT_PENDING);
-  return report_fault || atomic_test_bit(&adapter->flags, ADAPTER_RX_FAULTED)
-             ? WL_ERR_IO : result;
+  if (flags & BIT(ADAPTER_RX_FAULT_PENDING)) {
+    atomic_clear_bit(&adapter->flags, ADAPTER_RX_FAULT_PENDING);
+    return WL_ERR_IO;
+  }
+  return (flags & BIT(ADAPTER_RX_FAULTED)) ? WL_ERR_IO : result;
 }
 
 int wl_zephyr_usb_bulk_ready(const wl_zephyr_usb_bulk_t *adapter) {
-  if (adapter == NULL || !atomic_test_bit(&adapter->flags, ADAPTER_INITIALIZED)) return 0;
-  return atomic_test_bit(&adapter->flags, ADAPTER_RX_FAULT_PENDING) ||
-      (atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) &&
-       atomic_test_bit(&adapter->flags, ADAPTER_RX_REARM) &&
-       !atomic_test_bit(&adapter->flags, ADAPTER_RX_FAULTED) &&
-       !atomic_test_bit(&adapter->flags, ADAPTER_STOPPING) &&
-       wl_packet_rx_available(adapter->port));
+  if (adapter == NULL) return 0;
+  const atomic_val_t flags = atomic_get(&adapter->flags);
+  return (flags & BIT(ADAPTER_INITIALIZED)) &&
+      ((flags & BIT(ADAPTER_RX_FAULT_PENDING)) ||
+       (owner_rearm_pending(flags) && wl_packet_rx_available(adapter->port)));
 }
 
 int wl_zephyr_usb_bulk_stop(wl_zephyr_usb_bulk_t *adapter) {

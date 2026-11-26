@@ -31,8 +31,7 @@ static struct net_buf *complete(struct usbd_class_data *c,
   unsigned before = wakes;
   zassert_ok(c->api->request(c, buffer, error));
   zassert_equal(wakes, before + 1U, "RX completion must wake the owner once");
-  int result = wl_zephyr_usb_bulk_service(adapter);
-  zassert_true(result == WL_OK || result == WL_ERR_IO || result == WL_ERR_WOULD_BLOCK);
+  (void)adapter;
   return take_queued(0x02U);
 }
 
@@ -57,17 +56,20 @@ ZTEST(static_usb_bulk, test_real_class_ownership_and_recovery) {
   zassert_true(wl_zephyr_usb_bulk_ready(&adapter));
   complete_out_inline = true;
   zassert_ok(wl_zephyr_usb_bulk_service(&adapter));
-  zassert_true(wl_zephyr_usb_bulk_ready(&adapter), "inline completion must retain rearm");
-  zassert_ok(wl_zephyr_usb_bulk_service(&adapter));
+  zassert_false(wl_zephyr_usb_bulk_ready(&adapter), "normal inline completion rearms directly");
   struct net_buf *out = take_queued(0x02U);
   zassert_not_null(out);
   zassert_equal(net_buf_tailroom(out), 2048U);
   memset(out->data, 0x5a, 64U);
   out = complete(c, &adapter, out, 64U, 0);
   zassert_not_null(out);
+  zassert_false(wl_zephyr_usb_bulk_ready(&adapter));
   memset(out->data, 0xa5, 24U);
   out = complete(c, &adapter, out, 24U, 0);
   zassert_is_null(out);
+  wl_zephyr_usb_bulk_stats_t st = {0};
+  wl_zephyr_usb_bulk_get_stats(&adapter, &st);
+  zassert_equal(st.rx_pauses, 1U);
   wl_packet_borrow_t borrow;
   zassert_ok(wl_packet_rx_borrow(&node.port, &borrow));
   zassert_equal(borrow.data[0], 0x5aU);
@@ -238,7 +240,7 @@ ZTEST(static_usb_bulk, test_release_before_rearm_keeps_final_wake) {
   zassert_equal(wakes, before + 1U);
   zassert_true(wl_packet_activity_pending(&event_node.port));
   zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT));
-  zassert_true(wl_zephyr_usb_bulk_ready(&event_adapter));
+  zassert_false(wl_zephyr_usb_bulk_ready(&event_adapter));
   zassert_ok(wl_zephyr_usb_bulk_service(&event_adapter));
   zassert_not_equal(k_sem_take(&owner_wake, K_NO_WAIT), 0, "service must not self-wake");
   event_end(c);
@@ -257,7 +259,7 @@ static void wait_for_one_publication(void *a, void *b, void *d) {
   if (publish_before_wait) zassert_ok(k_sem_take(&enter_wait, K_FOREVER));
   for (;;) {
     zassert_ok(k_sem_take(&owner_wake, K_FOREVER));
-    if (wl_packet_rx_ready(&event_node.port) && wl_zephyr_usb_bulk_ready(&event_adapter) &&
+    if (wl_packet_rx_ready(&event_node.port) && !wl_zephyr_usb_bulk_ready(&event_adapter) &&
         atomic_get(&event_adapter.callbacks_active) == 0) break;
   }
 }
@@ -288,6 +290,7 @@ ZTEST(static_usb_bulk, test_publication_before_or_after_block) {
     before = wakes;
     zassert_ok(wl_packet_rx_release(&event_node.port, &borrow));
     zassert_equal(wakes, before, "non-full release must not wake the owner");
+    zassert_false(wl_zephyr_usb_bulk_ready(&event_adapter));
     zassert_ok(wl_zephyr_usb_bulk_service(&event_adapter));
     event_end(c);
   }
@@ -309,6 +312,8 @@ static void deinit_on_last_wake(void) {
 static uint32_t stop_at_final_stats(void *user) {
   ARG_UNUSED(user);
   if (++cycle_calls == 2U) {
+    wl_packet_token_t ev;
+    (void)wl_packet_tx_take(&event_node.port, &ev);
     zassert_equal(wl_zephyr_usb_bulk_stop(&event_adapter), WL_ERR_WOULD_BLOCK);
     zassert_false(wl_zephyr_usb_bulk_stopped(&event_adapter));
     zassert_equal(wl_zephyr_usb_bulk_deinit(&event_adapter), WL_ERR_WOULD_BLOCK);
@@ -320,15 +325,29 @@ static uint32_t stop_at_final_stats(void *user) {
 }
 
 ZTEST(static_usb_bulk, test_last_callback_wakes_after_stats_and_silence) {
-  struct usbd_class_data *c = event_begin(104U);
-  struct net_buf *out = take_queued(0x02U);
-  zassert_not_null(out);
+  static uint8_t tx_buf[24];
+  struct usbd_class_data *c = bulk_class();
+  c->uds_ctx = &event_context;
+  event_context.status.speed = USBD_SPEED_FS;
+  configure_descriptor(bulk_descriptor(c, USBD_SPEED_FS, false), 0x02U, 64U);
+  configure_descriptor(bulk_descriptor(c, USBD_SPEED_FS, true), 0x83U, 64U);
+  after_buffer_free = NULL;
+  on_wake = NULL;
+  complete_out_inline = false;
+  complete_in_inline = false;
+  event_adapter.cycle_counter = NULL;
+  k_sem_reset(&owner_wake);
+  init(&event_node, &event_adapter, &event_rx[0][0], 104U);
+  c->api->enable(c);
+  zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT));
+  wl_packet_token_t token;
+  zassert_ok(wl_packet_tx_submit(&event_node.port, tx_buf, sizeof(tx_buf), &token));
+  struct net_buf *in = take_queued(0x83U);
+  zassert_not_null(in);
   cycle_calls = 0U; final_deinit = false;
   event_adapter.cycle_counter = stop_at_final_stats;
-  after_buffer_free = release_during_callback;
   on_wake = deinit_on_last_wake;
-  net_buf_add(out, 24U);
-  zassert_ok(c->api->request(c, out, 0));
+  zassert_ok(c->api->request(c, in, 0));
   after_buffer_free = NULL; on_wake = NULL;
   zassert_true(final_deinit);
   zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT), "last wake must signal physical stop");
@@ -338,11 +357,20 @@ ZTEST(static_usb_bulk, test_last_callback_wakes_after_stats_and_silence) {
 }
 
 ZTEST(static_usb_bulk, test_lifecycle_last_port_notify_allows_deinit) {
-  struct usbd_class_data *c = event_begin(107U);
-  struct net_buf *out = take_queued(0x02U);
-  zassert_not_null(out);
-  /* Empty completion leaves no data borrow or IO lease; do not rearm. */
-  zassert_ok(c->api->request(c, out, 0));
+  struct usbd_class_data *c = bulk_class();
+  c->uds_ctx = &event_context;
+  event_context.status.speed = USBD_SPEED_FS;
+  configure_descriptor(bulk_descriptor(c, USBD_SPEED_FS, false), 0x02U, 64U);
+  configure_descriptor(bulk_descriptor(c, USBD_SPEED_FS, true), 0x83U, 64U);
+  after_buffer_free = NULL;
+  on_wake = NULL;
+  complete_out_inline = false;
+  complete_in_inline = false;
+  event_adapter.cycle_counter = NULL;
+  k_sem_reset(&owner_wake);
+  init(&event_node, &event_adapter, &event_rx[0][0], 107U);
+  c->api->enable(c);
+  zassert_ok(k_sem_take(&owner_wake, K_NO_WAIT));
   disable_result = -EIO;
   zassert_equal(wl_node_close(&event_node, 0), WL_ERR_IO);
   zassert_false(wl_node_quiescent(&event_node));

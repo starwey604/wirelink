@@ -72,6 +72,8 @@ static void test_rx_ownership(void) {
   CHECK(wl_packet_rx_commit(&f.port, &b, 32U) == WL_OK);
   CHECK(!wl_packet_rx_available(&f.port));
   CHECK(wl_packet_rx_claim(&f.port, 8U, &invalid) == WL_ERR_WOULD_BLOCK);
+  CHECK(invalid.span.data == NULL && invalid.span.length == 0U &&
+        invalid.token.instance == 0U && invalid.token.sequence == 0U);
   CHECK(wl_packet_rx_borrow(&f.port, &borrow) == WL_OK);
   CHECK(borrow.length == 8U && borrow.data[7] == 0xa1);
   stale = borrow;

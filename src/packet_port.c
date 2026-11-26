@@ -85,19 +85,25 @@ int wl_packet_activity_pending(const wl_packet_port_t *port) {
   return atomic_load_explicit(&port->activity, memory_order_acquire);
 }
 
+static wl_err_t reject_claim(wl_packet_claim_t *out, wl_err_t reason) {
+  *out = (wl_packet_claim_t){0};
+  return reason;
+}
+
 WL_HOT_ATTR wl_err_t wl_packet_rx_claim(wl_packet_port_t *port, size_t maximum,
                                         wl_packet_claim_t *out) {
-  if (port == NULL || out == NULL || maximum == 0U) return WL_ERR_INVALID_ARG;
-  memset(out, 0, sizeof(*out));
+  if (out == NULL) return WL_ERR_INVALID_ARG;
+  if (port == NULL || maximum == 0U) return reject_claim(out, WL_ERR_INVALID_ARG);
   if (!atomic_load_explicit(&port->running, memory_order_acquire))
-    return WL_ERR_INVALID_STATE;
+    return reject_claim(out, WL_ERR_INVALID_STATE);
   if (atomic_load_explicit(&port->claim_active, memory_order_relaxed))
-    return WL_ERR_BUSY;
-  if (maximum > port->config.rx_unit_size) return WL_ERR_BUF_TOO_SMALL;
+    return reject_claim(out, WL_ERR_BUSY);
+  if (maximum > port->config.rx_unit_size) return reject_claim(out, WL_ERR_BUF_TOO_SMALL);
   uint32_t write = atomic_load_explicit(&port->write_cursor, memory_order_relaxed);
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_acquire);
-  if ((uint32_t)(write - read) >= port->config.rx_slots) return WL_ERR_WOULD_BLOCK;
-  if (port->claim_sequence == UINT32_MAX) return WL_ERR_ID_EXHAUSTED;
+  if ((uint32_t)(write - read) >= port->config.rx_slots)
+    return reject_claim(out, WL_ERR_WOULD_BLOCK);
+  if (port->claim_sequence == UINT32_MAX) return reject_claim(out, WL_ERR_ID_EXHAUSTED);
   ++port->claim_sequence;
   port->claim_cursor = write;
   port->claim_capacity = maximum;
@@ -112,7 +118,7 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_claim(wl_packet_port_t *port, size_t maximum,
 
 static int claim_matches(const wl_packet_port_t *port,
                           const wl_packet_claim_t *claim) {
-  return atomic_load_explicit(&port->claim_active, memory_order_acquire) &&
+  return atomic_load_explicit(&port->claim_active, memory_order_relaxed) &&
       claim->token.instance == port->config.instance &&
       claim->token.sequence == port->claim_sequence &&
       claim->span.data == port->config.rx_storage +

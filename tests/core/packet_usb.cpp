@@ -56,7 +56,8 @@ void UsbBulkDevice::close() {
   read_done = {}; disconnected = {};
 }
 tl::expected<void, std::error_code> UsbBulkDevice::async_write_borrowed(
-    std::span<const uint8_t> data, WriteCallback done) {
+    std::span<const uint8_t> data, WriteCallback done, UsbWriteOptions options) {
+  assert(options.append_zero_length_packet);
   assert(!write_done);
   if (inline_write) done({}, data.size());
   else { leased = data; write_done = std::move(done); }
@@ -104,10 +105,11 @@ int main() {
         assert(!adapter.ready());
         assert(wl_packet_rx_release(port, &borrow) == WL_OK && adapter.ready());
         assert(adapter.service() == WL_OK && active.bytes.size() == 2048);
+        assert(!adapter.wait_for_activity(std::chrono::nanoseconds(0)));
         assert(wl_packet_rx_borrow(port, &borrow) == WL_OK && borrow.data[0] == 43);
         assert(wl_packet_rx_release(port, &borrow) == WL_OK);
       }
-      uint8_t source[] = {1, 2, 3}; wl_packet_token_t token{};
+      uint8_t source[64] = {1, 2, 3}; wl_packet_token_t token{};
       assert(wl_packet_tx_submit(port, source, sizeof(source), &token) == WL_OK);
       old_token = token;
       assert(leased.data() == source && !adapter.stopped());
