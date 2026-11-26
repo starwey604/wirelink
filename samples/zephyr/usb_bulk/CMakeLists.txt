@@ -8,7 +8,6 @@ list(APPEND ZEPHYR_EXTRA_MODULES ${WIRELINK_ROOT})
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(wirelink_usb_bulk)
 
-include(${ZEPHYR_BASE}/samples/subsys/usb/common/common.cmake)
 include(${WIRELINK_ROOT}/cmake/WirelinkWlc.cmake)
 wirelink_wlc_generate_codec(TARGET usb_control_codec
   SCHEMA "${WIRELINK_ROOT}/tests/fixtures/wlc/current/control.wl")

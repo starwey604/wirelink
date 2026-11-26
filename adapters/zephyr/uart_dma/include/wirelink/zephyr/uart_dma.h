@@ -12,7 +12,13 @@
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/byte_fifo.h"
-#include "wirelink/transport.h"
+#include "wirelink/node.h"
+
+#if defined(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
+#define WL_ZEPHYR_UART_DMA_DEFAULT_TIMEOUT_US 0
+#else
+#define WL_ZEPHYR_UART_DMA_DEFAULT_TIMEOUT_US 200
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,10 +31,12 @@ typedef struct {
   const struct device *uart;
   wl_span_t fifo_storage; /* Staging memory owned by this transport until close. */
   /* Two disjoint caller-owned, DMA-capable buffers. The async UART alternates
-   * between them; completed bytes are copied into the Wirelink RX ring. */
+   * between them; completed bytes are copied into the Wirelink RX ring.
+   * With automatic D-cache maintenance, each buffer owns whole cache lines. */
   wl_span_t rx_buffers[2];
   int32_t timeout_us;
-  int32_t tx_timeout_us;
+  int32_t tx_timeout_us; /* 0 selects SYS_FOREVER_US. */
+  uint32_t baud_rate; /* 0 keeps the existing line configuration; otherwise 8N1. */
   /* Work around DMA drivers whose TX_DONE precedes physical line idle. */
   bool wait_for_tx_idle;
   uint32_t drain_check_ms;
@@ -51,6 +59,7 @@ typedef struct {
   uint64_t order;
   uint8_t driver_owned;
   uint8_t released;
+  uint16_t cache_line;
 } wl_zephyr_uart_dma_slot_t;
 
 typedef struct {
@@ -98,6 +107,20 @@ typedef struct {
  * live through node close. */
 wl_transport_t *wl_zephyr_uart_dma_transport(wl_zephyr_uart_dma_t *adapter,
     const wl_zephyr_uart_dma_config_t *config);
+
+/* Each DMA chunk is rounded up to whole, separately owned alignment units. */
+#define WL_ZEPHYR_UART_DMA_DEFINE(name, uart_dev, fifo_bytes, chunk_bytes)              \
+  static struct {                                                                     \
+    wl_zephyr_uart_dma_t adapter;                                                     \
+    uint8_t fifo[fifo_bytes];                                                         \
+    uint8_t rx[2][ROUND_UP(chunk_bytes, WL_NODE_BUFFER_ALIGN)]                         \
+        __aligned(WL_NODE_BUFFER_ALIGN);                                              \
+    wl_zephyr_uart_dma_config_t config;                                               \
+  } name = {.config = {                                                               \
+    .uart = (uart_dev), .fifo_storage = {name.fifo, sizeof(name.fifo)},                \
+    .rx_buffers = {{name.rx[0], sizeof(name.rx[0])}, {name.rx[1], sizeof(name.rx[1])}}, \
+    .timeout_us = WL_ZEPHYR_UART_DMA_DEFAULT_TIMEOUT_US, .tx_timeout_us = SYS_FOREVER_US \
+  }}
 
 typedef struct {
   uint32_t buffer_requests;

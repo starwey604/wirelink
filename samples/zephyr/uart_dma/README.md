@@ -8,8 +8,8 @@ The old ARQ/CRC32C stream configuration is removed; peers must explicitly use
 COBS/CRC16 ordinary DATA. There is no automatic wire-profile negotiation.
 
 The owner obtains a fresh identity from the native platform before initialization,
-reads the clock outside the kernel, merges core and driver deadlines, rebases
-elapsed time before waiting, and uses the adapter's latched wake. ISR callbacks
+then calls `wl_zephyr_node_poll` to wait on the adapter and step the node.
+`WL_ZEPHYR_UART_DMA_DEFINE` supplies the staging FIFO and aligned RX buffers. ISR callbacks
 stage bytes only. The receive callback retains no frame pointer. Shutdown joins
 actual DMA buffer returns and dispatched callbacks before storage can be reused.
 

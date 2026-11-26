@@ -2,6 +2,13 @@
 
 #include "wirelink/zephyr/uart_dma.h"
 #include "wirelink/zephyr/detail/timeout.h"
+#include "wirelink/zephyr/detail/uart.h"
+#if defined(CONFIG_DCACHE)
+#include <zephyr/cache.h>
+#if defined(CONFIG_CACHE_ESP32)
+#include <esp_cache.h>
+#endif
+#endif
 
 #include <errno.h>
 #include <string.h>
@@ -25,6 +32,45 @@ static bool spans_overlap(const wl_span_t *left, const wl_span_t *right) {
 
   return left_address <= right_address ? right_address - left_address < left->length
                                        : left_address - right_address < right->length;
+}
+
+#if defined(CONFIG_DCACHE)
+static size_t rx_slot_dcache_line(const wl_span_t *span) {
+  if (sys_cache_is_ptr_uncached(span->data)) {
+    return 0U;
+  }
+#if defined(CONFIG_CACHE_CAN_SAY_MEM_COHERENCE)
+  if (sys_cache_is_mem_coherent(span->data)) {
+    return 0U;
+  }
+#endif
+#if defined(CONFIG_CACHE_ESP32)
+  const size_t first = esp_cache_get_line_size_by_addr(span->data);
+  const size_t last = esp_cache_get_line_size_by_addr(span->data + span->length - 1U);
+  return first > last ? first : last;
+#else
+  return sys_cache_data_line_size_get();
+#endif
+}
+#endif
+
+static int sync_rx_cache(const wl_zephyr_uart_dma_config_t *config,
+                         const wl_zephyr_uart_dma_slot_t *slot, bool prepare,
+                         uint8_t *data, size_t length) {
+  wl_zephyr_uart_dma_cache_fn hook = prepare ? config->prepare_for_dma : config->complete_from_dma;
+  if (hook) hook(config->cache_user_data, data, length);
+#if defined(CONFIG_DCACHE)
+  if (slot->cache_line != 0U) {
+    /* RX_RDY may announce a fragment. Only invalidate whole lines belonging
+     * to this slot, including the line containing its last published byte. */
+    const size_t line = slot->cache_line;
+    uintptr_t start = ROUND_DOWN((uintptr_t)data, line);
+    return sys_cache_data_invd_range((void *)start, ROUND_UP((uintptr_t)data - start + length, line));
+  }
+#else
+  (void)slot;
+#endif
+  return 0;
 }
 
 static void reset_slot(wl_zephyr_uart_dma_slot_t *slot) {
@@ -191,11 +237,8 @@ static int submit_requested_buffer(wl_zephyr_uart_dma_t *adapter) {
   adapter->buffer_request_pending = 0U;
   k_spin_unlock(&adapter->rx_lock, key);
 
-  if (adapter->config.prepare_for_dma != NULL) {
-    adapter->config.prepare_for_dma(adapter->config.cache_user_data, slot->buffer.data,
-                                    slot->buffer.length);
-  }
-  ret = uart_rx_buf_rsp(adapter->config.uart, slot->buffer.data, slot->buffer.length);
+  ret = sync_rx_cache(&adapter->config, slot, true, slot->buffer.data, slot->buffer.length);
+  if (ret == 0) ret = uart_rx_buf_rsp(adapter->config.uart, slot->buffer.data, slot->buffer.length);
   if (ret != 0) {
     key = k_spin_lock(&adapter->rx_lock);
     reset_slot(slot);
@@ -387,9 +430,11 @@ static void uart_dma_callback(const struct device *dev, struct uart_event *event
     if (end > slot->received) {
       cache_offset = slot->received;
       cache_length = end - cache_offset;
-      if (adapter->config.complete_from_dma != NULL) {
-        adapter->config.complete_from_dma(adapter->config.cache_user_data,
-                                          slot->buffer.data + cache_offset, cache_length);
+      if (sync_rx_cache(&adapter->config, slot, false, slot->buffer.data + cache_offset,
+                        cache_length)) {
+        k_spin_unlock(&adapter->rx_lock, key);
+        mark_abort(adapter);
+        break;
       }
       slot->received = end;
       ret = drain_ready_slots_locked(adapter);
@@ -500,7 +545,7 @@ static void uart_dma_dispatch(const struct device *dev, struct uart_event *event
 static wl_err_t initialize(wl_zephyr_uart_dma_t *adapter,
                             const wl_zephyr_uart_dma_config_t *config,
     const wl_transport_attach_t *info) {
-  int ret;
+  uint16_t cache_lines[RX_SLOT_COUNT] = {0};
 
   if (adapter == NULL || config == NULL || config->uart == NULL ||
       config->rx_buffers[0].data == NULL ||
@@ -513,6 +558,20 @@ static wl_err_t initialize(wl_zephyr_uart_dma_t *adapter,
       !device_is_ready(config->uart)) {
     return WL_ERR_INVALID_ARG;
   }
+#if defined(CONFIG_DCACHE)
+  if (!config->prepare_for_dma && !config->complete_from_dma) {
+    for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+      const size_t line = rx_slot_dcache_line(&config->rx_buffers[i]);
+      if (line != 0U) {
+        if (line > UINT16_MAX || (uintptr_t)config->rx_buffers[i].data % line != 0U ||
+            config->rx_buffers[i].length % line != 0U) {
+          return WL_ERR_INVALID_ARG;
+        }
+        cache_lines[i] = (uint16_t)line;
+      }
+    }
+  }
+#endif
   k_spinlock_key_t bind_key = k_spin_lock(&dma_binding_lock);
   size_t binding = DMA_BINDINGS;
   for (size_t i = 0U; i < DMA_BINDINGS; ++i) {
@@ -538,17 +597,22 @@ static wl_err_t initialize(wl_zephyr_uart_dma_t *adapter,
   k_sem_init(&adapter->wake, 0, 1);
   k_sem_init(&dma_bindings[binding].idle, 0, 1);
   adapter->config = *config;
+  if (!config->tx_timeout_us) adapter->config.tx_timeout_us = SYS_FOREVER_US;
   adapter->port = info->port;
   adapter->stream = info->stream;
-  adapter->slots[0].buffer = config->rx_buffers[0];
-  adapter->slots[1].buffer = config->rx_buffers[1];
+  for (size_t i = 0U; i < RX_SLOT_COUNT; ++i) {
+    adapter->slots[i].buffer = config->rx_buffers[i];
+    adapter->slots[i].cache_line = cache_lines[i];
+  }
   dma_bindings[binding].adapter = adapter;
   dma_bindings[binding].generation = dma_next_generation | binding;
   dma_next_generation += DMA_BINDINGS;
   k_spin_unlock(&dma_binding_lock, bind_key);
-  ret =
-      uart_callback_set(config->uart, uart_dma_dispatch, (void *)dma_bindings[binding].generation);
-  if (ret != 0) {
+  wl_err_t err = wl_zephyr_uart_set_baud(config->uart, config->baud_rate);
+  if (err == WL_OK &&
+      uart_callback_set(config->uart, uart_dma_dispatch, (void *)dma_bindings[binding].generation))
+    err = WL_ERR_NOT_SUPPORTED;
+  if (err != WL_OK) {
     bind_key = k_spin_lock(&dma_binding_lock);
     dma_bindings[binding].adapter = NULL;
     adapter->detached = 1U;
@@ -560,7 +624,7 @@ static wl_err_t initialize(wl_zephyr_uart_dma_t *adapter,
       pending = dma_bindings[binding].callbacks;
       k_spin_unlock(&dma_binding_lock, bind_key);
     }
-    return WL_ERR_NOT_SUPPORTED;
+    return err;
   }
   return WL_OK;
 }
@@ -583,13 +647,12 @@ static int start_rx(wl_zephyr_uart_dma_t *adapter) {
   if (slot == NULL) {
     return WL_ERR_BUSY;
   }
-  if (adapter->config.prepare_for_dma != NULL) {
-    adapter->config.prepare_for_dma(adapter->config.cache_user_data, slot->buffer.data,
-                                    slot->buffer.length);
+  ret = sync_rx_cache(&adapter->config, slot, true, slot->buffer.data, slot->buffer.length);
+  if (ret == 0) {
+    atomic_set(&adapter->running, 1);
+    ret = uart_rx_enable(adapter->config.uart, slot->buffer.data, slot->buffer.length,
+                         adapter->config.timeout_us);
   }
-  atomic_set(&adapter->running, 1);
-  ret = uart_rx_enable(adapter->config.uart, slot->buffer.data, slot->buffer.length,
-                       adapter->config.timeout_us);
   if (ret != 0) {
     atomic_set(&adapter->running, 0);
     atomic_set(&adapter->paused, 1);

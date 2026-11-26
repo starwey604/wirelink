@@ -3,13 +3,14 @@
 #ifndef WIRELINK_ZEPHYR_USB_BULK_H_
 #define WIRELINK_ZEPHYR_USB_BULK_H_
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
 
 #include "wirelink/transport.h"
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,9 @@ extern "C" {
 #define WL_ZEPHYR_USB_BULK_IN_EP 0x81U
 #define WL_ZEPHYR_USB_BULK_INTERFACE_SUBCLASS 0x57U
 #define WL_ZEPHYR_USB_BULK_INTERFACE_PROTOCOL 0x4CU
+
+/* Leave room for a terminating short packet/ZLP at either bus speed. */
+#define WL_ZEPHYR_USB_BULK_RX_UNIT(wire_max) (((size_t)(wire_max) + 1U + 511U) & ~(size_t)511U)
 
 typedef uint32_t (*wl_zephyr_usb_bulk_cycle_count_fn)(void *user_data);
 typedef void (*wl_zephyr_usb_bulk_wake_fn)(void *user_data);
@@ -33,7 +37,7 @@ typedef enum {
 } wl_zephyr_usb_rx_fault_t;
 
 typedef struct wl_zephyr_usb_bulk_config {
-  wl_transport_rx_override_t rx; /* Caller-owned, MPS-sized RX slots. */
+  wl_transport_rx_override_t rx; /* Optional replacement for the node's MPS-sized RX slots. */
   /* Optional ISR-safe notification for the single Wirelink consumer. */
   void *wake_user_data;
   wl_zephyr_usb_bulk_wake_fn wake_consumer;
@@ -70,6 +74,7 @@ typedef struct wl_zephyr_usb_bulk_stats {
 
 typedef struct wl_zephyr_usb_bulk {
   wl_transport_t transport;
+  struct k_sem wake;
   wl_zephyr_usb_bulk_config_t config;
   wl_packet_port_t *port;
   size_t maximum_rx_size, frame_limit;
@@ -108,14 +113,23 @@ typedef struct wl_zephyr_usb_bulk {
   atomic_t rx_fault;
   atomic_t last_rx_fault;
 } wl_zephyr_usb_bulk_t;
-/* Bind the node before calling usbd_init()/usbd_enable(). The USB class
- * supports one active binding. Keep the configured RX slots through close. */
+/* Bind before or after USB enumeration. The class supports one active binding.
+ * Keep the RX slots alive through close. */
 wl_transport_t *wl_zephyr_usb_bulk_transport(wl_zephyr_usb_bulk_t *adapter,
     const wl_zephyr_usb_bulk_config_t *config);
 
 wl_packet_submit_t wl_zephyr_usb_bulk_submit(void *, const uint8_t *, size_t,
                                             wl_packet_token_t);
 void wl_zephyr_usb_bulk_notify(void *);
+/* Single owner: wait for a latched notification, timeout, or stop. */
+wl_err_t wl_zephyr_usb_bulk_wait(wl_zephyr_usb_bulk_t *, k_timeout_t);
+
+#if defined(CONFIG_WIRELINK_ZEPHYR_USB_BULK_DEVICE)
+/* Standalone device on zephyr_udc0. Enable/disable from thread context.
+ * On VBUS-aware controllers, connection follows VBUS presence. */
+wl_err_t wl_zephyr_usb_bulk_device_enable(void);
+wl_err_t wl_zephyr_usb_bulk_device_disable(void);
+#endif
 /* stop is owner/thread only. It stops port admission and disables USBD, but
  * buffers remain leased until real cancellation/completion callbacks arrive.
  * stopped is the adapter's physical acknowledgement, independent of pending

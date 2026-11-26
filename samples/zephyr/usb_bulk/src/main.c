@@ -1,10 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <sample_usbd.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
-#include <zephyr/usb/usbd.h>
 #include "application.h"
-#include "wirelink/node.h"
+#include "wirelink/zephyr/node.h"
 #include "wirelink/platform.h"
 #include "wirelink/zephyr/usb_bulk.h"
 #include "wirelink/zephyr/detail/timeout.h"
@@ -13,9 +11,8 @@ static wl_node_t node;
 static wl_zephyr_usb_bulk_t adapter;
 static usb_sample_application_t application;
 static uint8_t snapshots[WL_ENDPOINT_TX_COUNT][USB_SAMPLE_FRAME_MAX];
-static uint8_t rx[WL_PACKET_RX_SLOTS][ROUND_UP(USB_SAMPLE_FRAME_MAX + 1U, 512U)] __aligned(512);
-K_SEM_DEFINE(owner_wake, 0, 1);
-static void wake(void *user) { (void)user; k_sem_give(&owner_wake); }
+static uint8_t rx[WL_PACKET_RX_SLOTS][WL_ZEPHYR_USB_BULK_RX_UNIT(USB_SAMPLE_FRAME_MAX)]
+    __aligned(WL_NODE_BUFFER_ALIGN);
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
 #include <esp_cpu.h>
 typedef struct { atomic_t calls, cycles, maximum; } irq_region_t;
@@ -55,10 +52,6 @@ static void print_stats(void) {
 static wl_err_t route(wl_endpoint_t *core, const wl_wire_frame_t *frame) {
   return usb_sample_dispatch(((wl_node_t *)core)->user, frame);
 }
-static void usb_message(struct usbd_context *context, const struct usbd_msg *message) {
-  if (usbd_can_detect_vbus(context) && message->type == USBD_MSG_VBUS_READY) (void)usbd_enable(context);
-  if (usbd_can_detect_vbus(context) && message->type == USBD_MSG_VBUS_REMOVED) (void)usbd_disable(context);
-}
 int main(void) {
   wl_environment_t environment = wl_platform_environment();
   uint32_t instance;
@@ -67,20 +60,17 @@ int main(void) {
   wl_node_layout_t layout = {.instance = instance,
     .storage = wl_endpoint_storage_uniform(snapshots[0], USB_SAMPLE_FRAME_MAX),
     .route = route, .user = &application,
+    .rx_storage = rx[0], .rx_storage_size = sizeof(rx), .rx_unit_size = sizeof(rx[0]),
     .rx_frame_max = USB_SAMPLE_FRAME_MAX, .rx_wire_max = USB_SAMPLE_FRAME_MAX,
     .tx_frame_max = USB_SAMPLE_FRAME_MAX, .tx_wire_max = USB_SAMPLE_FRAME_MAX, .has_tx = 1};
-  wl_zephyr_usb_bulk_config_t physical = {.rx = {rx[0], sizeof(rx), sizeof(rx[0])},
-    .wake_consumer = wake,
+  wl_zephyr_usb_bulk_config_t physical = {0};
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
-    .cycle_counter = adapter_cycles,
+  physical.cycle_counter = adapter_cycles;
 #endif
-  };
   error = wl_node_bind_transport(&node, &layout, wl_zephyr_usb_bulk_transport(&adapter, &physical));
   if (error != WL_OK) { printk("USB adapter init: %d\n", error); return 1; }
-  struct usbd_context *usb = sample_usbd_init_device(usb_message);
-  if (usb == NULL || (!usbd_can_detect_vbus(usb) && usbd_enable(usb) != 0)) {
-    error = WL_ERR_IO;
-  } else printk("Wirelink kernel native/NONE raw echo + application object sink ready payload=%u chunk=%u\n",
+  error = wl_zephyr_usb_bulk_device_enable();
+  if (error == WL_OK) printk("Wirelink kernel native/NONE raw echo + application object sink ready payload=%u chunk=%u\n",
     USB_SAMPLE_PAYLOAD_MAX, USB_SAMPLE_CHUNK_MAX);
 #if defined(CONFIG_SAMPLE_WIRELINK_USB_CPU_STATS)
   uint32_t next_stats = k_uptime_get_32() + 1000;
@@ -126,14 +116,13 @@ int main(void) {
     uint32_t elapsed = k_uptime_get_32() - now;
     if (usb_sample_ready(&application, &node.core, now) || wl_zephyr_usb_bulk_ready(&adapter) ||
         (maximum != UINT32_MAX && elapsed >= maximum)) continue;
-    (void)k_sem_take(&owner_wake, wl_zephyr_timeout_ms(maximum == UINT32_MAX ? maximum : maximum - elapsed));
+    error = wl_zephyr_usb_bulk_wait(&adapter,
+        wl_zephyr_timeout_ms(maximum == UINT32_MAX ? maximum : maximum - elapsed));
+    if (error == WL_ERR_NO_DATA) error = WL_OK;
   }
   printk("USB owner stopping: %d\n", error);
   usb_sample_close(&application);
-  do {
-    error = wl_node_close(&node, k_uptime_get_32());
-    if (error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY)
-      (void)k_sem_take(&owner_wake, K_MSEC(1));
-  } while (error == WL_ERR_WOULD_BLOCK || error == WL_ERR_BUSY);
-  return error == WL_OK ? 0 : 1;
+  error = wl_zephyr_usb_bulk_device_disable();
+  wl_err_t closed = wl_zephyr_node_close(&node, UINT32_MAX);
+  return error == WL_OK && closed == WL_OK ? 0 : 1;
 }

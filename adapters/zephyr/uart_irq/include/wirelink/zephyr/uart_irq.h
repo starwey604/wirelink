@@ -9,7 +9,6 @@
 #include <zephyr/sys/atomic.h>
 #include "wirelink/byte_fifo.h"
 #include "wirelink/transport.h"
-#define WL_ZEPHYR_UART_IRQ_HAS_BATCH_RX_FRAMES 1
 
 struct uart_driver_api;
 #ifdef __cplusplus
@@ -25,11 +24,12 @@ typedef struct {
    * this adapter; context lives through stop. Notifications may be coalesced. */
   void (*notify)(void *user_data);
   void *notify_user_data;
-  bool tx_pipeline; /* Complete frames at FIFO acceptance instead of physical line idle. */
+  uint32_t baud_rate; /* 0 keeps the existing line configuration; otherwise 8N1. */
+  bool wait_for_tx_idle; /* Default: complete at FIFO acceptance. */
   /* Coalesce wakes for incomplete long COBS frames. Wake on a delimiter,
    * 256 bytes or half the FIFO (whichever comes first), and on faults or TX
    * completion. Short prefixes retain the normal immediate notification. */
-  bool batch_rx_frames;
+  bool disable_rx_batching; /* Opt out for immediate per-read notification. */
 } wl_zephyr_uart_irq_config_t;
 
 typedef struct {
@@ -77,6 +77,26 @@ typedef struct {
  * live through node close. */
 wl_transport_t *wl_zephyr_uart_irq_transport(wl_zephyr_uart_irq_t *adapter,
     const wl_zephyr_uart_irq_config_t *config);
+
+#define WL_ZEPHYR_UART_IRQ_DEFINE(name, uart_dev, fifo_bytes) \
+  static struct {                                             \
+    wl_zephyr_uart_irq_t adapter;                             \
+    uint8_t fifo[fifo_bytes];                                 \
+    const struct device *uart;                                \
+  } name = {.uart = (uart_dev)}
+
+static inline wl_transport_t *wl_zephyr_uart_irq_transport_default(
+    wl_zephyr_uart_irq_t *adapter, const struct device *uart, uint8_t *fifo,
+    size_t fifo_size, uint32_t baud_rate) {
+  const wl_zephyr_uart_irq_config_t config = {
+    .uart = uart, .fifo_storage = {fifo, fifo_size}, .baud_rate = baud_rate
+  };
+  return wl_zephyr_uart_irq_transport(adapter, &config);
+}
+
+#define wl_zephyr_uart_irq_open_static(name, baud_rate) \
+  wl_zephyr_uart_irq_transport_default(&(name).adapter, (name).uart, (name).fifo, \
+                                      sizeof((name).fifo), (baud_rate))
 
 /* Check the physical drain and IRQ API without taking ownership of the UART. */
 wl_err_t wl_zephyr_uart_irq_probe(const struct device *uart);

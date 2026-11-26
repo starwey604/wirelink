@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "wirelink/zephyr/uart_irq.h"
 #include "wirelink/zephyr/detail/timeout.h"
+#include "wirelink/zephyr/detail/uart.h"
 #include <errno.h>
 #include <limits.h>
 #include <string.h>
@@ -228,16 +229,28 @@ static wl_err_t initialize(wl_zephyr_uart_irq_t *adapter,
   adapter->stream = info->stream;
   adapter->private_uart_api = api;
   adapter->binding = (uint8_t)binding;
-  adapter->wait_for_tx_idle = !config->tx_pipeline;
+  adapter->wait_for_tx_idle = config->wait_for_tx_idle;
   adapter->drain_check_ms = config->drain_check_ms ? config->drain_check_ms : 1U;
   adapter->notify = config->notify;
   adapter->notify_user_data = config->notify_user_data;
   k_sem_init(&adapter->wake, 0, 1);
   bindings[binding].generation = next_generation | binding;
   next_generation += UART_BINDINGS;
-  api->irq_callback_set(adapter->uart, uart_callback, (void *)bindings[binding].generation);
   bindings[binding].adapter = adapter;
   k_spin_unlock(&callback_lock, key);
+  if (config->baud_rate) {
+    wl_err_t err = wl_zephyr_uart_set_baud(config->uart, config->baud_rate);
+    if (err != WL_OK) {
+      key = k_spin_lock(&callback_lock);
+      bindings[binding].adapter = NULL;
+      k_spin_unlock(&callback_lock, key);
+      return err;
+    }
+    (void)uart_err_check(config->uart);
+    unsigned char stale;
+    while (uart_poll_in(config->uart, &stale) == 0) {}
+  }
+  api->irq_callback_set(adapter->uart, uart_callback, (void *)bindings[binding].generation);
   atomic_set_bit(&adapter->flags, INITIALIZED);
   return WL_OK;
 }
@@ -333,7 +346,7 @@ int WL_ZEPHYR_UART_IRQ_HOT_CODE wl_zephyr_uart_irq_service(wl_zephyr_uart_irq_t 
     result = WL_OK;
   }
   int input = wl_byte_fifo_to_cobs(&adapter->fifo, adapter->stream, 16U);
-  if (adapter->config.batch_rx_frames) {
+  if (!adapter->config.disable_rx_batching) {
     bool batch = adapter->stream->rx_length >= 64U;
     if ((bool)atomic_get(&adapter->batch_active) != batch) {
       k_spinlock_key_t key = k_spin_lock(&callback_lock);
@@ -345,7 +358,7 @@ int WL_ZEPHYR_UART_IRQ_HOT_CODE wl_zephyr_uart_irq_service(wl_zephyr_uart_irq_t 
   /* At a completed frame, an empty staging ring can start the next burst
    * at its contiguous base. The owner is the sole consumer; the binding
    * lock excludes the sole producer, including outstanding reservations. */
-  if (adapter->config.batch_rx_frames && !adapter->stream->claimed &&
+  if (!adapter->config.disable_rx_batching && !adapter->stream->claimed &&
       !adapter->stream->dropping) {
     wl_byte_fifo_t *f = &adapter->fifo;
     uint32_t read = atomic_load_explicit(&f->read, memory_order_relaxed);

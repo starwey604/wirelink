@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "fixture.h"
-#include "wirelink/node.h"
+#include "wirelink/zephyr/node.h"
 
 NET_BUF_POOL_FIXED_DEFINE(stale_pool, 1, 0,
     sizeof(struct udc_buf_info) + sizeof(wl_packet_token_t), NULL);
@@ -383,6 +383,117 @@ ZTEST(static_usb_bulk, test_lifecycle_last_port_notify_allows_deinit) {
   c->api->disable(c);
   on_wake = NULL;
   zassert_true(final_deinit);
+}
+
+enum { WIRE_MAX = 512, USB_UNIT = WL_ZEPHYR_USB_BULK_RX_UNIT(WIRE_MAX) };
+BUILD_ASSERT(USB_UNIT == 1024 && WL_ZEPHYR_USB_BULK_RX_UNIT(511) == 512);
+static wl_node_t poll_node;
+static unsigned received;
+static wl_err_t receive_message(wl_endpoint_t *ep, const wl_wire_frame_t *frame) {
+  ARG_UNUSED(ep);
+  ++received;
+  zassert_equal(frame->message_id, received);
+  return WL_OK;
+}
+
+static void publish_message(struct usbd_class_data *c, uint8_t ep,
+                            uint16_t id, uint8_t *expected_storage) {
+  struct net_buf *out = take_queued(ep);
+  zassert_not_null(out);
+  zassert_equal(out->data, expected_storage, "OUT must use the node's own slot");
+  zassert_equal(net_buf_tailroom(out), USB_UNIT);
+  zassert_ok(wl_wire_native_none_seal(out->data, USB_UNIT, id, 0));
+  net_buf_add(out, WL_WIRE_NATIVE_HEADER);
+  zassert_ok(c->api->request(c, out, 0));
+}
+
+enum wait_operation { NODE_WAIT, NODE_POLL };
+static void wait_on_node(void *op, void *b, void *d) {
+  ARG_UNUSED(b); ARG_UNUSED(d);
+  k_sem_give(&queried);
+  if ((uintptr_t)op == NODE_POLL)
+    zassert_ok(wl_node_poll(&poll_node, wl_zephyr_clock(), UINT32_MAX));
+  else
+    zassert_ok(wl_node_wait(&poll_node, k_uptime_get_32(), UINT32_MAX));
+}
+
+static void start_node_wait(enum wait_operation op) {
+  zassert_false(wl_node_readiness(&poll_node, k_uptime_get_32()).runnable);
+  k_thread_create(&wait_thread, wait_stack, K_THREAD_STACK_SIZEOF(wait_stack),
+                  wait_on_node, (void *)(uintptr_t)op, NULL, NULL,
+                  K_PRIO_COOP(0), 0, K_NO_WAIT);
+  zassert_ok(k_sem_take(&queried, K_SECONDS(1)));
+  zassert_not_equal(k_thread_join(&wait_thread, K_NO_WAIT), 0,
+                    "idle owner must actually block until publication");
+}
+
+ZTEST(static_usb_bulk, test_standalone_early_enable_and_node_poll) {
+  static wl_zephyr_usb_bulk_t adapter;
+  static uint8_t rx[2][USB_UNIT] __aligned(WL_NODE_BUFFER_ALIGN);
+  wl_node_layout_t layout = {.instance = 201, .rx_frame_max = WIRE_MAX, .rx_wire_max = WIRE_MAX,
+      .rx_storage = rx[0], .rx_storage_size = sizeof(rx), .rx_unit_size = USB_UNIT,
+      .route = receive_message};
+  wl_zephyr_usb_bulk_config_t config = {0}; /* no storage override or user wake */
+  struct usbd_class_data *c = bulk_class();
+  static struct usbd_context *device_ctx;
+  c->uds_ctx = device_ctx; /* Other cases use a synthetic context. */
+  use_real_controller = true;
+  zassert_ok(wl_zephyr_usb_bulk_device_enable());
+  device_ctx = c->uds_ctx;
+  zassert_true(device_ctx->status.initialized && device_ctx->status.enabled);
+  zassert_ok(wl_zephyr_usb_bulk_device_enable(), "already enabled");
+  /* Model SET_CONFIGURATION on the initialized stack before binding a node. */
+  c->api->enable(c);
+  const enum usbd_speed speed = usbd_bus_speed(c->uds_ctx);
+  const uint8_t ep = bulk_descriptor(c, speed, false)->bEndpointAddress;
+  zassert_equal(wl_zephyr_usb_bulk_wait(&adapter, K_NO_WAIT), WL_ERR_INVALID_ARG);
+  /* A partial override cannot borrow the missing fields from the layout. */
+  config.rx.rx_storage_size = sizeof(rx);
+  zassert_equal(wl_node_bind_transport(&poll_node, &layout,
+                wl_zephyr_usb_bulk_transport(&adapter, &config)), WL_ERR_INVALID_ARG);
+  config.rx.rx_storage_size = 0U;
+  layout.rx_unit_size = WIRE_MAX + 1U;
+  zassert_equal(wl_node_bind_transport(&poll_node, &layout,
+                wl_zephyr_usb_bulk_transport(&adapter, &config)), WL_ERR_INVALID_ARG);
+  layout.rx_unit_size = USB_UNIT;
+  zassert_ok(wl_node_bind_transport(&poll_node, &layout,
+                                    wl_zephyr_usb_bulk_transport(&adapter, &config)));
+  zassert_true(wl_zephyr_usb_bulk_ready(&adapter));
+  zassert_ok(wl_zephyr_usb_bulk_wait(&adapter, K_NO_WAIT), "early enable is latched");
+  zassert_ok(wl_node_poll(&poll_node, wl_zephyr_clock(), 0));
+  zassert_equal(wl_zephyr_usb_bulk_wait(&adapter, K_NO_WAIT), WL_ERR_NO_DATA);
+
+  received = 0;
+  start_node_wait(NODE_WAIT);
+  publish_message(c, ep, 1, rx[0]);
+  zassert_ok(k_thread_join(&wait_thread, K_SECONDS(1)));
+  publish_message(c, ep, 2, rx[1]);
+  zassert_is_null(take_queued(ep), "full ring must pause OUT");
+  zassert_ok(wl_node_poll(&poll_node, wl_zephyr_clock(), UINT32_MAX));
+  zassert_equal(received, 2U);
+  wl_zephyr_usb_bulk_stats_t stats;
+  wl_zephyr_usb_bulk_get_stats(&adapter, &stats);
+  zassert_true(stats.rx_active, "freeing a full ring must rearm OUT in the same step");
+
+  /* No explicit service: the step that freed capacity must already have
+   * queued the next read. Its completion wakes a sleeping poll as well. */
+  start_node_wait(NODE_POLL);
+  publish_message(c, ep, 3, rx[0]);
+  zassert_ok(k_thread_join(&wait_thread, K_SECONDS(1)));
+  zassert_equal(received, 3U);
+
+  c->api->disable(c);
+  zassert_ok(wl_zephyr_usb_bulk_device_disable());
+  zassert_ok(wl_zephyr_usb_bulk_device_disable(), "already disabled");
+  zassert_equal(wl_node_close(&poll_node, 0), WL_ERR_WOULD_BLOCK);
+  zassert_equal(wl_zephyr_usb_bulk_wait(&adapter, K_NO_WAIT), WL_ERR_CANCELLED);
+  struct net_buf *out = take_queued(ep);
+  zassert_not_null(out);
+  zassert_ok(c->api->request(c, out, -ECONNABORTED));
+  zassert_ok(wl_node_close(&poll_node, 0));
+  zassert_true(wl_node_quiescent(&poll_node));
+  zassert_equal(wl_zephyr_usb_bulk_wait(&adapter, K_NO_WAIT), WL_ERR_CANCELLED);
+  use_real_controller = false;
 }
 
 ZTEST_SUITE(static_usb_bulk, NULL, NULL, NULL, NULL, NULL);

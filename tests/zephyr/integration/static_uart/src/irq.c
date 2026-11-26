@@ -16,7 +16,8 @@ struct fake_uart {
   uint8_t rx[128], tx[128];
   size_t rx_length, rx_offset, tx_length;
   bool rx_enabled, tx_enabled, pending, read_zero, fill_zero;
-  int line_idle, error;
+  int line_idle, error, configure_result;
+  uint32_t baud_rate;
   unsigned reads, fills, complete_queries;
   size_t read_chunk;
   size_t fill_chunk;
@@ -69,6 +70,21 @@ static int fake_error(const struct device *device) {
   data->error = 0;
   return error;
 }
+static int fake_configure(const struct device *device, const struct uart_config *line) {
+  struct fake_uart *data = device->data;
+  zassert_equal(line->parity, UART_CFG_PARITY_NONE);
+  zassert_equal(line->stop_bits, UART_CFG_STOP_BITS_1);
+  zassert_equal(line->data_bits, UART_CFG_DATA_BITS_8);
+  zassert_equal(line->flow_ctrl, UART_CFG_FLOW_CTRL_NONE);
+  data->baud_rate = line->baudrate;
+  return data->configure_result;
+}
+static int fake_poll_in(const struct device *device, unsigned char *out) {
+  struct fake_uart *data = device->data;
+  if (data->rx_offset == data->rx_length) return -1;
+  *out = data->rx[data->rx_offset++];
+  return 0;
+}
 static void fake_update(const struct device *device) { (void)device; }
 static int fake_pending(const struct device *device) {
   struct fake_uart *data = device->data;
@@ -118,6 +134,7 @@ static DEVICE_API(uart, full_api) = {
     .fifo_fill = fake_fill,
     .irq_tx_complete = fake_complete,
     .err_check = fake_error,
+    .configure = fake_configure, .poll_in = fake_poll_in,
 };
 static DEVICE_API(uart, cdc_api) = {
     COMMON_API,
@@ -140,16 +157,16 @@ static wl_node_t node;
 static wl_packet_stream_t stream;
 static uint8_t rx[2][96], tx[96], bytes[16];
 static uint32_t instance;
-static void setup_config(uint32_t interval, bool tx_pipeline) {
+static void setup_config(uint32_t interval, bool wait_for_tx_idle) {
   memset(&full_data, 0, sizeof(full_data));
   full_data.line_idle = 1;
   wl_zephyr_uart_irq_config_t config = {
       .uart = DEVICE_GET(fake_uart_full), .fifo_storage = {bytes, sizeof(bytes)},
-      .drain_check_ms = interval, .tx_pipeline = tx_pipeline};
+      .drain_check_ms = interval, .wait_for_tx_idle = wait_for_tx_idle};
   zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
       (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)));
 }
-static void setup(void) { setup_config(0, false); }
+static void setup(void) { setup_config(0, true); }
 static void fire(void) {
   full_data.pending = true;
   full_data.callback(DEVICE_GET(fake_uart_full), full_data.user_data);
@@ -195,7 +212,13 @@ ZTEST(static_uart_irq, test_staged_rx_physical_tx_and_old_callback) {
   zassert_true(wl_packet_quiescent(&node.port));
 }
 ZTEST(static_uart_irq, test_pipeline_retires_each_frame_at_fifo_acceptance) {
-  setup_config(0U, true);
+  memset(&full_data, 0, sizeof(full_data));
+  wl_zephyr_uart_irq_config_t config = {
+    .uart = DEVICE_GET(fake_uart_full), .fifo_storage = {bytes, sizeof(bytes)}
+  };
+  zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_transport(&adapter, &config)));
+  zassert_equal(full_data.baud_rate, 0U);
   full_data.line_idle = 0;
   uint8_t packet[8] = {0};
   zassert_ok(wl_wire_native_none_seal(packet, sizeof(packet), 22U, 4U));
@@ -210,6 +233,24 @@ ZTEST(static_uart_irq, test_pipeline_retires_each_frame_at_fifo_acceptance) {
   zassert_ok(wl_node_close(&node, 0U));
   zassert_true(wl_node_quiescent(&node));
   zassert_equal(full_data.complete_queries, 0U);
+}
+
+WL_ZEPHYR_UART_IRQ_DEFINE(configured, DEVICE_GET(fake_uart_full), 32);
+ZTEST(static_uart_irq, test_baud_configures_8n1_before_enabling_rx) {
+  memset(&full_data, 0, sizeof(full_data));
+  full_data.rx_length = 2;
+  full_data.error = UART_ERROR_OVERRUN;
+  full_data.configure_result = -EIO;
+  zassert_equal(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_open_static(configured, 230400)), WL_ERR_IO);
+  zassert_is_null(full_data.callback);
+  full_data.configure_result = 0;
+  zassert_ok(bind_uart(&node, &stream, ++instance, (wl_span_t){rx[0], sizeof(rx)},
+      (wl_span_t){tx, sizeof(tx)}, wl_zephyr_uart_irq_open_static(configured, 230400)));
+  zassert_equal(full_data.baud_rate, 230400U);
+  zassert_equal(full_data.rx_offset, full_data.rx_length);
+  zassert_equal(full_data.error, 0);
+  zassert_ok(wl_node_close(&node, 0));
 }
 
 ZTEST(static_uart_irq, test_rejects_cdc_without_physical_completion) {
@@ -249,12 +290,14 @@ static void receive_byte(uint8_t byte) {
   fire();
 }
 static void finish_pending(wl_packet_token_t *token) {
+  /* This test submitted directly to the port; it owns the terminal event. */
+  zassert_equal(wl_node_close(&node, 0), WL_ERR_BUSY);
+  zassert_true(wl_packet_tx_take(&node.port, token) & WL_PACKET_TX_ERROR);
   zassert_ok(wl_node_close(&node, 0));
-  (void)wl_packet_tx_take(&node.port, token);
   zassert_true(wl_packet_quiescent(&node.port));
 }
 ZTEST(static_uart_irq, test_no_progress_no_poll_and_notify_is_not_hint) {
-  setup_config(5, false);
+  setup_config(5, true);
   wl_packet_token_t token = pending_tx(10);
   zassert_equal(adapter.drain_due, 15);
   for (unsigned i = 0; i < 8; ++i) {
@@ -329,7 +372,6 @@ ZTEST(static_uart_irq, test_rx_chunks_share_tail_wake_and_gap_alone_wakes) {
 }
 ZTEST(static_uart_irq, test_long_cobs_batch_wakes_on_delimiter_or_byte_budget) {
   setup();
-  adapter.config.batch_rx_frames = true;
   /* Each of the first 64 bytes still wakes the short-control path. */
   for (unsigned i = 0; i < 64U; ++i) {
     receive_byte(1);
@@ -357,7 +399,6 @@ ZTEST(static_uart_irq, test_long_cobs_batch_wakes_on_delimiter_or_byte_budget) {
 }
 ZTEST(static_uart_irq, test_empty_ring_starts_next_frame_contiguous) {
   setup();
-  adapter.config.batch_rx_frames = true;
   uint8_t packet[7] = {0}, wire[10];
   zassert_ok(wl_wire_native_none_seal(packet, 5U, 22, 1U));
   packet[4] = 45;
@@ -398,7 +439,7 @@ ZTEST(static_uart_irq, test_failed_rx_and_large_interval_wrap) {
   zassert_equal(wl_zephyr_uart_irq_service(&adapter, 0), WL_ERR_IO);
   zassert_equal(full_data.complete_queries, 1);
   finish_pending(&token);
-  setup_config(1000, false); token = pending_tx(UINT32_MAX - 10U);
+  setup_config(1000, true); token = pending_tx(UINT32_MAX - 10U);
   zassert_equal(adapter.drain_due, 989);
   zassert_ok(wl_zephyr_uart_irq_service(&adapter, 0));
   zassert_equal(full_data.complete_queries, 1);

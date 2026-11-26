@@ -6,6 +6,13 @@ zephyr_include_directories(${_wl}/include ${_wl}/runtime/zephyr/include
   ${_wl}/adapters/zephyr/uart_poll/include ${_wl}/adapters/zephyr/usb_bulk/include
   ${_wl}/adapters/zephyr/udp/include)
 if(CONFIG_WIRELINK)
+  if(CONFIG_DCACHE OR CONFIG_UDC_DRIVER_HIGH_SPEED_SUPPORT_ENABLED)
+    if(CONFIG_DCACHE AND CONFIG_DCACHE_LINE_SIZE GREATER 32)
+      zephyr_compile_definitions(WL_NODE_BUFFER_ALIGN=${CONFIG_DCACHE_LINE_SIZE}U)
+    else()
+      zephyr_compile_definitions(WL_NODE_BUFFER_ALIGN=32U)
+    endif()
+  endif()
   set(_core ${_wl}/src/node.c ${_wl}/src/endpoint.c ${_wl}/src/packet_port.c ${_wl}/src/types.c ${_wl}/src/codec.c)
   zephyr_library_sources(${_core})
   zephyr_library_compile_options(-std=c11)
@@ -26,6 +33,7 @@ zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_DMA ${_wl}/adapters/zep
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_IRQ ${_wl}/adapters/zephyr/uart_irq/src/uart_irq.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UART_POLL_EXPERIMENTAL ${_wl}/adapters/zephyr/uart_poll/src/uart_poll.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_USB_BULK ${_wl}/adapters/zephyr/usb_bulk/src/usb_bulk.c)
+zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_USB_BULK_DEVICE ${_wl}/adapters/zephyr/usb_bulk/src/usb_bulk_device.c)
 zephyr_library_sources_ifdef(CONFIG_WIRELINK_ZEPHYR_UDP
   ${_wl}/adapters/zephyr/udp/src/udp.c ${_wl}/adapters/zephyr/udp/src/udp_socket.c)
 # Preserve the existing platform IRQ callback mapping, without moving kernel,

@@ -10,9 +10,10 @@ config WIRELINK
 if WIRELINK
 config WIRELINK_PLATFORM
 	bool "Native clock and fresh-instance environment"
-	select CSPRNG_NEEDED
+	default y if CSPRNG_ENABLED
 	help
 	  Initialization-only platform clock/session providers; no core clock reads.
+	  Set CSPRNG_NEEDED to request hardware entropy if it is not enabled.
 config WIRELINK_PACKET_LOOPBACK
 	bool "Single-owner in-process packet loopback"
 config WIRELINK_PACKET_STREAM
@@ -40,6 +41,7 @@ config WIRELINK_ZEPHYR_WAIT
 config WIRELINK_ZEPHYR_UART_DMA
 	bool "Asynchronous UART packet adapter"
 	depends on SERIAL && UART_ASYNC_API
+	select CACHE_MANAGEMENT if DCACHE
 	select WIRELINK_BYTE_FIFO_COBS
 	help
 	  Callbacks stage bytes only. Owner decodes COBS and drives the endpoint.
@@ -50,6 +52,28 @@ config WIRELINK_ZEPHYR_USB_BULK
 	help
 	  Two caller-owned RX units, one physical read/write, explicit boundary
 	  faults and real cancellation acknowledgement; no protocol work in I/O.
+config WIRELINK_ZEPHYR_USB_BULK_DEVICE
+	bool "Standalone Wirelink USB bulk device"
+	default n
+	depends on WIRELINK_ZEPHYR_USB_BULK
+if WIRELINK_ZEPHYR_USB_BULK_DEVICE
+config WIRELINK_ZEPHYR_USB_BULK_VID
+	hex "Vendor ID"
+	default 0x2fe3
+config WIRELINK_ZEPHYR_USB_BULK_PID
+	hex "Product ID"
+	default 0x574c
+config WIRELINK_ZEPHYR_USB_BULK_MANUFACTURER
+	string "Manufacturer"
+	default "Wirelink"
+config WIRELINK_ZEPHYR_USB_BULK_PRODUCT
+	string "Product"
+	default "Wirelink USB Bulk"
+config WIRELINK_ZEPHYR_USB_BULK_MAX_POWER
+	int "Maximum bus power (2 mA units)"
+	range 0 250
+	default 100
+endif
 config WIRELINK_ZEPHYR_UART_POLL_EXPERIMENTAL
 	bool "Experimental physical UART polling packet adapter"
 	depends on SERIAL && MULTITHREADING
@@ -62,8 +86,8 @@ config WIRELINK_ZEPHYR_UART_IRQ
 	depends on SERIAL && UART_INTERRUPT_DRIVEN
 	select WIRELINK_BYTE_FIFO_COBS
 	help
-	  ISR stages bytes; owner parses. TX completion requires irq_tx_complete.
-	  No claim that accepting bytes proves the hardware has drained.
+	  ISR stages bytes; owner parses. By default TX completes at FIFO acceptance.
+	  Select wait_for_tx_idle in the adapter config for physical line idle.
 config WIRELINK_ZEPHYR_UART_IRQ_TIMING
 	bool "UART callback timing diagnostics"
 	depends on WIRELINK_ZEPHYR_UART_IRQ
@@ -82,7 +106,7 @@ config WIRELINK_ZEPHYR_UDP
 config WIRELINK_ZEPHYR_HOT_IRAM
 	bool "Place Wirelink core hot paths in ESP32 IRAM"
 	depends on SOC_FAMILY_ESPRESSIF_ESP32
-	default n
+	default y
 	help
 	  Map WL_HOT_ATTR core functions into .iram1 on ESP32 targets to avoid
 	  ICache misses on high-rate transport loops at the cost of IRAM.

@@ -4,6 +4,7 @@
  * replaces that adapter in a prototype build; it never links the old core. */
 
 #include "wirelink/zephyr/usb_bulk.h"
+#include "wirelink/zephyr/detail/timeout.h"
 
 #include <errno.h>
 #include <string.h>
@@ -46,7 +47,13 @@ struct bulk_class_data {
   const struct usb_desc_header **fs_descriptors;
   const struct usb_desc_header **hs_descriptors;
   wl_zephyr_usb_bulk_t *adapter;
+  bool early_enabled;
+  uint16_t early_in_mps;
+  uint8_t early_out_ep, early_in_ep;
 };
+
+/* Bind and SET_CONFIGURATION may run on different threads. */
+static struct k_spinlock class_lock;
 
 NET_BUF_POOL_FIXED_DEFINE(wl_usb_bulk_pool, 2, 0, sizeof(struct udc_buf_info) + sizeof(wl_packet_token_t),
                           NULL);
@@ -82,8 +89,11 @@ static struct usb_ep_descriptor *bulk_in_descriptor(
 void wl_zephyr_usb_bulk_notify(void *context) {
   wl_zephyr_usb_bulk_t *adapter = context;
   /* Port activity is already latched. The last callback delivers its wake. */
-  if (atomic_get(&adapter->callbacks_active) == 0 && adapter->wake_consumer != NULL) {
-    adapter->wake_consumer(adapter->wake_user_data);
+  if (atomic_get(&adapter->callbacks_active) == 0) {
+    wl_zephyr_usb_bulk_wake_fn wake = adapter->wake_consumer;
+    void *user = adapter->wake_user_data;
+    k_sem_give(&adapter->wake);
+    if (wake != NULL) wake(user);
   }
 }
 
@@ -240,11 +250,9 @@ static void retire_out(wl_zephyr_usb_bulk_t *adapter) {
 }
 
 static int bulk_request_impl(struct usbd_class_data *class_data,
-                        struct net_buf *buffer, int error) {
-  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
+                        struct net_buf *buffer, int error, wl_zephyr_usb_bulk_t *adapter) {
   struct usbd_context *context = usbd_class_get_ctx(class_data);
   struct udc_buf_info *info = udc_get_buf_info(buffer);
-  wl_zephyr_usb_bulk_t *adapter = private_data->adapter;
   const uint8_t endpoint = info->ep;
   uint32_t started = 0U;
 
@@ -333,61 +341,91 @@ static int bulk_request_impl(struct usbd_class_data *class_data,
   return 0;
 }
 
-static int bulk_request(struct usbd_class_data *class_data,
-                         struct net_buf *buffer, int error) {
-  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
-  wl_zephyr_usb_bulk_t *adapter = private_data->adapter;
-  if (adapter == NULL) return bulk_request_impl(class_data, buffer, error);
-  atomic_inc(&adapter->callbacks_active);
-  int result = bulk_request_impl(class_data, buffer, error);
-  /* stopped must not acknowledge while the callback still records stats or
-   * accesses the old port. Copy the final outer wake before the last access. */
-  wl_zephyr_usb_bulk_wake_fn wake = adapter->wake_consumer;
+/* Keep the binding alive until all callback work is published. Once stopped
+ * is observable, the owner may reclaim it in the optional notification. */
+static void finish_callback(wl_zephyr_usb_bulk_t *adapter) {
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  wl_zephyr_usb_bulk_wake_fn wake = NULL;
   void *user = adapter->wake_user_data;
-  if (atomic_dec(&adapter->callbacks_active) == 1 && wake != NULL) wake(user);
+  if (atomic_dec(&adapter->callbacks_active) == 1) {
+    wake = adapter->wake_consumer;
+    k_sem_give(&adapter->wake);
+  }
+  k_spin_unlock(&class_lock, key);
+  if (wake != NULL) wake(user);
+}
+
+static int bulk_request(struct usbd_class_data *class_data,
+                        struct net_buf *buffer, int error) {
+  struct bulk_class_data *data = usbd_class_get_private(class_data);
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  wl_zephyr_usb_bulk_t *adapter = data->adapter;
+  if (adapter != NULL) atomic_inc(&adapter->callbacks_active);
+  k_spin_unlock(&class_lock, key);
+  int result = bulk_request_impl(class_data, buffer, error, adapter);
+  if (adapter != NULL) finish_callback(adapter);
   return result;
 }
 
-static void bulk_enable(struct usbd_class_data *class_data) {
-  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
-  wl_zephyr_usb_bulk_t *adapter = private_data->adapter;
+static void apply_enabled(wl_zephyr_usb_bulk_t *adapter, struct bulk_class_data *data) {
+  adapter->cached_in_mps = data->early_in_mps;
+  adapter->cached_out_ep = data->early_out_ep;
+  adapter->cached_in_ep = data->early_in_ep;
+  atomic_set(&adapter->rx_fault, WL_ZEPHYR_USB_RX_FAULT_NONE);
+  atomic_clear_bit(&adapter->flags, ADAPTER_RX_FAULTED);
+  atomic_clear_bit(&adapter->flags, ADAPTER_RECOVERY_REQUESTED);
+  atomic_clear_bit(&adapter->flags, ADAPTER_RECOVERY_DISABLED);
+  atomic_or(&adapter->flags, BIT(ADAPTER_ENABLED) | BIT(ADAPTER_RX_REARM));
+}
 
-  if (adapter != NULL) {
-    /* Repeated enable callbacks cannot recover a still-configured endpoint. */
-    if (atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) ||
-        atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) return;
-    const struct usb_ep_descriptor *in = bulk_in_descriptor(class_data);
-    adapter->cached_in_mps = sys_le16_to_cpu(in->wMaxPacketSize);
-    adapter->cached_out_ep = bulk_out_descriptor(class_data)->bEndpointAddress;
-    adapter->cached_in_ep = in->bEndpointAddress;
-    atomic_set(&adapter->rx_fault, WL_ZEPHYR_USB_RX_FAULT_NONE);
-    atomic_clear_bit(&adapter->flags, ADAPTER_RX_FAULTED);
-    atomic_clear_bit(&adapter->flags, ADAPTER_RECOVERY_REQUESTED);
-    atomic_clear_bit(&adapter->flags, ADAPTER_RECOVERY_DISABLED);
-    atomic_set_bit(&adapter->flags, ADAPTER_ENABLED);
-    atomic_set_bit(&adapter->flags, ADAPTER_RX_REARM);
-    /* Owner service arms the first OUT for this configuration. */
+static void bulk_enable(struct usbd_class_data *class_data) {
+  struct bulk_class_data *data = usbd_class_get_private(class_data);
+  const struct usb_ep_descriptor *in = bulk_in_descriptor(class_data);
+  const struct usb_ep_descriptor *out = bulk_out_descriptor(class_data);
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  if (data->early_enabled) {
+    k_spin_unlock(&class_lock, key);
+    return;
+  }
+  data->early_enabled = true;
+  data->early_in_mps = sys_le16_to_cpu(in->wMaxPacketSize);
+  data->early_in_ep = in->bEndpointAddress;
+  data->early_out_ep = out->bEndpointAddress;
+  wl_zephyr_usb_bulk_t *adapter = data->adapter;
+  if (adapter != NULL && !atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) {
+    atomic_inc(&adapter->callbacks_active);
+    apply_enabled(adapter, data);
+    k_spin_unlock(&class_lock, key);
     wake_consumer(adapter);
+    finish_callback(adapter);
+  } else {
+    k_spin_unlock(&class_lock, key);
   }
 }
 
 static void bulk_disable(struct usbd_class_data *class_data) {
-  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
-
-  if (private_data->adapter != NULL) {
-    if (atomic_test_bit(&private_data->adapter->flags, ADAPTER_RX_ACTIVE)) {
-      atomic_set_bit(&private_data->adapter->flags, ADAPTER_RX_CANCEL_EXPECTED);
-    }
-    /* Invalidate via ENABLED; a submit already in progress still needs its MPS. */
-    atomic_clear_bit(&private_data->adapter->flags, ADAPTER_ENABLED);
-    wake_consumer(private_data->adapter);
+  struct bulk_class_data *data = usbd_class_get_private(class_data);
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  data->early_enabled = false;
+  data->early_in_mps = 0U;
+  data->early_out_ep = data->early_in_ep = 0U;
+  wl_zephyr_usb_bulk_t *adapter = data->adapter;
+  if (adapter != NULL) {
+    atomic_inc(&adapter->callbacks_active);
+    if (atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE))
+      atomic_set_bit(&adapter->flags, ADAPTER_RX_CANCEL_EXPECTED);
+    atomic_clear_bit(&adapter->flags, ADAPTER_ENABLED);
+  }
+  k_spin_unlock(&class_lock, key);
+  if (adapter != NULL) {
+    wake_consumer(adapter);
+    finish_callback(adapter);
   }
 }
 
 static int bulk_init(struct usbd_class_data *class_data) {
-  struct bulk_class_data *private_data = usbd_class_get_private(class_data);
-
-  return private_data->adapter == NULL ? -ENODEV : 0;
+  ARG_UNUSED(class_data);
+  return 0;
 }
 
 static const void *bulk_get_descriptors(struct usbd_class_data *class_data,
@@ -537,8 +575,13 @@ static int queue_out(struct usbd_class_data *class_data,
 static wl_err_t initialize(wl_zephyr_usb_bulk_t *adapter, const wl_zephyr_usb_bulk_config_t *config,
                            const wl_transport_attach_t *info) {
 
-  if (private_data.adapter != NULL || info->rx_wire_max < 4U ||
+  if (info->rx_wire_max < 4U ||
       info->rx_wire_max >= wl_packet_rx_unit_size(info->port)) {
+    return WL_ERR_INVALID_ARG;
+  }
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  if (private_data.adapter != NULL) {
+    k_spin_unlock(&class_lock, key);
     return WL_ERR_INVALID_ARG;
   }
   const wl_zephyr_usb_bulk_config_t value = *config;
@@ -552,15 +595,21 @@ static wl_err_t initialize(wl_zephyr_usb_bulk_t *adapter, const wl_zephyr_usb_bu
   adapter->wake_consumer = value.wake_consumer;
   adapter->cycle_counter_user_data = value.cycle_counter_user_data;
   adapter->cycle_counter = value.cycle_counter;
+  k_sem_init(&adapter->wake, 0, 1);
   private_data.adapter = adapter;
   atomic_set_bit(&adapter->flags, ADAPTER_INITIALIZED);
+  bool enabled = private_data.early_enabled;
+  if (enabled) apply_enabled(adapter, &private_data);
+  k_spin_unlock(&class_lock, key);
+  if (enabled) wake_consumer(adapter);
   return WL_OK;
 }
 
 int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter) {
   if (adapter == NULL) return WL_ERR_INVALID_ARG;
+  if (!atomic_test_bit(&adapter->flags, ADAPTER_INITIALIZED)) return WL_ERR_INVALID_ARG;
+  (void)k_sem_take(&adapter->wake, K_NO_WAIT);
   const atomic_val_t flags = atomic_get(&adapter->flags);
-  if (!(flags & BIT(ADAPTER_INITIALIZED))) return WL_ERR_INVALID_ARG;
 
   int result = WL_OK;
   if (owner_rearm_pending(flags)) {
@@ -583,6 +632,17 @@ int wl_zephyr_usb_bulk_service(wl_zephyr_usb_bulk_t *adapter) {
   return (flags & BIT(ADAPTER_RX_FAULTED)) ? WL_ERR_IO : result;
 }
 
+wl_err_t wl_zephyr_usb_bulk_wait(wl_zephyr_usb_bulk_t *adapter, k_timeout_t timeout) {
+  if (adapter == NULL) return WL_ERR_INVALID_ARG;
+  const atomic_val_t flags = atomic_get(&adapter->flags);
+  if (flags & BIT(ADAPTER_STOPPING)) return WL_ERR_CANCELLED;
+  if (!(flags & BIT(ADAPTER_INITIALIZED))) return WL_ERR_INVALID_ARG;
+  int result = k_sem_take(&adapter->wake, timeout);
+  if (atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) return WL_ERR_CANCELLED;
+  if (result == -EAGAIN || result == -EBUSY) return WL_ERR_NO_DATA;
+  return result == 0 ? WL_OK : WL_ERR_IO;
+}
+
 int wl_zephyr_usb_bulk_ready(const wl_zephyr_usb_bulk_t *adapter) {
   if (adapter == NULL) return 0;
   const atomic_val_t flags = atomic_get(&adapter->flags);
@@ -591,36 +651,65 @@ int wl_zephyr_usb_bulk_ready(const wl_zephyr_usb_bulk_t *adapter) {
        (owner_rearm_pending(flags) && wl_packet_rx_available(adapter->port)));
 }
 
-int wl_zephyr_usb_bulk_stop(wl_zephyr_usb_bulk_t *adapter) {
+static bool stopped(const wl_zephyr_usb_bulk_t *adapter) {
+  const atomic_val_t flags = atomic_get(&adapter->flags);
+  return (flags & BIT(ADAPTER_STOPPING)) && atomic_get(&adapter->callbacks_active) == 0 &&
+      !(flags & (BIT(ADAPTER_ENABLED) | BIT(ADAPTER_RX_ACTIVE) | BIT(ADAPTER_TX_ACTIVE)));
+}
+
+static void detach(wl_zephyr_usb_bulk_t *adapter) {
+  private_data.adapter = NULL;
+  atomic_clear_bit(&adapter->flags, ADAPTER_INITIALIZED);
+}
+
+static wl_err_t stop(wl_zephyr_usb_bulk_t *adapter, bool detach_when_stopped) {
   if (adapter == NULL || !atomic_test_bit(&adapter->flags, ADAPTER_INITIALIZED))
     return WL_ERR_INVALID_ARG;
   if (k_is_in_isr()) return WL_ERR_INVALID_STATE;
+  /* stop and USBD disable both publish activity; defer the outer notification
+   * until the status and (for transport close) detachment are final. */
+  atomic_inc(&adapter->callbacks_active);
   atomic_set_bit(&adapter->flags, ADAPTER_STOPPING);
   wl_packet_stop(adapter->port);
-  struct usbd_context *context = usbd_class_get_ctx(wl_usb_bulk_class_data());
+  wl_err_t result = WL_OK;
   if (atomic_test_bit(&adapter->flags, ADAPTER_ENABLED)) {
-    if (context == NULL) return WL_ERR_NOT_INITIALIZED;
-    if (usbd_disable(context) != 0) return WL_ERR_IO;
+    struct usbd_context *context = usbd_class_get_ctx(wl_usb_bulk_class_data());
+    if (context == NULL) result = WL_ERR_NOT_INITIALIZED;
+    else if (usbd_disable(context) != 0) result = WL_ERR_IO;
   }
-  return wl_zephyr_usb_bulk_stopped(adapter) ? WL_OK : WL_ERR_WOULD_BLOCK;
+
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  wl_zephyr_usb_bulk_wake_fn wake = atomic_dec(&adapter->callbacks_active) == 1
+      ? adapter->wake_consumer : NULL;
+  void *user = adapter->wake_user_data;
+  if (result == WL_OK && !stopped(adapter)) result = WL_ERR_WOULD_BLOCK;
+  if (result == WL_OK && detach_when_stopped) detach(adapter);
+  k_sem_give(&adapter->wake);
+  k_spin_unlock(&class_lock, key);
+  if (wake != NULL) wake(user);
+  return result;
+}
+
+int wl_zephyr_usb_bulk_stop(wl_zephyr_usb_bulk_t *adapter) {
+  return stop(adapter, false);
 }
 
 int wl_zephyr_usb_bulk_stopped(const wl_zephyr_usb_bulk_t *adapter) {
-  return adapter != NULL && atomic_test_bit(&adapter->flags, ADAPTER_STOPPING) &&
-      atomic_get(&adapter->callbacks_active) == 0 &&
-      !atomic_test_bit(&adapter->flags, ADAPTER_ENABLED) &&
-      !atomic_test_bit(&adapter->flags, ADAPTER_RX_ACTIVE) &&
-      !atomic_test_bit(&adapter->flags, ADAPTER_TX_ACTIVE);
+  if (adapter == NULL) return 0;
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  bool result = stopped(adapter);
+  k_spin_unlock(&class_lock, key);
+  return result;
 }
 
 int wl_zephyr_usb_bulk_deinit(wl_zephyr_usb_bulk_t *adapter) {
-  if (adapter == NULL || private_data.adapter != adapter ||
-      !atomic_test_bit(&adapter->flags, ADAPTER_INITIALIZED)) return WL_ERR_INVALID_ARG;
-  if (!wl_zephyr_usb_bulk_stopped(adapter) || !wl_packet_quiescent(adapter->port))
-    return WL_ERR_WOULD_BLOCK;
-  private_data.adapter = NULL;
-  atomic_clear_bit(&adapter->flags, ADAPTER_INITIALIZED);
-  return WL_OK;
+  k_spinlock_key_t key = k_spin_lock(&class_lock);
+  wl_err_t result = WL_OK;
+  if (adapter == NULL || private_data.adapter != adapter) result = WL_ERR_INVALID_ARG;
+  else if (!stopped(adapter) || !wl_packet_quiescent(adapter->port)) result = WL_ERR_WOULD_BLOCK;
+  else detach(adapter);
+  k_spin_unlock(&class_lock, key);
+  return result;
 }
 
 wl_zephyr_usb_rx_fault_t wl_zephyr_usb_bulk_rx_fault(
@@ -720,9 +809,12 @@ void wl_zephyr_usb_bulk_get_stats(const wl_zephyr_usb_bulk_t *adapter,
 static wl_err_t transport_configure_rx(wl_transport_t *transport, size_t minimum,
                                         wl_transport_rx_override_t *out) {
   wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
-  *out = adapter->config.rx;
+  const wl_transport_rx_override_t *rx = &adapter->config.rx;
+  if (rx->rx_storage != NULL || rx->rx_storage_size != 0U || rx->rx_unit_size != 0U)
+    *out = *rx;
   const size_t mps = USBD_SUPPORTS_HIGH_SPEED ? WL_USB_HS_MPS : WL_USB_FS_MPS;
-  if (out->rx_unit_size < minimum || out->rx_unit_size % mps != 0U)
+  if (out->rx_storage == NULL || out->rx_storage_size < out->rx_unit_size ||
+      out->rx_unit_size < minimum || out->rx_unit_size % mps != 0U)
     return WL_ERR_INVALID_ARG;
   return WL_OK;
 }
@@ -744,27 +836,29 @@ static void transport_notify(wl_transport_t *transport) {
 static wl_err_t transport_service(wl_transport_t *transport, uint32_t now) {
   (void)now;
   wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
-  return atomic_test_bit(&adapter->flags, ADAPTER_STOPPING) ? WL_OK
-      : wl_zephyr_usb_bulk_service(adapter);
+  if (atomic_test_bit(&adapter->flags, ADAPTER_STOPPING)) return WL_OK;
+  wl_err_t result = wl_zephyr_usb_bulk_service(adapter);
+  /* At the node boundary, a full ring is normal: let the endpoint drain it.
+   * Readiness requests another service pass when a slot becomes writable. */
+  return result == WL_ERR_WOULD_BLOCK ? WL_OK : result;
 }
 static wl_io_readiness_t transport_readiness(const wl_transport_t *transport, uint32_t now) {
   (void)now;
   return wl_io_readiness_at(wl_zephyr_usb_bulk_ready((const wl_zephyr_usb_bulk_t *)transport) ? 0U : UINT32_MAX);
 }
+static wl_err_t transport_wait(wl_transport_t *transport, uint32_t maximum_ms) {
+  return wl_zephyr_usb_bulk_wait((wl_zephyr_usb_bulk_t *)transport,
+                                 wl_zephyr_timeout_ms(maximum_ms));
+}
 static wl_err_t transport_stop(wl_transport_t *transport) {
-  wl_zephyr_usb_bulk_t *adapter = (wl_zephyr_usb_bulk_t *)transport;
-  wl_err_t error = wl_zephyr_usb_bulk_stop(adapter);
-  if (error != WL_OK) return error;
-  private_data.adapter = NULL;
-  atomic_clear_bit(&adapter->flags, ADAPTER_INITIALIZED);
-  return WL_OK;
+  return stop((wl_zephyr_usb_bulk_t *)transport, true);
 }
 
 static const wl_transport_ops_t transport_ops = {
   .configure_rx = transport_configure_rx,
   .attach = transport_attach, .submit = transport_submit, .notify = transport_notify,
   .service = transport_service, .readiness = transport_readiness,
-  .stop = transport_stop,
+  .wait = transport_wait, .stop = transport_stop,
 };
 
 wl_transport_t *wl_zephyr_usb_bulk_transport(wl_zephyr_usb_bulk_t *adapter,

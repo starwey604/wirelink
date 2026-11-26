@@ -3,6 +3,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/ztest.h>
 #include "fixture.h"
+#include "wirelink/zephyr/node.h"
 #include <string.h>
 static wl_zephyr_uart_poll_t adapter;
 static wl_node_t node;
@@ -70,8 +71,11 @@ ZTEST(static_uart_poll, test_worker_stages_and_stop_waits_for_physical_idle) {
   zassert_equal(wl_node_close(&node, k_uptime_get_32()), WL_ERR_WOULD_BLOCK);
   zassert_false(adapter.worker_created);
   zassert_false(wl_packet_quiescent(&node.port));
+  zassert_equal(wl_zephyr_node_close(&node, 0), WL_ERR_TIMEOUT);
   atomic_set(&idle, 1);
-  zassert_ok(wl_node_close(&node, k_uptime_get_32()));
+  zassert_equal(wl_node_close(&node, k_uptime_get_32()), WL_ERR_BUSY);
+  zassert_equal(wl_packet_tx_take(&node.port, &token), WL_PACKET_DRAINED);
+  zassert_ok(wl_zephyr_node_close(&node, 0));
   zassert_true(wl_packet_quiescent(&node.port));
   zassert_equal(wl_zephyr_uart_poll_wait(&adapter, K_NO_WAIT), WL_ERR_CANCELLED);
 }
