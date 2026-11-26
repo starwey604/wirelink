@@ -15,7 +15,12 @@ std::function<void(const std::error_code &)> disconnected;
 UsbBorrowedBuffer active;
 std::span<const uint8_t> leased;
 bool inline_write;
+bool expected_run_event_thread;
+bool poll_pending_read;
+size_t poll_pending_length;
+bool poll_pending_write;
 unsigned resumes;
+unsigned polls;
 void arm() { if (provider && active.bytes.empty()) active = provider(); }
 void receive(size_t length, std::error_code error = {}) {
   auto buffer = std::exchange(active, {});
@@ -38,7 +43,23 @@ UsbBulkDevice &UsbBulkDevice::operator=(UsbBulkDevice &&) noexcept = default;
 std::error_code make_error_code(UsbError e) { return {int(e), std::generic_category()}; }
 tl::expected<UsbBulkDevice, std::error_code> UsbBulkDevice::open(const UsbBulkConfig &c) {
   assert(c.read_queue_depth == 1 && !c.auto_reconnect);
+  assert(c.run_event_thread == expected_run_event_thread);
   return UsbBulkDevice(std::make_unique<Impl>());
+}
+tl::expected<bool, std::error_code> UsbBulkDevice::poll_events(std::chrono::microseconds) {
+  ++polls;
+  bool any = false;
+  if (poll_pending_write && write_done) {
+    poll_pending_write = false;
+    transmit();
+    any = true;
+  }
+  if (poll_pending_read) {
+    poll_pending_read = false;
+    receive(poll_pending_length);
+    any = true;
+  }
+  return any;
 }
 UsbBulkEndpointInfo UsbBulkDevice::endpoint_info() const noexcept { return {64, 64}; }
 tl::expected<void, std::error_code> UsbBulkDevice::start_reads_borrowed(
@@ -146,5 +167,58 @@ int main() {
     assert(adapter.stopped() && wl_node_quiescent(&node));
     wl_packet_claim_t claim{};
     assert(wl_packet_rx_claim(port, 1, &claim) == WL_ERR_INVALID_STATE);
+  }
+  // Verify owner-driven poll_events dispatch via ops->wait and wake-callback threaded mode.
+  {
+    expected_run_event_thread = false;
+    PacketUsbConfig config;
+    config.rx = {rx[0], sizeof(rx), sizeof(rx[0])};
+    PacketUsbAdapter adapter(config);
+    wl_node_layout_t layout{};
+    layout.instance = 4;
+    layout.rx_frame_max = layout.rx_wire_max = 1036;
+    layout.tx_frame_max = layout.tx_wire_max = 1036;
+    layout.rx_storage = rx[0];
+    layout.rx_storage_size = sizeof(rx);
+    layout.has_tx = 1;
+    assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_OK);
+    while (adapter.wait_for_activity(std::chrono::nanoseconds(0))) {}
+    std::memset(active.bytes.data(), 77, 16);
+    poll_pending_read = true;
+    poll_pending_length = 16;
+    assert(adapter.transport()->ops->wait(adapter.transport(), 5) == WL_OK);
+    // Immediate service() right after wait() must consume without re-polling poll_events.
+    const unsigned polls_after_wait = polls;
+    assert(adapter.service() == WL_OK && polls == polls_after_wait);
+    wl_packet_borrow_t borrow{};
+    assert(wl_packet_rx_borrow(port, &borrow) == WL_OK && borrow.length == 16 &&
+           borrow.data[0] == 77);
+    assert(wl_packet_rx_release(port, &borrow) == WL_OK);
+    // Direct service() without prior wait() polls once.
+    assert(adapter.service() == WL_OK && polls == polls_after_wait + 1U);
+    adapter.stop();
+    assert(wl_node_close(&node, 0) == WL_OK && adapter.stopped());
+  }
+  {
+    unsigned wakes = 0;
+    expected_run_event_thread = true;
+    PacketUsbConfig config;
+    config.rx = {rx[0], sizeof(rx), sizeof(rx[0])};
+    config.wake = [](void *u) { ++*static_cast<unsigned *>(u); };
+    config.wake_user = &wakes;
+    PacketUsbAdapter adapter(config);
+    wl_node_layout_t layout{};
+    layout.instance = 5;
+    layout.rx_frame_max = layout.rx_wire_max = 1036;
+    layout.tx_frame_max = layout.tx_wire_max = 1036;
+    layout.rx_storage = rx[0];
+    layout.rx_storage_size = sizeof(rx);
+    layout.has_tx = 1;
+    assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_OK);
+    wl_packet_activity(port);
+    assert(wakes > 0U);
+    adapter.stop();
+    assert(wl_node_close(&node, 0) == WL_OK && adapter.stopped());
+    expected_run_event_thread = false;
   }
 }

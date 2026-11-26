@@ -1,5 +1,12 @@
 # Release notes
 
+- Astrial USB (`PacketUsbAdapter`) uses owner-driven libusb event polling when no
+  external wake callback is configured, eliminating the background USB event
+  thread and cross-thread wakeups on host polling loops.
+- Wirelink core and Zephyr USB Bulk optimize hot paths (unaligned ARM bulk byte
+  copy fast-path `wl_codec_copy_bytes()`, relaxed single-writer stats, and
+  reduced redundant checks in `wl_endpoint_step`/`wl_packet_port`).
+
 ## 0.0.99
 
 - Astrial USB terminates host writes on exact USB packet boundaries with a

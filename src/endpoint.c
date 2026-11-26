@@ -490,7 +490,7 @@ WL_HOT_ATTR wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, uint32_t now,
   while (count < budget) {
     unsigned before = count;
     wl_err_t error = WL_OK;
-    if (wl_packet_tx_ready(endpoint->port)) {
+    if (endpoint->flight != NONE && wl_packet_tx_ready(endpoint->port)) {
       error = complete_tx(endpoint);
       ++count;
     }
@@ -510,7 +510,8 @@ WL_HOT_ATTR wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, uint32_t now,
       if (progressed) {
         ++count;
         endpoint->rx_turn = (uint8_t)!do_rx;
-        if (!do_rx && count < budget && wl_packet_tx_ready(endpoint->port)) {
+        if (!do_rx && count < budget && endpoint->flight != NONE &&
+            wl_packet_tx_ready(endpoint->port)) {
           wl_err_t tx_err = complete_tx(endpoint);
           if (error == WL_OK) error = tx_err;
           ++count;
@@ -528,7 +529,7 @@ WL_HOT_ATTR wl_err_t wl_endpoint_step(wl_endpoint_t *endpoint, uint32_t now,
 WL_HOT_ATTR int wl_endpoint_ready(const wl_endpoint_t *endpoint, uint32_t now,
                                 int *has_deadline, uint32_t *deadline) {
   *has_deadline = 0;
-  int ready = wl_packet_tx_ready(endpoint->port);
+  int ready = endpoint->flight != NONE && wl_packet_tx_ready(endpoint->port);
   if (endpoint->active_calls != 0U) {
     for (unsigned i = 0U; i < WL_ENDPOINT_CALLS; ++i) {
       const wl_endpoint_call_t *call = &endpoint->calls[i];
@@ -545,6 +546,8 @@ WL_HOT_ATTR int wl_endpoint_ready(const wl_endpoint_t *endpoint, uint32_t now,
         *deadline = call->deadline;
       }
     }
+  } else if (ready != 0) {
+    return 1;
   }
   if (wl_packet_rx_ready(endpoint->port) &&
       (!endpoint->rx_blocked || endpoint->closed ||

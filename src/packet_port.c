@@ -172,13 +172,14 @@ WL_HOT_ATTR wl_err_t wl_packet_rx_borrow(wl_packet_port_t *port,
                                          wl_packet_borrow_t *out) {
   if (port == NULL || out == NULL) return WL_ERR_INVALID_ARG;
   if (port->borrowed) return WL_ERR_BUSY;
-  if (!wl_packet_rx_ready(port)) return WL_ERR_NO_DATA;
   uint32_t read = atomic_load_explicit(&port->read_cursor, memory_order_relaxed);
+  if (read == atomic_load_explicit(&port->write_cursor, memory_order_acquire))
+    return WL_ERR_NO_DATA;
+  const uint8_t idx = (uint8_t)(read & port->rx_mask);
   *out = (wl_packet_borrow_t){
-      .data = port->config.rx_storage +
-              (read & port->rx_mask) * port->config.rx_unit_size,
-      .length = port->lengths[read & port->rx_mask],
-      .token = {port->config.instance, port->rx_sequences[read & port->rx_mask]}
+      .data = port->config.rx_storage + idx * port->config.rx_unit_size,
+      .length = port->lengths[idx],
+      .token = {port->config.instance, port->rx_sequences[idx]}
   };
   port->borrowed = 1U;
   return WL_OK;
@@ -218,7 +219,8 @@ WL_HOT_ATTR wl_err_t wl_packet_tx_submit(wl_packet_port_t *port,
     return WL_ERR_INVALID_ARG;
   if (!atomic_load_explicit(&port->running, memory_order_acquire))
     return WL_ERR_INVALID_STATE;
-  if (wl_packet_tx_active(port)) return WL_ERR_WOULD_BLOCK;
+  if ((atomic_load_explicit(&port->tx_state, memory_order_relaxed) & TX_ACTIVE) != 0U)
+    return WL_ERR_WOULD_BLOCK;
   if (port->tx_sequence == WL_PACKET_SEQUENCE_MAX) return WL_ERR_ID_EXHAUSTED;
   ++port->tx_sequence;
   wl_packet_token_t token = {port->config.instance, port->tx_sequence};

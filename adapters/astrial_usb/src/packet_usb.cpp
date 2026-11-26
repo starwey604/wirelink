@@ -9,8 +9,41 @@ class PacketUsbAdapter::Impl {
 public:
   explicit Impl(PacketUsbConfig value) : config(std::move(value)) {}
   void wake() {
+    if (owner_driven) {
+      activity_latched.store(true, std::memory_order_release);
+      return;
+    }
     activity.notify();
     if (config.wake) config.wake(config.wake_user);
+  }
+  bool wait_impl(std::chrono::nanoseconds timeout, bool infinite) {
+    if (!owner_driven) {
+      if (infinite) {
+        activity.wait();
+        return true;
+      }
+      return activity.wait_for(timeout);
+    }
+    if (activity_latched.exchange(false, std::memory_order_acq_rel)) return true;
+    if (is_stopped.load(std::memory_order_acquire) || !device) return false;
+    if (infinite) {
+      while (!is_stopped.load(std::memory_order_acquire)) {
+        auto res = device->poll_events(std::chrono::milliseconds{1000});
+        if (!res || *res || activity_latched.load(std::memory_order_acquire)) break;
+      }
+      activity_latched.store(false, std::memory_order_relaxed);
+      polled_in_wait = true;
+      return true;
+    }
+    const auto us = timeout <= std::chrono::nanoseconds::zero()
+        ? std::chrono::microseconds{0}
+        : std::chrono::duration_cast<std::chrono::microseconds>(
+              timeout + std::chrono::nanoseconds{999});
+    auto res = device->poll_events(us);
+    const bool completed = res && *res;
+    const bool latched = activity_latched.exchange(false, std::memory_order_acq_rel);
+    polled_in_wait = true;
+    return completed || latched;
   }
   void fail(PacketUsbFault reason) {
     auto expected = PacketUsbFault::none;
@@ -87,8 +120,11 @@ public:
   size_t read_size{}, maximum_frame{};
   bool claimed{}; // I/O thread only, or owner after join.
   bool started_once{};
+  bool owner_driven{};
+  bool polled_in_wait{};
   wl_packet_claim_t claim{};
   std::atomic<bool> stopping{false}, is_stopped{true}, paused{false}, fault_pending{false};
+  std::atomic<bool> activity_latched{false};
   std::atomic<PacketUsbFault> fault{PacketUsbFault::none};
   std::atomic<uint32_t> tx_sequence{};
   wl_packet_token_t tx_token{};
@@ -116,9 +152,11 @@ PacketUsbAdapter::PacketUsbAdapter(PacketUsbConfig config)
       [](wl_transport_t *t, uint32_t) { return static_cast<PacketUsbAdapter *>(t)->service(); },
       [](const wl_transport_t *t, uint32_t) { return wl_io_readiness_at(static_cast<const PacketUsbAdapter *>(t)->ready() ? 0U : UINT32_MAX); },
       [](wl_transport_t *t, uint32_t ms) -> wl_err_t {
-        auto &event = static_cast<PacketUsbAdapter *>(t)->impl_->activity;
-        if (ms == UINT32_MAX) { event.wait(); return WL_OK; }
-        return event.wait_for(std::chrono::milliseconds(ms)) ? WL_OK : WL_ERR_NO_DATA;
+        auto &p = *static_cast<PacketUsbAdapter *>(t)->impl_;
+        if (ms == UINT32_MAX) {
+          return p.wait_impl(std::chrono::nanoseconds::zero(), true) ? WL_OK : WL_ERR_NO_DATA;
+        }
+        return p.wait_impl(std::chrono::milliseconds(ms), false) ? WL_OK : WL_ERR_NO_DATA;
       },
       [](wl_transport_t *t) -> wl_err_t { static_cast<PacketUsbAdapter *>(t)->stop(); return WL_OK; }
   };
@@ -134,9 +172,13 @@ wl_err_t PacketUsbAdapter::attach(const wl_transport_attach_t &layout) {
   p.maximum_frame = layout.rx_wire_max;
   if (!p.maximum_frame || p.maximum_frame >= p.read_size) return WL_ERR_INVALID_ARG;
   const auto &config = p.config;
+  p.owner_driven = (config.wake == nullptr);
+  p.polled_in_wait = false;
+  p.activity_latched.store(false, std::memory_order_relaxed);
   auto usb = config.usb;
   usb.read_queue_depth = 1;
   usb.auto_reconnect = false;
+  usb.run_event_thread = !p.owner_driven;
   auto opened = UsbBulkDevice::open(usb);
   if (!opened) return WL_ERR_IO;
   const auto info = opened->endpoint_info();
@@ -182,7 +224,16 @@ void PacketUsbAdapter::notify(void *user) {
 }
 wl_err_t PacketUsbAdapter::service() {
   auto &p = *impl_;
-  (void)p.activity.try_wait(); // Consume a wake even if the owner skipped wait().
+  if (p.owner_driven) {
+    if (!p.is_stopped.load(std::memory_order_acquire) &&
+        !p.stopping.load(std::memory_order_acquire) && p.device && !p.polled_in_wait) {
+      (void)p.device->poll_events(std::chrono::microseconds{0});
+    }
+    p.polled_in_wait = false;
+    p.activity_latched.store(false, std::memory_order_relaxed);
+  } else {
+    (void)p.activity.try_wait(); // Consume a wake even if the owner skipped wait().
+  }
   p.fault_pending.store(false, std::memory_order_release);
   if (!p.is_stopped.load() && !p.stopping.load() && p.fault.load() == PacketUsbFault::none &&
       p.paused.load(std::memory_order_acquire) && wl_packet_rx_available(p.port) &&
@@ -203,6 +254,7 @@ void PacketUsbAdapter::stop() {
   p.device->close(); // Synchronously joins and completes cancellations on owner.
   if (p.claimed) { (void)wl_packet_rx_abort(p.port, &p.claim); p.claimed = false; }
   p.is_stopped.store(true, std::memory_order_release);
+  p.polled_in_wait = false;
   p.wake();
 }
 bool PacketUsbAdapter::stopped() const { return impl_->is_stopped.load(std::memory_order_acquire); }
@@ -216,6 +268,6 @@ UsbBulkEndpointInfo PacketUsbAdapter::endpoint_info() const {
   return impl_->device ? impl_->device->endpoint_info() : UsbBulkEndpointInfo{};
 }
 bool PacketUsbAdapter::wait_for_activity(std::chrono::nanoseconds timeout) {
-  return impl_->activity.wait_for(timeout);
+  return impl_->wait_impl(timeout, false);
 }
 }

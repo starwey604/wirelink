@@ -523,7 +523,7 @@ static uint8_t *emit_value(const wl_codec_field_t *f, const void *src,
     const wl_codec_bytes_t *b = src;
     cursor = wl_codec_putv(cursor, (uint64_t)b->length);
     if (b->length > 0U) {
-      memcpy(cursor, b->data, b->length);
+      wl_codec_copy_bytes(cursor, b->data, b->length);
       cursor += b->length;
     }
     return cursor;
@@ -532,7 +532,7 @@ static uint8_t *emit_value(const wl_codec_field_t *f, const void *src,
     const wl_codec_string_t *s = src;
     cursor = wl_codec_putv(cursor, (uint64_t)s->length);
     if (s->length > 0U) {
-      memcpy(cursor, s->data, s->length);
+      wl_codec_copy_bytes(cursor, s->data, s->length);
       cursor += s->length;
     }
     return cursor;
@@ -542,7 +542,7 @@ static uint8_t *emit_value(const wl_codec_field_t *f, const void *src,
     const size_t len = *(const size_t *)src;
     cursor = wl_codec_putv(cursor, (uint64_t)len);
     if (len > 0U) {
-      memcpy(cursor, inline_cdata(src, f), len);
+      wl_codec_copy_bytes(cursor, inline_cdata(src, f), len);
       cursor += len;
     }
     return cursor;
@@ -738,7 +738,7 @@ static wl_codec_status_t decode_value(const wl_codec_field_t *f,
     }
     uint8_t *buf = inline_data(dst, f);
     if (len > 0U) {
-      memcpy(buf, *cursor, len);
+      wl_codec_copy_bytes(buf, *cursor, len);
     }
     if (f->kind == WL_CODEC_KIND_INLINE_STRING) {
       buf[len] = '\0';

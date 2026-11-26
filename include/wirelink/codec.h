@@ -214,6 +214,46 @@ static inline uint8_t *wl_codec_putv(uint8_t *cursor, uint64_t value) {
   return wl_codec_putv_slow(cursor, value);
 }
 
+/* Accelerates mismatched-alignment bulk byte copies on ARM cores with hardware
+ * unaligned access without violating strict C11 aliasing rules. */
+static inline void wl_codec_copy_bytes(void *dst, const void *src, size_t n) {
+  if (n == 0U) return;
+#if defined(__ARM_FEATURE_UNALIGNED) && (__ARM_FEATURE_UNALIGNED != 0)
+  if (n >= 16U && ((((uintptr_t)dst ^ (uintptr_t)src) & 3U) != 0U)) {
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+    do {
+      uint32_t w0, w1, w2, w3;
+      memcpy(&w0, s, 4U);
+      memcpy(&w1, s + 4U, 4U);
+      memcpy(&w2, s + 8U, 4U);
+      memcpy(&w3, s + 12U, 4U);
+      memcpy(d, &w0, 4U);
+      memcpy(d + 4U, &w1, 4U);
+      memcpy(d + 8U, &w2, 4U);
+      memcpy(d + 12U, &w3, 4U);
+      s += 16U;
+      d += 16U;
+      n -= 16U;
+    } while (n >= 16U);
+    while (n >= 4U) {
+      uint32_t w;
+      memcpy(&w, s, 4U);
+      memcpy(d, &w, 4U);
+      s += 4U;
+      d += 4U;
+      n -= 4U;
+    }
+    while (n != 0U) {
+      *d++ = *s++;
+      --n;
+    }
+    return;
+  }
+#endif
+  memcpy(dst, src, n);
+}
+
 static inline size_t wl_codec_vsize(uint64_t value) {
   if (value < 0x80U) {
     return 1U;
