@@ -172,7 +172,6 @@ int main() {
   {
     expected_run_event_thread = false;
     PacketUsbConfig config;
-    config.rx = {rx[0], sizeof(rx), sizeof(rx[0])};
     PacketUsbAdapter adapter(config);
     wl_node_layout_t layout{};
     layout.instance = 4;
@@ -182,6 +181,8 @@ int main() {
     layout.rx_storage_size = sizeof(rx);
     layout.has_tx = 1;
     assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_OK);
+    assert(active.bytes.size() == 1536 && reinterpret_cast<uintptr_t>(active.bytes.data()) % 512 == 0);
+    assert(active.bytes.data() != rx[0]);
     while (adapter.wait_for_activity(std::chrono::nanoseconds(0))) {}
     std::memset(active.bytes.data(), 77, 16);
     poll_pending_read = true;
@@ -203,7 +204,6 @@ int main() {
     unsigned wakes = 0;
     expected_run_event_thread = true;
     PacketUsbConfig config;
-    config.rx = {rx[0], sizeof(rx), sizeof(rx[0])};
     config.wake = [](void *u) { ++*static_cast<unsigned *>(u); };
     config.wake_user = &wakes;
     PacketUsbAdapter adapter(config);
@@ -213,8 +213,10 @@ int main() {
     layout.tx_frame_max = layout.tx_wire_max = 1036;
     layout.rx_storage = rx[0];
     layout.rx_storage_size = sizeof(rx);
+    layout.rx_unit_size = sizeof(rx[0]);
     layout.has_tx = 1;
     assert(wl_node_bind_transport(&node, &layout, adapter.transport()) == WL_OK);
+    assert(active.bytes.data() == rx[0] && active.bytes.size() == sizeof(rx[0]));
     wl_packet_activity(port);
     assert(wakes > 0U);
     adapter.stop();

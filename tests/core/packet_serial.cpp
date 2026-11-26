@@ -106,5 +106,20 @@ int main() {
   assert(wl_packet_rx_release(port, &borrow) == WL_OK);
   assert(wl_node_close(&node, now()) == WL_OK);
   assert(wl_packet_quiescent(port) && adapter.errors() == 0);
+  // Default FIFO and pipeline: the write callback alone retires each TX lease.
+  config.drained = nullptr;
+  PacketSerialAdapter pipelined(config);
+  ++layout.instance;
+  assert(wl_node_bind_transport(&node, &layout, pipelined.transport()) == WL_OK);
+  for (int i = 0; i < 2; ++i) {
+    assert(wl_packet_tx_submit(port, packet, sizeof(packet), &token) == WL_OK);
+    deadline = std::chrono::steady_clock::now() + 2s;
+    while (!(wl_packet_tx_take(port, &token) & WL_PACKET_DRAINED)) {
+      (void)pipelined.wait_for_activity(1ms);
+      assert(std::chrono::steady_clock::now() < deadline);
+    }
+    assert(!wl_packet_tx_active(port));
+  }
+  assert(wl_node_close(&node, now()) == WL_OK && pipelined.errors() == 0);
   close(master);
 }

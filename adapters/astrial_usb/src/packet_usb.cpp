@@ -2,6 +2,7 @@
 #include "wirelink/astrial/packet_usb.hpp"
 #include "wirelink/detail/coalescing_event.hpp"
 #include <atomic>
+#include <new>
 #include <system_error>
 #include <utility>
 namespace wirelink::astrial {
@@ -114,6 +115,29 @@ public:
     if (wl_packet_tx_publish(port, token,
         success ? WL_PACKET_DRAINED : WL_PACKET_TX_ERROR) != WL_OK) ++stale;
   }
+  static constexpr size_t rx_alignment = 512;
+  struct RxDeleter {
+    void operator()(uint8_t *p) const {
+      ::operator delete(p, std::align_val_t{rx_alignment});
+    }
+  };
+  wl_err_t configure_rx(size_t minimum, wl_transport_rx_override_t *out) {
+    if (started_once) return WL_ERR_INVALID_STATE;
+    if (config.rx.rx_storage) {
+      *out = config.rx;
+    } else if (!out->rx_storage || out->rx_unit_size < minimum ||
+               out->rx_unit_size % rx_alignment != 0) {
+      // The node supplies a 16-bit wire bound, plus one byte for overflow detection.
+      const size_t unit = (minimum + rx_alignment - 1) & ~(rx_alignment - 1);
+      const size_t bytes = WL_PACKET_RX_SLOTS_MAX * unit;
+      owned_rx.reset(static_cast<uint8_t *>(
+          ::operator new(bytes, std::align_val_t{rx_alignment}, std::nothrow)));
+      if (!owned_rx) return WL_ERR_NO_MEM;
+      *out = {owned_rx.get(), bytes, unit};
+    }
+    return WL_OK;
+  }
+  std::unique_ptr<uint8_t, RxDeleter> owned_rx;
   wl_packet_port_t *port{};
   std::unique_ptr<UsbBulkDevice> device;
   PacketUsbConfig config;
@@ -135,9 +159,8 @@ public:
 PacketUsbAdapter::PacketUsbAdapter(PacketUsbConfig config)
     : wl_transport_t{}, impl_(std::make_unique<Impl>(std::move(config))) {
   static const wl_transport_ops_t operations = {
-      [](wl_transport_t *t, size_t, wl_transport_rx_override_t *out) -> wl_err_t {
-        *out = static_cast<PacketUsbAdapter *>(t)->impl_->config.rx;
-        return WL_OK;
+      [](wl_transport_t *t, size_t minimum, wl_transport_rx_override_t *out) -> wl_err_t {
+        return static_cast<PacketUsbAdapter *>(t)->impl_->configure_rx(minimum, out);
       },
       [](wl_transport_t *t, const wl_transport_attach_t *info) -> wl_err_t {
         auto *self = static_cast<PacketUsbAdapter *>(t);

@@ -13,9 +13,9 @@ struct PacketSerialConfig {
   Parity parity{Parity::None};
   StopBits stop_bits{StopBits::One};
   DataBits data_bits{DataBits::Eight};
-  // Required nonblocking owner-side physical boundary query. >0 drained,
+  // Optional nonblocking owner-side physical boundary query. >0 drained,
   // 0 pending, <0 definite I/O error. Astrial write completion consumes source
-  // memory but does not by itself promise hardware line idle.
+  // memory; with no query, that completion admits the next write.
   int (*drained)(void *){};
   void *drain_user{};
   uint32_t drain_check_ms{1};
@@ -25,6 +25,7 @@ struct PacketSerialConfig {
 // acknowledging cancellation and releasing storage. No automatic reconnect.
 class PacketSerialAdapter : private wl_transport_t {
 public:
+  explicit PacketSerialAdapter(PacketSerialConfig config, size_t fifo_size = 4096);
   explicit PacketSerialAdapter(PacketSerialConfig config, wl_span_t fifo_storage);
   ~PacketSerialAdapter();
   PacketSerialAdapter(const PacketSerialAdapter &) = delete;

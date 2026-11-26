@@ -5,6 +5,7 @@
 #include <limits>
 #include <system_error>
 #include <utility>
+#include <vector>
 namespace wirelink::astrial {
 class PacketSerialAdapter::Impl {
 public:
@@ -58,16 +59,20 @@ public:
                size_t length) {
     uint32_t state = (completed_token.sequence << 2U) | 1U;
     const bool success = !error && length == expected;
-    const uint32_t next = success ? (completed_token.sequence << 2U) | 2U : 0U;
+    const bool poll_drain = success && config.drained;
+    const uint32_t next = poll_drain ? (completed_token.sequence << 2U) | 2U : 0U;
     if (!tx.compare_exchange_strong(state, next, std::memory_order_acq_rel))
       return;
     if (!success && !stopping.load(std::memory_order_acquire))
       fail();
-    (void)wl_packet_tx_publish(port, completed_token, success ? WL_PACKET_CONSUMED : WL_PACKET_TX_ERROR);
+    const auto event = !success ? WL_PACKET_TX_ERROR :
+                       poll_drain ? WL_PACKET_CONSUMED : WL_PACKET_DRAINED;
+    (void)wl_packet_tx_publish(port, completed_token, event);
   }
   wl_packet_port_t *port{};
   wl_byte_fifo_t fifo{};
   wl_packet_stream_t *stream{};
+  std::vector<uint8_t> owned_fifo;
   std::unique_ptr<Serial> serial;
   PacketSerialConfig config;
   wl_span_t fifo_storage;
@@ -106,12 +111,17 @@ PacketSerialAdapter::PacketSerialAdapter(PacketSerialConfig config, wl_span_t fi
   };
   ops = &operations;
 }
+PacketSerialAdapter::PacketSerialAdapter(PacketSerialConfig config, size_t fifo_size)
+    : PacketSerialAdapter(std::move(config), wl_span_t{}) {
+  impl_->owned_fifo.resize(fifo_size);
+  impl_->fifo_storage = {impl_->owned_fifo.data(), impl_->owned_fifo.size()};
+}
 PacketSerialAdapter::~PacketSerialAdapter() { stop(); }
 wl_err_t PacketSerialAdapter::attach(const wl_transport_attach_t &layout) {
   auto &p = *impl_;
   if (p.started_once) return WL_ERR_INVALID_STATE;
   const auto &c = p.config;
-  if (c.port.empty() || !c.drained || !c.drain_check_ms || c.drain_check_ms > INT32_MAX ||
+  if (c.port.empty() || (c.drained && (!c.drain_check_ms || c.drain_check_ms > INT32_MAX)) ||
       layout.framing != WL_NODE_COBS_CRC16 || !layout.stream)
     return WL_ERR_INVALID_ARG;
   p.port = layout.port;

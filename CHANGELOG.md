@@ -1,5 +1,22 @@
 # Release notes
 
+- Zephyr IRQ UART now pipelines TX at FIFO acceptance and batches long RX
+  frames by default. Set `wait_for_tx_idle` for physical drain or
+  `disable_rx_batching` for per-read wakes. IRQ and DMA transports accept
+  an optional 8N1 baud rate. DMA treats a zero TX timeout as unlimited.
+- Use `wl_zephyr_node_poll` and `wl_zephyr_node_close` for the Zephyr owner
+  loop. USB bulk now wakes the node directly and rearms a previously full RX
+  ring in the step that frees space. Enable `WIRELINK_ZEPHYR_USB_BULK_DEVICE`
+  for a standalone device; composite devices can register the class themselves.
+- Nodes can supply aligned RX slots via `rx_unit_size`. CMake forwards
+  `FRAMING`, `RX_SLOTS` and `RX_UNIT_ALIGN` to compilers supporting these
+  options. The generated-code contract remains 1.
+- Astrial USB reuses compatible node storage or allocates aligned RX slots.
+  Astrial serial owns a 4096-byte FIFO by default and pipelines writes unless
+  a physical drain callback is supplied.
+- On Zephyr, the platform environment defaults on when a CSPRNG is available.
+  If the application needs to enable hardware entropy, set `CONFIG_CSPRNG_NEEDED=y`.
+  ESP32 builds now place core hot paths in IRAM by default.
 - Astrial USB (`PacketUsbAdapter`) uses owner-driven libusb event polling when no
   external wake callback is configured, eliminating the background USB event
   thread and cross-thread wakeups on host polling loops.
@@ -12,15 +29,6 @@
 - Astrial USB terminates host writes on exact USB packet boundaries with a
   zero-length packet. Zephyr USB Bulk queues the next OUT read before waking
   the owner; owner service still arms the first read and resumes paused reads.
-
-- Set `batch_rx_frames = true` on the Zephyr IRQ UART transport to reduce
-  owner wakeups during long COBS frames. Short prefixes, frame boundaries,
-  errors and TX completions still wake the owner. Leave the option unset for
-  per-read notifications.
-
-- Set `tx_pipeline = true` on the Zephyr IRQ UART transport to submit the next
-  frame as soon as the UART FIFO accepts the previous one. Leave it disabled
-  when completion must mean the last byte has left the physical line.
 
 - UDP connects its socket when a peer is configured, selected or learned.
   Peers may start late or restart on the same port. The transport discards queued
